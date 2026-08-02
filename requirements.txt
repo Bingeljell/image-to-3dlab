@@ -1,0 +1,10 @@
+# Apple Silicon wheels from PyPI include MPS support. CUDA-specific wheels are
+# intentionally not used here.
+torch>=2.4
+torchvision>=0.19
+Pillow>=10.3
+requests>=2.32
+rembg>=2.0.57
+onnxruntime>=1.18
+huggingface-hub>=0.23
+

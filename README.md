@@ -122,3 +122,51 @@ make `xatlas` spend tens of minutes charting foliage-like meshes. Override it wi
 `kdtree-cpu` texture backend are recorded in provenance. TRELLIS output is classified
 `commercial-conditional`: TRELLIS.2 is MIT, but its DINOv3 image encoder has a separate
 license. BRIA remains blocked and unloaded.
+
+### Material handling
+
+TRELLIS exports each material as `alphaMode=BLEND` with a metallic-roughness map, which
+renders as transparent, mirror-like shards and hides the baked albedo. By default the
+pipeline rewrites each exported GLB's material so it renders correctly, patching only the
+glTF JSON chunk — geometry and texture buffers are left byte-for-byte intact:
+
+- `--trellis-material-mode matte` (default) forces `alphaMode=OPAQUE` and drops metalness.
+  Best for organic subjects whose shading is already baked into the albedo (foliage, fur).
+- `--trellis-material-mode pbr` forces `alphaMode=OPAQUE` but keeps the baked
+  metallic-roughness, so genuinely metallic subjects (brass, chrome) keep their sheen.
+- `--trellis-raw-material` skips normalization entirely and keeps the raw export.
+
+In a manifest, set `"material_mode"` (or `"normalize_material": false`) under
+`model.parameters`. The outcome is recorded in the provenance sidecar as
+`material_normalized` and `material_mode`.
+
+## Rendering previews
+
+`scripts/blender_render_asset.py` renders cardinal previews of a generated GLB through a
+local Blender instance running the [BlenderMCP](https://github.com/ahujasid/blender-mcp)
+addon (a socket server on port 9876). Launch Blender, enable the addon, and start its
+server (N-panel → BlenderMCP → Connect), then:
+
+```bash
+python scripts/blender_render_asset.py \
+  output/conditional/<asset>.glb output/diagnostics --label myasset --env dark
+```
+
+The script starts from a clean scene, imports and grounds the asset (trusting the glTF
+importer's Y-up→Z-up conversion), builds a camera and three-point lighting, and writes
+`output/diagnostics/myasset_<view>.png` for five views. Use `--env studio` for metallic
+(`pbr`) assets so they have a lit environment to reflect; `--env dark` (default) suits
+matte assets.
+
+## Reproducing the example assets
+
+The `manifests/` directory holds versioned example runs for the bundled `moss-fox` and
+`clockwork-pangolin` inputs, including SF3D and TRELLIS variants and matte/`pbr`/texture
+-resolution options. For example:
+
+```bash
+python pipeline.py --run-manifest manifests/clockwork-pangolin-trellis-seed42-pbr.json
+python scripts/blender_render_asset.py \
+  output/conditional/clockwork-pangolin__trellis2__*.glb output/diagnostics \
+  --label pangolin --env studio
+```

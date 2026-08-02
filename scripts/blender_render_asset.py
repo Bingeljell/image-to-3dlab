@@ -20,11 +20,14 @@ output_dir = {str(output_dir)!r}
 label = {label!r}
 collection_name = "IMG3D_" + label
 
-old_collection = bpy.data.collections.get(collection_name)
-if old_collection:
-    for obj in list(old_collection.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    bpy.data.collections.remove(old_collection)
+# Remove assets imported by any previous run in this long-lived Blender session.
+# Each run grounds its asset at the origin, so a leftover mesh from an earlier
+# label would interpenetrate the new one (e.g. an old head fused into the new body).
+for prior in list(bpy.data.collections):
+    if prior.name.startswith("IMG3D_"):
+        for obj in list(prior.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.collections.remove(prior)
 
 collection = bpy.data.collections.new(collection_name)
 bpy.context.scene.collection.children.link(collection)
@@ -35,6 +38,12 @@ for _default in ("Cube", "Light", "Camera"):
     _obj = bpy.data.objects.get(_default)
     if _obj is not None:
         bpy.data.objects.remove(_obj, do_unlink=True)
+
+# Free the now-unreferenced meshes/materials/images from earlier imports.
+try:
+    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
+except RuntimeError:
+    pass
 
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=asset_path)

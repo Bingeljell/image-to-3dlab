@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "use_case": "showcase",
+  "distribution": "public",
+  "commercial_intent": false,
+  "input": {
+    "path": "../assets_to_test/moss-fox-alpha_big.png",
+    "source": "user-provided"
+  },
+  "model": {
+    "backend": "sf3d",
+    "id": "stabilityai/stable-fast-3d",
+    "parameters": {
+      "texture_resolution": 2048,
+      "foreground_ratio": 0.85,
+      "remesh": "none",
+      "target_vertices": -1
+    }
+  },
+  "license_policy": {
+    "allow_conditional": true,
+    "allow_research_only": false
+  },
+  "output": {
+    "directory": "output"
+  }
+}

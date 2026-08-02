@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drops metalness for organic subjects, while `pbr` keeps the baked
   metallic-roughness so genuinely metallic subjects (brass, chrome) keep their
   sheen. Recorded in provenance as `material_mode`.
+- Blender preview script `--env {dark,studio}` option. `dark` (default) is the
+  near-black world that flatters matte assets; `studio` lifts the world and enables
+  ray-traced reflections so metallic (`pbr`) assets preview with real sheen.
 
 ### Fixed
 - Blender preview script (`scripts/blender_render_asset.py`) no longer double-rotates

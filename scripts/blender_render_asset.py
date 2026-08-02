@@ -8,8 +8,19 @@ import json
 import socket
 from pathlib import Path
 
+# Render environments. "dark" is the near-black studio that flatters matte
+# assets; "studio" lifts the world and enables ray-traced reflections so a
+# metallic (pbr-mode) surface has something to reflect instead of black.
+ENVIRONMENTS = {
+    "dark": {"world_color": (0.035, 0.035, 0.035), "raytracing": False},
+    "studio": {"world_color": (0.22, 0.19, 0.15), "raytracing": True},
+}
 
-def blender_code(asset: Path, output_dir: Path, label: str) -> str:
+
+def blender_code(asset: Path, output_dir: Path, label: str, env: str) -> str:
+    settings = ENVIRONMENTS[env]
+    world_color = settings["world_color"]
+    raytracing = settings["raytracing"]
     return f'''
 import bpy
 import math
@@ -112,7 +123,11 @@ scene.render.image_settings.file_format = "PNG"
 scene.render.film_transparent = False
 scene.render.image_settings.color_mode = "RGBA"
 scene.view_settings.look = "AgX - Medium High Contrast"
-scene.world.color = (0.035, 0.035, 0.035)
+scene.world.color = {world_color}
+try:
+    scene.eevee.use_raytracing = {raytracing}
+except AttributeError:
+    pass
 
 distance = size * 2.25
 target = center + Vector((0, 0, size * 0.03))
@@ -145,6 +160,12 @@ def main() -> int:
     parser.add_argument("--label", default="asset")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
+    parser.add_argument(
+        "--env",
+        choices=tuple(ENVIRONMENTS),
+        default="dark",
+        help="dark flatters matte assets; studio lifts the world for metallic (pbr) assets",
+    )
     args = parser.parse_args()
 
     asset = args.asset.expanduser().resolve()
@@ -152,7 +173,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     request = {
         "type": "execute_code",
-        "params": {"code": blender_code(asset, output_dir, args.label)},
+        "params": {"code": blender_code(asset, output_dir, args.label, args.env)},
     }
     with socket.create_connection((args.host, args.port), timeout=10) as connection:
         connection.settimeout(300)

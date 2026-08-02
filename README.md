@@ -1,13 +1,52 @@
 # Image to 3D Lab
 
-A local Apple Silicon pipeline with three backends:
+**Turn a single image into a textured 3D model — locally, on Apple Silicon — with a
+license-provenance record for every result.**
 
-- **Fast:** Stable Fast 3D runs directly through Python on MPS, with automatic CPU retry
+Point it at a picture of a character or object and it produces a `.glb` 3D asset plus a
+`.provenance.json` sidecar that records exactly how it was made and under which licenses.
+Everything runs on your Mac; nothing is uploaded to a cloud service.
+
+## What you can do
+
+- **Generate a 3D model from one image** through three interchangeable backends — pick speed
+  or quality.
+- **Keep every result traceable** — runs are driven by versioned manifests and emit a
+  provenance sidecar (input/output hashes, settings, license classification, component
+  licenses).
+- **Preview in Blender** with a one-command render script (matte or metallic lighting).
+- **Rig and animate a model** — *in progress*; see [`docs/rigging-plan.md`](docs/rigging-plan.md).
+
+## The three backends
+
+- **Fast — Stable Fast 3D:** runs directly through Python on MPS, with automatic CPU retry
   when MPS reports an out-of-memory error.
-- **Quality:** an API-format Hunyuan3D workflow runs in a local ComfyUI instance. This keeps
-  CUDA/NVCC-only rasterizer details out of this repository.
-- **Experimental quality:** TRELLIS.2 runs through the community Apple Silicon port with
+- **Quality — Hunyuan3D:** an API-format workflow runs in a local ComfyUI instance. This
+  keeps CUDA/NVCC-only rasterizer details out of this repository.
+- **Experimental quality — TRELLIS.2:** runs through the community Apple Silicon port with
   BRIA background removal forcibly disabled.
+
+## Quick start
+
+```bash
+# 1. install the fast backend (full details under "Install SF3D" below)
+chmod +x scripts/bootstrap_macos.sh && ./scripts/bootstrap_macos.sh
+source .venv/bin/activate
+huggingface-cli login                    # for the gated SF3D model
+
+# 2. turn an image into a 3D model
+python pipeline.py your-image.png --fast
+```
+
+That writes a `.glb` plus a `.provenance.json` sidecar into `output/conditional/`. For
+reproducible, traceable runs, prefer a manifest:
+
+```bash
+python pipeline.py --run-manifest manifests/moss-fox-showcase.json
+```
+
+The sections below cover the full prerequisites, the TRELLIS and Hunyuan backends, Blender
+previews, and TRELLIS material modes.
 
 ## Prerequisites
 

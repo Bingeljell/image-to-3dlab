@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repository guide (`CLAUDE.md`) with layout, commit conventions, and changelog rules.
 - `docs/` folder with an index and an architecture overview.
 - This changelog.
+- TRELLIS material normalization: exported GLBs are rewritten to render as an
+  opaque, matte surface (`alphaMode` → `OPAQUE`, `metallicFactor` → 0, the
+  metallic-roughness texture dropped), fixing the transparent/mirror-shard look
+  while leaving geometry and the baked albedo untouched. On by default; opt out
+  with `--trellis-raw-material` (or `"normalize_material": false` in a manifest).
+  Recorded in provenance as `material_normalized`.
+
+### Fixed
+- Blender preview script (`scripts/blender_render_asset.py`) no longer double-rotates
+  imported glTF assets (the importer already converts Y-up to Z-up), which had laid
+  meshes face-down, and now clears the default startup Cube/Light/Camera so they
+  cannot occlude the asset or hijack the active camera.
 
 ## [0.1.0] - 2026-08-02
 

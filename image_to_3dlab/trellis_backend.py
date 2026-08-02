@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
+import struct
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+_GLB_MAGIC = 0x46546C67
+_GLB_JSON_CHUNK = 0x4E4F534A
 
 
 @dataclass(frozen=True)
@@ -14,12 +19,65 @@ class TrellisOptions:
     texture_size: int = 1024
     bake_target_faces: int = 50_000
     steps: int | None = None
+    normalize_material: bool = True
 
 
 @dataclass(frozen=True)
 class TrellisResult:
     asset: Path
     texture_backend: str
+    material_normalized: bool = False
+
+
+def _normalize_glb_material(path: Path) -> int:
+    """Rewrite a GLB's material JSON so it renders as an opaque, matte surface.
+
+    TRELLIS exports each material with ``alphaMode=BLEND`` and ``metallicFactor=1``
+    plus a metallic-roughness texture. Together these make a dense mesh render as
+    transparent, mirror-like shards instead of the baked albedo. We patch only the
+    JSON chunk in place; geometry and texture buffers are left byte-for-byte intact.
+
+    Returns the number of material properties changed.
+    """
+    data = path.read_bytes()
+    magic, version, length = struct.unpack_from("<III", data, 0)
+    if magic != _GLB_MAGIC:
+        raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
+    offset = 12
+    chunks: list[list] = []
+    while offset < length:
+        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
+        chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
+        offset += 8 + chunk_len
+    try:
+        json_index = next(i for i, c in enumerate(chunks) if c[0] == _GLB_JSON_CHUNK)
+    except StopIteration as exc:
+        raise RuntimeError(f"{path} has no glTF JSON chunk") from exc
+
+    gltf = json.loads(chunks[json_index][1].decode("utf-8"))
+    changed = 0
+    for material in gltf.get("materials", []):
+        pbr = material.setdefault("pbrMetallicRoughness", {})
+        if pbr.get("metallicFactor") != 0.0:
+            pbr["metallicFactor"] = 0.0
+            changed += 1
+        pbr["roughnessFactor"] = 1.0
+        if pbr.pop("metallicRoughnessTexture", None) is not None:
+            changed += 1
+        if material.get("alphaMode", "OPAQUE") != "OPAQUE":
+            material["alphaMode"] = "OPAQUE"
+            changed += 1
+        material.pop("alphaCutoff", None)
+    chunks[json_index][1] = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+
+    body = b""
+    for chunk_type, chunk_data in chunks:
+        pad = (4 - (len(chunk_data) % 4)) % 4
+        filler = b"\x20" if chunk_type == _GLB_JSON_CHUNK else b"\x00"
+        chunk_data = chunk_data + filler * pad
+        body += struct.pack("<II", len(chunk_data), chunk_type) + chunk_data
+    path.write_bytes(struct.pack("<III", _GLB_MAGIC, version, 12 + len(body)) + body)
+    return changed
 
 
 def _prepare_rgba(image: Path, destination: Path) -> Path:
@@ -94,4 +152,12 @@ def generate_trellis(
     if not result.is_file():
         raise RuntimeError(f"TRELLIS reported success but did not create {result}")
     texture_backend = "kdtree-cpu" if cpu_basecolor.is_file() else "metal-o-voxel"
-    return TrellisResult(asset=result, texture_backend=texture_backend)
+    material_normalized = False
+    if options.normalize_material:
+        _normalize_glb_material(result)
+        material_normalized = True
+    return TrellisResult(
+        asset=result,
+        texture_backend=texture_backend,
+        material_normalized=material_normalized,
+    )

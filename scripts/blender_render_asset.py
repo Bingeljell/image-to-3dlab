@@ -28,6 +28,14 @@ if old_collection:
 
 collection = bpy.data.collections.new(collection_name)
 bpy.context.scene.collection.children.link(collection)
+
+# A freshly launched Blender ships a default Cube/Light/Camera that can occlude the
+# asset or hijack the active camera. Remove them so previews are reproducible.
+for _default in ("Cube", "Light", "Camera"):
+    _obj = bpy.data.objects.get(_default)
+    if _obj is not None:
+        bpy.data.objects.remove(_obj, do_unlink=True)
+
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=asset_path)
 imported = [obj for obj in bpy.data.objects if obj not in before]
@@ -42,8 +50,8 @@ for obj in imported:
     if obj.parent is None:
         obj.parent = root
 
-# TRELLIS GLBs use Y-up. Rotate them once into Blender's Z-up coordinates.
-root.rotation_euler[0] = math.radians(90.0)
+# Blender's glTF importer already converts Y-up (glTF) to Z-up on import. Adding a
+# further 90 degree rotation here double-rotated the mesh and laid it face-down.
 bpy.context.view_layer.update()
 
 mesh_objects = [obj for obj in imported if obj.type == "MESH"]
@@ -144,7 +152,7 @@ def main() -> int:
         while True:
             try:
                 chunk = connection.recv(65536)
-            except socket.timeout:
+            except TimeoutError:
                 break
             if not chunk:
                 break

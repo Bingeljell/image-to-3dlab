@@ -64,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Triangle budget used by the CPU UV/texture fallback",
     )
     trellis.add_argument("--steps", type=int)
+    trellis.add_argument(
+        "--trellis-raw-material",
+        dest="trellis_normalize_material",
+        action="store_false",
+        help="Keep TRELLIS's raw PBR material instead of normalizing it to opaque/matte",
+    )
 
     quality = parser.add_argument_group("ComfyUI/Hunyuan3D options")
     quality.add_argument(
@@ -116,6 +122,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.trellis_texture_size = parameters["texture_size"]
             if "bake_target_faces" in parameters:
                 args.trellis_bake_target_faces = parameters["bake_target_faces"]
+            if "normalize_material" in parameters:
+                args.trellis_normalize_material = bool(parameters["normalize_material"])
             args.output_dir = Path(
                 manifest_data.get("output", {}).get("directory", args.output_dir)
             )
@@ -159,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     working_output_dir = args.output_dir / ".working"
     working_output_dir.mkdir(parents=True, exist_ok=True)
     trellis_texture_backend = None
+    trellis_material_normalized = None
 
     if not 0 < args.foreground_ratio <= 1:
         print("error: --foreground-ratio must be in (0, 1]", file=sys.stderr)
@@ -202,10 +211,12 @@ def main(argv: list[str] | None = None) -> int:
                     texture_size=args.trellis_texture_size,
                     bake_target_faces=args.trellis_bake_target_faces,
                     steps=args.steps,
+                    normalize_material=args.trellis_normalize_material,
                 ),
             )
             result = trellis_result.asset
             trellis_texture_backend = trellis_result.texture_backend
+            trellis_material_normalized = trellis_result.material_normalized
         else:
             if args.workflow is None:
                 raise ValueError(
@@ -237,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         "texture_size": args.trellis_texture_size if args.trellis else None,
         "bake_target_faces": args.trellis_bake_target_faces if args.trellis else None,
         "texture_backend": trellis_texture_backend if args.trellis else None,
+        "material_normalized": trellis_material_normalized if args.trellis else None,
         "steps": args.steps if args.trellis else None,
     }
     result, sidecar = finalize_output(

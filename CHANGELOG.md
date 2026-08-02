@@ -31,8 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   imported glTF assets (the importer already converts Y-up to Z-up), which had laid
   meshes face-down, and now clears the default startup Cube/Light/Camera so they
   cannot occlude the asset or hijack the active camera.
-- Blender preview script now purges assets imported by earlier runs in the same
-  long-lived session, so a leftover mesh no longer interpenetrates the new asset.
+- Blender preview script now starts each render from a clean slate, removing every
+  object and collection left in a long-lived session (by an earlier render or other
+  tooling, regardless of naming) so nothing interpenetrates or occludes the new asset.
 
 ## [0.1.0] - 2026-08-02
 

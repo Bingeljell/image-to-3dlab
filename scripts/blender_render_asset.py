@@ -31,30 +31,22 @@ output_dir = {str(output_dir)!r}
 label = {label!r}
 collection_name = "IMG3D_" + label
 
-# Remove assets imported by any previous run in this long-lived Blender session.
-# Each run grounds its asset at the origin, so a leftover mesh from an earlier
-# label would interpenetrate the new one (e.g. an old head fused into the new body).
+# Start from a clean slate. A long-lived Blender session may still hold assets,
+# lights, or a default cube from an earlier render or from other tooling (which may
+# use different collection names). Because each asset is grounded at the origin, any
+# survivor would occlude or interpenetrate the new one, so remove every object and
+# collection up front; this script rebuilds the camera, lights, and world it needs.
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
 for prior in list(bpy.data.collections):
-    if prior.name.startswith("IMG3D_"):
-        for obj in list(prior.objects):
-            bpy.data.objects.remove(obj, do_unlink=True)
-        bpy.data.collections.remove(prior)
-
-collection = bpy.data.collections.new(collection_name)
-bpy.context.scene.collection.children.link(collection)
-
-# A freshly launched Blender ships a default Cube/Light/Camera that can occlude the
-# asset or hijack the active camera. Remove them so previews are reproducible.
-for _default in ("Cube", "Light", "Camera"):
-    _obj = bpy.data.objects.get(_default)
-    if _obj is not None:
-        bpy.data.objects.remove(_obj, do_unlink=True)
-
-# Free the now-unreferenced meshes/materials/images from earlier imports.
+    bpy.data.collections.remove(prior)
 try:
     bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
 except RuntimeError:
     pass
+
+collection = bpy.data.collections.new(collection_name)
+bpy.context.scene.collection.children.link(collection)
 
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=asset_path)

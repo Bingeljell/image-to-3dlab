@@ -5,6 +5,7 @@ Design and reference documentation for the image-to-3D lab.
 | Doc | What it covers |
 |-----|----------------|
 | [architecture.md](architecture.md) | How the CLI, backends, and provenance layer fit together |
+| [rigging-plan.md](rigging-plan.md) | Plan for the "animatable" lane: rigging a generated model and making it walk |
 
 ## What goes here
 

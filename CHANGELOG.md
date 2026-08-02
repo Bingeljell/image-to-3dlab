@@ -17,12 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while leaving geometry and the baked albedo untouched. On by default; opt out
   with `--trellis-raw-material` (or `"normalize_material": false` in a manifest).
   Recorded in provenance as `material_normalized`.
+- TRELLIS material mode (`--trellis-material-mode {matte,pbr}`, or `"material_mode"`
+  in a manifest). Both modes force `alphaMode` to `OPAQUE`; `matte` (default) also
+  drops metalness for organic subjects, while `pbr` keeps the baked
+  metallic-roughness so genuinely metallic subjects (brass, chrome) keep their
+  sheen. Recorded in provenance as `material_mode`.
 
 ### Fixed
 - Blender preview script (`scripts/blender_render_asset.py`) no longer double-rotates
   imported glTF assets (the importer already converts Y-up to Z-up), which had laid
   meshes face-down, and now clears the default startup Cube/Light/Camera so they
   cannot occlude the asset or hijack the active camera.
+- Blender preview script now purges assets imported by earlier runs in the same
+  long-lived session, so a leftover mesh no longer interpenetrates the new asset.
 
 ## [0.1.0] - 2026-08-02
 

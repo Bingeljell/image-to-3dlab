@@ -20,6 +20,7 @@ class TrellisOptions:
     bake_target_faces: int = 50_000
     steps: int | None = None
     normalize_material: bool = True
+    material_mode: str = "matte"
 
 
 @dataclass(frozen=True)
@@ -27,18 +28,30 @@ class TrellisResult:
     asset: Path
     texture_backend: str
     material_normalized: bool = False
+    material_mode: str | None = None
 
 
-def _normalize_glb_material(path: Path) -> int:
-    """Rewrite a GLB's material JSON so it renders as an opaque, matte surface.
+def _normalize_glb_material(path: Path, mode: str = "matte") -> int:
+    """Rewrite a GLB's material JSON so it renders correctly.
 
     TRELLIS exports each material with ``alphaMode=BLEND`` and ``metallicFactor=1``
     plus a metallic-roughness texture. Together these make a dense mesh render as
     transparent, mirror-like shards instead of the baked albedo. We patch only the
     JSON chunk in place; geometry and texture buffers are left byte-for-byte intact.
 
+    Both modes force ``alphaMode`` to ``OPAQUE`` (the actual cause of the glass
+    look). They then differ in how they treat metalness:
+
+    - ``matte`` (default): drop all metalness (``metallicFactor`` 0, matte
+      roughness, metallic-roughness texture removed). Best for organic subjects
+      whose shading is already baked into the albedo (e.g. foliage, fur).
+    - ``pbr``: keep the baked metallic-roughness so genuinely metallic subjects
+      (brass, chrome) keep their sheen under environment lighting.
+
     Returns the number of material properties changed.
     """
+    if mode not in {"matte", "pbr"}:
+        raise ValueError(f"material mode must be 'matte' or 'pbr', got {mode!r}")
     data = path.read_bytes()
     magic, version, length = struct.unpack_from("<III", data, 0)
     if magic != _GLB_MAGIC:
@@ -58,16 +71,18 @@ def _normalize_glb_material(path: Path) -> int:
     changed = 0
     for material in gltf.get("materials", []):
         pbr = material.setdefault("pbrMetallicRoughness", {})
-        if pbr.get("metallicFactor") != 0.0:
-            pbr["metallicFactor"] = 0.0
-            changed += 1
-        pbr["roughnessFactor"] = 1.0
-        if pbr.pop("metallicRoughnessTexture", None) is not None:
-            changed += 1
         if material.get("alphaMode", "OPAQUE") != "OPAQUE":
             material["alphaMode"] = "OPAQUE"
             changed += 1
         material.pop("alphaCutoff", None)
+        if mode == "matte":
+            if pbr.get("metallicFactor") != 0.0:
+                pbr["metallicFactor"] = 0.0
+                changed += 1
+            pbr["roughnessFactor"] = 1.0
+            if pbr.pop("metallicRoughnessTexture", None) is not None:
+                changed += 1
+        # "pbr" mode keeps metalness/roughness and the metallic-roughness texture.
     chunks[json_index][1] = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
 
     body = b""
@@ -153,11 +168,14 @@ def generate_trellis(
         raise RuntimeError(f"TRELLIS reported success but did not create {result}")
     texture_backend = "kdtree-cpu" if cpu_basecolor.is_file() else "metal-o-voxel"
     material_normalized = False
+    material_mode = None
     if options.normalize_material:
-        _normalize_glb_material(result)
+        _normalize_glb_material(result, options.material_mode)
         material_normalized = True
+        material_mode = options.material_mode
     return TrellisResult(
         asset=result,
         texture_backend=texture_backend,
         material_normalized=material_normalized,
+        material_mode=material_mode,
     )

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "use_case": "showcase",
+  "distribution": "public",
+  "commercial_intent": false,
+  "input": {
+    "path": "../assets_to_test/clockwork-pangolin.png",
+    "source": "user-provided"
+  },
+  "model": {
+    "backend": "trellis2",
+    "id": "microsoft/TRELLIS.2-4B",
+    "parameters": {
+      "seed": 42,
+      "pipeline_type": "512",
+      "texture_size": 2048,
+      "bake_target_faces": 200000,
+      "steps": 12,
+      "material_mode": "pbr"
+    }
+  },
+  "license_policy": {
+    "allow_conditional": true,
+    "allow_research_only": false
+  },
+  "output": {
+    "directory": "output"
+  }
+}

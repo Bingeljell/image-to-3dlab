@@ -68,7 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--trellis-raw-material",
         dest="trellis_normalize_material",
         action="store_false",
-        help="Keep TRELLIS's raw PBR material instead of normalizing it to opaque/matte",
+        help="Keep TRELLIS's raw material instead of normalizing it (leaves it transparent)",
+    )
+    trellis.add_argument(
+        "--trellis-material-mode",
+        choices=("matte", "pbr"),
+        default="matte",
+        help="matte drops metalness (organic subjects); pbr keeps it (brass/chrome)",
     )
 
     quality = parser.add_argument_group("ComfyUI/Hunyuan3D options")
@@ -124,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.trellis_bake_target_faces = parameters["bake_target_faces"]
             if "normalize_material" in parameters:
                 args.trellis_normalize_material = bool(parameters["normalize_material"])
+            if "material_mode" in parameters:
+                args.trellis_material_mode = parameters["material_mode"]
             args.output_dir = Path(
                 manifest_data.get("output", {}).get("directory", args.output_dir)
             )
@@ -168,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     working_output_dir.mkdir(parents=True, exist_ok=True)
     trellis_texture_backend = None
     trellis_material_normalized = None
+    trellis_material_mode = None
 
     if not 0 < args.foreground_ratio <= 1:
         print("error: --foreground-ratio must be in (0, 1]", file=sys.stderr)
@@ -212,11 +221,13 @@ def main(argv: list[str] | None = None) -> int:
                     bake_target_faces=args.trellis_bake_target_faces,
                     steps=args.steps,
                     normalize_material=args.trellis_normalize_material,
+                    material_mode=args.trellis_material_mode,
                 ),
             )
             result = trellis_result.asset
             trellis_texture_backend = trellis_result.texture_backend
             trellis_material_normalized = trellis_result.material_normalized
+            trellis_material_mode = trellis_result.material_mode
         else:
             if args.workflow is None:
                 raise ValueError(
@@ -249,6 +260,7 @@ def main(argv: list[str] | None = None) -> int:
         "bake_target_faces": args.trellis_bake_target_faces if args.trellis else None,
         "texture_backend": trellis_texture_backend if args.trellis else None,
         "material_normalized": trellis_material_normalized if args.trellis else None,
+        "material_mode": trellis_material_mode if args.trellis else None,
         "steps": args.steps if args.trellis else None,
     }
     result, sidecar = finalize_output(

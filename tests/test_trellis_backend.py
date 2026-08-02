@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import struct
 
+import pytest
+
 from image_to_3dlab.trellis_backend import _normalize_glb_material
 
 _GLB_MAGIC = 0x46546C67
@@ -62,6 +64,36 @@ def test_normalize_material_forces_opaque_matte(tmp_path):
     assert "metallicRoughnessTexture" not in pbr
     # The base color texture that carries the baked albedo must survive untouched.
     assert pbr["baseColorTexture"] == {"index": 0}
+
+
+def test_normalize_material_pbr_mode_keeps_metalness(tmp_path):
+    glb = _make_glb(
+        tmp_path / "m.glb",
+        [
+            {
+                "alphaMode": "BLEND",
+                "pbrMetallicRoughness": {
+                    "metallicFactor": 1.0,
+                    "baseColorTexture": {"index": 0},
+                    "metallicRoughnessTexture": {"index": 1},
+                },
+            }
+        ],
+    )
+    changed = _normalize_glb_material(glb, mode="pbr")
+    assert changed == 1  # only alphaMode
+
+    material = _read_materials(glb)[0]
+    assert material["alphaMode"] == "OPAQUE"
+    pbr = material["pbrMetallicRoughness"]
+    assert pbr["metallicFactor"] == 1.0
+    assert pbr["metallicRoughnessTexture"] == {"index": 1}
+
+
+def test_normalize_material_rejects_unknown_mode(tmp_path):
+    glb = _make_glb(tmp_path / "m.glb", [{"alphaMode": "OPAQUE"}])
+    with pytest.raises(ValueError):
+        _normalize_glb_material(glb, mode="glossy")
 
 
 def test_normalize_material_is_idempotent(tmp_path):

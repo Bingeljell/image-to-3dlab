@@ -69,24 +69,39 @@ So enabling multi-view = (a) patch the pipeline to expose a multi-image `run`
 path, and (b) thread a list of images through our generator wrapper → backend →
 CLI/manifest. That part is tractable.
 
-**The catch — where do the extra views come from?** Multi-view input assumes you
-*have* several consistent views of the object. Two cases:
+**The critical constraint — same pose, orbiting camera.** Multi-view
+reconstruction assumes every view is the *identical frozen object* with only the
+camera moved (front / back / left / right of ONE pose). It fuses views by assuming
+a body point sits at the same 3D location in all of them.
 
-- **Real object, real photos:** if the user shoots or has front/back/left/right of
-  a physical thing, feed them directly. This is the ideal case and gives the
-  biggest quality jump. Worth supporting first because it's pure upside.
-- **AI concept art (the moss fox):** there's only one image, and it's imagined —
-  no other "true" views exist. To go multi-view you must first *synthesize*
-  consistent novel views with a multi-view diffusion model (Zero123++, MVDream, or
-  Hunyuan3D's own MV variant), then feed those in. That adds a whole model to the
-  pipeline and its own consistency failure modes (the synthesized back may not
-  agree with the front). Medium–Large, and the quality ceiling is set by how good
-  the view-synthesizer is.
+- ✅ Works: "the standing A-pose fox seen from back / left / right." Same instant,
+  rotated camera.
+- ❌ Breaks: a sitting view + a standing view. A moved limb reads as geometry in
+  two places at once; the reconstructor fights itself and blurs/duplicates the
+  mesh. Different *poses* are great design references but cannot be fused into one
+  reconstruction.
 
-**Recommendation:** support **real multi-view input** as a first-class path (clean
-win, matches the "I don't mind 5–10 min for awesome quality" appetite), and treat
-**synthetic multi-view for single concept images** as a later, separate experiment
-once the real-input path proves out.
+**Where the extra views come from (updated — the user can generate them):** the
+user makes the concept art themselves and can generate N views at authoring time.
+So we are *not* blocked on a separate view-synthesis model (Zero123++/MVDream)
+after the fact. The requirement is just that they generate **one chosen pose,
+orbited** — and the A-pose is the ideal pick because it's also the riggable pose,
+folding the fidelity win and the rigging win into one image set.
+
+- **User-generated multi-view (primary path now):** generate 3–4 consistent orbits
+  of one pose up front, feed them in. Medium build (expose a multi-image `run`
+  path + thread a list through generator/backend/CLI/manifest).
+- **Real photos of a physical object:** same code path; pure upside when available.
+- **Remaining risk = consistency.** A 2D generator inventing the *back* may not
+  match the front (leaf placement, tail curl). Tools with a reference/consistency
+  mode usually hold identity well enough; TRELLIS multi-image also tolerates *some*
+  disagreement by treating extra views as soft guidance. Minor mismatch → fine; a
+  back that's clearly a different fox → degrades. **Test front+back first** before
+  investing in a full 4-view set.
+
+**Recommendation:** build the **multi-image input path** as first-class (manifest
+takes a list of view images), and have the user generate a same-pose orbit set of
+the A-pose fox. This is now a near-term experiment, not a "later, separate" one.
 
 ## The two-path structure (draft vs. showcase)
 
@@ -111,9 +126,9 @@ Maps cleanly onto manifests:
 | Raise `bake_target_faces` (→ 50k–100k) + `texture_size` | Sharpness, foliage smear | **S** | Both already exposed |
 | Raise `steps` / `max_num_tokens` | Shape cleanliness | **S** | `steps` exposed; `max_num_tokens` not yet surfaced |
 | Geometry-preview gate (`--no-texture` → turntable → approve → bake) | "Inspect before paying" | **M** | `--no-texture` exists in `generate.py`; needs wiring + render + gate |
-| Real multi-view input path | Consistency, unseen sides | **M** | `get_cond` accepts a list; `run()` must be patched to expose it |
+| Multi-view input (user generates a same-pose orbit set) | Consistency, unseen sides | **M** | `get_cond` accepts a list; `run()` must be patched to expose it. User can author the views → no separate synthesis model needed |
 | Hunyuan3D paint lane for organic subjects | Texture (leaves/flowers) | **M–L** | Our `--quality` ComfyUI lane; needs the paint workflow |
-| Synthetic multi-view (Zero123++/MVDream) for single concept images | Consistency w/o real photos | **L** | New model + consistency risk |
+| Synthetic multi-view (Zero123++/MVDream) for a single existing image | Consistency w/o authoring extra views | **L** | Fallback only — not needed while the user can generate views up front |
 
 ## Recommended sequence (when we pick this up)
 
@@ -122,8 +137,11 @@ Maps cleanly onto manifests:
    the gap is "we defaulted to 512" vs. "we're missing texture synthesis."
 2. If shape is now good but texture still lags → build the **Hunyuan paint lane**
    (real fix for the foliage) and/or the **geometry-preview gate**.
-3. Add the **real multi-view input** path as a first-class manifest option.
-4. Only then consider **synthetic multi-view** for single-image concept art.
+3. Add the **multi-image input** path as a first-class manifest option, and have
+   the user generate a **same-pose orbit set** of the A-pose fox (test front+back
+   before a full 4-view set). This doubles as riggable geometry.
+4. Only if working from a single pre-existing image with no way to author views,
+   consider **synthetic multi-view** (Zero123++/MVDream) as a fallback.
 
 ## Notes
 

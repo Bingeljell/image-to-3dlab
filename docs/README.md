@@ -7,6 +7,7 @@ Design and reference documentation for the image-to-3D lab.
 | [architecture.md](architecture.md) | How the CLI, backends, and provenance layer fit together |
 | [rigging-plan.md](rigging-plan.md) | Plan for the "animatable" lane: rigging a generated model and making it walk |
 | [fidelity-plan.md](fidelity-plan.md) | Eval of how to close the output-quality gap to hosted services (cascade modes, geometry gate, multi-view) |
+| [fidelity-explained.md](fidelity-explained.md) | Teaching write-up: why fine detail looks garbled, and the base-mesh / materials / VFX three-layer model of a game character |
 
 ## What goes here
 

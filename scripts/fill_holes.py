@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """Close small holes in a generated mesh, leaving large openings alone.
 
-SUPERSEDED (2026-08-06) — this approach does not work post-export. It closes holes as
-advertised (34,789 -> 18,736 boundary edges on the moss fox) but makes the mesh WORSE
-overall: normal recalculation afterwards goes from 44.6% -> 21.1% inward WITHOUT the
-fill, but 44.8% -> 53.7% WITH it, and a backface-culled render confirms more gaps, not
-fewer. That held both for naive patches and for patches wound to match their
-neighbours, so it is not simply an orientation bug.
+This WORKS, and visibly so (verified 2026-08-06). On the moss fox it takes boundary
+edges from 34,789 to 18,736, and in a backface-culled render the hind legs go from
+near-invisible wisps to solid limbs.
 
-The likely reason is that centroid-fan patches over non-planar rims introduce folded
-or self-intersecting geometry, which defeats the ray casting that decides "outside".
-
-Kept as a documented dead end, and because the boundary-loop tracer and the
-small-vs-large hole distinction below are still sound. See docs/open-questions.md.
+A caution about how that was nearly missed: a centroid-based "inward-facing area"
+metric said the fill made things *worse* (44.8% -> 53.7% after normal recalculation,
+versus 44.6% -> 21.1% without it), and that reading was briefly written up as a failed
+experiment. The metric is worthless -- it asks whether a face points away from the
+whole body's centroid, which is meaningless for concave regions and for anything
+off-centre. **Judge this by rendering with backface culling, never by that metric.**
 
 Two different kinds of hole reach our output, and only one of them should be patched.
 

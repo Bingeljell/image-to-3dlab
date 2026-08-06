@@ -89,14 +89,25 @@ first believed (question 1): 4,786 boundary edges on the Nikita hero, not 155,00
 note `cumesh` is not installed at all, so the guarded import always took the fallback
 path — re-enabling the call alone would not work.
 
-**Post-export repair was tried and does NOT work (2026-08-06).**
-`scripts/fill_holes.py` traces boundary loops and patches the small ones, leaving large
-openings alone. It closes holes (moss fox 34,789 -> 18,736 boundary edges) but leaves
-the mesh worse: normal recalculation afterwards goes 44.6% -> 21.1% inward *without*
-the fill and 44.8% -> 53.7% *with* it, and a backface-culled render shows more gaps,
-not fewer. True for naive patches and for patches wound to match their neighbours.
+**Post-export repair WORKS (2026-08-06).** `scripts/fill_holes.py` traces boundary
+loops and patches the small ones, leaving large openings alone. On the moss fox it
+takes boundary edges from 34,789 to 18,736, and in a backface-culled render **the hind
+legs go from near-invisible wisps to solid limbs**. Clear, visible improvement.
 
-Why post-export is the wrong place, measured on the Nikita 1024 mesh:
+**This was briefly written up as a FAILED experiment, and that was wrong.** The
+centroid "inward-facing area" metric said the fill made things worse (44.8% -> 53.7%
+after recalculation, versus 44.6% -> 21.1% without), and I believed it over the render.
+The user looked at the two images and said the filled one was plainly better. It is.
+
+**Retire that metric.** It asks whether a face points away from the whole body's
+centroid, which is meaningless for concave regions (armpits, between legs, inside ears)
+and for anything off-centre — it called a correctly-oriented beer mug "inward". It has
+now produced a wrong conclusion three times. Judge mesh repair by a **backface-culled
+render**, which is also what an engine will do.
+
+The caveats below about *why decode-time repair is still better* remain true — the
+post-export mesh is genuinely messy — but "messy" turned out to mean "patching helps a
+lot but cannot be complete", not "patching fails". Measured on the Nikita 1024 mesh:
 - **24,071 non-manifold edges** (position-merged) — overlapping and intersecting
   sheets, which break the inside/outside reasoning any repair depends on.
 - **30.9% of boundary vertices are dangling** (a single boundary edge) — torn ends,
@@ -104,7 +115,8 @@ Why post-export is the wrong place, measured on the Nikita 1024 mesh:
 - Only **17% of boundary edges** form closed loops at all.
 
 By export time the geometry has been simplified from ~400K to ~200K and re-atlased, so
-holes have been merged and distorted. That is why upstream repairs at *decode* time.
+holes have been merged and distorted. Decode-time repair should therefore do better
+still — but post-export filling is already a real win and is far cheaper to run.
 
 **Still to prove.** Re-enable the repair at decode time and measure. `cumesh` segfaults on Metal at
 decode size, so the options are: run `fill_holes` on CPU, run it post-decode after

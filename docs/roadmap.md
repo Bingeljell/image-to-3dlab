@@ -30,17 +30,14 @@ Small, high payoff, and they complete stories already 90% done.
    needs a closed surface. `scripts/blender_fix_normals.py` exists but is a diagnostic
    until holes are closed. Meanwhile `doubleSided` materials are the correct
    mitigation. See [open-questions.md](open-questions.md) question 2.
-5. **Fill holes — but NOT post-export; that was tried and failed.** Patching the final
-   GLB closes holes yet leaves the mesh worse (see
-   [open-questions.md](open-questions.md) question 1b). By then the geometry is
-   simplified, re-atlased, 24k non-manifold edges, and a third of its boundary is
-   dangling ends rather than rims. Two remaining routes: **repair at decode time**
-   (where upstream does it, on unsimplified geometry), or **screened Poisson
-   reconstruction** (Open3D/PyMeshLab), which rebuilds a watertight surface instead of
-   patching one. Our port disables upstream's `fill_holes()` (question
-   1b), and `cumesh` is not installed at all, so re-enabling the call alone will not
-   work — it needs a Python/trimesh implementation. Far smaller in scale than first
-   believed: 4,786 boundary edges on the Nikita hero, not 155,000.
+5. **Fill holes post-export — WORKS, do it.** `scripts/fill_holes.py` takes the moss
+   fox from 34,789 to 18,736 boundary edges, and in a backface-culled render the hind
+   legs go from near-invisible wisps to solid limbs. Cheap and visible. Candidate for
+   the pipeline. It cannot be complete — a third of the boundary is dangling ends
+   rather than rims, and there are 24k non-manifold edges — so **decode-time repair**
+   (on unsimplified geometry, where upstream does it) and **screened Poisson
+   reconstruction** remain the routes to go further. See
+   [open-questions.md](open-questions.md) question 1b.
 
 Both are written up in [open-questions.md](open-questions.md).
 
@@ -75,6 +72,9 @@ question 1.
   the way `validate_run_policy` gates on licensing, rather than only report?
 - **Verify a tool does what your own caveat says.** The UV-seam warning was written
   down, then `trimesh.merge_vertices` was trusted to honour it. It does not.
+- **Never judge mesh repair by the centroid "inward area" metric.** It is meaningless
+  for concave and off-centre geometry and has produced three wrong conclusions. Render
+  with **backface culling** — the same test an engine applies.
 
 ## Why this order
 

@@ -225,3 +225,20 @@ Low urgency, since we already have reason to think straight-on is a poor pair fo
 bushy-tailed quadruped. Worth running to close the loop honestly: we hypothesised,
 were wrong about the mechanism, fixed it, and should record whether the fix alone was
 enough.
+
+### Multi-view fusion: VERIFIED (2026-08-07)
+
+A wiring check at `pipeline_type: 512` printed `MULTIVIEW:: fusing 2 views,
+mode=multidiffusion` three times — once per sampler (sparse structure, shape SLat,
+texture SLat) — confirming the hook installs on all three. An earlier `with`-block
+version covered only the first sampler; installing the hooks for the whole run fixed
+it. Cost 358s against ~246s single-view at the same settings, the ~1.5x expected.
+
+**The marker had appeared all along and a log filter was eating it.** `grep -v "it/s]"`
+was used to strip progress bars, and the marker prints on the *same line* as the tqdm
+bar. So the earlier cascade run was fusing correctly; its faster wall-clock (1119s
+against a 1382s control) came from a simpler mesh to decode and bake, not from an inert
+hook. Filters must not be able to swallow the marker they are watching for.
+
+So the 3/4 result — components 516 -> 106, boundary edges 48,246 -> 33,864, visibly the
+cleanest fox produced — rests on a verified mechanism.

@@ -2,7 +2,7 @@
 format: 1920x1080
 duration: 29s
 mode: autonomous
-status: outline
+status: animated
 message: Turn a single image into a local, inspectable, reproducible 3D asset.
 arc: Future Pacing → Demo Loop → Proof → Capability Cascade → CTA
 audience: technical artists, indie game developers, and local AI/3D builders
@@ -22,7 +22,7 @@ Motion is restrained but legible: image scan, panel lift, turntable hold, capabi
 
 ### Frame 01 — “One image, locally”
 
-- **status:** outline
+- **status:** animated
 - **time:** 00:00–00:03
 - **duration:** 3s
 - **transition_in:** scan-line reveal from a quiet cream ground
@@ -41,7 +41,7 @@ The opening should feel like a research note becoming an interface: one large im
 
 ### Frame 02 — “Three local routes”
 
-- **status:** outline
+- **status:** animated
 - **time:** 00:03–00:08
 - **duration:** 5s
 - **transition_in:** image card compresses into the left rail; route cards step in from the right
@@ -60,7 +60,7 @@ Use three simple route labels rather than inventing backend names in the film: `
 
 ### Frame 03 — “Proof beside the result”
 
-- **status:** outline
+- **status:** animated
 - **time:** 00:08–00:14
 - **duration:** 6s
 - **transition_in:** a hard editorial cut into the turntable, followed by a slow hold
@@ -79,7 +79,7 @@ This is the trust beat. Keep the turntable large enough to read as a real 3D res
 
 ### Frame 04 — “The lab opens up”
 
-- **status:** outline
+- **status:** animated
 - **time:** 00:14–00:21
 - **duration:** 7s
 - **transition_in:** proof card splits into a three-card capability cascade
@@ -98,7 +98,7 @@ The cards should arrive in sequence, not as a simultaneous grid dump. The moss f
 
 ### Frame 05 — “Inspect. Iterate. Build.”
 
-- **status:** outline
+- **status:** animated
 - **time:** 00:21–00:29
 - **duration:** 8s
 - **transition_in:** capability cards collapse into a single hero plane
@@ -121,3 +121,8 @@ Close with a single terracotta voltage moment: the product name or a thin CTA ru
 - `assets/audio/image-to-3d-lab/scan-whoosh/scan-whoosh__v01.wav` — 1s, small SFX model, frame 01.
 - `assets/audio/image-to-3d-lab/model-lock/model-lock__v01.wav` — 1s, small SFX model, frame 02.
 - `assets/audio/image-to-3d-lab/provenance-stamp/provenance-stamp__v01.wav` — 1s, small SFX model, frame 03.
+
+## First-cut artifact
+
+- `renders/image-to-3d-lab-first-cut.mp4` — 1920×1080, 30fps, 29s, H.264 + AAC.
+- Looped local derivatives keep the 3-second Nikita cheer source frame-safe across the longer capability and closing holds: `assets/nikita_cheers_loop.mp4` and `assets/nikita_cheers_close_loop.mp4`.

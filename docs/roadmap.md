@@ -77,6 +77,15 @@ question 1.
    T-pose; the quadruped case still needs the guided marking in
    [rigging-plan.md](rigging-plan.md).
 
+## Also proposed
+
+10. **Subject profiles** — one pipeline, a `subject.class` + `subject.features` block
+    in the manifest supplying defaults and switching optional stages on. Motivated by
+    measured findings: `512` won on the human and lost on the fox, hole counts differ
+    7x by subject, and rigging strategy differs by body plan. See
+    [subject-profiles.md](subject-profiles.md). Deliberately *not* parallel pipelines —
+    generation, bake, provenance, labelling and export are identical across subjects.
+
 ## Standing practice
 
 - **Re-test resolution settings per subject.** `512` beat `1024` on the Nikita human

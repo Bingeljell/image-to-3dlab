@@ -4,10 +4,7 @@
   "distribution": "private",
   "commercial_intent": false,
   "input": {
-    "views": [
-      "../assets_to_test/moss-fox-august-6-alpha.png",
-      "../assets_to_test/moss-fox-august-6-back.png"
-    ],
+    "path": "../assets_to_test/moss-fox-mv-front.png",
     "source": "user-provided"
   },
   "model": {
@@ -22,11 +19,6 @@
       "material_mode": "matte"
     }
   },
-  "license_policy": {
-    "allow_conditional": true,
-    "allow_research_only": false
-  },
-  "output": {
-    "directory": "output"
-  }
+  "license_policy": { "allow_conditional": true, "allow_research_only": false },
+  "output": { "directory": "output" }
 }

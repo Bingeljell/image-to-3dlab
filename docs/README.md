@@ -9,6 +9,7 @@ Design and reference documentation for the image-to-3D lab.
 | [fidelity-plan.md](fidelity-plan.md) | Eval of how to close the output-quality gap to hosted services (cascade modes, geometry gate, multi-view) |
 | [fidelity-explained.md](fidelity-explained.md) | Teaching write-up: why fine detail looks garbled, and the base-mesh / materials / VFX three-layer model of a game character |
 | [labelling-pipeline.md](labelling-pipeline.md) | Painted masks → part-aware meshes: how to tell a generated blob which bits are leaves, and the wind demo it unlocks |
+| [subject-profiles.md](subject-profiles.md) | Proposal: per-subject-class defaults and optional stages, since settings measurably do not transfer between subjects |
 | [open-questions.md](open-questions.md) | Roadblocks we hit but do not yet understand, and the experiment that would settle each |
 | [nikita-sidequest.md](nikita-sidequest.md) | Session log: T-pose human → turntable + rigged "cheers" animation, including the dead ends |
 

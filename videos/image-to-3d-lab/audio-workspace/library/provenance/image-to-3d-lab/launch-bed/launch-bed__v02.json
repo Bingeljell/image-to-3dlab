@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "asset_id": "launch-bed",
+  "kind": "music",
+  "variant": 2,
+  "generator": {
+    "engine": "stable-audio-3-medium",
+    "preset": null,
+    "audio_assetlab_version": "0.1.0",
+    "model": "stabilityai/stable-audio-3-medium",
+    "optimized_model": "stabilityai/stable-audio-3-optimized",
+    "model_revision": "06debc30bee4d94aa6a93e5f100d73245c02e5b0",
+    "text_encoder_revision": "08c64b96b1e59942aade69759f60fb88c58c90c4",
+    "runtime_source_revision": "124e8a799f57a1f665495ecb72e547d0a62867f1"
+  },
+  "generation": {
+    "prompt": "Restrained cinematic electronic instrumental for a developer tool launch, immediate tactile pulse from the first beat, warm analog synth bass, muted granular clicks, brushed percussion, soft evolving arpeggio, measured confident energy, clean studio production, no vocals, no speech, no ambient intro, no slow build, designed to sit under narration.\n",
+    "negative_prompt": null,
+    "seed": 7032,
+    "requested_duration_seconds": 36,
+    "actual_duration_seconds": 29.0,
+    "generated_at": "2026-08-06T18:16:45.291227+00:00",
+    "parameters": {
+      "steps": 8,
+      "cfg": 1.0,
+      "apg": 1.0
+    }
+  },
+  "postprocess": [
+    {
+      "op": "crop",
+      "start_seconds": 0,
+      "duration_seconds": 29
+    },
+    {
+      "op": "fade",
+      "in_ms": 250,
+      "out_ms": 1200
+    },
+    {
+      "op": "peak_normalize",
+      "peak_db": -2
+    }
+  ],
+  "audio": {
+    "sample_rate": 48000,
+    "channels": 2,
+    "master_encoding": "24-bit PCM WAV"
+  },
+  "source": {
+    "manifest_path": "audio_manifest.yaml",
+    "manifest_sha256": "57f4e54aa076c621288a9e34457ec415536ddf8455530ec642ba5a4593709310",
+    "candidate_path": "audio-workspace/library/candidates/image-to-3d-lab/launch-bed/launch-bed__seed-7032.wav",
+    "candidate_sha256": "3c1748d262ddcf0f78a7bb1642f4629fc5bf00b21d8fdd3f1983c8861250cab9"
+  },
+  "outputs": {
+    "master": {
+      "path": "audio-workspace/library/masters/image-to-3d-lab/launch-bed/launch-bed__v02.wav",
+      "sha256": "30849158a0d3854f0a964a9997fbfa2371647f326687f9bbe071f9b50aaa1542"
+    },
+    "exports": [
+      {
+        "path": "audio-workspace/exports/image-to-3d-lab/launch-bed/launch-bed__v02.wav",
+        "sha256": "30849158a0d3854f0a964a9997fbfa2371647f326687f9bbe071f9b50aaa1542"
+      },
+      {
+        "path": "audio-workspace/exports/image-to-3d-lab/launch-bed/launch-bed__v02.ogg",
+        "sha256": "6d94ae96e7aa1e1c950f464cb25a399d564db09813908dccf48f5b9ea5ca0acf"
+      }
+    ]
+  },
+  "licenses": {
+    "code": "NOASSERTION",
+    "model": "Stability AI Community License",
+    "text_encoder": "Gemma Terms of Use",
+    "asset": "Stability AI Community License"
+  },
+  "environment": {
+    "python": "3.13.14",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "ffmpeg": "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers"
+  }
+}

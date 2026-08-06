@@ -1,0 +1,83 @@
+{
+  "components": [
+    {
+      "commercial_status": "commercial-clear",
+      "component": "rembg/u2net",
+      "license": "MIT code / Apache-2.0 U-2-Net",
+      "purpose": "background removal"
+    },
+    {
+      "commercial_status": "commercial-conditional",
+      "component": "facebook/dinov3-vitl16-pretrain-lvd1689m",
+      "license": "DINOv3 License",
+      "license_url": "https://ai.meta.com/resources/models-and-libraries/dinov3-license/",
+      "purpose": "image conditioning"
+    },
+    {
+      "commercial_status": "blocked",
+      "component": "BRIA RMBG-2.0",
+      "loaded": false,
+      "note": "Explicitly disabled by repository patch.",
+      "purpose": "background removal"
+    }
+  ],
+  "created_at": "2026-08-06T04:13:05.064660+00:00",
+  "input": {
+    "path": "/Users/nikhilshahane/projects/image-to-3dlab/assets_to_test/nikita_holding_beer.png",
+    "sha256": "05f6e7c2fb8edd8478d868f84bef722d9bc7ff49a6022d6e307edd1dd020c73e",
+    "source": "user-provided"
+  },
+  "intent": {
+    "commercial_intent": false,
+    "distribution": "private",
+    "use_case": "showcase"
+  },
+  "license": {
+    "conditions": [
+      "TRELLIS.2 model code and weights are MIT licensed.",
+      "The DINOv3 image encoder is governed by the separate DINOv3 License.",
+      "BRIA RMBG-2.0 is disabled and must not be loaded in commercial runs."
+    ],
+    "name": "MIT (TRELLIS.2) + DINOv3 License",
+    "url": "https://huggingface.co/microsoft/TRELLIS.2-4B"
+  },
+  "model": {
+    "backend": "trellis2",
+    "parameters": {
+      "bake_target_faces": 200000,
+      "foreground_ratio": null,
+      "material_mode": "matte",
+      "material_normalized": true,
+      "model": "microsoft/TRELLIS.2-4B",
+      "pipeline_type": "1024",
+      "remesh": null,
+      "seed": 7,
+      "steps": 12,
+      "target_vertices": null,
+      "texture_backend": "metal-o-voxel",
+      "texture_resolution": null,
+      "texture_size": 2048
+    }
+  },
+  "output": {
+    "classification": "commercial-conditional",
+    "path": "/Users/nikhilshahane/projects/image-to-3dlab/output/conditional/nikita_holding_beer__trellis2__commercial-conditional__480361379a16.glb",
+    "sha256": "cb72add3e92ebed392c777b65dcaadc8d5a124e0ebd1b8c8f27eac4c1d1d2a02"
+  },
+  "run_id": "480361379a16",
+  "schema_version": 1,
+  "software": {
+    "backend_revision": "d58628f4f5b9c3de8274cb110074154f4b31cef2",
+    "packages": {
+      "rembg": "2.0.57",
+      "torch": "2.13.0",
+      "torchvision": "0.28.0",
+      "transformers": "4.42.3",
+      "trimesh": "4.4.1"
+    }
+  },
+  "source_manifest": {
+    "path": "/private/tmp/claude-501/-Users-nikhilshahane-projects-image-to-3dlab/a6dcdb8b-cfd1-48d3-af67-90aebcc16384/scratchpad/nikita-v1024s7.json",
+    "sha256": "4a5160feaeef74107aa6055351541501b47fd04ca272dd1539ab52b570bd997e"
+  }
+}

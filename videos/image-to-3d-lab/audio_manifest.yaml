@@ -1,0 +1,86 @@
+version: 1
+project: image-to-3d-lab
+
+defaults:
+  sample_rate: 48000
+  channels: stereo
+  master_format: wav
+  exports:
+    - wav
+    - ogg
+
+assets:
+  - id: launch-bed
+    kind: music
+    engine: stable-audio-3-medium
+    prompt: >
+      Restrained cinematic electronic instrumental for a developer tool launch,
+      immediate tactile pulse from the first beat, warm analog synth bass,
+      muted granular clicks, brushed percussion, soft evolving arpeggio,
+      measured confident energy, clean studio production, no vocals, no speech,
+      no ambient intro, no slow build, designed to sit under narration.
+    duration: 36
+    seeds: [7031, 7032, 7033]
+    variants_to_keep: 2
+    license: Stability AI Community License
+    params:
+      steps: 8
+      cfg: 1.0
+      apg: 1.0
+    postprocess:
+      - op: crop
+        start_seconds: 0
+        duration_seconds: 29
+      - op: fade
+        in_ms: 250
+        out_ms: 1200
+      - op: peak_normalize
+        peak_db: -2
+
+  - id: scan-whoosh
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A short dry scanner whoosh with a precise digital sweep.
+    duration: 1
+    seeds: [8101, 8102, 8103]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params:
+      steps: 8
+      cfg: 1.0
+      apg: 1.0
+    postprocess:
+      - op: peak_normalize
+        peak_db: -6
+
+  - id: model-lock
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A short tactile ceramic and metal lock-in click with a soft low impact.
+    duration: 1
+    seeds: [8201, 8202, 8203]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params:
+      steps: 8
+      cfg: 1.0
+      apg: 1.0
+    postprocess:
+      - op: peak_normalize
+        peak_db: -6
+
+  - id: provenance-stamp
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A short crisp paper stamp and glassy confirmation chime.
+    duration: 1
+    seeds: [8301, 8302, 8303]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params:
+      steps: 8
+      cfg: 1.0
+      apg: 1.0
+    postprocess:
+      - op: peak_normalize
+        peak_db: -6

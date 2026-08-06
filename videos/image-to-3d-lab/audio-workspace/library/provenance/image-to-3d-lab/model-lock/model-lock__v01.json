@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "asset_id": "model-lock",
+  "kind": "sfx",
+  "variant": 1,
+  "generator": {
+    "engine": "stable-audio-3-small-sfx",
+    "preset": null,
+    "audio_assetlab_version": "0.1.0",
+    "model": "stabilityai/stable-audio-3-small-sfx",
+    "optimized_model": "stabilityai/stable-audio-3-optimized",
+    "model_revision": "08c64b96b1e59942aade69759f60fb88c58c90c4",
+    "text_encoder_revision": "08c64b96b1e59942aade69759f60fb88c58c90c4",
+    "runtime_source_revision": "124e8a799f57a1f665495ecb72e547d0a62867f1"
+  },
+  "generation": {
+    "prompt": "A short tactile ceramic and metal lock-in click with a soft low impact.",
+    "negative_prompt": null,
+    "seed": 8201,
+    "requested_duration_seconds": 1,
+    "actual_duration_seconds": 1.0,
+    "generated_at": "2026-08-06T18:16:45.492973+00:00",
+    "parameters": {
+      "steps": 8,
+      "cfg": 1.0,
+      "apg": 1.0
+    }
+  },
+  "postprocess": [
+    {
+      "op": "peak_normalize",
+      "peak_db": -6
+    }
+  ],
+  "audio": {
+    "sample_rate": 48000,
+    "channels": 2,
+    "master_encoding": "24-bit PCM WAV"
+  },
+  "source": {
+    "manifest_path": "audio_manifest.yaml",
+    "manifest_sha256": "57f4e54aa076c621288a9e34457ec415536ddf8455530ec642ba5a4593709310",
+    "candidate_path": "audio-workspace/library/candidates/image-to-3d-lab/model-lock/model-lock__seed-8201.wav",
+    "candidate_sha256": "14454a697885fb4ae874fc3dd8aa81c5f3ae3686d3d178473950cc596366584d"
+  },
+  "outputs": {
+    "master": {
+      "path": "audio-workspace/library/masters/image-to-3d-lab/model-lock/model-lock__v01.wav",
+      "sha256": "0ba8f57a8d691d6425744ee74632969003110c09199298def17e16a22af27f2b"
+    },
+    "exports": [
+      {
+        "path": "audio-workspace/exports/image-to-3d-lab/model-lock/model-lock__v01.wav",
+        "sha256": "0ba8f57a8d691d6425744ee74632969003110c09199298def17e16a22af27f2b"
+      },
+      {
+        "path": "audio-workspace/exports/image-to-3d-lab/model-lock/model-lock__v01.ogg",
+        "sha256": "340f6a0ed56964bedda443533449091436d3a53a84932aff9ef8b509fca4a202"
+      }
+    ]
+  },
+  "licenses": {
+    "code": "NOASSERTION",
+    "model": "Stability AI Community License",
+    "text_encoder": "Gemma Terms of Use",
+    "asset": "Stability AI Community License"
+  },
+  "environment": {
+    "python": "3.13.14",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "ffmpeg": "ffmpeg version 8.1.2 Copyright (c) 2000-2026 the FFmpeg developers"
+  }
+}

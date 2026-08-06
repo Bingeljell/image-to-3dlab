@@ -115,6 +115,11 @@ def patch_sampler_injection() -> bool:
                     )
                 return original(model, x_t, t, cond[index:index + 1], **extra)
 
+            if not getattr(per_view, '_announced', False):
+                print(f"MULTIVIEW:: fusing {views} views, mode={mode}", flush=True)
+                per_view._announced = True
+            per_view._fusions = getattr(per_view, '_fusions', 0) + 1
+
             if mode == 'stochastic':
                 # One view per step, cycling. Deterministic, so runs stay reproducible.
                 index = counter['step'] % views
@@ -129,6 +134,7 @@ def patch_sampler_injection() -> bool:
             return total / len(predictions)
 
         sampler._inference_model = per_view
+        sampler._multi_image_per_view = per_view
 
     def get_cond(self, image: Union[torch.Tensor, list[Image.Image]], resolution: int, include_neg_cond: bool = True) -> dict:'''
     return replace(PIPELINE, needle, replacement, "install_multi_image_hooks")
@@ -222,7 +228,7 @@ def patch_generate_load() -> bool:
     else:
         print(f"Conditioning on {len(img)} views (mode={args.multi_image_mode})")
         pipeline.multi_image_mode = args.multi_image_mode"""
-    return replace(GENERATE, needle, replacement, "Conditioning on")
+    return replace(GENERATE, needle, replacement, "pipeline.multi_image_mode =")
 
 
 def patch_generate_exists() -> bool:

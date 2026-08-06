@@ -1,0 +1,12 @@
+Image to 3D Lab
+
+What if one image could become a real 3D asset — locally?
+
+Image to 3D Lab turns a reference into a textured model, with three local backends.
+Preview it in Blender. Re-run from a manifest. Keep hashes, settings, and license provenance beside every result.
+Then go further: multiple views, labeled parts for wind, and early rigging experiments.
+From pixels to something you can inspect, iterate, and build with. Image to 3D Lab.
+
+The lab supports SF3D, Hunyuan3D through a local ComfyUI workflow, and TRELLIS.2 on Apple Silicon.
+Outputs include a textured GLB and a provenance sidecar. Blender previews, matte/PBR material handling,
+painted part labels, wind demos, and early rigging/animation experiments are available in the repository.

@@ -23,13 +23,15 @@ Small, high payoff, and they complete stories already 90% done.
 
 ## Tier 2 — the research question blocking everything else
 
-4. **Fix inside-out normals on export. CONFIRMED, cheap, do it.** Meshes come out
-   substantially inverted (60% of area on one run); Blender's *Recalculate Outside*
-   takes that to 19%. `scripts/blender_fix_normals.py`. Required for SceneKit and
-   RealityKit, which cull backfaces — our own previews are blind to this because glTF
-   marks the materials doubleSided. Candidate for folding into the pipeline as an
-   automatic post-process. See [open-questions.md](open-questions.md) question 2.
-5. **Fill the remaining holes.** Our port disables upstream's `fill_holes()` (question
+4. **Normals are inverted, but DO NOT fix them yet — fix holes first.** Meshes are
+   substantially inside-out (60% of area on one run) and this does matter for SceneKit
+   and RealityKit, which cull backfaces. But applying *Recalculate Outside* to a mesh
+   with 8,146 hole edges makes the backface-culled render **worse** — the ray heuristic
+   needs a closed surface. `scripts/blender_fix_normals.py` exists but is a diagnostic
+   until holes are closed. Meanwhile `doubleSided` materials are the correct
+   mitigation. See [open-questions.md](open-questions.md) question 2.
+5. **Fill the remaining holes — now a prerequisite, not a nicety.** Reliable normal
+   repair depends on it (item 4). Our port disables upstream's `fill_holes()` (question
    1b), and `cumesh` is not installed at all, so re-enabling the call alone will not
    work — it needs a Python/trimesh implementation. Far smaller in scale than first
    believed: 4,786 boundary edges on the Nikita hero, not 155,000.

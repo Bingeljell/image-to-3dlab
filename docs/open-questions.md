@@ -138,7 +138,22 @@ on meshes with this many boundary edges and leave the inward fraction unchanged
 
 **Why it matters despite our renders looking fine.** Engines are not blind to it.
 SceneKit and RealityKit commonly cull backfaces, where an inside-out mesh renders
-inverted or vanishes. This is a required export step, not a cosmetic one.
+inverted or vanishes.
+
+**BUT — do not blanket-apply the fix. It makes things worse.** Rendering with backface
+culling before and after *Recalculate Outside* shows the repaired mesh is **worse**:
+jeans that were solid tear open, a shoe breaks up, arms gain gaps. The heuristic finds
+"outside" by casting rays, which assumes a reasonably closed surface; with 8,146 hole
+edges the rays escape through the gaps and it guesses wrong in many places.
+
+So the centroid metric (60% → 19%, an apparent success) and the culled render (a
+visible regression) **disagree, and the render is the one that matches engine
+behaviour**. Order matters: **fix holes first, then normals.** Until then the correct
+mitigation is to keep materials `doubleSided`, which glTF already does by default —
+which is precisely why our previews looked fine all along.
+
+`scripts/blender_fix_normals.py` is kept as a diagnostic and for use *after* holes are
+closed. Do not wire it into the pipeline yet.
 
 **What it does NOT fix.** The see-through back of the head survives the repair. That
 artefact is his face seen through a large opening where the skull should be — genuinely

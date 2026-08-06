@@ -89,7 +89,24 @@ first believed (question 1): 4,786 boundary edges on the Nikita hero, not 155,00
 note `cumesh` is not installed at all, so the guarded import always took the fallback
 path — re-enabling the call alone would not work.
 
-**Still to prove.** Re-enable the repair and measure. `cumesh` segfaults on Metal at
+**Post-export repair was tried and does NOT work (2026-08-06).**
+`scripts/fill_holes.py` traces boundary loops and patches the small ones, leaving large
+openings alone. It closes holes (moss fox 34,789 -> 18,736 boundary edges) but leaves
+the mesh worse: normal recalculation afterwards goes 44.6% -> 21.1% inward *without*
+the fill and 44.8% -> 53.7% *with* it, and a backface-culled render shows more gaps,
+not fewer. True for naive patches and for patches wound to match their neighbours.
+
+Why post-export is the wrong place, measured on the Nikita 1024 mesh:
+- **24,071 non-manifold edges** (position-merged) — overlapping and intersecting
+  sheets, which break the inside/outside reasoning any repair depends on.
+- **30.9% of boundary vertices are dangling** (a single boundary edge) — torn ends,
+  not rims. You cannot fill a hole that has no rim.
+- Only **17% of boundary edges** form closed loops at all.
+
+By export time the geometry has been simplified from ~400K to ~200K and re-atlased, so
+holes have been merged and distorted. That is why upstream repairs at *decode* time.
+
+**Still to prove.** Re-enable the repair at decode time and measure. `cumesh` segfaults on Metal at
 decode size, so the options are: run `fill_holes` on CPU, run it post-decode after
 simplification (when the mesh is ~200K rather than ~400K), or implement hole-filling
 in Python/trimesh. Any of these is a **local** experiment — no CUDA needed. If

@@ -4,16 +4,25 @@
 Every mesh problem this project has hit was invisible until measured: see-through
 holes, interior speckle, and failed bone-heat weighting are all the same underlying
 defect, and none of them announce themselves as errors. This turns "the back of his
-head looks weird" into "this mesh has 26,000 components".
+head looks weird" into a number.
 
-One measurement trap it avoids: glTF splits vertices at UV and normal seams, so
-`is_watertight` on a round-tripped GLB is *always* False and means nothing. Vertices
-are welded by position before anything is counted.
+**The measurement trap this exists to prevent:** glTF splits a vertex at every UV and
+normal seam, and `trimesh.merge_vertices()` will not merge vertices whose UVs differ.
+Counting anything after it measures UV islands, not geometry. Everything here welds by
+POSITION only. (This tool shipped with that very bug in its first version, which is
+how seriously to take it.)
 
-The weld sweep answers a specific question: are the components genuinely separate
-surfaces, or are they adjacent shards left unwelded by the extractor? If a small
-tolerance collapses the count, the fix is cheap. If it does not, the geometry really
-is disconnected and needs reconstruction.
+The numbers that matter, and what they tell you:
+
+- **components** -- is the surface connected? Ours are, largely: one body holding
+  ~99-100% of faces.
+- **boundary edges** -- how much open hole there is.
+- **dangling boundary verts** -- boundary vertices with only ONE boundary edge. These
+  are torn ends, not rims. Hole filling needs closed rims, so a high count means
+  patching is not viable; the geometry needs reconstruction instead.
+- **non-manifold edges** -- edges shared by 3+ faces: overlapping or intersecting
+  sheets. Breaks inside/outside reasoning, which is why normal repair fails.
+- **volume** -- negative means the surface is inside-out overall.
 """
 
 from __future__ import annotations
@@ -25,15 +34,46 @@ import numpy as np
 import trimesh
 
 
+def weld_by_position(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Merge coincident vertices by POSITION only.
+
+    `trimesh.merge_vertices()` will not merge vertices whose UVs differ, and glTF
+    splits a vertex at every UV seam -- so using it here measures UV islands rather
+    than geometry. That mistake produced a wrong diagnosis that stood for several
+    sessions; this function exists so it cannot recur.
+    """
+    scale = float(np.ptp(mesh.vertices, axis=0).max())
+    quantised = np.round(mesh.vertices / (scale * 1e-6)).astype(np.int64)
+    _, index, inverse = np.unique(
+        quantised, axis=0, return_index=True, return_inverse=True
+    )
+    faces = inverse[mesh.faces]
+    keep = (
+        (faces[:, 0] != faces[:, 1])
+        & (faces[:, 1] != faces[:, 2])
+        & (faces[:, 0] != faces[:, 2])
+    )
+    return trimesh.Trimesh(
+        vertices=mesh.vertices[index], faces=faces[keep], process=False
+    )
+
+
 def measure(mesh: trimesh.Trimesh) -> dict:
-    """Structural stats, after welding coincident vertices."""
-    welded = mesh.copy()
-    welded.merge_vertices()
+    """Structural stats, after welding coincident vertices by position."""
+    welded = weld_by_position(mesh)
 
     edges = welded.edges_sorted
     unique, counts = np.unique(edges, axis=0, return_counts=True)
     boundary = int((counts == 1).sum())
     non_manifold = int((counts > 2).sum())
+
+    # A boundary vertex with one edge is a dangling end, not part of a closed rim.
+    # Hole filling needs rims, so this is the number that says whether it is viable.
+    degree: dict[int, int] = {}
+    for a, b in unique[counts == 1]:
+        degree[int(a)] = degree.get(int(a), 0) + 1
+        degree[int(b)] = degree.get(int(b), 0) + 1
+    dangling = sum(1 for d in degree.values() if d == 1)
 
     # Outward-facing check: for a closed surface the signed volume is positive when
     # normals point out. Large regions facing inward show up as a negative or
@@ -49,6 +89,7 @@ def measure(mesh: trimesh.Trimesh) -> dict:
         "components": int(welded.body_count),
         "boundary_edges": boundary,
         "non_manifold_edges": non_manifold,
+        "dangling_boundary_verts": dangling,
         "watertight": bool(welded.is_watertight),
         "winding_consistent": bool(welded.is_winding_consistent),
         "volume": volume,
@@ -62,6 +103,7 @@ def report(name: str, stats: dict) -> None:
     print(f"  components          {stats['components']:>10,}")
     print(f"  boundary edges      {stats['boundary_edges']:>10,}")
     print(f"  non-manifold edges  {stats['non_manifold_edges']:>10,}")
+    print(f"  dangling bnd verts  {stats['dangling_boundary_verts']:>10,}")
     print(f"  watertight          {str(stats['watertight']):>10}")
     print(f"  winding consistent  {str(stats['winding_consistent']):>10}")
     print(f"  volume              {stats['volume']:>10.5f}")
@@ -106,8 +148,7 @@ def main() -> int:
                 # vertices merge, which is what welding "within a tolerance" means.
                 step = scale * fraction
                 probe.vertices = np.round(probe.vertices / step) * step
-            probe.merge_vertices()
-            probe.update_faces(probe.nondegenerate_faces())
+            probe = weld_by_position(probe)
             edges = probe.edges_sorted
             _, counts = np.unique(edges, axis=0, return_counts=True)
             print(

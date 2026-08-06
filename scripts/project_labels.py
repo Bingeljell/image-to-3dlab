@@ -81,10 +81,21 @@ def project(
     flip_depth: bool,
     depth_buffer: int,
     depth_tolerance: float,
+    yaw: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (colours, visible) for every vertex."""
     h_axis, v_axis, d_axis = AXES[axis]
     vertices = mesh.vertices
+    if yaw:
+        # A source image is rarely a dead-on view. The generated mesh sits in canonical
+        # orientation, so a three-quarter reference needs the projection turned to match
+        # or vertices land off the subject and go unlabelled.
+        angle = np.radians(yaw)
+        cos, sin = np.cos(angle), np.sin(angle)
+        rotated = vertices.copy()
+        rotated[:, h_axis] = vertices[:, h_axis] * cos - vertices[:, d_axis] * sin
+        rotated[:, d_axis] = vertices[:, h_axis] * sin + vertices[:, d_axis] * cos
+        vertices = rotated
     horizontal = vertices[:, h_axis]
     vertical = vertices[:, v_axis]
     depth = vertices[:, d_axis] * (-1.0 if flip_depth else 1.0)
@@ -131,7 +142,38 @@ def project(
     span = float(depth.max() - depth.min()) or 1.0
     visible = (depth >= (nearest[bins] - depth_tolerance * span)) & on_subject
 
-    return colours, visible
+    return colours, visible, u, v, foreground
+
+
+
+def silhouette_iou(u: np.ndarray, v: np.ndarray, foreground: np.ndarray, grid: int = 128) -> float:
+    """Overlap between where the mesh projects and where the subject actually is."""
+    px = np.clip((u * grid).astype(np.int32), 0, grid - 1)
+    py = np.clip((v * grid).astype(np.int32), 0, grid - 1)
+    mesh_mask = np.zeros((grid, grid), dtype=bool)
+    mesh_mask[py, px] = True
+
+    height, width = foreground.shape
+    ys = (np.arange(grid) * height / grid).astype(np.int32)
+    xs = (np.arange(grid) * width / grid).astype(np.int32)
+    image_mask = foreground[np.ix_(ys, xs)]
+
+    union = (mesh_mask | image_mask).sum()
+    return float((mesh_mask & image_mask).sum() / union) if union else 0.0
+
+
+def best_yaw(mesh, image, axis, flip_h, flip_v, flip_depth, depth_buffer, depth_tolerance, step):
+    """Sweep yaw and keep the angle whose silhouette best matches the image."""
+    best, best_score = 0.0, -1.0
+    for yaw in np.arange(0.0, 360.0, step):
+        _, _, u, v, foreground = project(
+            mesh, image, axis, flip_h, flip_v, flip_depth,
+            depth_buffer, depth_tolerance, float(yaw),
+        )
+        score = silhouette_iou(u, v, foreground)
+        if score > best_score:
+            best, best_score = float(yaw), score
+    return best, best_score
 
 
 def main() -> int:
@@ -140,6 +182,18 @@ def main() -> int:
     parser.add_argument("image", type=Path, help="source image, or a painted mask")
     parser.add_argument("output", type=Path, help="destination .glb")
     parser.add_argument("--axis", choices=tuple(AXES), default="z")
+    parser.add_argument(
+        "--yaw",
+        type=float,
+        default=0.0,
+        help="degrees to turn the projection, for a source that is not a dead-on view",
+    )
+    parser.add_argument(
+        "--auto-yaw",
+        action="store_true",
+        help="solve for the yaw that best matches the mesh silhouette to the image",
+    )
+    parser.add_argument("--yaw-step", type=float, default=5.0)
     parser.add_argument("--flip-h", action="store_true")
     parser.add_argument("--flip-v", action="store_true")
     parser.add_argument("--flip-depth", action="store_true")
@@ -160,7 +214,15 @@ def main() -> int:
     mesh = trimesh.load(args.mesh.expanduser().resolve(), force="mesh")
     image = Image.open(args.image.expanduser().resolve())
 
-    colours, visible = project(
+    yaw = args.yaw
+    if args.auto_yaw:
+        yaw, score = best_yaw(
+            mesh, image, args.axis, args.flip_h, args.flip_v, args.flip_depth,
+            args.depth_buffer, args.depth_tolerance, args.yaw_step,
+        )
+        print(f"AUTOYAW:: best yaw {yaw:.0f} deg (silhouette IoU {score:.3f})")
+
+    colours, visible, _, _, _ = project(
         mesh,
         image,
         args.axis,
@@ -169,6 +231,7 @@ def main() -> int:
         args.flip_depth,
         args.depth_buffer,
         args.depth_tolerance,
+        yaw,
     )
 
     hidden = np.array([int(c) for c in args.hidden_colour.split(",")], dtype=np.uint8)

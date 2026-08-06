@@ -154,7 +154,16 @@ scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = "PNG"
 scene.render.film_transparent = False
 scene.render.image_settings.color_mode = "RGBA"
-scene.view_settings.look = "AgX - Medium High Contrast"
+# The look names are namespaced by view transform, so a session left on a different
+# transform (by other tooling) makes the AgX look name invalid. Set both.
+try:
+    scene.view_settings.view_transform = "AgX"
+except TypeError:
+    pass
+try:
+    scene.view_settings.look = "AgX - Medium High Contrast"
+except TypeError:
+    scene.view_settings.look = "Medium High Contrast"
 scene.world.color = {settings["world_color"]}
 try:
     scene.eevee.use_raytracing = {settings["raytracing"]}

@@ -149,3 +149,44 @@ Maps cleanly onto manifests:
 - 5–10 min per showcase run is acceptable to the user; draft runs stay fast.
 - None of this blocks the rigging lane; for rigging the draft path is sufficient
   (we only need separated limbs, not pretty fur). See `docs/rigging-plan.md`.
+
+---
+
+## Multi-view result (2026-08-06): partial, and the failure is diagnostic
+
+Ran a clean A/B on the same moss fox source, same seed and settings, only view count
+differing. `scripts/patch_trellis_multiview.py` concatenates the per-view feature
+tokens into one conditioning sequence.
+
+**Outcome: the back is markedly better, the front is wrecked.** The back of the head
+went from a hollow, eaten shell to a solid head; the face fell apart.
+
+**Why.** TRELLIS.2 has **no multi-image support**: only `run()`, no camera or view
+embeddings anywhere in the conditioning path (every camera reference lives in the
+renderers). Token concatenation therefore hands the model a bag of tokens with no way
+to tell which view each came from, so it must reconcile them as a single observation.
+Front and back are the *maximally contradictory* pair — a face and a back-of-skull
+share almost no content — so the averaging damages the region where they disagree
+most. Which is exactly what we see.
+
+Cost: 1731s for two views against 848s for one, roughly linear in view count.
+
+Measurements moved the wrong way and should not be read as a verdict on their own:
+boundary edges 21,630 -> 47,385, components 84 -> 449 (though non-manifold edges fell
+2,991 -> 448). The visual is the finding.
+
+**Two ways forward:**
+
+1. **Overlapping views instead of opposed ones.** Two 3/4 views share content, so
+   confused averaging is far less destructive. Predicts a better front at some cost to
+   the back improvement — a sweet spot nearer 90-120 degrees apart than 180. Cheap to
+   test, needs no code change.
+2. **Stop concatenating tokens (the real fix).** Run the denoiser with each view's
+   conditioning separately at every step and combine the predictions — averaged, or one
+   picked at random per step. That treats each view as its own observation rather than
+   mashing them into one, so maximally-separated views stop hurting. Inference-time
+   only, no retraining. TRELLIS v1 shipped a multi-image path with fusion modes of this
+   kind; v2 dropped it.
+
+Note the generated mesh's canonical orientation flipped 180 degrees relative to the
+single-view run, so like-for-like renders need the azimuth adjusting.

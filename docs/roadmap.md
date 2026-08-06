@@ -69,6 +69,14 @@ question 1.
 
    Constraint (from [fidelity-plan.md](fidelity-plan.md)): views must be the **same
    pose** from an orbiting camera. Different poses break reconstruction.
+
+   **Tested 2026-08-06 — partial success.** Back markedly better, front wrecked.
+   TRELLIS.2 has no multi-image support and no view embeddings, so concatenated tokens
+   are reconciled as one observation and the maximally-contradictory front/back pair
+   damages the front. Next: (a) try two overlapping 3/4 views, which should confuse it
+   far less, and (b) the real fix — combine per-view denoiser predictions each step
+   instead of concatenating conditioning. See
+   [fidelity-plan.md](fidelity-plan.md).
 7. **Second painted view** for far-side label quality. Downgraded from *required* to
    *nice* once nearest-neighbour fill reached 100% coverage from one view.
 8. **Face resolution.** Faces are consistently weakest; likely a

@@ -242,3 +242,13 @@ hook. Filters must not be able to swallow the marker they are watching for.
 
 So the 3/4 result — components 516 -> 106, boundary edges 48,246 -> 33,864, visibly the
 cleanest fox produced — rests on a verified mechanism.
+
+**How much it is worth, textured.** On the standard textured double-sided render,
+multi-view and single-view are **comparable** — the multi-view face is cleaner and more
+symmetric, the single-view tail fuller. The dramatic gap in the backface-culled grey
+comparison largely disappears once texture is applied.
+
+State the value precisely: multi-view measurably improves *geometry*, but barely
+changes *appearance* in a normal render. The payoff is downstream — engine culling,
+splitting into parts, collision, simulation. "Visibly the cleanest fox yet" was an
+overstatement drawn from the culled view alone.

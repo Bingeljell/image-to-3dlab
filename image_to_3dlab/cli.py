@@ -31,6 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--trellis", action="store_true", help="Run TRELLIS.2 through the Mac port"
     )
     parser.add_argument("--output-dir", type=Path, default=Path("output"))
+    parser.add_argument(
+        "--view",
+        dest="views",
+        type=Path,
+        action="append",
+        help=(
+            "extra view of the same subject in the same pose (repeatable, trellis2 "
+            "only). Views must orbit the camera, not change the pose."
+        ),
+    )
 
     fast = parser.add_argument_group("SF3D options")
     fast.add_argument("--sf3d-repo", type=Path, default=Path("vendor/stable-fast-3d"))
@@ -105,7 +115,16 @@ def main(argv: list[str] | None = None) -> int:
             manifest_data = load_run_manifest(source_manifest)
             model = manifest_data["model"]
             backend = model["backend"]
-            args.image = source_manifest.parent / manifest_data["input"]["path"]
+            # A manifest may name one image, or several views of the same subject in
+            # the same pose. Extra views replace guessing about unseen sides.
+            manifest_input = manifest_data["input"]
+            if "views" in manifest_input:
+                args.views = [
+                    source_manifest.parent / view for view in manifest_input["views"]
+                ]
+                args.image = args.views[0]
+            else:
+                args.image = source_manifest.parent / manifest_input["path"]
             args.fast = backend == "sf3d"
             args.quality = backend == "hunyuan-comfyui"
             args.trellis = backend == "trellis2"
@@ -145,9 +164,15 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    image = args.image.expanduser().resolve()
-    if not image.is_file():
-        print(f"error: input image does not exist: {image}", file=sys.stderr)
+    views = [v.expanduser().resolve() for v in (args.views or [args.image])]
+    missing = [str(v) for v in views if not v.is_file()]
+    if missing:
+        print(f"error: input image does not exist: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    # Provenance and output naming follow the first view.
+    image = views[0]
+    if len(views) > 1 and not args.trellis:
+        print("error: multiple views are only supported by the trellis2 backend", file=sys.stderr)
         return 2
     intent = {
         "use_case": manifest_data.get("use_case", "showcase")
@@ -211,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             from .trellis_backend import TrellisOptions, generate_trellis
 
             trellis_result = generate_trellis(
-                image,
+                views,
                 working_output_dir,
                 TrellisOptions(
                     repo=args.trellis_repo,

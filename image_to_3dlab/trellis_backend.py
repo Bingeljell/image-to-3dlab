@@ -4,6 +4,7 @@ import json
 import os
 import struct
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,7 +113,7 @@ def _prepare_rgba(image: Path, destination: Path) -> Path:
 
 
 def generate_trellis(
-    image: Path, output_dir: Path, options: TrellisOptions
+    image: Path | Sequence[Path], output_dir: Path, options: TrellisOptions
 ) -> TrellisResult:
     repo = options.repo.expanduser().resolve()
     python = repo / ".venv" / "bin" / "python"
@@ -128,17 +129,29 @@ def generate_trellis(
     if "pipeline.rembg_model = None" not in patched_pipeline.read_text():
         raise RuntimeError("TRELLIS BRIA-disable patch is missing; refusing to run")
 
+    # One image, or several views of the same subject in the same pose. Extra views
+    # replace guessing: single-view runs invent whatever they cannot see, which is
+    # where the three-handled mug and the missing back of a head came from.
+    views = [image] if isinstance(image, Path) else list(image)
+    if not views:
+        raise ValueError("at least one input view is required")
+
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    prepared = output_dir / f"{image.stem}_trellis_input.png"
-    _prepare_rgba(image, prepared)
-    output_base = output_dir / f"{image.stem}_trellis2"
+    prepared_views = []
+    for index, view in enumerate(views):
+        suffix = "" if len(views) == 1 else f"_view{index}"
+        destination = output_dir / f"{view.stem}_trellis_input{suffix}.png"
+        _prepare_rgba(view, destination)
+        prepared_views.append(destination)
+    # Name outputs after the first view so a multi-view run stays traceable.
+    output_base = output_dir / f"{views[0].stem}_trellis2"
     cpu_basecolor = Path(f"{output_base}_basecolor.png")
     cpu_basecolor.unlink(missing_ok=True)
     command = [
         str(python),
         str(generator),
-        str(prepared),
+        *[str(path) for path in prepared_views],
         "--seed",
         str(options.seed),
         "--output",

@@ -48,6 +48,7 @@ def blender_code(
     upright: float,
     right_sign: float,
     azimuth: float,
+    focus_height: float,
 ) -> str:
     settings = ENVIRONMENTS[env]
     return f'''
@@ -387,7 +388,7 @@ except AttributeError:
     pass
 
 # Frame the upper body: the toast happens above the waist, so the legs are dead space.
-focus = Vector((0.0, 0.0, lo.z + height * 0.74))
+focus = Vector((0.0, 0.0, lo.z + height * {focus_height}))
 distance = size * 1.5 / {zoom}
 # A toast raised straight ahead points at the lens from a head-on camera, so orbit
 # round to a three-quarter view where the gesture actually reads.
@@ -481,6 +482,12 @@ def main() -> int:
         default=35.0,
         help="camera orbit in degrees; 0 is head-on, positive swings toward the mug side",
     )
+    parser.add_argument(
+        "--focus-height",
+        type=float,
+        default=0.55,
+        help="camera aim point as a fraction of the figure's height",
+    )
     parser.add_argument("--keep-frames", action="store_true")
     args = parser.parse_args()
 
@@ -515,6 +522,7 @@ def main() -> int:
         args.upright,
         args.right_sign,
         args.azimuth,
+        args.focus_height,
     )
     print(send(args.host, args.port, code, timeout=3600))
 

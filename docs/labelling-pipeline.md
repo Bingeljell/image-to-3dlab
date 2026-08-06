@@ -141,11 +141,12 @@ Fixes, in order of expected payoff:
 3. **More motion along the view depth axis**, so the tail sweeps toward and away from
    camera rather than only across it.
 
-**Labels inherit the confetti-mesh problem.** Interior shards poke through and never
-get labelled cleanly. Harmless for a wind shader, which only needs the foliage set. It
-will matter when splitting geometry into genuinely separate pieces with their own
-materials, because the shards do not form clean boundaries. See
-`docs/open-questions.md`.
+**Some interior surface shows through and never gets labelled cleanly.** Harmless for
+a wind shader, which only needs the foliage set. This was originally attributed to a
+"confetti mesh" of disconnected shards; that was a measurement artefact (see
+`docs/open-questions.md` question 1) and the real cause is more likely **inconsistent
+winding** — surfaces rendered from the wrong side. Splitting geometry into separate
+pieces should therefore be more tractable than first assumed.
 
 **Resolution settings do not transfer between subjects.** This fox was generated at
 `pipeline_type: 512` because 512 beat 1024 on the *Nikita* asset. That finding did not

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Turn a fragmented TRELLIS mesh into one watertight, textured, riggable surface.
+"""Voxel-remesh a mesh into a closed surface and bake its albedo back on.
 
-A TRELLIS export is not a surface but a "confetti" soup of tens of thousands of
-disconnected shards with open edges. Two visible consequences: you see interior
-geometry through the gaps (a face showing through the back of a head, skin-coloured
-speckles through a sweater), and Blender's bone-heat skinning fails because heat
-cannot diffuse across a disconnected mesh.
+SUPERSEDED (2026-08-06). This was written to fix a "confetti mesh" of tens of thousands
+of disconnected shards. That diagnosis was a measurement error: `merge_vertices` does
+not merge across UV seams, so the component count was really a count of UV islands.
+Measured position-only, the meshes are single connected surfaces -- so this script was
+solving a problem that did not exist. See `docs/open-questions.md` question 1.
 
-Both have the same fix. Voxel-remesh the soup into a single closed surface, then bake
-the original's albedo onto it so the new surface keeps the original's colour. The
-result renders solid and is riggable.
+Kept because the remesh-and-rebake machinery may still be useful, and so the dead end
+is documented rather than rediscovered. Do not reach for it to "fix topology".
 """
 
 from __future__ import annotations
@@ -89,7 +88,7 @@ remesh.voxel_size = voxel_size
 remesh.adaptivity = 0.0
 bpy.ops.object.modifier_apply(modifier=remesh.name)
 
-# Voxelising a shard soup welds nearby shards into a handful of large closed bodies
+# Voxelising welds nearby geometry into a handful of large closed bodies
 # (torso, head, each limb) plus a lot of tiny specks. Full fusion into one body would
 # need a voxel far coarser than the face can survive, so instead keep every substantial
 # component and drop only the specks. Each survivor is closed, which is what kills the

@@ -26,7 +26,13 @@ Three findings, in order of discovery:
    reference (standing, legs clearly apart, tail extended) produced geometry with
    **separated legs and tail** — riggable. Same model, different input pose → different
    result. This was the breakthrough.
-3. **The mesh is "confetti."** A TRELLIS mesh is tens of thousands of tiny disconnected
+3. **~~The mesh is "confetti."~~ WITHDRAWN 2026-08-06 — this was a measurement error.**
+   `merge_vertices` does not merge across UV seams, so the "fragments" were UV islands;
+   measured position-only the meshes are single connected surfaces (the Nikita hero is
+   100% one component). See `docs/open-questions.md` question 1. **The zero-weight
+   bone-heat failure was real but its cause is now unknown and worth re-testing.** The
+   original reasoning is kept below because it drove this plan's decisions.
+   Original claim: A TRELLIS mesh is tens of thousands of tiny disconnected
    fragments. Blender's normal automatic weighting ("bone heat") needs a *connected*
    surface, so it failed completely and assigned **zero** influence — the skeleton moved
    but the skin didn't. We worked around it with crude distance-based ("proximity")
@@ -52,7 +58,8 @@ wrong stick grabs the wrong jelly (our leg-grabs-face bug).
 
 **The proper fix — "heat" weighting:** imagine each stick glows warm and the heat spreads
 *along the body's surface*; a leg stick only warms the leg, not the face across the gap.
-But heat needs a *connected* surface, and our mesh is confetti. So: temporarily **"dip the
+But heat needs a *connected* surface, and our mesh was believed not to be one (since
+disproven — see above). The plan was: temporarily **"dip the
 fox in wax"** to fill the cracks into one solid surface (*voxel remesh*), compute clean heat
 weights on that, then **copy the weights back** onto the original detailed fox. Clean
 weights + original detail.

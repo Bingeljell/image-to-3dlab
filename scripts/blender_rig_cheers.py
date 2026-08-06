@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Rig a T-pose figure and animate a "cheers" toast, then render it to MP4.
 
-Blender's automatic ("bone heat") weighting needs a connected surface and fails on a
-TRELLIS mesh, which is a soup of disconnected shards -- that failure is what made the
-earlier fox walk cycle stiff. Generic proximity weighting replaces it but is blind to
-anatomy, so a leg bone grabs whatever is physically nearest, including the face.
+Blender's automatic ("bone heat") weighting failed on the earlier fox, giving zero
+weights and a stiff walk. That was blamed on the mesh being a soup of disconnected
+shards; the component count behind that claim was a measurement artefact (see
+`docs/open-questions.md` question 1) and the real cause is unknown. Generic proximity
+weighting, the fallback, is blind to anatomy -- a leg bone grabs whatever is physically
+nearest, including the face.
 
-This script sidesteps both by exploiting what we know: the figure is in a T-pose, so
+This script avoids the question entirely by exploiting what we know: the figure is in a
+T-pose, so
 the arms run along +/-X and the body along Z. Weights are therefore assigned
 analytically from a vertex's position rather than inferred from the mesh, which stays
 predictable no matter how fragmented the geometry is. A held prop (the beer mug) is

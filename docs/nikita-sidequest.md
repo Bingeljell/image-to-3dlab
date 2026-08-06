@@ -50,10 +50,15 @@ failed on the sitting fox and the pangolin.
 
 ## Diagnosis (the useful part)
 
-Defects 2 and 3 share a root cause. A TRELLIS mesh is not a surface but a **shard
-soup**: ~26k disconnected fragments, ~155k open boundary edges (measured after
-`merge_vertices`; note glTF splits verts at UV seams, so raw `is_watertight` on a
-round-tripped GLB is always False and means nothing).
+**CORRECTED 2026-08-06 — the shard-soup diagnosis below was wrong.** `merge_vertices`
+does not merge across UV seams, so the ~26k "fragments" were UV islands. Measured
+position-only, this mesh is a **single connected surface** with 4,786 boundary edges.
+See `docs/open-questions.md` question 1. The original (incorrect) reasoning is kept
+below because it drove the decisions in this session.
+
+Defects 2 and 3 were attributed to a common root cause: a TRELLIS mesh being not a
+surface but a **shard soup** of ~26k disconnected fragments with ~155k open boundary
+edges.
 
 Two things follow, both confirmed experimentally:
 

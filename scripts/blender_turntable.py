@@ -76,7 +76,8 @@ bpy.context.view_layer.update()
 
 mesh_objects = [obj for obj in imported if obj.type == "MESH"]
 
-# A TRELLIS mesh is an open shard soup, so gaps expose the shell's inner surface. That
+# A TRELLIS mesh has open holes and inconsistent winding, so some views expose the
+# shell's inner surface. That
 # interior carries the same skin-toned texture, which is why a hole in the back of a
 # head reads as a floating eye and gaps in a sweater read as bare skin. Shading
 # backfaces near-black turns those gaps into plain shadow, which reads as creases

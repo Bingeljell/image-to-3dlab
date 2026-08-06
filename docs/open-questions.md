@@ -8,29 +8,92 @@ Ordered by how much answering them would unblock.
 
 ---
 
-## 1. Why is a TRELLIS mesh "confetti" at all?
+## 1. ~~Why is a TRELLIS mesh "confetti" at all?~~ — WITHDRAWN, the premise was false
 
-**Observed.** Every TRELLIS output measures the same way: ~26,000 disconnected pieces,
-~155,000 open boundary edges, not watertight. It is not a surface, it is a soup of
-overlapping shards that happens to *look* solid from outside.
+**This question was based on a measurement error. Corrected 2026-08-06.**
 
-**ELI5.** A proper 3D model is like a balloon: one continuous skin with a defined
-inside and outside. Ours is more like a pile of leaves raked into the shape of a
-person. From a distance you see a person. Up close there are gaps between the leaves,
-and you can see the leaves on the far side through them.
+The claim was that every output is ~26,000 disconnected pieces with ~155,000 open
+boundary edges — a shard soup rather than a surface. It is not.
 
-**Why it matters.** This one fact caused most of our problems: the see-through holes,
-the skin-coloured speckles, and the rigging failures on the fox.
+**The trap.** glTF splits a vertex at every **UV seam**, and the texture bake produces
+~17,851 xatlas charts, so there are tens of thousands of seams.
+**`trimesh.merge_vertices()` does not merge vertices whose UVs differ**, so it leaves
+every seam split in place. Counting connected components after it measures *UV
+islands*, not geometry.
 
-**What we don't know.** Is this inherent to how TRELLIS decodes geometry (a mesh
-extracted from a sparse voxel/latent grid, where each active cell contributes its own
-patch), or is it an artefact of *our* vendored Mac port and its export path? Nobody
-has looked at whether the reference implementation produces the same topology.
+Always merge by **position only** before measuring topology:
 
-**How to settle it.** Run the same input through a reference TRELLIS (Colab/CUDA) and
-measure component count and boundary edges the same way. If it is equally fragmented,
-this is inherent and every consumer must plan around it. If it is not, we have a bug
-in the port worth finding. This is the single highest-value experiment on this list.
+```python
+q = np.round(v / (scale * 1e-6)).astype(np.int64)
+_, inv = np.unique(q, axis=0, return_inverse=True)   # then reindex faces by inv
+```
+
+**Corrected measurements:**
+
+| mesh | claimed components | actual | largest holds | boundary edges |
+|---|---|---|---|---|
+| Nikita s7 (the rigged one) | ~26,000 | **1** | 100% | 4,786 |
+| moss fox cascade | 21,247 | 171 | 99.2% | 34,789 |
+| moss fox A-pose (old) | — | 63 | 99.3% | 45,609 |
+
+The meshes are **essentially single connected surfaces** with real holes and a little
+debris. `scripts/mesh_health.py` measures this correctly.
+
+**What this invalidates:** the shard-soup framing throughout these docs; the claim that
+bone-heat weighting could not work for lack of a connected surface; and the reasoning
+behind question 4 below.
+
+**What survives:** the holes are real, and **winding is inconsistent** (measured, not
+inferred) — see question 2, which is now the leading explanation for the see-through
+interior.
+
+**The lesson worth keeping:** a measurement artefact produced a confident, coherent,
+wrong diagnosis that survived several sessions and shaped real design decisions. The
+warning about UV seams was even written down — and then the tool was trusted to honour
+it without checking. Verify that a tool does what your caveat says before building on
+its numbers.
+
+---
+
+## 1b. Our Mac port disables upstream's mesh repair
+
+*(Separate finding, surfaced while investigating question 1. Still live — the holes
+are real even though the shard-soup framing was not.)*
+
+Two findings from auditing `vendor/trellis-mac/patches/mps_compat.py`:
+
+1. **`patch_mesh_base()` unconditionally disables `fill_holes()`.** Upstream TRELLIS.2
+   calls it during decode; our port returns immediately, because the Metal build of
+   `cumesh` segfaults on the full ~400K-vertex decode mesh. `remove_faces()` and
+   `simplify()` are skipped for the same reason. Confirmed live in the installed
+   source at `TRELLIS.2/trellis2/representations/mesh/base.py:43`.
+
+2. **The extraction itself drops geometry at every boundary.**
+   `install_mesh_extract()` replaces the CUDA `o_voxel.convert` with a pure-Python
+   dual-grid extractor (`backends/mesh_extract.py`). Each intersected edge becomes a
+   quad spanning **four** neighbouring voxels, and the quad is emitted only if all
+   four exist:
+
+   ```python
+   connected_voxel_valid = (connected_voxel_indices != 0xFFFFFFFF).all(dim=1)
+   ```
+
+   Wherever the sparse active voxel set has a boundary, the quad is silently dropped.
+   Holes are therefore *expected* output of this stage — which is precisely why
+   upstream repairs them afterwards.
+
+So the causal chain is: extraction leaves holes by design → upstream fills them →
+**we skip the fill** → holes survive into the output. This is a deliberate, documented
+workaround whose downstream cost was never measured. Note the scale is far smaller than
+first believed (question 1): 4,786 boundary edges on the Nikita hero, not 155,000. Also
+note `cumesh` is not installed at all, so the guarded import always took the fallback
+path — re-enabling the call alone would not work.
+
+**Still to prove.** Re-enable the repair and measure. `cumesh` segfaults on Metal at
+decode size, so the options are: run `fill_holes` on CPU, run it post-decode after
+simplification (when the mesh is ~200K rather than ~400K), or implement hole-filling
+in Python/trimesh. Any of these is a **local** experiment — no CUDA needed. If
+component count and boundary edges collapse, this question is closed.
 
 ---
 
@@ -48,13 +111,20 @@ our model, the paper is in backwards.
 drawn over correctly-facing ones, some of what we called "holes" may not be holes at
 all — just surfaces rendered from the wrong side.
 
-**What we don't know.** Whether normals can be recovered. `trimesh` reported winding
-as *consistent*, which suggests each shard is internally coherent but individual
-shards disagree with each other about which way is out.
+**Now measured (2026-08-06).** `scripts/mesh_health.py` reports
+`winding_consistent: False` on the moss fox. An earlier note here said trimesh
+reported winding as *consistent* — that was measured before the position-only merge
+and was wrong for the same reason as question 1.
 
-**How to settle it.** Per-connected-component "recalculate normals outside" (Blender
-can do this, or `trimesh.repair.fix_normals`), then re-render. Cheap to try, and if it
-works it may improve every model we have already generated — no regeneration needed.
+**This is now the leading explanation** for the see-through interior. With question 1
+withdrawn, "you are seeing through gaps between shards" is gone; "you are seeing
+surfaces rendered from the wrong side" remains and fits the evidence — including the
+blackface render, where shading backfaces dark blackened the face and jeans.
+
+**How to settle it.** `trimesh.repair.fix_winding` then `fix_normals` on a connected
+surface (which we now know we have), re-render, and see whether the interior artefacts
+disappear. Cheap, and it would improve every model already on disk with no
+regeneration. **This is the top candidate for the next experiment.**
 
 ---
 
@@ -65,22 +135,28 @@ nose) but far more visible interior — speckles on the sweater, a face showing 
 the back of the skull. `512` was cleaner but had dead, smeared eyes. The seed hunt
 (4 variants) never broke this tradeoff.
 
-**Hypothesis.** Higher resolution means smaller, thinner shards, so the gaps between
-them are proportionally larger and easier to see through. Detail and watertightness
-may be directly in tension.
+**Hypothesis (revised).** Higher resolution means thinner walls and finer features, so
+the dual-grid extractor drops more boundary quads (question 1b) and the resulting holes
+are more numerous. Detail and watertightness may be in tension.
 
-**How to settle it.** Measure component count, boundary edges, and mean shard area at
-512 vs 1024 vs cascade on the same seed. If shard size shrinks faster than gap size,
-the hypothesis holds and "just use higher resolution" is not a free win.
+**How to settle it.** Run `scripts/mesh_health.py` at 512 vs 1024 vs cascade on the
+same seed and compare boundary-edge counts, **measured position-only**. Note the
+related finding that the tradeoff is subject-dependent: 512 beat 1024 on the human but
+loses badly on the fox.
 
 ---
 
 ## 4. Why didn't voxel remeshing fix it?
 
-**Observed.** Voxel remesh should wrap a shard soup in one clean skin. It didn't. At
-detail-preserving sizes (0.004) we got 258 disconnected components — and the largest
-was *just the legs*. Only at 0.012 did it fuse into 3 bodies, by which point the mesh
-was 7,000 faces and the face was destroyed.
+**Observed.** Voxel remesh was tried as a way to wrap the geometry in one clean skin.
+It didn't work. At detail-preserving sizes (0.004) it produced 258 disconnected
+components — the largest being *just the legs*. Only at 0.012 did it fuse into 3
+bodies, by which point the mesh was 7,000 faces and the face was destroyed.
+
+**Note (2026-08-06):** this was motivated by question 1's false premise. The input was
+already a connected surface, so remeshing was solving a problem that did not exist —
+and the component counts quoted here were themselves measured with the UV-seam bug.
+Worth re-deriving before drawing conclusions from it.
 
 **ELI5.** Voxel remeshing is "dip the model in wax and keep the wax shell." It works
 if the wax is thick enough to bridge the gaps. Ours had to be so thick it filled in
@@ -91,9 +167,10 @@ one option, but **screened Poisson surface reconstruction** (Open3D, PyMeshLab) 
 built precisely for turning noisy, gappy point/shard data into a watertight surface
 and may bridge the gaps without the same detail cost. We never tried it.
 
-**How to settle it.** Sample points + normals from the shard soup, run Poisson
-reconstruction at a few depths, compare face detail and watertightness against the
-voxel results. Note this depends on question 2 — Poisson needs *correct* normals, so
+**How to settle it.** Sample points + normals, run Poisson reconstruction at a few
+depths, compare detail and watertightness against the voxel results. Lower priority now
+that the input is known to be a connected surface — ordinary hole filling is the
+cheaper first thing to try. Note this depends on question 2 — Poisson needs *correct* normals, so
 inside-out patches would poison it.
 
 ---
@@ -141,8 +218,9 @@ only measured because things looked wrong.
 
 A `mesh health` step could report, per run: connected components, boundary edges,
 watertightness, normal consistency, face count. Cheap to compute, and it turns "the
-back of his head looks weird" into "this mesh has 26,000 components." Would have
-saved most of an afternoon.
+back of his head looks weird" into a number. Built as `scripts/mesh_health.py`. It must
+merge by **position only** — the UV-seam trap in question 1 is exactly the kind of
+error a shared diagnostic prevents from spreading.
 
 Open question: should it just report, or should it *gate* — refuse to promote an
 output that fails a threshold, the way `validate_run_policy` gates on licence?
@@ -156,9 +234,11 @@ failed on the fox. But for the T-posed human we skipped marking entirely: landma
 were measured straight off the mesh (shoulder 0.12, elbow 0.215, wrist 0.30), and
 weights were assigned from vertex position rather than inferred from the mesh.
 
-**Why it matters.** This completely sidestepped the confetti problem. No voxel remesh,
-no heat diffusion, no weight transfer. Bone-heat weighting was never the obstacle for
-a single-limb gesture.
+**Why it matters.** It is predictable regardless of mesh quality — no voxel remesh, no
+heat diffusion, no weight transfer. **Corrected:** the original justification (the mesh
+being too fragmented for bone-heat weighting) was false, see question 1. The Nikita mesh
+is a single connected surface, so standard weighting might have worked too. The approach
+still stands on its own for a known pose.
 
 **What we don't know.** Where the boundary is. It clearly works when the pose is known
 and the limbs are axis-aligned (T-pose). It clearly fails for a quadruped in an

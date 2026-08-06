@@ -97,7 +97,7 @@ component count and boundary edges collapse, this question is closed.
 
 ---
 
-## 2. ~~Why are large regions of the mesh inside-out?~~ — DISPROVEN by visual test
+## 2. Large regions of the mesh ARE inside-out — and it is fixable
 
 **Observed.** Shading backfacing polygons near-black — expecting gaps to darken —
 instead blackened his face, jeans, and the mug. Those surfaces are facing *inward*.
@@ -111,23 +111,38 @@ our model, the paper is in backwards.
 drawn over correctly-facing ones, some of what we called "holes" may not be holes at
 all — just surfaces rendered from the wrong side.
 
-**TESTED AND DISPROVEN (2026-08-06).** Winding is measurably imperfect — 2.13% of
-edges disagree — but it is **not** the cause of the visible artefacts.
+**CONFIRMED (2026-08-06), after one false negative.** The meshes really are
+substantially inside-out, and Blender's *Recalculate Outside* fixes most of it:
 
-The test: render the artefact-heavy Nikita mesh (`05062424f4c0`) from behind, apply
-Blender's *Recalculate Outside* (`mesh.normals_make_consistent`), render again.
-**The two renders are identical.** `trimesh.repair.fix_winding`/`fix_normals` likewise
-moved the inward-facing area not at all (60.0% before, 60.0% after — trimesh bails on
-meshes with this many boundaries).
+| mesh | inward area before | after |
+|---|---|---|
+| Nikita 1024 s42 | **60.1%** | 19.1% |
+| Nikita s7 (hero) | 23.0% | 14.7% |
 
-**What the render actually shows.** Close up from behind, the artefact is his *face*,
-seen through a large opening where the back of the skull should be. The dark speckles
-are the fragments of hair that did generate. The geometry is simply **missing** — this
-was never a shading problem.
+The residue is genuine concavity — armpits, between the legs, inside the ears —
+which legitimately faces inward relative to the centroid. Tool:
+`scripts/blender_fix_normals.py`.
 
-Note the centroid-based "23-27% of faces point inward" figure quoted earlier is a poor
-proxy on a concave body (armpits, between the legs legitimately face inward) and should
-not be read as flipped area.
+**The false negative is the lesson.** A first attempt rendered the mesh before and
+after recalculation and got *identical images*, which looked like proof that winding
+was irrelevant. It was proof of nothing: glTF marks these materials **doubleSided**,
+and Blender shades backfaces identically, flipping the normal for lighting
+automatically. **A preview render is blind to normal direction.** The user caught this
+by opening the model and turning on *Overlays > Face Orientation*, where it was
+entirely red. Re-rendering with backface culling enabled then showed a clear
+difference.
+
+Note also `trimesh.repair.fix_winding`/`fix_normals` do **not** work here — they bail
+on meshes with this many boundary edges and leave the inward fraction unchanged
+(60.0% → 60.0%). Use Blender's ray-cast heuristic.
+
+**Why it matters despite our renders looking fine.** Engines are not blind to it.
+SceneKit and RealityKit commonly cull backfaces, where an inside-out mesh renders
+inverted or vanishes. This is a required export step, not a cosmetic one.
+
+**What it does NOT fix.** The see-through back of the head survives the repair. That
+artefact is his face seen through a large opening where the skull should be — genuinely
+**missing geometry**, a separate problem from mis-facing geometry.
 
 **Where this leaves the artefact.** Two live explanations, both in question 1b and
 question 5: geometry dropped by the extractor and never repaired, and — more likely for

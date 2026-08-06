@@ -23,9 +23,12 @@ Small, high payoff, and they complete stories already 90% done.
 
 ## Tier 2 — the research question blocking everything else
 
-4. ~~**Fix the inconsistent winding.**~~ **DISPROVEN 2026-08-06.** Recalculating
-   normals changes the render not at all; the artefact is missing geometry, not
-   wrongly-facing geometry. See [open-questions.md](open-questions.md) question 2.
+4. **Fix inside-out normals on export. CONFIRMED, cheap, do it.** Meshes come out
+   substantially inverted (60% of area on one run); Blender's *Recalculate Outside*
+   takes that to 19%. `scripts/blender_fix_normals.py`. Required for SceneKit and
+   RealityKit, which cull backfaces — our own previews are blind to this because glTF
+   marks the materials doubleSided. Candidate for folding into the pipeline as an
+   automatic post-process. See [open-questions.md](open-questions.md) question 2.
 5. **Fill the remaining holes.** Our port disables upstream's `fill_holes()` (question
    1b), and `cumesh` is not installed at all, so re-enabling the call alone will not
    work — it needs a Python/trimesh implementation. Far smaller in scale than first

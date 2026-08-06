@@ -58,8 +58,8 @@ def subject_bbox(image: Image.Image, threshold: int = 204) -> tuple[int, int, in
     return int(cols.min()), int(rows.min()), int(cols.max()), int(rows.max())
 
 
-def square_crop(image: Image.Image) -> Image.Image:
-    """Crop to the square TRELLIS conditions on: centred on the subject bbox."""
+def crop_box(image: Image.Image) -> tuple[int, int, int, int]:
+    """The square crop TRELLIS conditions on: centred on the subject bbox."""
     x0, y0, x1, y1 = subject_bbox(image)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     size = max(x1 - x0, y1 - y0)
@@ -69,7 +69,7 @@ def square_crop(image: Image.Image) -> Image.Image:
         int(cx + size // 2),
         int(cy + size // 2),
     )
-    return image.crop(box)
+    return box
 
 
 def project(
@@ -82,6 +82,7 @@ def project(
     depth_buffer: int,
     depth_tolerance: float,
     yaw: float = 0.0,
+    source: Image.Image | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (colours, visible) for every vertex."""
     h_axis, v_axis, d_axis = AXES[axis]
@@ -114,7 +115,12 @@ def project(
     if flip_v:
         v = 1.0 - v
 
-    crop = square_crop(image)
+    # The crop geometry must always come from the SOURCE image, never from a painted
+    # mask. A mask's own bounding box is defined by where paint happens to land, so
+    # overflow or a missed edge would shift the crop and silently offset every label.
+    box = crop_box(source if source is not None else image)
+    crop = image.crop(box)
+    reference = (source if source is not None else image).crop(box)
     pixels = np.array(crop.convert("RGB"))
     height, width = pixels.shape[:2]
     px = np.clip((u * width).astype(np.int32), 0, width - 1)
@@ -124,8 +130,10 @@ def project(
     # A vertex landing off the subject sampled the backdrop, not a label. Without this
     # the background's colour becomes a bogus label -- white "paint" smeared over every
     # silhouette edge. Treat those as unlabelled instead.
-    cropped = np.array(crop)
-    if crop.mode == "RGBA" and not np.all(cropped[:, :, 3] == 255):
+    # Foreground likewise comes from the source: it defines where the subject is, which
+    # is what the silhouette match and the "off the subject" test both depend on.
+    cropped = np.array(reference)
+    if reference.mode == "RGBA" and not np.all(cropped[:, :, 3] == 255):
         foreground = cropped[:, :, 3] > 204
     else:
         foreground = cropped[:, :, :3].astype(np.int32).sum(axis=2) < (204 * 3)
@@ -162,13 +170,13 @@ def silhouette_iou(u: np.ndarray, v: np.ndarray, foreground: np.ndarray, grid: i
     return float((mesh_mask & image_mask).sum() / union) if union else 0.0
 
 
-def best_yaw(mesh, image, axis, flip_h, flip_v, flip_depth, depth_buffer, depth_tolerance, step):
+def best_yaw(mesh, image, axis, flip_h, flip_v, flip_depth, depth_buffer, depth_tolerance, step, source=None):
     """Sweep yaw and keep the angle whose silhouette best matches the image."""
     best, best_score = 0.0, -1.0
     for yaw in np.arange(0.0, 360.0, step):
         _, _, u, v, foreground = project(
             mesh, image, axis, flip_h, flip_v, flip_depth,
-            depth_buffer, depth_tolerance, float(yaw),
+            depth_buffer, depth_tolerance, float(yaw), source,
         )
         score = silhouette_iou(u, v, foreground)
         if score > best_score:
@@ -179,9 +187,19 @@ def best_yaw(mesh, image, axis, flip_h, flip_v, flip_depth, depth_buffer, depth_
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("mesh", type=Path, help="generated .glb")
-    parser.add_argument("image", type=Path, help="source image, or a painted mask")
+    parser.add_argument("image", type=Path, help="image to sample: the source, or a painted mask")
     parser.add_argument("output", type=Path, help="destination .glb")
     parser.add_argument("--axis", choices=tuple(AXES), default="z")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help=(
+            "the original source image, when sampling a painted mask. The crop and "
+            "silhouette are taken from this, so mask paint that overflows or falls "
+            "short of the subject cannot shift the alignment."
+        ),
+    )
     parser.add_argument(
         "--yaw",
         type=float,
@@ -213,12 +231,17 @@ def main() -> int:
 
     mesh = trimesh.load(args.mesh.expanduser().resolve(), force="mesh")
     image = Image.open(args.image.expanduser().resolve())
+    source = Image.open(args.source.expanduser().resolve()) if args.source else None
+    if source is not None and source.size != image.size:
+        raise SystemExit(
+            f"error: mask {image.size} and source {source.size} must be the same size"
+        )
 
     yaw = args.yaw
     if args.auto_yaw:
         yaw, score = best_yaw(
             mesh, image, args.axis, args.flip_h, args.flip_v, args.flip_depth,
-            args.depth_buffer, args.depth_tolerance, args.yaw_step,
+            args.depth_buffer, args.depth_tolerance, args.yaw_step, source,
         )
         print(f"AUTOYAW:: best yaw {yaw:.0f} deg (silhouette IoU {score:.3f})")
 
@@ -232,6 +255,7 @@ def main() -> int:
         args.depth_buffer,
         args.depth_tolerance,
         yaw,
+        source,
     )
 
     hidden = np.array([int(c) for c in args.hidden_colour.split(",")], dtype=np.uint8)

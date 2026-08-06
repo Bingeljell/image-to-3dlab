@@ -139,6 +139,14 @@ def project(
         foreground = cropped[:, :, :3].astype(np.int32).sum(axis=2) < (204 * 3)
     on_subject = foreground[py, px]
 
+    # When sampling a painted mask, an unpainted pixel means "no label here". Its RGB
+    # reads as black, and snapping black to a palette is a coin toss between labels, so
+    # gaps in the painting would silently become confident wrong answers.
+    if source is not None:
+        painted = np.array(crop.convert("RGBA"))
+        if not np.all(painted[:, :, 3] == 255):
+            on_subject &= painted[:, :, 3][py, px] > 204
+
     # Depth test: a vertex on the back of the head would otherwise sample the chest.
     # Bin vertices by pixel and keep only those at (or near) the frontmost depth in
     # their bin. This is topology-independent, which matters on a fragmented mesh.
@@ -152,6 +160,26 @@ def project(
 
     return colours, visible, u, v, foreground
 
+
+
+
+# Painted masks are anti-aliased, so edge pixels are blends of two labels. Snapping
+# each sample to the nearest palette entry keeps those from becoming phantom classes.
+DEFAULT_PALETTE = {
+    "body": (255, 0, 0),
+    "foliage": (0, 255, 0),
+    "flower": (0, 0, 255),
+}
+
+
+def snap_to_palette(colours: np.ndarray, palette: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Return (index into palette, snapped colour) for each sampled colour."""
+    entries = np.array(list(palette.values()), dtype=np.float32)
+    distances = np.linalg.norm(
+        colours.astype(np.float32)[:, None, :] - entries[None, :, :], axis=2
+    )
+    index = distances.argmin(axis=1)
+    return index, entries[index].astype(np.uint8)
 
 
 def silhouette_iou(u: np.ndarray, v: np.ndarray, foreground: np.ndarray, grid: int = 128) -> float:
@@ -212,6 +240,11 @@ def main() -> int:
         help="solve for the yaw that best matches the mesh silhouette to the image",
     )
     parser.add_argument("--yaw-step", type=float, default=5.0)
+    parser.add_argument(
+        "--snap",
+        action="store_true",
+        help="snap sampled colours to the nearest label, for painted masks",
+    )
     parser.add_argument("--flip-h", action="store_true")
     parser.add_argument("--flip-v", action="store_true")
     parser.add_argument("--flip-depth", action="store_true")
@@ -258,8 +291,20 @@ def main() -> int:
         source,
     )
 
-    hidden = np.array([int(c) for c in args.hidden_colour.split(",")], dtype=np.uint8)
     colours = colours.copy()
+    if args.snap:
+        index, snapped = snap_to_palette(colours, DEFAULT_PALETTE)
+        colours = snapped
+        names = list(DEFAULT_PALETTE)
+        total = int(visible.sum())
+        print("LABELS::")
+        for i, name in enumerate(names):
+            count = int(((index == i) & visible).sum())
+            share = 100.0 * count / total if total else 0.0
+            print(f"  {name:9s} {count:7d} vertices  ({share:5.1f}% of labelled)")
+        print(f"  {'unlabelled':9s} {int((~visible).sum()):7d} vertices")
+
+    hidden = np.array([int(c) for c in args.hidden_colour.split(",")], dtype=np.uint8)
     colours[~visible] = hidden
 
     rgba = np.concatenate(

@@ -241,6 +241,11 @@ def main() -> int:
     )
     parser.add_argument("--yaw-step", type=float, default=5.0)
     parser.add_argument(
+        "--fill",
+        action="store_true",
+        help="give unlabelled vertices the label of their nearest labelled neighbour",
+    )
+    parser.add_argument(
         "--snap",
         action="store_true",
         help="snap sampled colours to the nearest label, for painted masks",
@@ -303,6 +308,21 @@ def main() -> int:
             share = 100.0 * count / total if total else 0.0
             print(f"  {name:9s} {count:7d} vertices  ({share:5.1f}% of labelled)")
         print(f"  {'unlabelled':9s} {int((~visible).sum()):7d} vertices")
+
+    if args.fill and (~visible).any() and visible.any():
+        # A single view cannot label the far side, and leaving it unlabelled is not
+        # neutral: defaulting it to "rigid" would freeze the far half of a swaying tail
+        # while the near half moves, tearing it down the middle. Filling from the
+        # nearest labelled vertex in 3D resolves it correctly -- a far-side tail vertex
+        # sits millimetres from a labelled tail vertex, so it inherits foliage.
+        from scipy.spatial import cKDTree
+
+        tree = cKDTree(mesh.vertices[visible])
+        _, nearest_labelled = tree.query(mesh.vertices[~visible])
+        colours[~visible] = colours[visible][nearest_labelled]
+        filled = int((~visible).sum())
+        visible = np.ones(len(mesh.vertices), dtype=bool)
+        print(f"FILL:: filled {filled} unlabelled vertices from nearest neighbours")
 
     hidden = np.array([int(c) for c in args.hidden_colour.split(",")], dtype=np.uint8)
     colours[~visible] = hidden

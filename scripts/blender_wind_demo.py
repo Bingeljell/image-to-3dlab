@@ -42,10 +42,15 @@ def blender_code(
     frames: int,
     zoom: float,
     azimuth: float,
-    amplitude: float,
     frequency: float,
     wave: float,
     gust: float,
+    bend: float,
+    axis_y: float,
+    axis_z: float,
+    cluster_size: float,
+    jitter: float,
+    flutter: float,
 ) -> str:
     settings = ENVIRONMENTS[env]
     return f'''
@@ -142,9 +147,13 @@ for index, point in enumerate(rigid_points):
 anchors.balance()
 
 stiffness = np.zeros(len(base), dtype=np.float32)
+# Keep the anchor position too, not just the distance: bending has to pivot about the
+# point where the foliage attaches, and each frond has its own attachment point.
+anchor_of = base.copy()
 for index in np.nonzero(moving)[0]:
-    _, _, distance = anchors.find(Vector(base[index]))
+    position, _, distance = anchors.find(Vector(base[index]))
     stiffness[index] = distance
+    anchor_of[index] = position
 if stiffness.max() > 0:
     stiffness /= stiffness.max()
 stiffness = stiffness * stiffness * (3.0 - 2.0 * stiffness)  # ease the falloff
@@ -152,10 +161,29 @@ stiffness = stiffness * stiffness * (3.0 - 2.0 * stiffness)  # ease the falloff
 print("WIND:: moving %d of %d vertices, max stiffness %.3f" % (int(moving.sum()), len(base), float(stiffness.max())))
 
 extent = float(np.ptp(base, axis=0).max())
-scale = extent * {amplitude}
 # Phase varies with position so the wind travels across the tail as a wave rather than
 # moving every leaf in lockstep.
 phase = (base[:, 0] + base[:, 2]) / max(extent, 1e-6) * {wave}
+
+# Smoothly varying phase alone still moves neighbouring fronds almost together, which
+# reads as one sheet rather than a bushy mass. Give each small clump its own offset by
+# hashing a coarse grid of positions, so clumps flutter independently while staying
+# coherent within themselves.
+cell = np.floor(base / max(extent * {cluster_size}, 1e-6)).astype(np.int64)
+clump = (cell[:, 0] * 73856093) ^ (cell[:, 1] * 19349663) ^ (cell[:, 2] * 83492791)
+phase = phase + (clump % 997) / 997.0 * (2.0 * math.pi) * {jitter}
+
+# Bending, not sliding. Translating every vertex along one direction is a shear: the
+# tail slides bodily, its tip traces no arc, and the volume never turns to show its
+# depth -- which is what makes a mesh with real thickness read as a flat cutout.
+# Rotating about the attachment point instead preserves length and sweeps the mass
+# through an arc.
+offset_from_anchor = base - anchor_of
+axis = np.array([0.0, {axis_y}, {axis_z}], dtype=np.float32)
+axis = axis / max(float(np.linalg.norm(axis)), 1e-6)
+axis_dot = offset_from_anchor @ axis
+axis_cross = np.cross(np.broadcast_to(axis, offset_from_anchor.shape), offset_from_anchor)
+max_angle = math.radians({bend})
 
 scene = bpy.context.scene
 try:
@@ -228,14 +256,23 @@ for index in range(frames):
         + np.sin(2.0 * math.pi * ({frequency} * 1.7 * t) + phase * 1.4) * 0.35
     )
     strength = 1.0 + {gust} * math.sin(2.0 * math.pi * t)
-    offset = swing * stiffness * scale * strength
+    angle = (swing * strength * max_angle * stiffness).astype(np.float32)
 
-    moved = base.copy()
-    moved[:, 0] += offset                      # push downwind
-    moved[:, 2] += offset * 0.35               # and a little across
-    moved[:, 1] += np.abs(offset) * -0.20      # tips dip as they are dragged
+    # Rodrigues rotation of each vertex about its own anchor, by its own angle.
+    cos_a = np.cos(angle)[:, None]
+    sin_a = np.sin(angle)[:, None]
+    rotated = (
+        offset_from_anchor * cos_a
+        + axis_cross * sin_a
+        + np.broadcast_to(axis, offset_from_anchor.shape) * axis_dot[:, None] * (1.0 - cos_a)
+    )
+    moved = anchor_of + rotated
 
-    moved.reshape(-1).astype(np.float32, copy=False)
+    # A little high-frequency flutter on the tips, on top of the bend, so the surface
+    # shimmers instead of moving as one rigid fan.
+    flutter = np.sin(2.0 * math.pi * ({frequency} * 3.1 * t) + phase * 2.3)
+    moved[:, 1] += flutter * stiffness * extent * {flutter} * strength
+
     flat[:] = moved.reshape(-1)
     fox_mesh.vertices.foreach_set("co", flat)
     fox_mesh.update()
@@ -286,10 +323,28 @@ def main() -> int:
     parser.add_argument("--zoom", type=float, default=1.0)
     parser.add_argument("--azimuth", type=float, default=25.0)
     parser.add_argument(
-        "--amplitude",
+        "--bend",
         type=float,
-        default=0.05,
-        help="tip displacement as a fraction of the asset's size",
+        default=22.0,
+        help="peak bend angle in degrees at the floppiest tips",
+    )
+    parser.add_argument(
+        "--axis-y", type=float, default=1.0, help="bend axis: horizontal sweep component"
+    )
+    parser.add_argument(
+        "--axis-z", type=float, default=0.35, help="bend axis: vertical lift component"
+    )
+    parser.add_argument(
+        "--cluster-size",
+        type=float,
+        default=0.07,
+        help="clump size for independent flutter, as a fraction of the asset",
+    )
+    parser.add_argument(
+        "--jitter", type=float, default=0.8, help="how independently clumps flutter (0-1)"
+    )
+    parser.add_argument(
+        "--flutter", type=float, default=0.012, help="high-frequency tip shimmer"
     )
     parser.add_argument("--frequency", type=float, default=2.0, help="sway cycles per loop")
     parser.add_argument("--wave", type=float, default=5.0, help="how much the wave travels")
@@ -314,10 +369,15 @@ def main() -> int:
         args.frames,
         args.zoom,
         args.azimuth,
-        args.amplitude,
         args.frequency,
         args.wave,
         args.gust,
+        args.bend,
+        args.axis_y,
+        args.axis_z,
+        args.cluster_size,
+        args.jitter,
+        args.flutter,
     )
     print(send(args.host, args.port, code, timeout=3600))
 

@@ -5,54 +5,355 @@
     <meta name="viewport" content="width=1920, height=1080" />
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
+      :root {
+        --ink: #141413;
+        --cream: #faf9f5;
+        --tile: #efe9de;
+        --tile-strong: #ece3d4;
+        --coral: #cc785c;
+        --navy: #181715;
+        --navy-soft: #1f1e1b;
+        --navy-elev: #252320;
+        --teal: #5db8a6;
+        --amber: #e8a55a;
+        --green: #5db872;
       }
-      html,
-      body {
+
+      * { box-sizing: border-box; }
+      html, body {
         margin: 0;
         width: 1920px;
         height: 1080px;
         overflow: hidden;
-        background: #000;
+        background: var(--cream);
       }
       body {
-        font-family: "Inter", sans-serif;
+        color: var(--ink);
+        font-family: Inter, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
       }
-      code,
-      pre,
-      .monospace {
-        font-family: "JetBrains Mono", monospace;
+      .mono { font-family: "JetBrains Mono", Menlo, monospace; }
+      .serif { font-family: "EB Garamond", Georgia, serif; }
+
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--cream);
+        container-type: size;
       }
+      .scene {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        overflow: hidden;
+      }
+      .scene-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--cream);
+      }
+      .scene-bg.navy { background: var(--navy); }
+      .safe { position: absolute; inset: 76px 82px; }
+      .kicker {
+        color: var(--coral);
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+      }
+      .kicker::before { content: "✱ "; }
+      .display {
+        font-size: 104px;
+        line-height: .98;
+        letter-spacing: -.028em;
+        font-weight: 400;
+      }
+      .lead {
+        font-size: 30px;
+        line-height: 1.25;
+        letter-spacing: -.01em;
+      }
+      .small-label {
+        font-size: 18px;
+        line-height: 1.25;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      .tiny {
+        font-size: 15px;
+        line-height: 1.4;
+        letter-spacing: .04em;
+      }
+      .hairline { border: 1px solid rgba(20, 20, 19, .16); }
+      .hairline-dark { border: 1px solid rgba(250, 249, 245, .18); }
+      .shadow { box-shadow: 0 1px 3px rgba(20,20,19,.08), 0 4px 16px rgba(20,20,19,.04); }
+
+      .scene-index {
+        position: absolute;
+        right: 0;
+        top: 2px;
+        font-size: 16px;
+        letter-spacing: .12em;
+        color: rgba(20,20,19,.5);
+      }
+      .dark-index { color: rgba(250,249,245,.55); }
+      .caption {
+        position: absolute;
+        left: 82px;
+        bottom: 72px;
+        max-width: 930px;
+        font-size: 29px;
+        line-height: 1.18;
+        letter-spacing: -.01em;
+      }
+      .caption strong { font-weight: 500; }
+      .caption .accent { color: var(--coral); }
+
+      /* Scene 01 — source image becomes a model proposition. */
+      .hook-grid {
+        position: absolute;
+        inset: 0;
+        opacity: .5;
+        background-size: 96px 96px;
+        background-image: linear-gradient(rgba(20,20,19,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(20,20,19,.06) 1px, transparent 1px);
+        mask-image: linear-gradient(to right, black 0%, transparent 70%);
+      }
+      .hook-copy { position: absolute; top: 172px; left: 82px; width: 720px; }
+      .hook-copy h1 { margin: 30px 0 20px; }
+      .hook-copy p { width: 580px; color: rgba(20,20,19,.7); }
+      .source-card {
+        position: absolute;
+        top: 128px;
+        right: 380px;
+        width: 410px;
+        height: 610px;
+        padding: 14px;
+        background: var(--tile);
+        transform: rotate(-1.4deg);
+      }
+      .source-card img { width: 100%; height: 100%; object-fit: cover; object-position: center 44%; }
+      .card-tag { position: absolute; left: 20px; top: 20px; padding: 7px 10px; background: var(--navy); color: var(--cream); }
+      .source-card .card-footer { position: absolute; left: 20px; right: 20px; bottom: 20px; display: flex; justify-content: space-between; color: var(--cream); }
+      .model-card {
+        position: absolute;
+        top: 192px;
+        right: 116px;
+        width: 440px;
+        height: 480px;
+        padding: 32px;
+        color: var(--cream);
+        background: var(--navy);
+        transform: rotate(1.4deg);
+      }
+      .model-card::before { content: ""; position: absolute; left: -78px; top: 220px; width: 98px; border-top: 1px solid var(--coral); }
+      .model-card h2 { margin: 0 0 34px; font-size: 18px; letter-spacing: .12em; font-weight: 500; }
+      .wireframe { position: relative; width: 280px; height: 260px; margin: 0 auto 24px; }
+      .wireframe::before, .wireframe::after { content: ""; position: absolute; inset: 18px; border: 1px solid rgba(250,249,245,.42); border-radius: 48% 52% 42% 58%; transform: rotate(22deg); }
+      .wireframe::after { inset: 48px 2px; transform: rotate(-28deg); border-color: rgba(204,120,92,.9); }
+      .wire-line { position: absolute; left: 18px; right: 18px; top: 50%; border-top: 1px solid rgba(250,249,245,.24); }
+      .wire-line.vertical { top: 18px; bottom: 18px; left: 50%; right: auto; height: auto; border-top: 0; border-left: 1px solid rgba(250,249,245,.24); }
+      .model-meta { display: flex; justify-content: space-between; color: rgba(250,249,245,.6); border-top: 1px solid rgba(250,249,245,.18); padding-top: 14px; }
+
+      /* Scene 02 — reference and local routes. */
+      .route-source { position: absolute; left: 82px; top: 178px; width: 370px; height: 552px; padding: 14px; background: var(--tile); transform: rotate(-1deg); }
+      .route-source img { width: 100%; height: 100%; object-fit: cover; object-position: center 35%; }
+      .route-source .source-footer { position: absolute; left: 22px; bottom: 22px; color: var(--cream); }
+      .promise { position: absolute; left: 520px; top: 156px; width: 610px; }
+      .promise h2 { margin: 24px 0 0; font-size: 78px; line-height: .98; letter-spacing: -.025em; font-weight: 400; }
+      .promise .rule { width: 420px; margin: 36px 0 18px; border-top: 1px solid rgba(20,20,19,.2); }
+      .routes { position: absolute; right: 82px; top: 166px; width: 510px; display: grid; gap: 12px; }
+      .route { position: relative; display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 18px; min-height: 102px; padding: 18px 20px; background: var(--tile); }
+      .route:nth-child(2) { background: var(--tile-strong); }
+      .route:nth-child(3) { background: var(--navy); color: var(--cream); }
+      .route-number { font-family: "EB Garamond", Georgia, serif; font-size: 54px; line-height: 1; }
+      .route-name { font-size: 20px; font-weight: 500; }
+      .route-sub { margin-top: 7px; font-size: 15px; color: rgba(20,20,19,.56); }
+      .route:nth-child(3) .route-sub { color: rgba(250,249,245,.58); }
+      .route-status { color: var(--green); font-size: 14px; letter-spacing: .1em; }
+      .manifest-strip { position: absolute; left: 520px; right: 82px; bottom: 118px; padding: 18px 22px; background: var(--navy); color: var(--cream); display: flex; gap: 32px; align-items: center; }
+      .manifest-strip .manifest-value { color: var(--teal); }
+
+      /* Scene 03 — real video proof and provenance. */
+      .proof-header { position: absolute; left: 82px; top: 82px; right: 82px; display: flex; justify-content: space-between; }
+      .proof-title { position: absolute; left: 82px; top: 132px; font-size: 70px; line-height: .98; letter-spacing: -.025em; }
+      .turntable-frame { position: absolute; left: 82px; top: 280px; width: 780px; height: 510px; padding: 14px; background: var(--tile); }
+      .turntable-frame video { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--navy); }
+      .media-label { position: absolute; left: 28px; top: 28px; padding: 7px 10px; background: var(--navy); color: var(--cream); }
+      .proof-panel { position: absolute; right: 82px; top: 280px; width: 890px; height: 510px; padding: 30px 34px; background: var(--navy); color: var(--cream); }
+      .proof-panel .panel-top { display: flex; justify-content: space-between; padding-bottom: 22px; border-bottom: 1px solid rgba(250,249,245,.18); }
+      .proof-panel h3 { margin: 0; font-size: 21px; font-weight: 500; }
+      .receipt { margin-top: 20px; display: grid; grid-template-columns: 1fr 1.8fr; border-bottom: 1px solid rgba(250,249,245,.14); }
+      .receipt dt, .receipt dd { margin: 0; padding: 12px 0; border-bottom: 1px solid rgba(250,249,245,.08); font-size: 17px; }
+      .receipt dt { color: rgba(250,249,245,.52); }
+      .receipt dd { color: var(--teal); }
+      .receipt dd.coral-value { color: var(--coral); }
+      .proof-footer { position: absolute; right: 34px; bottom: 28px; left: 34px; display: flex; justify-content: space-between; color: rgba(250,249,245,.55); }
+
+      /* Scene 04 — experimental capability cascade. */
+      .cap-copy { position: absolute; left: 82px; top: 100px; width: 730px; }
+      .cap-copy h2 { margin: 22px 0 0; font-size: 82px; line-height: .96; letter-spacing: -.03em; font-weight: 400; }
+      .cap-copy p { margin-top: 22px; width: 530px; color: rgba(20,20,19,.68); font-size: 24px; }
+      .cap-cards { position: absolute; left: 82px; right: 82px; top: 440px; display: grid; grid-template-columns: 1.18fr 1fr 1fr; gap: 18px; }
+      .cap-card { position: relative; height: 445px; overflow: hidden; background: var(--tile); }
+      .cap-card video, .cap-card img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      .cap-card img { object-position: center 45%; filter: saturate(.75); }
+      .multi-view-graphic { position: absolute; inset: 0; background: var(--navy-soft); }
+      .multi-view-graphic::before, .multi-view-graphic::after { content: ""; position: absolute; width: 250px; height: 330px; top: 55px; left: 112px; border: 1px solid rgba(250,249,245,.42); border-radius: 46% 54% 42% 58%; transform: rotate(-8deg); }
+      .multi-view-graphic::after { left: 150px; transform: rotate(9deg); border-color: var(--coral); }
+      .multi-view-graphic .mv-axis { position: absolute; left: 34px; right: 34px; top: 50%; border-top: 1px solid rgba(250,249,245,.26); }
+      .multi-view-graphic .mv-label { position: absolute; left: 34px; top: 330px; color: rgba(250,249,245,.58); }
+      .cap-card::after { content: ""; position: absolute; inset: 0; border: 1px solid rgba(20,20,19,.18); pointer-events: none; }
+      .cap-card .cap-label { position: absolute; z-index: 2; left: 18px; right: 18px; top: 18px; display: flex; justify-content: space-between; align-items: flex-start; }
+      .cap-card .cap-label span { padding: 7px 9px; background: var(--navy); color: var(--cream); }
+      .experimental { color: var(--coral) !important; background: var(--cream) !important; }
+      .cap-card .cap-bottom { position: absolute; z-index: 2; left: 18px; bottom: 18px; color: var(--cream); font-size: 22px; text-shadow: 0 1px 3px rgba(0,0,0,.45); }
+      .cap-card .cap-bottom small { display: block; margin-top: 7px; font-size: 14px; letter-spacing: .11em; }
+
+      /* Scene 05 — final lockup. */
+      .close-frame { position: absolute; inset: 0; background: var(--navy); }
+      .close-video { position: absolute; top: 88px; right: 80px; width: 710px; height: 900px; overflow: hidden; border: 1px solid rgba(250,249,245,.18); }
+      .close-video video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 45%; }
+      .close-shade { position: absolute; inset: 0; background: rgba(24,23,21,.34); pointer-events: none; }
+      .close-copy { position: absolute; left: 82px; top: 215px; width: 890px; color: var(--cream); }
+      .close-copy h2 { margin: 25px 0 28px; font-size: 116px; line-height: .9; letter-spacing: -.035em; font-weight: 400; }
+      .close-copy p { width: 620px; font-size: 30px; line-height: 1.25; color: rgba(250,249,245,.7); }
+      .value-line { margin-top: 64px; padding-top: 18px; border-top: 1px solid rgba(250,249,245,.18); display: flex; gap: 24px; color: rgba(250,249,245,.6); }
+      .value-line span::before { content: "·"; color: var(--coral); margin-right: 10px; }
+      .close-footer { position: absolute; left: 82px; right: 82px; bottom: 72px; display: flex; justify-content: space-between; color: rgba(250,249,245,.55); }
+      .close-footer .brand { color: var(--cream); font-size: 20px; letter-spacing: .08em; }
+      .close-footer .brand::before { content: "✱ "; color: var(--coral); }
     </style>
   </head>
   <body>
-    <div
-      id="root"
-      data-composition-id="main"
-      data-start="0"
-      data-duration="10"
-      data-width="1920"
-      data-height="1080"
-    >
-      
-      
+    <div id="root" data-composition-id="main" data-start="0" data-duration="29" data-width="1920" data-height="1080">
+      <audio id="launch-bed" class="clip" data-start="0" data-duration="29" data-track-index="40" data-volume="0.30" preload="auto" src="assets/audio/image-to-3d-lab/launch-bed/launch-bed__v01.wav"></audio>
+      <audio id="scan-whoosh" class="clip" data-start="0.15" data-duration="1" data-track-index="41" data-volume="0.62" preload="auto" src="assets/audio/image-to-3d-lab/scan-whoosh/scan-whoosh__v01.wav"></audio>
+      <audio id="model-lock" class="clip" data-start="3.20" data-duration="1" data-track-index="42" data-volume="0.55" preload="auto" src="assets/audio/image-to-3d-lab/model-lock/model-lock__v01.wav"></audio>
+      <audio id="provenance-stamp" class="clip" data-start="8.65" data-duration="1" data-track-index="43" data-volume="0.58" preload="auto" src="assets/audio/image-to-3d-lab/provenance-stamp/provenance-stamp__v01.wav"></audio>
 
-      <!--
-        Add your clips here. Example:
-        <div id="title" class="clip" data-start="0" data-duration="5" data-track-index="1"
-             style="font-size: 64px; color: #fff; padding: 40px">
-          Hello World
+      <section id="scene-01" class="scene scene-01" aria-label="One image, locally">
+        <div class="scene-bg"></div>
+        <div class="hook-grid"></div>
+        <div class="safe">
+          <div class="scene-index mono">01 / 05 · INPUT → ASSET</div>
+          <div class="hook-copy">
+            <div class="kicker mono">Future pacing</div>
+            <h1 class="display serif">What if one image<br />could become real?</h1>
+            <p class="lead">A local path from reference to something you can inspect, iterate, and build with.</p>
+          </div>
+          <div class="source-card hairline shadow">
+            <img src="assets/moss-fox-alpha_big.png" alt="Moss fox source image" />
+            <div class="card-tag mono tiny">INPUT / IMAGE</div>
+            <div class="card-footer mono tiny"><span>moss_fox</span><span>1414 × 2000</span></div>
+          </div>
+          <div class="model-card hairline-dark">
+            <h2 class="mono">OUTPUT / 3D ASSET</h2>
+            <div class="wireframe"><div class="wire-line"></div><div class="wire-line vertical"></div></div>
+            <div class="model-meta mono tiny"><span>DEPTH / TEXTURE / MESH</span><span>LOCAL</span></div>
+          </div>
         </div>
-      -->
+        <div class="caption">What if one image could become a real 3D asset — <strong class="accent">locally?</strong></div>
+      </section>
+
+      <section id="scene-02" class="scene scene-02" aria-label="Three local routes">
+        <div class="scene-bg"></div>
+        <div class="safe">
+          <div class="scene-index mono">02 / 05 · LOCAL ROUTES</div>
+          <div class="route-source hairline shadow">
+            <img src="assets/nikita_holding_beer.png" alt="Nikita source image" />
+            <div class="card-tag mono tiny">REFERENCE / 01</div>
+            <div class="source-footer mono tiny">nikita_holding_beer.png</div>
+          </div>
+          <div class="promise">
+            <div class="kicker mono">Demo loop</div>
+            <h2 class="serif">Reference in.<br />Textured model out.</h2>
+            <div class="rule"></div>
+            <div class="mono tiny">IMAGE → RECONSTRUCTION → INSPECTABLE RESULT</div>
+          </div>
+          <div class="routes">
+            <div class="route hairline shadow"><div class="route-number serif">01</div><div><div class="route-name">Local route</div><div class="route-sub mono">reference / mesh / texture</div></div><div class="route-status mono">READY</div></div>
+            <div class="route hairline shadow"><div class="route-number serif">02</div><div><div class="route-name">Local route</div><div class="route-sub mono">repeatable / inspectable</div></div><div class="route-status mono">READY</div></div>
+            <div class="route hairline-dark"><div class="route-number serif">03</div><div><div class="route-name">Local route</div><div class="route-sub mono">experimental / extensible</div></div><div class="route-status mono">READY</div></div>
+          </div>
+          <div class="manifest-strip hairline-dark mono tiny"><span>MANIFEST</span><span class="manifest-value">image_to_3d_lab.yaml</span><span>SEED <span class="manifest-value">480361379a16</span></span><span>3 BACKENDS / LOCAL</span></div>
+        </div>
+        <div class="caption">Image to 3D Lab turns a reference into a textured model, with <strong>three local backends.</strong></div>
+      </section>
+
+      <section id="scene-03" class="scene scene-03" aria-label="Proof beside the result">
+        <div class="scene-bg navy"></div>
+        <div class="proof-header safe"><div class="kicker mono">Proof / reproducibility</div><div class="scene-index mono dark-index">03 / 05 · RECEIPT</div></div>
+        <div class="proof-title serif" style="color: var(--cream)">The result stays<br /><em>inspectable.</em></div>
+        <div class="turntable-frame hairline-dark">
+          <video id="nikita-turntable" class="clip media-video" data-start="8" data-duration="6" data-track-index="3" muted playsinline preload="auto" src="assets/nikita_turntable.mp4"></video>
+          <div class="media-label mono tiny">BLENDER PREVIEW / TURN TABLE</div>
+        </div>
+        <div class="proof-panel hairline-dark">
+          <div class="panel-top"><h3 class="mono">nikita_holding_beer__trellis2</h3><span class="mono tiny" style="color:var(--green)">● VERIFIED</span></div>
+          <dl class="receipt mono"><dt>artifact</dt><dd>nikita_hero.glb</dd><dt>hash</dt><dd>480361379a16</dd><dt>settings</dt><dd>commercial-conditional / 1024px</dd><dt>license</dt><dd class="coral-value">Stability AI Community License</dd><dt>provenance</dt><dd>receipt.json / re-runnable</dd></dl>
+          <div class="proof-footer mono tiny"><span>GLB + PROVENANCE RECEIPT</span><span>RE-RUN / INSPECT / BUILD</span></div>
+        </div>
+        <div class="caption" style="color:var(--cream)">Preview it in Blender. Re-run from a manifest. Keep <strong>hashes, settings, and license provenance</strong> beside every result.</div>
+      </section>
+
+      <section id="scene-04" class="scene scene-04" aria-label="The lab opens up">
+        <div class="scene-bg"></div>
+        <div class="safe">
+          <div class="scene-index mono">04 / 05 · EXTENSIONS</div>
+          <div class="cap-copy"><div class="kicker mono">Capability cascade</div><h2 class="serif">The lab opens up.</h2><p>Once the asset is inspectable, the experiments can begin.</p></div>
+          <div class="cap-cards">
+            <div class="cap-card hairline shadow"><video id="moss-wind" class="clip media-video" data-start="14" data-duration="7" data-track-index="4" muted playsinline preload="auto" src="assets/moss_fox_wind.mp4"></video><div class="cap-label mono tiny"><span>LABELLED WIND</span><span class="experimental">EXPERIMENTAL</span></div><div class="cap-bottom">Parts can move<small class="mono">MOSS FOX / WIND PASS</small></div></div>
+            <div class="cap-card hairline shadow"><video id="nikita-cheers" class="clip media-video" data-start="14" data-duration="7" data-track-index="5" muted playsinline preload="auto" src="assets/nikita_cheers_loop.mp4"></video><div class="cap-label mono tiny"><span>RIGGING</span><span class="experimental">EXPERIMENTAL</span></div><div class="cap-bottom">Poses can change<small class="mono">NIKITA / EARLY RIG</small></div></div>
+            <div class="cap-card hairline shadow"><div class="multi-view-graphic" aria-label="Multi-view experimental graphic"><div class="mv-axis"></div><div class="mv-label mono tiny">VIEW 01 / VIEW 02 / VIEW 03</div></div><div class="cap-label mono tiny"><span>MULTI-VIEW</span><span class="experimental">EXPERIMENTAL</span></div><div class="cap-bottom">Views can multiply<small class="mono">REFERENCE SET / LAB</small></div></div>
+          </div>
+        </div>
+        <div class="caption" style="bottom:34px;">Then go further: multiple views, labeled parts for wind, and <strong>early rigging experiments.</strong></div>
+      </section>
+
+      <section id="scene-05" class="scene scene-05" aria-label="Inspect, iterate, build">
+        <div class="close-frame"></div>
+        <div class="close-video hairline-dark"><video id="nikita-close" class="clip media-video" data-start="21" data-duration="8" data-track-index="6" muted playsinline preload="auto" src="assets/nikita_cheers_close_loop.mp4"></video><div class="close-shade"></div></div>
+        <div class="close-copy"><div class="kicker mono">Image to 3D Lab</div><h2 class="serif">Inspect.<br />Iterate.<br />Build.</h2><p>From pixels to something you can work with — locally, reproducibly, visibly.</p><div class="value-line mono tiny"><span>LOCAL</span><span>REPRODUCIBLE</span><span>INSPECTABLE</span></div></div>
+        <div class="close-footer mono"><span class="brand">IMAGE TO 3D LAB</span><span>29 SEC / FIRST CUT</span></div>
+        <div class="caption" style="left:auto; right:82px; bottom:72px; color:var(--cream); max-width:710px; font-size:26px;">From pixels to something you can inspect, iterate, and build with. <strong>Image to 3D Lab.</strong></div>
+      </section>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
-      const tl = gsap.timeline({ paused: true });
-      // Example: tl.from("#title", { opacity: 0, y: -50, duration: 1 }, 0);
+      const tl = gsap.timeline({ paused: true, defaults: { ease: "power2.out" } });
+
+      tl.fromTo("#scene-01", { opacity: 0 }, { opacity: 1, duration: 0.34 }, 0)
+        .fromTo(".scene-01 .hook-copy", { opacity: 0, x: -28 }, { opacity: 1, x: 0, duration: 0.62 }, 0.18)
+        .fromTo(".scene-01 .source-card", { opacity: 0, x: 42, y: 24, rotation: -4 }, { opacity: 1, x: 0, y: 0, rotation: -1.4, duration: 0.7 }, 0.42)
+        .fromTo(".scene-01 .model-card", { opacity: 0, x: 48, y: 18, rotation: 5 }, { opacity: 1, x: 0, y: 0, rotation: 1.4, duration: 0.74 }, 0.72)
+        .to("#scene-01", { opacity: 0, duration: 0.34 }, 2.68)
+        .fromTo("#scene-02", { opacity: 0 }, { opacity: 1, duration: 0.34 }, 2.92)
+        .fromTo(".scene-02 .route-source", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.55 }, 3.05)
+        .fromTo(".scene-02 .promise", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.62 }, 3.16)
+        .fromTo(".scene-02 .route", { opacity: 0, x: 32 }, { opacity: 1, x: 0, duration: 0.44, stagger: 0.16 }, 3.34)
+        .fromTo(".scene-02 .manifest-strip", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.42 }, 4.04)
+        .to("#scene-02", { opacity: 0, duration: 0.34 }, 7.68)
+        .set("#scene-02", { opacity: 0 }, 8.00)
+        .fromTo("#scene-03", { opacity: 0 }, { opacity: 1, duration: 0.34 }, 7.92)
+        .fromTo(".scene-03 .proof-title", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.54 }, 8.02)
+        .fromTo(".scene-03 .turntable-frame", { opacity: 0, x: -22 }, { opacity: 1, x: 0, duration: 0.62 }, 8.18)
+        .fromTo(".scene-03 .proof-panel", { opacity: 0, x: 28 }, { opacity: 1, x: 0, duration: 0.64 }, 8.28)
+        .fromTo(".scene-03 .receipt dd", { opacity: 0, x: 10 }, { opacity: 1, x: 0, duration: 0.3, stagger: 0.12 }, 8.58)
+        .to("#scene-03", { opacity: 0, duration: 0.34 }, 13.68)
+        .set("#scene-03", { opacity: 0 }, 14.00)
+        .fromTo("#scene-04", { opacity: 0 }, { opacity: 1, duration: 0.34 }, 13.92)
+        .fromTo(".scene-04 .cap-copy", { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.56 }, 14.02)
+        .fromTo(".scene-04 .cap-card", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5, stagger: 0.2 }, 14.36)
+        .to("#scene-04", { opacity: 0, duration: 0.38 }, 20.62)
+        .set("#scene-04", { opacity: 0 }, 21.00)
+        .fromTo("#scene-05", { opacity: 0 }, { opacity: 1, duration: 0.42 }, 20.84)
+        .fromTo(".scene-05 .close-video", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.72 }, 20.98)
+        .fromTo(".scene-05 .close-copy", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.72 }, 21.1)
+        .fromTo(".scene-05 .value-line", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.45 }, 22.05);
+
       window.__timelines["main"] = tl;
     </script>
   </body>

@@ -47,11 +47,28 @@ question 1.
 
 ## Tier 3 — quality
 
-6. **Multi-view input. PROMOTED — likely the real fix.** With winding disproven, the
+**DECIDED (2026-08-06): multi-view is next.** Reasoning below in "Why this order".
+
+6. **Multi-view input. NEXT UP.** With winding disproven, the
    see-through back of the head is best explained by the model never having seen the
    back. A hole-filler would stretch a flat membrane over the skull; multi-view gives it
-   an actual back of a head. Also fixes the three-handled mug and soft faces. Medium
-   build: `run()` takes one image today. See [fidelity-plan.md](fidelity-plan.md).
+   an actual back of a head. Also fixes the three-handled mug and soft faces, and
+   should reduce hole count generally: the extractor drops quads where the voxel set is
+   sparse, and sparseness follows uncertainty.
+
+   **The build is smaller than "Medium" suggested.** `run()` already calls
+   `get_cond([image], 512)` — the conditioning path is list-shaped throughout, and
+   `image_feature_extractor.__call__` accepts a list of PIL images and returns
+   `(B, N, D)`. Only `run()`'s signature is single-image.
+
+   **The one real piece of work:** with B views the encoder returns a *batch* of B
+   feature sets, while `sample_sparse_structure` builds `noise` of shape
+   `(num_samples, ...)` and expects a single conditioning. The B view features must be
+   concatenated along the **token** axis into `(1, B*N, D)` — one longer conditioning
+   sequence — rather than left as a batch of B, which would ask for B separate objects.
+
+   Constraint (from [fidelity-plan.md](fidelity-plan.md)): views must be the **same
+   pose** from an orbiting camera. Different poses break reconstruction.
 7. **Second painted view** for far-side label quality. Downgraded from *required* to
    *nice* once nearest-neighbour fill reached 100% coverage from one view.
 8. **Face resolution.** Faces are consistently weakest; likely a
@@ -87,3 +104,14 @@ be attempted sooner.
 Worth keeping in mind: vertex colours, stiffness, wind, and analytic rigging never
 cared about topology at all, which is why the foliage lane ran to completion without
 ever hitting the supposed wall. That should have been a hint the wall was not there.
+
+**And the holes have not actually blocked a deliverable.** The foliage lane shipped,
+the rig shipped, and every render looks fine because glTF materials are `doubleSided`,
+which hides the problem entirely. The defects that genuinely cost output quality — the
+three-handled mug, soft faces, the invented back of the head — are all single-view
+hallucination. Hence multi-view first, and hole filling as a cleanup pass run once when
+preparing an asset for an engine.
+
+Note also that hole count tracks **thin geometry**, not just uncertainty: the human is
+2.5% boundary edges, the fur-and-leaves fox 17.5%, on the same pipeline and settings.
+Multi-view will help the solid parts far more than the fuzzy ones.

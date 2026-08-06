@@ -190,3 +190,38 @@ boundary edges 21,630 -> 47,385, components 84 -> 449 (though non-manifold edges
 
 Note the generated mesh's canonical orientation flipped 180 degrees relative to the
 single-view run, so like-for-like renders need the azimuth adjusting.
+
+### Pending experiment: separate the code fix from the view choice
+
+Two things changed between the failed front/back run and the 3/4 run: the fusion was
+corrected (token concatenation -> per-view prediction averaging) **and** the view angles
+changed. A good 3/4 result therefore cannot be attributed to either alone.
+
+**The experiment:** re-run the original straight-on front/back pair
+(`moss-fox-mv-front.png` + `moss-fox-mv-back.png`) through the corrected fusion, same
+seed and settings. Compare against both the broken-fusion front/back run
+(`425b70769bd7`) and the 3/4 result.
+
+**What each outcome would mean:**
+
+- *Front/back improves a lot and matches 3/4* — the fusion was the whole story, and
+  view geometry matters less than we think.
+- *Front/back improves but stays behind 3/4* — both mattered, and the expected result:
+  the fix was necessary but straight-on views are genuinely worse for this subject.
+- *Front/back stays broken* — the fusion fix is not sufficient, and something else is
+  wrong.
+
+**Why straight-on views are suspected regardless of fusion:** a frontal view is
+**depth-ambiguous** for anything extending along the view axis. A bushy tail seen head
+on appears as two masses flanking the body, with nothing in the image saying whether
+they sit behind the fox, beside it, or attached to its chest. The model has no depth
+channel, so it guesses. A 3/4 view shows the attachment point and the length in the
+same frame. This is the user's observation and it is a better argument than the
+original one about overlapping views contradicting each other less -- that reasoning
+was specific to the broken token-concatenation fusion and mostly evaporates now that
+views are kept separate.
+
+Low urgency, since we already have reason to think straight-on is a poor pair for a
+bushy-tailed quadruped. Worth running to close the loop honestly: we hypothesised,
+were wrong about the mechanism, fixed it, and should record whether the fix alone was
+enough.

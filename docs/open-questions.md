@@ -97,7 +97,7 @@ component count and boundary edges collapse, this question is closed.
 
 ---
 
-## 2. Why are large regions of the mesh inside-out?
+## 2. ~~Why are large regions of the mesh inside-out?~~ — DISPROVEN by visual test
 
 **Observed.** Shading backfacing polygons near-black — expecting gaps to darken —
 instead blackened his face, jeans, and the mug. Those surfaces are facing *inward*.
@@ -111,20 +111,29 @@ our model, the paper is in backwards.
 drawn over correctly-facing ones, some of what we called "holes" may not be holes at
 all — just surfaces rendered from the wrong side.
 
-**Now measured (2026-08-06).** `scripts/mesh_health.py` reports
-`winding_consistent: False` on the moss fox. An earlier note here said trimesh
-reported winding as *consistent* — that was measured before the position-only merge
-and was wrong for the same reason as question 1.
+**TESTED AND DISPROVEN (2026-08-06).** Winding is measurably imperfect — 2.13% of
+edges disagree — but it is **not** the cause of the visible artefacts.
 
-**This is now the leading explanation** for the see-through interior. With question 1
-withdrawn, "you are seeing through gaps between shards" is gone; "you are seeing
-surfaces rendered from the wrong side" remains and fits the evidence — including the
-blackface render, where shading backfaces dark blackened the face and jeans.
+The test: render the artefact-heavy Nikita mesh (`05062424f4c0`) from behind, apply
+Blender's *Recalculate Outside* (`mesh.normals_make_consistent`), render again.
+**The two renders are identical.** `trimesh.repair.fix_winding`/`fix_normals` likewise
+moved the inward-facing area not at all (60.0% before, 60.0% after — trimesh bails on
+meshes with this many boundaries).
 
-**How to settle it.** `trimesh.repair.fix_winding` then `fix_normals` on a connected
-surface (which we now know we have), re-render, and see whether the interior artefacts
-disappear. Cheap, and it would improve every model already on disk with no
-regeneration. **This is the top candidate for the next experiment.**
+**What the render actually shows.** Close up from behind, the artefact is his *face*,
+seen through a large opening where the back of the skull should be. The dark speckles
+are the fragments of hair that did generate. The geometry is simply **missing** — this
+was never a shading problem.
+
+Note the centroid-based "23-27% of faces point inward" figure quoted earlier is a poor
+proxy on a concave body (armpits, between the legs legitimately face inward) and should
+not be read as flipped area.
+
+**Where this leaves the artefact.** Two live explanations, both in question 1b and
+question 5: geometry dropped by the extractor and never repaired, and — more likely for
+a hole this size — the model never having seen the back of the head at all. A
+hole-filler would stretch a flat membrane across the skull; multi-view input would give
+it an actual back of a head. **This raises the priority of multi-view.**
 
 ---
 

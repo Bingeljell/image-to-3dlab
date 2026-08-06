@@ -23,13 +23,9 @@ Small, high payoff, and they complete stories already 90% done.
 
 ## Tier 2 — the research question blocking everything else
 
-4. **Fix the inconsistent winding.** *(Now the top candidate — see
-   [open-questions.md](open-questions.md) question 2.)* `mesh_health.py` measures
-   `winding_consistent: False`. With the shard-soup theory withdrawn, wrongly-facing
-   surfaces are the leading explanation for the see-through interior and the blackface
-   render. `trimesh.repair.fix_winding` + `fix_normals` on a connected surface, then
-   re-render. Cheap, and it would improve **every model already on disk** with no
-   regeneration.
+4. ~~**Fix the inconsistent winding.**~~ **DISPROVEN 2026-08-06.** Recalculating
+   normals changes the render not at all; the artefact is missing geometry, not
+   wrongly-facing geometry. See [open-questions.md](open-questions.md) question 2.
 5. **Fill the remaining holes.** Our port disables upstream's `fill_holes()` (question
    1b), and `cumesh` is not installed at all, so re-enabling the call alone will not
    work — it needs a Python/trimesh implementation. Far smaller in scale than first
@@ -43,9 +39,11 @@ question 1.
 
 ## Tier 3 — quality
 
-6. **Multi-view input.** The real fix for single-view hallucination — the three-handled
-   mug, invented backs, soft faces. Medium build: `run()` takes one image today.
-   See [fidelity-plan.md](fidelity-plan.md).
+6. **Multi-view input. PROMOTED — likely the real fix.** With winding disproven, the
+   see-through back of the head is best explained by the model never having seen the
+   back. A hole-filler would stretch a flat membrane over the skull; multi-view gives it
+   an actual back of a head. Also fixes the three-handled mug and soft faces. Medium
+   build: `run()` takes one image today. See [fidelity-plan.md](fidelity-plan.md).
 7. **Second painted view** for far-side label quality. Downgraded from *required* to
    *nice* once nearest-neighbour fill reached 100% coverage from one view.
 8. **Face resolution.** Faces are consistently weakest; likely a

@@ -116,6 +116,12 @@ tooling for all of them already exist, so each is cheap to resume.
 - **Atlas padding / re-unwrap.** Islands are packed with no gutter, so filtering bleeds
   neighbouring colour across every seam. Only worth it if lower face counts prove
   insufficient for the flowers and ear foliage.
+- **Make the eyes emote.** Posture (ears, tail, head) carries happy/sad for an animal
+  character, but the face cannot: expression normally comes from blend shapes, and our
+  eyes are painted into the albedo so they cannot widen, narrow or blink. Options worth
+  investigating: separate eye geometry with its own material, a swappable eye texture
+  atlas driven by an emotion parameter, UV-offset tricks, or sculpted blend shapes for
+  brow and lid. Wanted for the SwiftUI RPG character screen.
 - **Provenance records only the first view path**, so a multi-view run is
   indistinguishable from a single-view one in the sidecar. A real gap in a repo built
   around provenance.

@@ -141,9 +141,14 @@ for poly in me.polygons:
     poly.material_index = REGIONS.index(region)
     counts[region] += 1
 
-# Unwrap each region on its own so it fills the whole 0..1 square. Regions overlap in UV
-# space, which is correct: they sample different images.
+# Re-pack rather than re-unwrap. A fresh Smart UV Project on this mesh produces one
+# island per triangle and leaves ~63% of the atlas empty, which more than cancels the
+# density gained. The original layout already works, so copy it and simply pack each
+# region's existing islands to fill their own square: same islands, three times the area.
+for loop_index in range(len(me.loops)):
+    new_uv.data[loop_index].uv = src_uv.data[loop_index].uv
 me.uv_layers.active = new_uv
+
 bpy.ops.object.mode_set(mode="EDIT")
 bpy.ops.mesh.select_all(action="DESELECT")
 bpy.ops.object.mode_set(mode="OBJECT")
@@ -153,7 +158,14 @@ for i, region in enumerate(REGIONS):
         poly.select = (poly.material_index == i)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_mode(type="FACE")
-    bpy.ops.uv.smart_project(angle_limit=1.15, island_margin=0.002)
+    bpy.ops.uv.select_all(action="SELECT")
+    # scale=True grows the islands to fill the square. Do NOT call average_islands_scale
+    # first: this atlas has 11,340 islands of wildly differing sizes and normalising them
+    # shrinks everything, dropping fill from the source layout's 97% to about 14%.
+    # Margin has to be tiny for the same reason — with ~3,800 islands per region the
+    # gutters dominate long before the content does.
+    bpy.ops.uv.pack_islands(rotate=True, scale=True, margin=0.0002,
+                            shape_method="AABB")
     bpy.ops.object.mode_set(mode="OBJECT")
 
 scn = bpy.context.scene

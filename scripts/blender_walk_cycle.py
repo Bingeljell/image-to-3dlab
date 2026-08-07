@@ -57,6 +57,8 @@ BASE = math.radians({base_bend})
 BOB = {bob}
 SWAY = math.radians({sway})
 HEAD_YAW = math.radians({head_yaw})
+HEAD_PITCH = math.radians({head_pitch})
+HEAD_LEVEL = math.radians({head_level})
 
 arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
 if not arms:
@@ -134,20 +136,23 @@ for frame in range(1, FRAMES + 2):
     # baked into every frame. It is applied about the *world* up axis and then
     # expressed in the bone's own space — a bone's local axes run along the bone,
     # so setting rotation_euler.z directly would tilt the head rather than yaw it.
-    if abs(HEAD_YAW) > 1e-6:
+    # HEAD_PITCH additionally drops the head forward and down. A moving fox carries
+    # its head low and reaching ahead; an upright head reads as a stationary animal
+    # whose legs happen to be moving, which is most of the uncanniness.
+    if abs(HEAD_YAW) > 1e-6 or abs(HEAD_PITCH) > 1e-6:
         neck = arm.pose.bones.get("neck")
         if neck is not None:
             rest = neck.bone.matrix_local.to_3x3()
-            world_yaw = Matrix.Rotation(HEAD_YAW, 3, "Z")
-            neck.rotation_euler = (
-                rest.inverted() @ world_yaw @ rest
-            ).to_euler("XYZ")
+            world = (
+                Matrix.Rotation(HEAD_PITCH, 3, "X") @ Matrix.Rotation(HEAD_YAW, 3, "Z")
+            )
+            neck.rotation_euler = (rest.inverted() @ world @ rest).to_euler("XYZ")
             neck.keyframe_insert("rotation_euler", frame=frame)
 
     body = {{
         "spine_01": ("z", SWAY * math.sin(2.0 * math.pi * t)),
         "spine_02": ("z", -SWAY * 0.6 * math.sin(2.0 * math.pi * t)),
-        "head": ("x", -SWAY * 0.7 * math.cos(4.0 * math.pi * t)),
+        "head": ("x", HEAD_LEVEL - SWAY * 0.7 * math.cos(4.0 * math.pi * t)),
         "tail_01": ("z", -SWAY * 1.6 * math.sin(2.0 * math.pi * t)),
         "tail_02": ("z", -SWAY * 1.2 * math.sin(2.0 * math.pi * t - 0.6)),
         "ear_L": ("x", SWAY * 0.8 * math.cos(4.0 * math.pi * t + 0.9)),
@@ -212,13 +217,13 @@ def main() -> int:
     parser.add_argument("--swing-front", type=float, default=24.0)
     parser.add_argument("--swing-back", type=float, default=20.0)
     parser.add_argument("--bend-front", type=float, default=30.0)
-    parser.add_argument("--bend-back", type=float, default=60.0)
+    parser.add_argument("--bend-back", type=float, default=38.0)
     parser.add_argument(
         "--wrist", type=float, default=46.0,
         help="Front-leg wrist fold. The visible mid-leg bend on a front leg is a "
              "wrist, and it carries most of the fold — a stiff wrist reads as a stick",
     )
-    parser.add_argument("--ankle", type=float, default=28.0, help="Back-leg ankle (hock) fold")
+    parser.add_argument("--ankle", type=float, default=22.0, help="Back-leg ankle (hock) fold")
     parser.add_argument(
         "--gait", choices=("trot", "walk"), default="trot",
         help="trot is a two-beat diagonal gait (what foxes actually do); "
@@ -238,6 +243,16 @@ def main() -> int:
         help="Static counter-yaw on the neck, to straighten a head the subject was "
              "generated with turned. Negative turns toward the character's right",
     )
+    parser.add_argument(
+        "--head-pitch", type=float, default=20.0,
+        help="Drop the head forward and down. A moving fox reaches ahead and low; "
+             "an upright head reads as a standing animal with moving legs",
+    )
+    parser.add_argument(
+        "--head-level", type=float, default=-9.0,
+        help="Counter-rotation on the head bone so the muzzle levels out instead of "
+             "aiming at the floor once the neck is pitched down",
+    )
     args = parser.parse_args()
 
     code = TEMPLATE.format(
@@ -253,6 +268,8 @@ def main() -> int:
         bob=args.bob,
         sway=args.sway,
         head_yaw=args.head_yaw,
+        head_pitch=args.head_pitch,
+        head_level=args.head_level,
     )
     print(send(code, args.host, args.port))
     return 0

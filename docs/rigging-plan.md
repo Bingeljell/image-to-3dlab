@@ -126,3 +126,56 @@ little weight polish).
 The user is new to 3D and wants a guided walkthrough of Blender + 3D fundamentals
 (vertices, polygons, meshes, topology) and a recap of the bugs we solved here. Weave that
 teaching into the hands-on marking session.
+
+## Marker convention (decided 2026-08-07)
+
+`scripts/blender_joint_markers.py` spawns 27 named markers, reads their hand-placed
+positions back over the MCP socket, and is the manual half of this lane.
+
+### L and R mean the *character's* left and right
+
+**When the fox faces you in the viewport, the marker labelled `L` appears on the right
+of your screen.** This is correct and deliberate. `L`/`R` follow the character's own
+anatomy, which is what SceneKit, RealityKit, Unity, Unreal and Blender's own mirror
+tools all assume. Labelling by *viewer* side would be intuitive while placing markers
+and then quietly wrong forever after: an animation that lifts "the left front paw"
+would lift the wrong leg.
+
+Concretely, for this asset: the glTF importer converts Y-up to Z-up, so the fox's front
+is at **minimum Y** and up is **+Z**. Character-left is therefore **+X**. A leg whose
+markers sit at positive X must be labelled `L`.
+
+### Legs are named for the anatomy they actually have
+
+```
+front leg:   shoulder -> elbow -> wrist -> paw
+back leg:    hip      -> knee  -> ankle -> paw
+```
+
+A quadruped's front leg is an arm and its back leg is a leg, and the animal walks on its
+fingers and toes — so the prominent mid-leg bend is a **wrist** in front and an **ankle**
+behind. Neither is a knee. An earlier version called both `_knee`, which was actively
+misleading: the front leg's true elbow and the back leg's true knee both sit high, tucked
+against the body, and were missing entirely. The vet terms (stifle, hock) are avoided
+deliberately — plain anatomy is clearer.
+
+### Validate placement before building the armature
+
+Hand placement reliably produces two classes of error, both cheap to catch numerically:
+
+1. **Crossed sides** — one joint of a leg ends up on the opposite side from the rest.
+   Check that every joint in a leg chain shares the sign of X.
+2. **Inverted chains** — check Z descends from shoulder/hip through to paw.
+
+Also check that L/R pairs mirror, and that centreline markers agree with each other.
+
+**Do not force centreline markers to exactly X = 0.** This fox's head is turned slightly
+in its source pose, so the model's own centreline is X = -0.007 and its back paws are
+genuinely offset from each other. Snapping to a mathematical centre would fight the
+geometry. Asymmetries the user can explain from the pose are features, not errors.
+
+**Do not use distance-to-nearest-surface to test whether a marker is misplaced.** It
+cannot distinguish "floating outside in mid-air" from "correctly buried deep inside the
+body", and hip, chest, spine and head markers are *supposed* to be deep inside. It
+flagged six correctly-placed markers as errors. Test containment instead (a convex-hull
+point-in-hull test works; `trimesh.contains` needs `rtree`, which is not installed).

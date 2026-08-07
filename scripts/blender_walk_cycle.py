@@ -114,7 +114,11 @@ for frame in range(1, FRAMES + 2):
         theta = 2.0 * math.pi * (t + phase)
         swing = swing_amp * math.cos(theta)
         if leg.startswith('front'):
-            swing += SHOULDER_TUCK
+            # The front legs hang off the chest, so pitching the chest down carries
+            # them backward with it and the fox reads as flying with its arms
+            # trailing. Counter-rotate by the same amount to keep them vertical,
+            # then apply the tuck on top of that corrected zero.
+            swing += SHOULDER_TUCK - CHEST_DROP
         # Rectified sine, shaped: the exponent widens the airborne plateau so the
         # fold eases in and out instead of snapping at the contact frames.
         lift = max(0.0, math.sin(theta)) ** 0.7
@@ -263,22 +267,22 @@ def main() -> int:
              "an upright head reads as a standing animal with moving legs",
     )
     parser.add_argument(
-        "--head-level", type=float, default=-18.0,
+        "--head-level", type=float, default=-22.0,
         help="Counter-rotation on the head bone so the muzzle levels out instead of "
              "aiming at the floor once the neck is pitched down",
     )
     parser.add_argument(
-        "--chest-drop", type=float, default=12.0,
+        "--chest-drop", type=float, default=20.0,
         help="Pitch the chest down. This is what lowers the shoulders — and the neck "
              "and head ride down with it. Rotating the neck alone only pivots the muzzle",
     )
     parser.add_argument(
-        "--shoulder-tuck", type=float, default=9.0,
+        "--shoulder-tuck", type=float, default=4.0,
         help="Static offset pulling the front legs back under the body instead of "
              "splaying them out ahead",
     )
     parser.add_argument(
-        "--body-drop", type=float, default=0.035,
+        "--body-drop", type=float, default=0.05,
         help="Lower the whole rig, for a slightly hunched travelling posture",
     )
     args = parser.parse_args()

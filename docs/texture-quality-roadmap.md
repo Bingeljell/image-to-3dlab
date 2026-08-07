@@ -114,7 +114,7 @@ next to the concept art — the standard set in [hero-asset-fidelity-bar]: do th
 survive, does the ear foliage read as foliage, is the hue right without correction, are the
 eyes amber.
 
-## Region splitting: built, measured, and currently a no-op (2026-08-07)
+## Region splitting: built, measured, and a REGRESSION (2026-08-07)
 
 `scripts/blender_split_regions.py` works mechanically — it splits the fox into head, body
 and tail material slots, bakes a 2048 albedo per region, and exports a 3-primitive GLB.
@@ -122,41 +122,55 @@ The face counts land exactly where predicted:
 
     head   35,824    body   36,827    tail   28,647
 
-**But the density gain is zero**, and the reason is packing, not theory:
+**It makes density worse**, and getting to that answer required correcting the
+measurement twice.
 
-| | fill | effective texels/face |
+### Measure UV coverage, not pixel brightness
+
+The first metric used was "fraction of atlas pixels brighter than near-black". That is
+**wrong**, and it inflated every number by about 3x. The bake dilates colour outward from
+each island by its margin to prevent seams, so a third of the canvas *looks* filled while
+only a tenth carries triangles.
+
+The correct metric is **summed UV triangle area** — add up the area of every triangle in
+UV space. It measures coverage directly and cannot be fooled by bleed:
+
+    area = sum over faces of |(b-a) x (c-a)| / 2   for UV coords a, b, c
+
+### The real numbers
+
+| | UV coverage | TRUE texels/face |
 |---|---|---|
-| original, one shared atlas | **97%** | 40.2 |
-| head, own 2048 | 34.1% | 39.9 |
-| body, own 2048 | 33.6% | 38.2 |
-| tail, own 2048 | 30.4% | 44.5 |
+| original, one shared atlas | **53.0%** | **21.9** |
+| head, own 2048 | 10.1% | 11.8 |
+| body, own 2048 | 9.4% | 10.7 |
+| tail, own 2048 | 11.6% | 17.0 |
 
-Three atlases really do provide 3x the raw budget. Blender's packer then gives it all
-back: it manages ~34% fill where the source layout achieves 97%.
+So the split roughly **halves** real density. Three atlases provide 3x the raw budget and
+the repacking gives back more than all of it.
 
-**The blocker is island count.** The atlas has **11,340 UV islands averaging 8.93 faces
-each**, so roughly 3,800 small islands per region. Small islands are dominated by their
-gutters, and Blender's `pack_islands` cannot approach the source's density at that count.
+### What was wrong, and how it was caught
 
-Three things tried and rejected, in order:
+- **"The original atlas is 97-99% filled"** — no, it is 53%. Brightness was measuring
+  margin bleed.
+- **"41 texels per triangle"**, quoted throughout earlier work — that is
+  `2048^2 / faces`, which assumes the whole canvas carries triangles. The true figure for
+  the 101k fox is **21.9**. Relative comparisons between runs are probably still sound
+  because coverage was similar, but absolute figures were ~2x optimistic.
+- **"Island count is the blocker"** — contradicted by the data: the tail has half the
+  islands of the head and they are nearly twice as large, yet it packed no better. The
+  user spotted this hole. The actual problem is that packing shrinks the islands instead
+  of growing them.
 
-1. **Fresh `smart_project` per region** — worse than the original: one island per triangle
-   and 63% of the atlas empty.
-2. **Copy the original UVs, then `average_islands_scale` + `pack_islands`** — 14% fill.
-   Averaging normalises wildly different island sizes and shrinks everything.
-3. **Copy, then `pack_islands(scale=True)` with a tiny margin** — 34% fill. Best of the
-   three and still not competitive.
+Island counts, for the record: head 4,683 / body 4,630 / tail 2,221, against 11,340 for
+the whole mesh — the split creates 194 extra islands where one straddled a boundary.
 
-**The identified fix: pack with xatlas, not Blender.** The generator itself uses xatlas,
-which is what produced the 97% layout in the first place. `xatlas 0.0.11` is already
-installed in `vendor/trellis-mac/.venv` (not in the project venv). Repacking each region
-through xatlas should recover the 3x, because it is demonstrably capable of it on this
-exact mesh.
+### Still worth trying: xatlas
 
-**Do not judge this by fill percentage alone** — judge by *effective texels per face*,
-which is `texture_area x fill / face_count`. Fill went 14% -> 34% across attempts while
-the effective density barely moved, and fill alone would have made that look like
-progress.
+The generator uses xatlas and achieved 53% coverage on this mesh. Per-region packing is a
+strictly easier problem — fewer islands into the same canvas — so there is real headroom.
+But the earlier claim that xatlas "demonstrably hits 97%" was based on the broken metric
+and should not be repeated.
 
 Second-order option if xatlas repacking also disappoints: reduce the island count itself.
 11,340 islands for 101k faces is high, and fewer, larger islands would pack better under

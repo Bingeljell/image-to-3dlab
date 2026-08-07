@@ -92,6 +92,36 @@ artefact and needs no regeneration. Cheapest remaining win by a wide margin.
    T-pose; the quadruped case still needs the guided marking in
    [rigging-plan.md](rigging-plan.md).
 
+## Texture-fidelity backlog (parked 2026-08-07)
+
+Deliberately parked to keep the critical path clear. **The first milestone is a rigged
+quadruped doing funky animations**; these compete with it and are secondary. Manifests and
+tooling for all of them already exist, so each is cheap to resume.
+
+- **Face-count sweep, 50k and 20k.** `manifests/fox-34-multiview-50000faces.json` and
+  `-20000faces.json` are committed and ready. Open question: fewer faces raises texel
+  density and defragments the atlas, but below some threshold *geometric* detail — the
+  tail's leaf relief, ear tufts, paw toes — starts dissolving. Where is the optimum?
+  Prediction on record: 50k holds or improves on 101k; 20k visibly loses tail relief.
+- **Colour-grade strength.** `--strength 1.0` is too mustard on the fox; the user judged
+  the cream good and the green over-warm. 0.6-0.7 is the likely sweet spot. A refinement
+  worth trying: grade the green foliage without pulling the cream, rather than scaling
+  both uniformly.
+- **Normal maps — probably the biggest untouched lever.** We bake albedo but no normal
+  map. Baking a high-poly sculpt's detail into a normal map is *the* standard way to get
+  high-poly surface detail onto a low-poly mesh, and would let the face budget drop
+  further without losing perceived detail. Entirely unexplored here.
+- **Head-crop generation pass** (roadmap item 8). The eyes are brown rather than amber
+  *at generation*, so no UV, density or grading work will fix them.
+- **Atlas padding / re-unwrap.** Islands are packed with no gutter, so filtering bleeds
+  neighbouring colour across every seam. Only worth it if lower face counts prove
+  insufficient for the flowers and ear foliage.
+- **Provenance records only the first view path**, so a multi-view run is
+  indistinguishable from a single-view one in the sidecar. A real gap in a repo built
+  around provenance.
+- **`pytest -q` as documented in `CLAUDE.md` fails collection**; it needs `PYTHONPATH=.`.
+  Either fix the docs or add the setting to `pyproject.toml`.
+
 ## Also proposed
 
 10. **Subject profiles** — one pipeline, a `subject.class` + `subject.features` block

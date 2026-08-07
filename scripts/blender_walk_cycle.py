@@ -34,6 +34,7 @@ from blender_joint_markers import send
 
 TEMPLATE = '''
 import bpy, json, math
+from mathutils import Matrix
 
 FRAMES = {frames}
 SW_FRONT = math.radians({swing_front})
@@ -41,8 +42,10 @@ SW_BACK = math.radians({swing_back})
 BEND_FRONT = math.radians({bend_front})
 BEND_BACK = math.radians({bend_back})
 PAW = math.radians({paw})
+BASE = math.radians({base_bend})
 BOB = {bob}
 SWAY = math.radians({sway})
+HEAD_YAW = math.radians({head_yaw})
 
 arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
 if not arms:
@@ -82,8 +85,13 @@ for frame in range(1, FRAMES + 2):
         upper, lower, paw, swing_amp, bend_amp = CHAIN[leg]
         theta = 2.0 * math.pi * (t + phase)
         swing = swing_amp * math.cos(theta)
-        lift = max(0.0, math.sin(theta))       # airborne half only
-        for name, value in ((upper, swing), (lower, bend_amp * lift), (paw, -PAW * lift)):
+        # Rectified sine, shaped: the exponent widens the airborne plateau so the
+        # fold eases in and out instead of snapping at the contact frames.
+        lift = max(0.0, math.sin(theta)) ** 0.7
+        # A real leg is never locked straight, even bearing weight; BASE keeps a
+        # standing bend so the limb reads as a limb rather than a stick.
+        fold = BASE + bend_amp * lift
+        for name, value in ((upper, swing), (lower, fold), (paw, -PAW * lift - BASE * 0.5)):
             pb = arm.pose.bones.get(name)
             if pb is None:
                 missing.append(name)
@@ -95,11 +103,24 @@ for frame in range(1, FRAMES + 2):
     arm.location.z = base_z + BOB * math.cos(4.0 * math.pi * t)
     arm.keyframe_insert("location", frame=frame)
 
+    # The subject was generated with its head turned, so a static counter-yaw is
+    # baked into every frame. It is applied about the *world* up axis and then
+    # expressed in the bone's own space — a bone's local axes run along the bone,
+    # so setting rotation_euler.z directly would tilt the head rather than yaw it.
+    if abs(HEAD_YAW) > 1e-6:
+        neck = arm.pose.bones.get("neck")
+        if neck is not None:
+            rest = neck.bone.matrix_local.to_3x3()
+            world_yaw = Matrix.Rotation(HEAD_YAW, 3, "Z")
+            neck.rotation_euler = (
+                rest.inverted() @ world_yaw @ rest
+            ).to_euler("XYZ")
+            neck.keyframe_insert("rotation_euler", frame=frame)
+
     body = {{
         "spine_01": ("z", SWAY * math.sin(2.0 * math.pi * t)),
         "spine_02": ("z", -SWAY * 0.6 * math.sin(2.0 * math.pi * t)),
-        "neck": ("x", SWAY * 0.5 * math.cos(4.0 * math.pi * t)),
-        "head": ("x", -SWAY * 0.4 * math.cos(4.0 * math.pi * t)),
+        "head": ("x", -SWAY * 0.7 * math.cos(4.0 * math.pi * t)),
         "tail_01": ("z", -SWAY * 1.6 * math.sin(2.0 * math.pi * t)),
         "tail_02": ("z", -SWAY * 1.2 * math.sin(2.0 * math.pi * t - 0.6)),
         "ear_L": ("x", SWAY * 0.8 * math.cos(4.0 * math.pi * t + 0.9)),
@@ -163,11 +184,23 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=32, help="length of one full stride")
     parser.add_argument("--swing-front", type=float, default=24.0)
     parser.add_argument("--swing-back", type=float, default=20.0)
-    parser.add_argument("--bend-front", type=float, default=34.0)
-    parser.add_argument("--bend-back", type=float, default=40.0)
-    parser.add_argument("--paw", type=float, default=16.0)
+    parser.add_argument("--bend-front", type=float, default=52.0)
+    parser.add_argument("--bend-back", type=float, default=60.0)
+    parser.add_argument("--paw", type=float, default=22.0)
+    parser.add_argument(
+        "--base-bend", type=float, default=10.0,
+        help="Standing bend held all cycle; a real limb is never locked straight",
+    )
     parser.add_argument("--bob", type=float, default=0.012)
-    parser.add_argument("--sway", type=float, default=5.0)
+    parser.add_argument(
+        "--sway", type=float, default=2.2,
+        help="Lateral body roll. Too much reads as a waddle rather than a walk",
+    )
+    parser.add_argument(
+        "--head-yaw", type=float, default=-32.0,
+        help="Static counter-yaw on the neck, to straighten a head the subject was "
+             "generated with turned. Negative turns toward the character's right",
+    )
     args = parser.parse_args()
 
     code = TEMPLATE.format(
@@ -177,8 +210,10 @@ def main() -> int:
         bend_front=args.bend_front,
         bend_back=args.bend_back,
         paw=args.paw,
+        base_bend=args.base_bend,
         bob=args.bob,
         sway=args.sway,
+        head_yaw=args.head_yaw,
     )
     print(send(code, args.host, args.port))
     return 0

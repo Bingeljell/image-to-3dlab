@@ -161,6 +161,12 @@ leg_bones = [n for n in report if ("front" in n or "back" in n)]
 contaminated = sorted(n for n in leg_bones if report[n]["reaches_head"])
 empty = sorted(n for n in report if report[n]["verts"] == 0)
 
+# Heat weighting is *expected* to fail on this mesh — that is why the voxel-proxy
+# transfer exists. Leaving the scene in this state means the armature animates and
+# the mesh does not follow, which looks like a broken rig rather than a missing step.
+if empty:
+    print("!!! MESH IS NOT USABLY WEIGHTED — run scripts/blender_voxel_weights.py now")
+
 print(json.dumps({{
     "bones": len(arm_data.bones),
     "heat_error": heat_error,
@@ -177,7 +183,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
-    parser.add_argument("--ear-length", type=float, default=0.16)
+    parser.add_argument(
+        "--ear-length", type=float, default=0.09,
+        help="Ear bones are extrapolated from the head through the ear base, so an "
+             "over-long value pushes their tips outside the mesh",
+    )
     parser.add_argument("--weight-threshold", type=float, default=0.15)
     args = parser.parse_args()
     print(send(build_code(args.ear_length, args.weight_threshold), args.host, args.port))

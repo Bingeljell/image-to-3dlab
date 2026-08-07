@@ -31,8 +31,11 @@ QUADRUPED_MARKERS: dict[str, tuple[float, float, float]] = {
     "neck_base": (0.50, 0.28, 0.66),
     "head": (0.50, 0.18, 0.76),
     "jaw": (0.50, 0.10, 0.70),
-    "ear_L": (0.38, 0.24, 0.93),
-    "ear_R": (0.62, 0.24, 0.93),
+    # L is the *character's* left, which is +X (x > 0.5) given that the subject's front
+    # is at minimum Y. On screen that puts the L markers on the viewer's right whenever
+    # the subject faces the camera — correct, and the opposite of what looks right.
+    "ear_L": (0.62, 0.24, 0.93),
+    "ear_R": (0.38, 0.24, 0.93),
     "tail_base": (0.50, 0.70, 0.55),
     "tail_mid": (0.50, 0.82, 0.50),
     "tail_tip": (0.50, 0.93, 0.42),

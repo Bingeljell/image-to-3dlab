@@ -11,10 +11,11 @@ with `scripts/patch_trellis_highpoly.py` (`--dump-highpoly`), then bake with thi
 
 Two details that decide whether the bake is usable:
 
-* **Alignment.** The PLY comes straight from the generator; the GLB has been through the
-  glTF exporter and Blender's Y-up to Z-up import conversion. Rather than guess the
-  transform chain, the high-poly is aligned to the low-poly by bounding box, which is
-  robust to any convention mismatch.
+* **Alignment.** Compare the two *inside Blender*, not in file space. The glTF importer
+  already applies Y-up to Z-up, so by the time both are loaded they are in the same
+  orientation and no permutation is needed. Reasoning from raw file-space sizes suggests
+  a Y/Z swap that does not exist, and "correcting" it misaligns them — caught here by the
+  per-axis ratios, which read 1.42 spread when rotated and 1.04 when left alone.
 * **Ray distance.** Blender casts rays outward from the low-poly surface to find the
   high-poly. Too short and detail is missed; too long and rays hit the wrong surface
   across a gap — very visible on thin geometry like ears and leaf tips. Scaled from the
@@ -231,10 +232,11 @@ def main() -> int:
     )
     parser.add_argument("--samples", type=int, default=1)
     parser.add_argument(
-        "--permutation", choices=sorted(AXIS_PERMUTATIONS), default="gltf_to_blender",
-        help="Axis mapping from high-poly space to the low-poly's. The PLY comes "
-             "straight from the generator while the GLB has been through the glTF "
-             "exporter, so their Y and Z are swapped and the default corrects it",
+        "--permutation", choices=sorted(AXIS_PERMUTATIONS), default="none",
+        help="Axis mapping from high-poly space to the low-poly's, compared *inside "
+             "Blender*. The glTF importer already applies the Y-up to Z-up conversion, "
+             "so the two arrive aligned and the default is correctly 'none'. Comparing "
+             "raw file-space sizes instead suggests a swap that does not exist",
     )
     args = parser.parse_args()
 

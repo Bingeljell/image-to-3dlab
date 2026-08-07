@@ -24,6 +24,17 @@ Each leg superimposes three motions:
 Note the front leg's visible mid-leg bend is a **wrist**, not a knee, and it carries
 most of that leg's fold — leaving it stiff is what makes a front leg read as a stick.
 
+**Fold and swing control different things and must not be confused.** Measured on this
+rig: swing alone produces ~0.20 of paw travel and fold alone ~0.21, so *travel is
+dominated by the swing arc*. Cutting fold to reduce travel therefore does not reduce
+travel — it only removes the bending, leaving stiff legs that rise and fall, which reads
+as swimming. Use **swing** to control how far a paw travels and **fold** to control how
+much the leg bends.
+
+`--front-crouch` exists because the front legs are counter-rotated to stay vertical under
+a dropped chest, so they hang at full extension while the back legs keep a permanent
+fold. Without it the front paws sink below the back ones and the fox walks downhill.
+
 The body adds a vertical bob at twice stride frequency plus a small counter-sway on
 spine, tail and head. Too much lateral sway reads as a waddle.
 
@@ -62,6 +73,7 @@ HEAD_LEVEL = math.radians({head_level})
 CHEST_DROP = math.radians({chest_drop})
 SHOULDER_TUCK = math.radians({shoulder_tuck})
 BODY_DROP = {body_drop}
+FRONT_CROUCH = math.radians({front_crouch})
 
 arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
 if not arms:
@@ -102,7 +114,12 @@ for pb in arm.pose.bones:
     pb.rotation_euler = (0.0, 0.0, 0.0)
     pb.location = (0.0, 0.0, 0.0)
 
-base_z = arm.location.z
+# The rig's rest position is the origin. Reading arm.location.z here instead would
+# pick up whatever the *previous* run's keyframes left behind, so each regeneration
+# would treat the already-lowered position as its new baseline and sink the fox
+# further every time.
+arm.location = (0.0, 0.0, 0.0)
+base_z = 0.0
 missing = []
 
 for frame in range(1, FRAMES + 2):
@@ -124,11 +141,16 @@ for frame in range(1, FRAMES + 2):
         lift = max(0.0, math.sin(theta)) ** 0.7
         # A real leg is never locked straight, even bearing weight; BASE keeps a
         # standing bend so the limb reads as a limb rather than a stick.
-        mid_fold = BASE + mid_amp * lift
+        # Front legs hang at full extension once compensated for the chest drop,
+        # while back legs carry a permanent fold — so without a matching front
+        # crouch the front paws sink below the back ones and the animal stands on
+        # two different floors.
+        crouch = FRONT_CROUCH if leg.startswith('front') else 0.0
+        mid_fold = BASE + crouch + mid_amp * lift
         # The wrist/ankle folds slightly later than the elbow/knee — the joint
         # closest to the ground is the last to leave it and the first to reach for it.
         low_lift = max(0.0, math.sin(theta - 0.5)) ** 0.7
-        low_fold = BASE * 0.5 + low_amp * low_lift
+        low_fold = BASE * 0.5 + crouch * 0.6 + low_amp * low_lift
         for name, value in ((upper, swing), (mid, mid_fold), (low, low_fold)):
             pb = arm.pose.bones.get(name)
             if pb is None:
@@ -234,10 +256,10 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=20, help="length of one full stride")
     parser.add_argument("--swing-front", type=float, default=24.0)
     parser.add_argument("--swing-back", type=float, default=20.0)
-    parser.add_argument("--bend-front", type=float, default=30.0)
+    parser.add_argument("--bend-front", type=float, default=34.0)
     parser.add_argument("--bend-back", type=float, default=38.0)
     parser.add_argument(
-        "--wrist", type=float, default=46.0,
+        "--wrist", type=float, default=40.0,
         help="Front-leg wrist fold. The visible mid-leg bend on a front leg is a "
              "wrist, and it carries most of the fold — a stiff wrist reads as a stick",
     )
@@ -248,7 +270,7 @@ def main() -> int:
              "walk is a four-beat lateral gait",
     )
     parser.add_argument(
-        "--base-bend", type=float, default=10.0,
+        "--base-bend", type=float, default=8.0,
         help="Standing bend held all cycle; a real limb is never locked straight",
     )
     parser.add_argument("--bob", type=float, default=0.016)
@@ -262,27 +284,32 @@ def main() -> int:
              "generated with turned. Negative turns toward the character's right",
     )
     parser.add_argument(
-        "--head-pitch", type=float, default=20.0,
+        "--head-pitch", type=float, default=0.0,
         help="Drop the head forward and down. A moving fox reaches ahead and low; "
              "an upright head reads as a standing animal with moving legs",
     )
     parser.add_argument(
-        "--head-level", type=float, default=-22.0,
+        "--head-level", type=float, default=0.0,
         help="Counter-rotation on the head bone so the muzzle levels out instead of "
              "aiming at the floor once the neck is pitched down",
     )
     parser.add_argument(
-        "--chest-drop", type=float, default=20.0,
+        "--chest-drop", type=float, default=0.0,
         help="Pitch the chest down. This is what lowers the shoulders — and the neck "
              "and head ride down with it. Rotating the neck alone only pivots the muzzle",
     )
     parser.add_argument(
-        "--shoulder-tuck", type=float, default=4.0,
+        "--shoulder-tuck", type=float, default=0.0,
         help="Static offset pulling the front legs back under the body instead of "
              "splaying them out ahead",
     )
     parser.add_argument(
-        "--body-drop", type=float, default=0.05,
+        "--front-crouch", type=float, default=0.0,
+        help="Static fold on the front legs so their paws sit level with the back "
+             "paws. Without it the front legs hang at full extension and sink below",
+    )
+    parser.add_argument(
+        "--body-drop", type=float, default=0.0,
         help="Lower the whole rig, for a slightly hunched travelling posture",
     )
     args = parser.parse_args()
@@ -305,6 +332,7 @@ def main() -> int:
         chest_drop=args.chest_drop,
         shoulder_tuck=args.shoulder_tuck,
         body_drop=args.body_drop,
+        front_crouch=args.front_crouch,
     )
     print(send(code, args.host, args.port))
     return 0

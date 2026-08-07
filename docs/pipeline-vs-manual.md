@@ -88,3 +88,18 @@ riggable, which was previously the hard blocker on this whole lane.
   `blender_voxel_weights.py`.
 - **Re-runnable scripts must anchor to absolute references.** Reading the current
   armature Z as a baseline made every regeneration sink the rig further.
+
+## Known unfixed: the toe flex points the wrong way (2026-08-07)
+
+With the heel pivot and toe segment in place, the trot reads as "a prissy princess fox
+lifting up its toes" — the toes rise during push-off instead of pressing down. The heel
+pivot itself is verified correct (rotating the paw bone 25 degrees drops the toe 0.036
+against the heel's 0.012), so the geometry is right and only the *drive* is wrong.
+
+**Most likely cause: an inverted sign, the same class of bug as `--front-fold-sign`.**
+Which rotation direction closes a joint depends on rest geometry, and the toe bones were
+added without checking. Test before tuning amplitude: rotate one toe bone +20 and -20 in
+Pose Mode and measure which direction lowers the toe tip. `--toe` is already a flag, so
+a negative value may be the whole fix.
+
+Do not chase this with amplitude — that mistake cost six rounds on the leg fold.

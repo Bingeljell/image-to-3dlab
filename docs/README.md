@@ -24,3 +24,4 @@ link to it.
 - [pipeline-vs-manual.md](pipeline-vs-manual.md) — what generalises to the next character, what is manual per asset, and what was only ever this fox
 - [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — Hunyuan paint on Apple Silicon: CPU-rasteriser fallback, disabled by default; degraded rather than impossible
 - [texture-quality-roadmap.md](texture-quality-roadmap.md) — the path to Meshy-grade output: region splitting, normal maps, SD texture refinement, quad remesh
+- [trellis-prescribed-flow.md](trellis-prescribed-flow.md) — the upstream contract and how far our usage deviates: unused remesh and UV-clustering controls, and a texture_size cap that is only in the wrapper

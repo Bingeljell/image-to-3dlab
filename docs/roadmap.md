@@ -47,7 +47,14 @@ question 1.
 
 ## Tier 3 — quality
 
-**DECIDED (2026-08-06): multi-view is next.** Reasoning below in "Why this order".
+**DECIDED (2026-08-07): texture fidelity is the lane.** Multi-view is done. Every session
+until now worked on geometry while the visibly wrong thing was texture. The three defects
+are now separated — hue, atlas fragmentation, and eye colour — see
+[fidelity-plan.md](fidelity-plan.md).
+
+**NEXT: colour-match the albedo.** The source concept leads red by +17; every render leads
+green by 7-20. The shift sits in the baked albedo, so it is not a material or lighting
+artefact and needs no regeneration. Cheapest remaining win by a wide margin.
 
 6. **Multi-view input. NEXT UP.** With winding disproven, the
    see-through back of the head is best explained by the model never having seen the
@@ -70,12 +77,12 @@ question 1.
    Constraint (from [fidelity-plan.md](fidelity-plan.md)): views must be the **same
    pose** from an orbiting camera. Different poses break reconstruction.
 
-   **Tested 2026-08-06 — partial success.** Back markedly better, front wrecked.
-   TRELLIS.2 has no multi-image support and no view embeddings, so concatenated tokens
-   are reconciled as one observation and the maximally-contradictory front/back pair
-   damages the front. Next: (a) try two overlapping 3/4 views, which should confuse it
-   far less, and (b) the real fix — combine per-view denoiser predictions each step
-   instead of concatenating conditioning. See
+   **DONE 2026-08-07.** Token concatenation was the wrong technique; the fix is per-view
+   denoiser prediction averaging, restored from TRELLIS v1 in
+   `scripts/patch_trellis_multiview.py` and verified firing on all three samplers.
+   Geometry measurably improves (components 516 -> 106, boundary edges 48,246 ->
+   33,864) but appearance in a normal textured render barely changes — the payoff is
+   downstream (engine culling, part splitting, collision), not turntable beauty. See
    [fidelity-plan.md](fidelity-plan.md).
 7. **Second painted view** for far-side label quality. Downgraded from *required* to
    *nice* once nearest-neighbour fill reached 100% coverage from one view.
@@ -106,6 +113,13 @@ question 1.
   the way `validate_run_policy` gates on licensing, rather than only report?
 - **Verify a tool does what your own caveat says.** The UV-seam warning was written
   down, then `trimesh.merge_vertices` was trusted to honour it. It does not.
+- **Fewer faces is not a quality tradeoff here — it is a quality *win*.** Halving the
+  budget (192k -> 101k) doubles texels per triangle (21.8 -> 41.4) and defragments the UV
+  atlas: an eye that spanned two islands plus scattered fragments lands in one. Appearance
+  is equal or slightly better at half the geometry. Do not reflexively raise face counts.
+- **Read the flag's own help string.** `--bake-target-faces` said "Triangle budget for the
+  CPU UV/texture fallback" and was still assumed to be general. It was inert on the Metal
+  path — that is, on every Apple Silicon run — for the repo's entire history.
 - **Never judge mesh repair by the centroid "inward area" metric.** It is meaningless
   for concave and off-centre geometry and has produced three wrong conclusions. Render
   with **backface culling** — the same test an engine applies.

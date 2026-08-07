@@ -252,3 +252,100 @@ State the value precisely: multi-view measurably improves *geometry*, but barely
 changes *appearance* in a normal render. The payoff is downstream — engine culling,
 splitting into parts, collision, simulation. "Visibly the cleanest fox yet" was an
 overstatement drawn from the culled view alone.
+
+## Texture fidelity: the first direct attack (2026-08-07)
+
+Every prior session in this lane worked on geometry — holes, normals, components,
+multi-view. Texture was never attacked directly, despite being the visibly wrong thing.
+This section is the first pass at it, on the 3/4 moss fox
+(`manifests/fox-34-multiview.json`).
+
+### Three defects, and they are independent
+
+Measured on the albedo atlas and on lit renders, against the source concept art:
+
+| Defect | Where it originates | Evidence |
+|---|---|---|
+| Cool-green hue | Generation (present in the albedo) | source R-G = **+17**, every render R-G = **-7 to -20** |
+| Flowers / fine detail faint | Atlas fragmentation + generation | confetti unwrap, ~22 texels per triangle |
+| Eyes brown, not amber | Generation | atlas eye is dark brown at ~100px, no catchlight |
+
+Separating these is the main analytical result. Before this session they were one
+undifferentiated "the textures look off", which is not actionable.
+
+**On the hue specifically:** the shift is already present in the baked albedo, so it is
+*not* caused by `material_mode: matte`, by the material normalization, or by the Blender
+`dark` world. That localizes it to generation/bake and makes a colour-match pass a
+legitimate, cheap fix — no regeneration required. It is the single most fixable defect
+on the list and had been written off as inherent.
+
+**A caution on the cream measurement.** An early claim that "the cream regions collapsed
+into green" was wrong at the global level: cream is 17.2% of the source and 15.9% of the
+3/4 render — essentially preserved. What actually happens is **redistribution**: the
+chest and legs lose cream while the tail becomes over-pale (31% on the rear view, above
+source). Compare lit render to lit concept, never unlit albedo to lit concept.
+
+### The bug: `bake_target_faces` never worked on Apple Silicon
+
+Two runs at `bake_target_faces` 200000 and 100000 produced 192,078 and 192,310 faces —
+identical within noise. The option is added by our own `scripts/patch_trellis_no_bria.py`,
+whose replacement matched only the CPU fallback's budget line (`len(faces)`). The Metal
+bake path has a separate line reading `len(faces_np)`, hardcoded to `min(200000, ...)`,
+which the pattern never matched.
+
+So **every asset this repo has produced was pinned at ~192k faces**, with the manifest
+value ignored, on every Apple Silicon run. Including the 50k-100k budget the user had
+specified, which was never achievable. Fixed in `40aaf9f`; the 200,000 is retained as a
+ceiling because it guards against an `mtlbvh` crash on large meshes.
+
+Note the argparse help string said `"Triangle budget for the CPU UV/texture fallback"` —
+the limitation was documented in the flag itself and read straight past.
+
+### Halving the face count defragments the atlas
+
+Re-run with a working budget: **101,298 faces at 41.4 texels per triangle**, against
+192,078 at 21.8.
+
+**Appearance: modestly better.** Leaf shapes slightly crisper on the body, tail leaves
+marginally better separated. Side by side it is not a dramatic difference. Do not
+oversell it.
+
+**Structure: substantially better, and this is the real finding.** Verified in Blender
+by selecting the eye's faces and reading the UV editor:
+
+- at **192k faces**, each eye's UVs land in **2 major islands plus many small fragments
+  scattered across the atlas**;
+- at **101k faces**, each eye lands in **a single island**.
+
+An eye reassembled from a dozen fragments can never be crisp: every fragment edge is a
+seam, and with no padding between islands, filtering bleeds neighbouring leaf-green into
+the eye's rim from all sides. Defragmenting removes that ceiling.
+
+So the honest statement is: **halving the face count roughly doubles texel density *and*
+defragments the UV atlas, for equal-or-slightly-better appearance at half the geometry.**
+For a game asset that is an unambiguous win. But it is *not* sufficient to reach the
+fidelity bar — hue, flowers and eye colour are all untouched by it.
+
+### Verified the way that has repeatedly proven necessary
+
+The fragmentation result came from the user selecting eye faces in Blender and reading
+the UV editor directly — not from a script counting islands. Two of my claims this
+session were wrong and both were caught this way:
+
+1. "There is no `texture_size` cap" — there is, **2048**, enforced by the vendored
+   `generate.py` argparse choices. I had checked only our wrapper, which passes the value
+   through unvalidated.
+2. "The atlas holds two complete, well-formed amber eyes with clean catchlights" — read
+   off a thumbnail. At full zoom they are small, dark brown, soft, and were fragmented.
+
+See [../docs/open-questions.md](open-questions.md) and the standing practice notes in
+[roadmap.md](roadmap.md).
+
+### Next in this lane
+
+1. **Colour-match pass on the albedo** — targets the measured hue shift, costs seconds,
+   no regeneration. Cheapest remaining win.
+2. **Head-crop generation pass** — the eyes are wrong at generation, so no UV or density
+   work will fix them. Roadmap item 8.
+3. **Atlas padding / re-unwrap** — only if defragmentation at lower face counts proves
+   insufficient for the flowers and ear foliage.

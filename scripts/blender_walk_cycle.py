@@ -76,6 +76,7 @@ BODY_DROP = {body_drop}
 FRONT_CROUCH = math.radians({front_crouch})
 CROUCH = math.radians({crouch})
 FRONT_SIGN = {front_sign}
+TOE = math.radians({toe})
 AUTO_PLANT = {auto_plant}
 
 arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
@@ -179,7 +180,12 @@ for frame in range(1, FRAMES + 2):
         # closest to the ground is the last to leave it and the first to reach for it.
         low_lift = max(0.0, math.sin(theta - 0.5)) ** 0.7
         low_fold = sign * (BASE * 0.5 + crouch * 0.6 + low_amp * low_lift)
-        for name, value in ((upper, swing), (mid, mid_fold), (low, low_fold)):
+        # Toes flex late in stance, as the foot rolls forward and pushes off, then
+        # relax while airborne. That roll is the whole reason the foot is two segments.
+        push = max(0.0, math.sin(theta + 2.2)) ** 1.4
+        toe_fold = sign * TOE * push
+        for name, value in ((upper, swing), (mid, mid_fold), (low, low_fold),
+                            (leg + "_toe", toe_fold)):
             pb = arm.pose.bones.get(name)
             if pb is None:
                 missing.append(name)
@@ -352,6 +358,11 @@ def main() -> int:
              "paws. Without it the front legs hang at full extension and sink below",
     )
     parser.add_argument(
+        "--toe", type=float, default=20.0,
+        help="Toe flex during push-off. The foot is two segments so it can roll: heel "
+             "plants, foot flattens, toes push off",
+    )
+    parser.add_argument(
         "--front-fold-sign", type=float, default=-1.0,
         help="Which way the front elbow/wrist close. Depends on rest geometry: with "
              "the elbow set behind the shoulder, negative folds and positive "
@@ -395,6 +406,7 @@ def main() -> int:
         front_crouch=args.front_crouch,
         crouch=args.crouch,
         front_sign=args.front_fold_sign,
+        toe=args.toe,
         auto_plant=bool(args.auto_plant),
     )
     print(send(code, args.host, args.port))

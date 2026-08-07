@@ -27,6 +27,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_joint_markers import send
 
 # (bone, head marker, tail marker, parent bone, connected)
+#
+# The foot is two segments, not one. A single wrist->paw bone pivots the whole foot as a
+# peg, so lifting it raises the toe instead of dropping it. With the paw joint at the
+# *heel* and a toe segment ahead of it, the foot rolls the way a foot does: heel plants,
+# foot flattens, toes push off.
 SKELETON: list[tuple[str, str, str, str | None, bool]] = [
     ("spine_01", "pelvis", "spine_mid", None, False),
     ("spine_02", "spine_mid", "chest", "spine_01", True),
@@ -41,9 +46,11 @@ for _side in ("L", "R"):
         (f"front{_side}_upperarm", f"front{_side}_shoulder", f"front{_side}_elbow", "spine_02", False),
         (f"front{_side}_forearm", f"front{_side}_elbow", f"front{_side}_wrist", f"front{_side}_upperarm", True),
         (f"front{_side}_paw", f"front{_side}_wrist", f"front{_side}_paw", f"front{_side}_forearm", True),
+        (f"front{_side}_toe", f"front{_side}_paw", f"front{_side}_toe", f"front{_side}_paw", True),
         (f"back{_side}_thigh", f"back{_side}_hip", f"back{_side}_knee", "spine_01", False),
         (f"back{_side}_shin", f"back{_side}_knee", f"back{_side}_ankle", f"back{_side}_thigh", True),
         (f"back{_side}_paw", f"back{_side}_ankle", f"back{_side}_paw", f"back{_side}_shin", True),
+        (f"back{_side}_toe", f"back{_side}_paw", f"back{_side}_toe", f"back{_side}_paw", True),
     ]
 
 # Ears have only a base marker, so their bone is extrapolated outward from the head

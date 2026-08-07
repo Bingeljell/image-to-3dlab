@@ -103,3 +103,35 @@ Pose Mode and measure which direction lowers the toe tip. `--toe` is already a f
 a negative value may be the whole fix.
 
 Do not chase this with amplitude — that mistake cost six rounds on the leg fold.
+
+## Open issues at end of session (2026-08-07)
+
+Ranked by how cheap the fix looks. None are blocking; all are recorded rather than fixed.
+
+1. **The idle moves the feet, and the whole fox reads as "wavy".** One cause: the belly
+   follow-through drives `spine_01`, but the back legs hang off `spine_01`, so every
+   breath rotates them too (paws travel 0.007-0.011 when they should be zero). Breathe
+   from `spine_02` only, and drop the `--shift` body translation.
+2. **The colour grade turns near-black pixels blue.** Measured: ungraded dark pixels are
+   `[28.5, 36.9, 6.1]` (dark green) with 0.00% blue-dominant; after grading they are
+   `[20.6, 17.6, 36.7]` with 1.08% blue-dominant. Chroma matching pushes near-zero-chroma
+   pixels to the source's mean chroma, so gutters and dark detail become saturated blue.
+   This is the speckling across the face **and** why the eyes read blue — they are dark
+   brown in the ungraded atlas. Fix: weight the correction by luminance so dark pixels
+   keep their (absent) chroma. Note this will turn the eyes brown again — a deliberate
+   choice, not purely a bug fix.
+3. **The mesh holes were never filled.** 16,467 boundary edges, visible as tears around
+   the ears and muzzle. `scripts/fill_holes.py` exists and is proven — it took an earlier
+   fox from 34,789 to 18,736 boundary edges. It was simply never run on this asset.
+4. **The toe flex points the wrong way** (see the section above).
+5. **Sign errors have now happened three times** — front leg fold, toe flex, ear swivel.
+   Which rotation direction closes a joint depends on rest geometry and cannot be
+   guessed. The rig needs a *sign-probe step*: rotate each bone +/- a test angle, measure
+   which direction closes it, and record the signs once per character.
+6. **Feet still slide.** Inherent to FK; needs IK foot planting.
+
+## Delivered this session
+
+- `output/hero/moss_fox_hero_101k_grade07.glb` — 101k faces, 41.4 texels/tri, warm hue
+- 25-bone rig, weights CLEAN, 38 unweighted vertices of 107,473
+- `output/video/moss_fox_trot.mp4`, `output/video/moss_fox_idle.mp4`

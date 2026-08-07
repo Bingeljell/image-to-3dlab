@@ -95,10 +95,18 @@ SAMPLES = {samples}
 ROT_X = {rot_x}
 
 t0 = time.time()
+# Preserve anything that represents manual work. Joint markers are hand-placed and
+# exist nowhere but the scene until saved, and the armature is built from them; clearing
+# either has already destroyed ~40 minutes of placement once, unrecoverably.
+def _is_precious(o):
+    return o.name.startswith("JOINT_") or o.type == "ARMATURE"
+
 for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
+    if not _is_precious(obj):
+        bpy.data.objects.remove(obj, do_unlink=True)
 for coll in list(bpy.data.collections):
-    bpy.data.collections.remove(coll)
+    if coll.name != "JOINT_MARKERS" and not coll.objects:
+        bpy.data.collections.remove(coll)
 
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=LOW)

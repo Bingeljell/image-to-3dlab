@@ -48,10 +48,18 @@ FRAMES = {frames}
 ELEV = {elevation}
 RES = {res}
 
-for o in list(bpy.data.objects):
-    bpy.data.objects.remove(o, do_unlink=True)
-for c in list(bpy.data.collections):
-    bpy.data.collections.remove(c)
+# Preserve anything that represents manual work. Joint markers are hand-placed and
+# exist nowhere but the scene until saved, and the armature is built from them; clearing
+# either has already destroyed ~40 minutes of placement once, unrecoverably.
+def _is_precious(o):
+    return o.name.startswith("JOINT_") or o.type == "ARMATURE"
+
+for obj in list(bpy.data.objects):
+    if not _is_precious(obj):
+        bpy.data.objects.remove(obj, do_unlink=True)
+for coll in list(bpy.data.collections):
+    if coll.name != "JOINT_MARKERS" and not coll.objects:
+        bpy.data.collections.remove(coll)
 
 bpy.ops.import_scene.gltf(filepath=ASSET)
 meshes = [o for o in bpy.data.objects if o.type == "MESH"]

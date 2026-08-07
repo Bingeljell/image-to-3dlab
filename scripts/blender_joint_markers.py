@@ -13,6 +13,13 @@ left/right, Z is up, and the subject's front is at minimum Y.
 
     spawn   import the asset and create the markers
     read    print every marker's placed world position as JSON
+    save    write the placed positions to a JSON file
+    load    recreate markers from a JSON file
+
+**Always `save` after placing.** Marker positions are the only genuinely manual step in
+the rigging lane, and they live nowhere but the Blender scene until written out. Several
+scripts here clear the scene before doing their work; running one of those against
+unsaved markers destroys the placement irrecoverably, autosave included. It has happened.
 """
 
 from __future__ import annotations
@@ -172,9 +179,35 @@ def send(code: str, host: str, port: int) -> str:
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
+def load_code(markers: dict[str, list[float]]) -> str:
+    return f'''
+import bpy, json
+markers = json.loads({json.dumps(json.dumps(markers))})
+coll = bpy.data.collections.get("JOINT_MARKERS")
+if coll is None:
+    coll = bpy.data.collections.new("JOINT_MARKERS")
+    bpy.context.scene.collection.children.link(coll)
+radius = 0.018
+restored = []
+for name, loc in markers.items():
+    full = "JOINT_" + name
+    obj = bpy.data.objects.get(full)
+    if obj is None:
+        obj = bpy.data.objects.new(full, None)
+        obj.empty_display_type = "SPHERE"
+        obj.empty_display_size = radius
+        obj.show_name = True
+        coll.objects.link(obj)
+    obj.location = loc
+    restored.append(name)
+print(json.dumps({{"restored": len(restored)}}))
+'''
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["spawn", "read"])
+    parser.add_argument("mode", choices=["spawn", "read", "save", "load"])
+    parser.add_argument("--file", type=Path, help="JSON path for save/load")
     parser.add_argument("--asset", type=Path, help="GLB to import (spawn mode)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
@@ -184,10 +217,28 @@ def main() -> int:
         if args.asset is None:
             raise SystemExit("spawn requires --asset")
         code = spawn_code(args.asset.expanduser().resolve())
+    elif args.mode == "load":
+        if args.file is None:
+            raise SystemExit("load requires --file")
+        code = load_code(json.loads(args.file.read_text()))
     else:
         code = read_code()
 
-    print(send(code, args.host, args.port))
+    response = send(code, args.host, args.port)
+
+    if args.mode == "save":
+        if args.file is None:
+            raise SystemExit("save requires --file")
+        placed = json.loads(json.loads(response[response.find(chr(123)):])
+                            ["result"]["result"])
+        if not placed:
+            raise SystemExit("no JOINT_ markers in the scene — nothing to save")
+        args.file.parent.mkdir(parents=True, exist_ok=True)
+        args.file.write_text(json.dumps(placed, indent=2, sort_keys=True) + chr(10))
+        print(f"saved {len(placed)} markers to {args.file}")
+        return 0
+
+    print(response)
     return 0
 
 

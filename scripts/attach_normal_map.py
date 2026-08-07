@@ -20,8 +20,34 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
 import trimesh
 from PIL import Image
+
+# A tangent-space normal map encodes "no deviation from the surface" as this colour:
+# x and y at zero (128 after the 0..255 encoding) and z pointing straight out (255).
+FLAT_NORMAL = (128, 128, 255)
+
+
+def soften(image: Image.Image, strength: float) -> Image.Image:
+    """Blend a normal map toward flat.
+
+    glTF has a `normalTexture.scale` for exactly this, but trimesh does not model it, so
+    the value would be silently dropped on export. Blending the pixels instead survives
+    any writer.
+
+    Baked at full strength this map reads crunchy — every triangle edge catches light and
+    the cream muzzle picks up dark speckling. Strength is the dose: 1.0 is the raw bake,
+    0.0 is no effect at all.
+    """
+    if strength < 0.0:
+        raise ValueError("strength must not be negative")
+    if strength == 1.0:
+        return image
+    pixels = np.asarray(image.convert("RGB")).astype(np.float32)
+    flat = np.array(FLAT_NORMAL, dtype=np.float32)
+    blended = flat + (pixels - flat) * strength
+    return Image.fromarray(np.clip(blended, 0, 255).astype(np.uint8), mode="RGB")
 
 
 def main() -> int:
@@ -30,9 +56,10 @@ def main() -> int:
     parser.add_argument("normal_map", type=Path, help="baked normal map PNG")
     parser.add_argument("output", type=Path, help="GLB to write")
     parser.add_argument(
-        "--scale", type=float, default=1.0,
-        help="glTF normalTexture scale. Below 1 softens the effect; above 1 exaggerates "
-             "it, which usually reads as noise",
+        "--strength", type=float, default=1.0,
+        help="Dose of the effect. 1.0 is the raw bake, which usually reads crunchy; "
+             "0.4-0.6 is typically the useful range. Applied by blending the map toward "
+             "flat, because trimesh drops glTF's normalTexture.scale on export",
     )
     args = parser.parse_args()
 
@@ -41,7 +68,7 @@ def main() -> int:
     if not geometries:
         raise SystemExit(f"no geometry in {args.asset}")
 
-    normal = Image.open(args.normal_map).convert("RGB")
+    normal = soften(Image.open(args.normal_map).convert("RGB"), args.strength)
 
     attached = 0
     for mesh in geometries:
@@ -49,10 +76,6 @@ def main() -> int:
         if material is None:
             continue
         material.normalTexture = normal
-        # trimesh's PBRMaterial does not model normalTexture.scale, so record the
-        # requested value where the exporter can still see it if it grows support.
-        if args.scale != 1.0:
-            material.normalScale = args.scale
         attached += 1
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +87,8 @@ def main() -> int:
         if getattr(m.visual.material, "normalTexture", None) is not None
     )
     print(f"attached to {attached} material(s); {got} survived the round-trip")
-    print(f"normal map {normal.size[0]}x{normal.size[1]} -> {args.output}")
+    print(f"normal map {normal.size[0]}x{normal.size[1]} at strength "
+          f"{args.strength} -> {args.output}")
     if got == 0:
         raise SystemExit("normalTexture did not survive export — check the glTF writer")
     return 0

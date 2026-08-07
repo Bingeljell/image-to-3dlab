@@ -22,3 +22,4 @@ Design and reference documentation for the image-to-3D lab.
 Keep the top-level `README.md` as the quickstart; move anything longer-form here and
 link to it.
 - [pipeline-vs-manual.md](pipeline-vs-manual.md) — what generalises to the next character, what is manual per asset, and what was only ever this fox
+- [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — texture the existing mesh with Hunyuan's paint stage; check MPS viability before downloading weights

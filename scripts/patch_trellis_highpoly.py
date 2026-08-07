@@ -38,9 +38,12 @@ REPLACEMENT = '''    print(f"\\nMesh: {verts.shape[0]:,} vertices, {faces.shape[
     # image-to-3dlab: keep the full-resolution mesh before decimation. It is the bake
     # source for a normal map, and the only moment it exists on disk.
     if getattr(args, "dump_highpoly", None):
+        # Both imported locally: generate.py imports neither at module scope, and a
+        # patch must never assume the host file's imports.
         import numpy as _np
+        from pathlib import Path as _Path
 
-        _hp = Path(args.dump_highpoly)
+        _hp = _Path(args.dump_highpoly)
         _hp.parent.mkdir(parents=True, exist_ok=True)
         _v = _np.ascontiguousarray(verts, dtype="<f4")
         _f = _np.ascontiguousarray(faces, dtype="<i4")

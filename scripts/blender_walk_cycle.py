@@ -59,6 +59,9 @@ SWAY = math.radians({sway})
 HEAD_YAW = math.radians({head_yaw})
 HEAD_PITCH = math.radians({head_pitch})
 HEAD_LEVEL = math.radians({head_level})
+CHEST_DROP = math.radians({chest_drop})
+SHOULDER_TUCK = math.radians({shoulder_tuck})
+BODY_DROP = {body_drop}
 
 arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
 if not arms:
@@ -110,6 +113,8 @@ for frame in range(1, FRAMES + 2):
         upper, mid, low, swing_amp, mid_amp, low_amp = CHAIN[leg]
         theta = 2.0 * math.pi * (t + phase)
         swing = swing_amp * math.cos(theta)
+        if leg.startswith('front'):
+            swing += SHOULDER_TUCK
         # Rectified sine, shaped: the exponent widens the airborne plateau so the
         # fold eases in and out instead of snapping at the contact frames.
         lift = max(0.0, math.sin(theta)) ** 0.7
@@ -129,7 +134,7 @@ for frame in range(1, FRAMES + 2):
             pb.keyframe_insert("rotation_euler", frame=frame)
 
     # Hips rise twice per stride, as each diagonal support pair passes under the body.
-    arm.location.z = base_z + BOB * math.cos(4.0 * math.pi * t)
+    arm.location.z = base_z - BODY_DROP + BOB * math.cos(4.0 * math.pi * t)
     arm.keyframe_insert("location", frame=frame)
 
     # The subject was generated with its head turned, so a static counter-yaw is
@@ -149,9 +154,18 @@ for frame in range(1, FRAMES + 2):
             neck.rotation_euler = (rest.inverted() @ world @ rest).to_euler("XYZ")
             neck.keyframe_insert("rotation_euler", frame=frame)
 
+    # Pitching the chest down is what actually lowers the shoulders, and the neck
+    # and head ride down with it. Rotating the neck alone only pivots the muzzle.
+    if abs(CHEST_DROP) > 1e-6:
+        chest = arm.pose.bones.get("spine_02")
+        if chest is not None:
+            crest = chest.bone.matrix_local.to_3x3()
+            cworld = Matrix.Rotation(CHEST_DROP, 3, "X")
+            chest.rotation_euler = (crest.inverted() @ cworld @ crest).to_euler("XYZ")
+            chest.keyframe_insert("rotation_euler", frame=frame)
+
     body = {{
         "spine_01": ("z", SWAY * math.sin(2.0 * math.pi * t)),
-        "spine_02": ("z", -SWAY * 0.6 * math.sin(2.0 * math.pi * t)),
         "head": ("x", HEAD_LEVEL - SWAY * 0.7 * math.cos(4.0 * math.pi * t)),
         "tail_01": ("z", -SWAY * 1.6 * math.sin(2.0 * math.pi * t)),
         "tail_02": ("z", -SWAY * 1.2 * math.sin(2.0 * math.pi * t - 0.6)),
@@ -249,9 +263,23 @@ def main() -> int:
              "an upright head reads as a standing animal with moving legs",
     )
     parser.add_argument(
-        "--head-level", type=float, default=-9.0,
+        "--head-level", type=float, default=-18.0,
         help="Counter-rotation on the head bone so the muzzle levels out instead of "
              "aiming at the floor once the neck is pitched down",
+    )
+    parser.add_argument(
+        "--chest-drop", type=float, default=12.0,
+        help="Pitch the chest down. This is what lowers the shoulders — and the neck "
+             "and head ride down with it. Rotating the neck alone only pivots the muzzle",
+    )
+    parser.add_argument(
+        "--shoulder-tuck", type=float, default=9.0,
+        help="Static offset pulling the front legs back under the body instead of "
+             "splaying them out ahead",
+    )
+    parser.add_argument(
+        "--body-drop", type=float, default=0.035,
+        help="Lower the whole rig, for a slightly hunched travelling posture",
     )
     args = parser.parse_args()
 
@@ -270,6 +298,9 @@ def main() -> int:
         head_yaw=args.head_yaw,
         head_pitch=args.head_pitch,
         head_level=args.head_level,
+        chest_drop=args.chest_drop,
+        shoulder_tuck=args.shoulder_tuck,
+        body_drop=args.body_drop,
     )
     print(send(code, args.host, args.port))
     return 0

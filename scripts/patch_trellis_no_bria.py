@@ -54,6 +54,22 @@ def patch_cpu_bake_budget(path: Path) -> None:
         source = source.replace(budget_needle, budget_replacement)
     elif budget_replacement not in source:
         raise RuntimeError(f"expected TRELLIS bake budget hook not found in {path}")
+
+    # The Metal bake path has its own budget line reading `faces_np`, so the CPU
+    # replacement above never matched it and every Metal run silently pinned the
+    # mesh at 200,000 faces. The 200,000 is a crash guard against mtlbvh failing
+    # on large meshes, so it stays as a ceiling — only lower requests are honoured.
+    metal_needle = "                target_faces = min(200000, len(faces_np))"
+    metal_replacement = (
+        "                target_faces = min("
+        "args.bake_target_faces, 200000, len(faces_np))"
+    )
+    if metal_needle in source:
+        source = source.replace(metal_needle, metal_replacement)
+    elif metal_replacement not in source:
+        raise RuntimeError(
+            f"expected TRELLIS Metal bake budget hook not found in {path}"
+        )
     path.write_text(source)
 
 

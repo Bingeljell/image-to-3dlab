@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ray-traced reflections so metallic (`pbr`) assets preview with real sheen.
 
 ### Fixed
+- `bake_target_faces` is now honoured on the Metal bake path. The patch that
+  introduced the option only rewrote the CPU fallback's budget line, so every
+  Metal-accelerated run (that is, every run on Apple Silicon) silently pinned the
+  mesh at a hardcoded 200,000 faces and ignored the manifest. The 200,000 remains
+  as a ceiling — it guards against an `mtlbvh` crash on large meshes — so only
+  lower requests are honoured.
 - Blender preview script (`scripts/blender_render_asset.py`) no longer double-rotates
   imported glTF assets (the importer already converts Y-up to Z-up), which had laid
   meshes face-down, and now clears the default startup Cube/Light/Camera so they

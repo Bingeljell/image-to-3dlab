@@ -23,3 +23,4 @@ Keep the top-level `README.md` as the quickstart; move anything longer-form here
 link to it.
 - [pipeline-vs-manual.md](pipeline-vs-manual.md) — what generalises to the next character, what is manual per asset, and what was only ever this fox
 - [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — BLOCKED: Hunyuan's paint stage needs a CUDA rasteriser, so texture generation is disabled on Apple Silicon
+- [texture-quality-roadmap.md](texture-quality-roadmap.md) — the path to Meshy-grade output: region splitting, normal maps, SD texture refinement, quad remesh

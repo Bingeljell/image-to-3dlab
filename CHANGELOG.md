@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   near-black world that flatters matte assets; `studio` lifts the world and enables
   ray-traced reflections so metallic (`pbr`) assets preview with real sheen.
 
+- `scripts/colour_match_albedo.py`, which grades a generated GLB's baked albedo
+  toward the colour of its source concept art. TRELLIS renders the moss fox a cool
+  grass green where the concept is a warm yellow-olive (the source leads red over
+  green by +17, the bake by -20). The correction runs in CIE LAB and touches only
+  the a/b chroma channels, leaving lightness alone, so hue moves without flattening
+  the cream-versus-green structure — the concept art is lit and the albedo is not,
+  so their lightness legitimately differs. `--strength` scales the correction.
+
 ### Fixed
 - `bake_target_faces` is now honoured on the Metal bake path. The patch that
   introduced the option only rewrote the CPU fallback's budget line, so every

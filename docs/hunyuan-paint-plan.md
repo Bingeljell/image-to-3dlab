@@ -1,13 +1,20 @@
-# Hunyuan3D paint lane — BLOCKED on Apple Silicon
+# Hunyuan3D paint lane — degraded, not blocked, on Apple Silicon
 
-> **Outcome (2026-08-07): do not attempt this on Apple Silicon.** Hunyuan's paint stage
-> depends on a custom CUDA rasteriser. The community Mac fork
-> (`Brainkeys/Hunyuan3D-2.1-mac`) replaces it with a CPU software rasteriser and
-> documents texture generation as *"Limited/Disabled"*, *"No CUDA Support: Custom
-> rasterizer uses CPU fallback"*. **Shape generation works on MPS; texture does not.**
-> Since texture was the entire point, the lane yields nothing here. Verified by reading
-> the fork's `README_macOS.md` before installing anything — fifteen minutes instead of an
-> afternoon of downloads.
+> **Outcome (2026-08-07): degraded, and disabled by default — but not impossible.**
+> Hunyuan's paint stage depends on a custom CUDA rasteriser (`nvdiffrast`). The community
+> Mac fork (`Brainkeys/Hunyuan3D-2.1-mac`) substitutes a **CPU software rasteriser**, not
+> an MPS or MLX one. Its own compatibility table reads
+> `Texture Generation | Limited/Disabled | Requires xatlas`, and its recommended
+> quick-start command passes `--disable_tex`.
+>
+> An earlier version of this note said "blocked", which overstated it. The honest position:
+> **shape generation works well on MPS (2-5 min, ~4GB); texture falls back to CPU software
+> rasterisation and is off by default.** Worth a timeboxed attempt if the answer matters,
+> but expect it to be slow and possibly broken.
+>
+> Note also the shape model is materially lighter than ours — Hunyuan3D-2mv is 1.1B
+> multi-view against TRELLIS.2's 4B — so if RAM pressure ever becomes the constraint rather
+> than texture, that is the reason to revisit.
 >
 > Revised options are at the end of this document.
 
@@ -121,3 +128,14 @@ and eyes.
 **Note the licence position is unchanged and does not block anything here** — the gate
 fires only on `use_case: "game"` plus worldwide distribution, and research manifests pass.
 The blocker is purely hardware.
+
+## Two adjacent options, assessed
+
+**`trellis.cpp` / C++ ports — no quality gain, by construction.** A port runs the same
+weights through the same architecture, so the output is identical. What it buys is speed,
+lower memory, and fewer Python dependencies. Genuinely useful if the RAM spike becomes the
+binding constraint; irrelevant to texture.
+
+**TripoSR — a downgrade for this purpose.** It is the speed play: sub-second generation at
+correspondingly lower fidelity. Wrong direction when the complaint is that detail does not
+survive.

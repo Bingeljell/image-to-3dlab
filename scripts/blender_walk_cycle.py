@@ -270,9 +270,17 @@ scn.frame_start = 1
 scn.frame_end = FRAMES          # frame FRAMES+1 duplicates frame 1, so this loops
 scn.frame_set(1)
 
+# Markers are hidden only from the render, never from the viewport. `hide_viewport`
+# removes an object from the viewport dependency graph entirely — on the armature that
+# silently stops the mesh deforming, so playback looks frozen while renders still
+# animate. Keep the rig live and visible; use hide_render to keep previews clean.
 for o in bpy.data.objects:
     if o.name.startswith("JOINT_"):
-        o.hide_viewport = True
+        o.hide_render = True
+arm.hide_viewport = False
+arm.hide_render = True
+arm.show_in_front = True
+arm.data.pose_position = "POSE"
 
 print(json.dumps({{
     "frames": FRAMES,

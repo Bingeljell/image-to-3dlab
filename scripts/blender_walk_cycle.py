@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
-"""Author a looping quadruped walk cycle on the rigged fox in the live Blender scene.
+"""Author a looping quadruped gait cycle on the rigged fox in the live Blender scene.
 
-A quadruped walk is a **four-beat lateral gait**: the legs do not move in diagonal
-pairs (that is a trot). Each foot lands a quarter-cycle after the one before it, in the
-order back-left, front-left, back-right, front-right, so the animal always has at least
-two feet down. Encoding that as a quarter-cycle phase offset per leg is what makes the
-result read as a walk rather than a bounce.
+Two gaits, and they differ in *phase*, not merely in speed:
 
-Each leg's motion is two superimposed parts:
+* **trot** (the default) — a two-beat **diagonal** gait. Front-left and back-right
+  swing together, then front-right and back-left. The body vaults over each diagonal
+  pair in turn, which is where a trot's characteristic bounce comes from. Foxes trot
+  far more than they walk, so this is the useful default for a fox.
+* **walk** — a four-beat **lateral** gait. Each foot lands a quarter-cycle after the
+  last, so at least two feet are always down. Slower and flatter.
 
-* **swing** — the upper bone (upper arm or thigh) rocks forward and back through the
-  whole cycle, a cosine;
-* **lift** — the lower bone (forearm or shin) folds only while the foot is off the
-  ground, a half-wave rectified sine. A leg that bends while bearing weight looks
-  broken, which is why the fold is clamped to the airborne half.
+Each leg superimposes three motions:
 
-The body carries a vertical bob at *twice* stride frequency (the hips rise as each
-diagonal support pair passes under), plus a small counter-sway on the spine, tail and
-head so the fox does not look welded to a rail.
+* **swing** — the upper bone (upper arm or thigh) rocks forward and back, a cosine;
+* **middle fold** — the elbow or knee folds while the foot is airborne, a half-wave
+  rectified sine, shaped so it eases rather than snapping at the contact frames. A leg
+  that bends while bearing weight looks broken, hence the clamp to the airborne half;
+* **lower fold** — the wrist or ankle, folding slightly *later* than the joint above
+  it. The joint nearest the ground is the last to leave it and the first to reach for
+  it, and splitting the fold across both joints is what stops the lower limb hinging
+  up as one rigid piece.
 
-The animation is authored so frame 1 and frame `frames + 1` are identical, then the
-scene end is set to `frames`, which makes playback loop seamlessly.
+Note the front leg's visible mid-leg bend is a **wrist**, not a knee, and it carries
+most of that leg's fold — leaving it stiff is what makes a front leg read as a stick.
+
+The body adds a vertical bob at twice stride frequency plus a small counter-sway on
+spine, tail and head. Too much lateral sway reads as a waddle.
+
+Frame 1 and frame `frames + 1` are authored identically and the scene end is set to
+`frames`, so playback loops seamlessly.
+
+Everything is a flag; re-running replaces the animation cleanly, so tune by eye.
 """
 
 from __future__ import annotations
@@ -41,7 +51,8 @@ SW_FRONT = math.radians({swing_front})
 SW_BACK = math.radians({swing_back})
 BEND_FRONT = math.radians({bend_front})
 BEND_BACK = math.radians({bend_back})
-PAW = math.radians({paw})
+WRIST = math.radians({wrist})
+ANKLE = math.radians({ankle})
 BASE = math.radians({base_bend})
 BOB = {bob}
 SWAY = math.radians({sway})
@@ -54,13 +65,25 @@ arm = arms[0]
 arm.hide_viewport = False
 arm.hide_render = False
 
-# Legs land a quarter-cycle apart, in lateral sequence.
-PHASE = {{"backL": 0.0, "frontL": 0.25, "backR": 0.5, "frontR": 0.75}}
+# WALK is a four-beat lateral gait: each foot lands a quarter-cycle after the last,
+# so at least two feet are always down. TROT is a two-beat diagonal gait: opposite
+# corners swing together and the body vaults over each pair in turn, which is where
+# the trot's characteristic bounce comes from. Foxes trot far more than they walk.
+PHASES = {{
+    "walk": {{"backL": 0.0, "frontL": 0.25, "backR": 0.5, "frontR": 0.75}},
+    "trot": {{"frontL": 0.0, "backR": 0.0, "frontR": 0.5, "backL": 0.5}},
+}}
+PHASE = PHASES["{gait}"]
+
+# (upper bone, middle bone, lower bone, swing, middle fold, lower fold).
+# Rotating a bone pivots it about its head, so the middle bone folds the elbow/knee
+# and the lower bone folds the wrist/ankle. Splitting the fold between the two is
+# what stops the whole lower limb hinging up as one rigid piece.
 CHAIN = {{
-    "frontL": ("frontL_upperarm", "frontL_forearm", "frontL_paw", SW_FRONT, BEND_FRONT),
-    "frontR": ("frontR_upperarm", "frontR_forearm", "frontR_paw", SW_FRONT, BEND_FRONT),
-    "backL": ("backL_thigh", "backL_shin", "backL_paw", SW_BACK, BEND_BACK),
-    "backR": ("backR_thigh", "backR_shin", "backR_paw", SW_BACK, BEND_BACK),
+    "frontL": ("frontL_upperarm", "frontL_forearm", "frontL_paw", SW_FRONT, BEND_FRONT, WRIST),
+    "frontR": ("frontR_upperarm", "frontR_forearm", "frontR_paw", SW_FRONT, BEND_FRONT, WRIST),
+    "backL": ("backL_thigh", "backL_shin", "backL_paw", SW_BACK, BEND_BACK, ANKLE),
+    "backR": ("backR_thigh", "backR_shin", "backR_paw", SW_BACK, BEND_BACK, ANKLE),
 }}
 
 if arm.animation_data and arm.animation_data.action:
@@ -82,7 +105,7 @@ for frame in range(1, FRAMES + 2):
     bpy.context.scene.frame_set(frame)
 
     for leg, phase in PHASE.items():
-        upper, lower, paw, swing_amp, bend_amp = CHAIN[leg]
+        upper, mid, low, swing_amp, mid_amp, low_amp = CHAIN[leg]
         theta = 2.0 * math.pi * (t + phase)
         swing = swing_amp * math.cos(theta)
         # Rectified sine, shaped: the exponent widens the airborne plateau so the
@@ -90,8 +113,12 @@ for frame in range(1, FRAMES + 2):
         lift = max(0.0, math.sin(theta)) ** 0.7
         # A real leg is never locked straight, even bearing weight; BASE keeps a
         # standing bend so the limb reads as a limb rather than a stick.
-        fold = BASE + bend_amp * lift
-        for name, value in ((upper, swing), (lower, fold), (paw, -PAW * lift - BASE * 0.5)):
+        mid_fold = BASE + mid_amp * lift
+        # The wrist/ankle folds slightly later than the elbow/knee — the joint
+        # closest to the ground is the last to leave it and the first to reach for it.
+        low_lift = max(0.0, math.sin(theta - 0.5)) ** 0.7
+        low_fold = BASE * 0.5 + low_amp * low_lift
+        for name, value in ((upper, swing), (mid, mid_fold), (low, low_fold)):
             pb = arm.pose.bones.get(name)
             if pb is None:
                 missing.append(name)
@@ -181,17 +208,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
-    parser.add_argument("--frames", type=int, default=32, help="length of one full stride")
+    parser.add_argument("--frames", type=int, default=20, help="length of one full stride")
     parser.add_argument("--swing-front", type=float, default=24.0)
     parser.add_argument("--swing-back", type=float, default=20.0)
-    parser.add_argument("--bend-front", type=float, default=52.0)
+    parser.add_argument("--bend-front", type=float, default=30.0)
     parser.add_argument("--bend-back", type=float, default=60.0)
-    parser.add_argument("--paw", type=float, default=22.0)
+    parser.add_argument(
+        "--wrist", type=float, default=46.0,
+        help="Front-leg wrist fold. The visible mid-leg bend on a front leg is a "
+             "wrist, and it carries most of the fold — a stiff wrist reads as a stick",
+    )
+    parser.add_argument("--ankle", type=float, default=28.0, help="Back-leg ankle (hock) fold")
+    parser.add_argument(
+        "--gait", choices=("trot", "walk"), default="trot",
+        help="trot is a two-beat diagonal gait (what foxes actually do); "
+             "walk is a four-beat lateral gait",
+    )
     parser.add_argument(
         "--base-bend", type=float, default=10.0,
         help="Standing bend held all cycle; a real limb is never locked straight",
     )
-    parser.add_argument("--bob", type=float, default=0.012)
+    parser.add_argument("--bob", type=float, default=0.016)
     parser.add_argument(
         "--sway", type=float, default=2.2,
         help="Lateral body roll. Too much reads as a waddle rather than a walk",
@@ -209,7 +246,9 @@ def main() -> int:
         swing_back=args.swing_back,
         bend_front=args.bend_front,
         bend_back=args.bend_back,
-        paw=args.paw,
+        wrist=args.wrist,
+        ankle=args.ankle,
+        gait=args.gait,
         base_bend=args.base_bend,
         bob=args.bob,
         sway=args.sway,

@@ -74,6 +74,9 @@ CHEST_DROP = math.radians({chest_drop})
 SHOULDER_TUCK = math.radians({shoulder_tuck})
 BODY_DROP = {body_drop}
 FRONT_CROUCH = math.radians({front_crouch})
+CROUCH = math.radians({crouch})
+FRONT_SIGN = {front_sign}
+AUTO_PLANT = {auto_plant}
 
 arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
 if not arms:
@@ -122,6 +125,27 @@ arm.location = (0.0, 0.0, 0.0)
 base_z = 0.0
 missing = []
 
+# Probe vertices at each paw, and the floor height they rest at unposed. Crouching
+# folds the legs, which lifts the paws; re-planting them on this same floor is what
+# turns "legs fold" into "chest comes down while the feet stay where they are".
+mesh = None
+for o in bpy.data.objects:
+    if o.type == "MESH" and not o.name.startswith("PROXY_"):
+        mesh = o
+mk = {{o.name[6:]: o.matrix_world.translation.copy()
+      for o in bpy.data.objects if o.name.startswith("JOINT_")}}
+paw_probe = []
+rest_floor = 0.0
+if mesh is not None:
+    rest_co = [v.co.copy() for v in mesh.data.vertices]
+    for key in ("frontL_paw", "frontR_paw", "backL_paw", "backR_paw"):
+        if key in mk:
+            target = mk[key]
+            paw_probe.append(min(range(len(rest_co)),
+                                 key=lambda i: (rest_co[i] - target).length_squared))
+    if paw_probe:
+        rest_floor = min(rest_co[i].z for i in paw_probe)
+
 for frame in range(1, FRAMES + 2):
     t = (frame - 1) / FRAMES
     bpy.context.scene.frame_set(frame)
@@ -145,12 +169,16 @@ for frame in range(1, FRAMES + 2):
         # while back legs carry a permanent fold — so without a matching front
         # crouch the front paws sink below the back ones and the animal stands on
         # two different floors.
-        crouch = FRONT_CROUCH if leg.startswith('front') else 0.0
-        mid_fold = BASE + crouch + mid_amp * lift
+        crouch = (FRONT_CROUCH + CROUCH) if leg.startswith('front') else CROUCH * 0.55
+        # Which rotation sign *closes* a joint depends on the rest geometry, and the
+        # front leg's differs from the back's once the elbow sits behind the shoulder.
+        # Applying the wrong sign straightens the limb instead of folding it.
+        sign = FRONT_SIGN if leg.startswith('front') else 1.0
+        mid_fold = sign * (BASE + crouch + mid_amp * lift)
         # The wrist/ankle folds slightly later than the elbow/knee — the joint
         # closest to the ground is the last to leave it and the first to reach for it.
         low_lift = max(0.0, math.sin(theta - 0.5)) ** 0.7
-        low_fold = BASE * 0.5 + crouch * 0.6 + low_amp * low_lift
+        low_fold = sign * (BASE * 0.5 + crouch * 0.6 + low_amp * low_lift)
         for name, value in ((upper, swing), (mid, mid_fold), (low, low_fold)):
             pb = arm.pose.bones.get(name)
             if pb is None:
@@ -160,7 +188,14 @@ for frame in range(1, FRAMES + 2):
             pb.keyframe_insert("rotation_euler", frame=frame)
 
     # Hips rise twice per stride, as each diagonal support pair passes under the body.
-    arm.location.z = base_z - BODY_DROP + BOB * math.cos(4.0 * math.pi * t)
+    plant = 0.0
+    if AUTO_PLANT and paw_probe and mesh is not None:
+        arm.location.z = base_z
+        bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get()
+        ev = mesh.evaluated_get(dg)
+        plant = rest_floor - min(ev.data.vertices[i].co.z for i in paw_probe)
+    arm.location.z = base_z + plant - BODY_DROP + BOB * math.cos(4.0 * math.pi * t)
     arm.keyframe_insert("location", frame=frame)
 
     # The subject was generated with its head turned, so a static counter-yaw is
@@ -309,6 +344,23 @@ def main() -> int:
              "paws. Without it the front legs hang at full extension and sink below",
     )
     parser.add_argument(
+        "--front-fold-sign", type=float, default=-1.0,
+        help="Which way the front elbow/wrist close. Depends on rest geometry: with "
+             "the elbow set behind the shoulder, negative folds and positive "
+             "straightens. Flip if the front legs extend instead of bending",
+    )
+    parser.add_argument(
+        "--crouch", type=float, default=0.0,
+        help="Semi-crouch: static fold at elbow/wrist and knee/ankle so the chest and "
+             "head come down while the paws stay planted. The front gets more because "
+             "its shoulder/elbow/wrist markers sit nearly collinear, so it starts "
+             "straight while the back leg has ~44 degrees of built-in fold",
+    )
+    parser.add_argument(
+        "--no-auto-plant", dest="auto_plant", action="store_false",
+        help="Disable re-planting the paws on the rest floor after folding the legs",
+    )
+    parser.add_argument(
         "--body-drop", type=float, default=0.0,
         help="Lower the whole rig, for a slightly hunched travelling posture",
     )
@@ -333,6 +385,9 @@ def main() -> int:
         shoulder_tuck=args.shoulder_tuck,
         body_drop=args.body_drop,
         front_crouch=args.front_crouch,
+        crouch=args.crouch,
+        front_sign=args.front_fold_sign,
+        auto_plant=bool(args.auto_plant),
     )
     print(send(code, args.host, args.port))
     return 0

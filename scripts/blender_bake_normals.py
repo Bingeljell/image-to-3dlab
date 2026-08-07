@@ -30,8 +30,58 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_joint_markers import send
 
+# glTF is Y-up and Blender is Z-up, so the importer maps (x, y, z) -> (x, -z, y). The
+# high-poly PLY never goes through that: it is written straight out of the generator and
+# the PLY importer applies no conversion. Left uncorrected the two meshes sit 90 degrees
+# apart, which a bounding-box fit cannot repair — it would simply squash one to match the
+# other's dimensions and bake nonsense.
+AXIS_PERMUTATIONS = {
+    "none": (0, 1, 2),
+    "gltf_to_blender": (0, 2, 1),
+}
+
+
+def axis_size_ratios(
+    high_size: tuple[float, float, float],
+    low_size: tuple[float, float, float],
+    permutation: tuple[int, int, int],
+) -> tuple[float, float, float]:
+    """Per-axis size ratio after permuting the high-poly's axes.
+
+    All three land near 1.0 only when the permutation is right, which makes this a
+    direct test for orientation rather than a guess.
+    """
+    permuted = tuple(high_size[i] for i in permutation)
+    return tuple(
+        (low_size[i] / permuted[i]) if permuted[i] > 1e-9 else 0.0 for i in range(3)
+    )
+
+
+def best_permutation(
+    high_size: tuple[float, float, float],
+    low_size: tuple[float, float, float],
+) -> tuple[str, float]:
+    """Pick the axis mapping whose size ratios are most uniform.
+
+    Returns the name and the spread (max ratio / min ratio). A spread near 1.0 means the
+    two meshes really are the same shape in that orientation; a large spread means
+    neither candidate fits and the bake should not be trusted.
+    """
+    best_name, best_spread = None, float("inf")
+    for name, perm in AXIS_PERMUTATIONS.items():
+        ratios = axis_size_ratios(high_size, low_size, perm)
+        if min(ratios) <= 0:
+            continue
+        spread = max(ratios) / min(ratios)
+        if spread < best_spread:
+            best_name, best_spread = name, spread
+    if best_name is None:
+        raise ValueError("no usable axis permutation; is one mesh degenerate?")
+    return best_name, best_spread
+
+
 TEMPLATE = '''
-import bpy, json, time
+import bpy, json, math, time
 from mathutils import Vector
 
 LOW = {low!r}
@@ -41,6 +91,7 @@ SIZE = {size}
 RAY = {ray}
 DECIMATE_TO = {decimate_to}
 SAMPLES = {samples}
+ROT_X = {rot_x}
 
 t0 = time.time()
 for obj in list(bpy.data.objects):
@@ -75,15 +126,23 @@ def bbox(o):
             lo[i] = min(lo[i], w[i]); hi[i] = max(hi[i], w[i])
     return lo, hi
 
-# Align by bounding box rather than by assuming a transform chain: the PLY is in raw
-# generator space and the GLB has been through export plus a Y-up to Z-up import.
+# Orientation first, then fit. A bounding-box fit cannot repair a rotation — it would
+# just squash the high-poly to match the low-poly's dimensions. The permutation is
+# decided outside Blender and verified by per-axis size ratios, which land near 1.0
+# only when the orientation is actually right.
+if ROT_X:
+    high.rotation_euler = (math.radians(90.0), 0.0, 0.0)
+    bpy.context.view_layer.update()
+
 llo, lhi = bbox(low)
 hlo, hhi = bbox(high)
 lsize = lhi - llo; hsize = hhi - hlo
-scale = min(
-    (lsize[i] / hsize[i]) if hsize[i] > 1e-9 else 1.0
+ratios = [
+    (lsize[i] / hsize[i]) if hsize[i] > 1e-9 else 0.0
     for i in range(3)
-)
+]
+spread = max(ratios) / min(ratios) if min(ratios) > 0 else 999.0
+scale = sum(ratios) / 3.0
 high.scale = (scale, scale, scale)
 bpy.context.view_layer.update()
 hlo, hhi = bbox(high)
@@ -139,6 +198,8 @@ print(json.dumps({{
     "high_tris_baked": len(high.data.polygons),
     "low_tris": len(low.data.polygons),
     "uniform_scale_applied": round(scale, 5),
+    "axis_ratios": [round(r, 4) for r in ratios],
+    "orientation_spread": round(spread, 4),
     "alignment_error": round(align_err, 5),
     "ray_distance": RAY,
     "error": err,
@@ -169,10 +230,18 @@ def main() -> int:
              "0 disables",
     )
     parser.add_argument("--samples", type=int, default=1)
+    parser.add_argument(
+        "--permutation", choices=sorted(AXIS_PERMUTATIONS), default="gltf_to_blender",
+        help="Axis mapping from high-poly space to the low-poly's. The PLY comes "
+             "straight from the generator while the GLB has been through the glTF "
+             "exporter, so their Y and Z are swapped and the default corrects it",
+    )
     args = parser.parse_args()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    perm_name = args.permutation
     code = TEMPLATE.format(
+        rot_x=(perm_name == "gltf_to_blender"),
         low=str(args.low.expanduser().resolve()),
         high=str(args.high.expanduser().resolve()),
         out=str(args.out.expanduser().resolve()),

@@ -61,6 +61,127 @@ def weld(mesh: trimesh.Trimesh) -> tuple[np.ndarray, np.ndarray]:
     return vertices, faces[keep]
 
 
+def weld_index(vertices: np.ndarray) -> np.ndarray:
+    """Map each vertex to a canonical index for coincident positions."""
+    scale = float(np.ptp(vertices, axis=0).max())
+    quantised = np.round(vertices / (scale * 1e-6)).astype(np.int64)
+    _, inverse = np.unique(quantised, axis=0, return_inverse=True)
+    return inverse.reshape(-1)
+
+
+def fill(mesh: trimesh.Trimesh, max_perimeter: float) -> trimesh.Trimesh:
+    """Close small holes, preserving the original vertices, UVs and material.
+
+    The earlier implementation welded by position and exported the welded mesh, which
+    discarded UVs -- glTF splits a vertex at every UV seam, so welding collapses them
+    and the baked texture no longer has coordinates to sample. But welding is still
+    *necessary* to find boundaries, or seam duplicates read as open edges and the tool
+    tries to fill the UV islands rather than the geometry.
+
+    The resolution is the same one `remove_loose_parts.py` uses: weld only to ANALYSE,
+    and emit patches referring to the ORIGINAL vertex indices. Existing geometry is
+    untouched and patch triangles are appended, so the texture keeps lining up.
+    """
+    vertices = np.asarray(mesh.vertices)
+    faces = np.asarray(mesh.faces)
+    uv = getattr(mesh.visual, "uv", None)
+    uv = None if uv is None else np.asarray(uv)
+
+    welded = weld_index(vertices)
+    welded_faces = welded[faces]
+    non_degenerate = (
+        (welded_faces[:, 0] != welded_faces[:, 1])
+        & (welded_faces[:, 1] != welded_faces[:, 2])
+        & (welded_faces[:, 0] != welded_faces[:, 2])
+    )
+
+    # A welded edge carried by exactly one face is a boundary. Because it belongs to
+    # exactly one face, the original directed edge behind it is unambiguous -- which
+    # is what lets the patch be wound against real geometry rather than welded copies.
+    original_edge: dict[tuple[int, int], tuple[int, int]] = {}
+    counts: dict[tuple[int, int], int] = {}
+    for face, welded_face in zip(faces[non_degenerate], welded_faces[non_degenerate]):
+        for i in range(3):
+            u, v = int(face[i]), int(face[(i + 1) % 3])
+            wu, wv = int(welded_face[i]), int(welded_face[(i + 1) % 3])
+            key = (wu, wv) if wu < wv else (wv, wu)
+            counts[key] = counts.get(key, 0) + 1
+            original_edge[(wu, wv)] = (u, v)
+
+    welded_vertices = np.zeros((welded.max() + 1, 3), dtype=np.float64)
+    welded_vertices[welded] = vertices
+
+    loops = boundary_loops(welded_vertices, welded_faces[non_degenerate])
+    scale = float(np.ptp(vertices, axis=0).max())
+    limit = scale * max_perimeter
+
+    extra_vertices: list[np.ndarray] = []
+    extra_uv: list[np.ndarray] = []
+    extra_faces: list[list[int]] = []
+    next_index = len(vertices)
+    filled = skipped = 0
+
+    for loop in loops:
+        ring = welded_vertices[loop]
+        perimeter = float(
+            np.linalg.norm(np.diff(ring, axis=0, append=ring[:1]), axis=1).sum()
+        )
+        if perimeter > limit:
+            skipped += 1
+            continue
+
+        centre = ring.mean(axis=0)
+        triangles = []
+        rim_original: list[int] = []
+        for i in range(len(loop)):
+            wa, wb = loop[i], loop[(i + 1) % len(loop)]
+            if (wa, wb) in original_edge:
+                # The existing face runs a->b, so the patch runs b->a.
+                a, b = original_edge[(wa, wb)]
+                triangles.append([b, a, next_index])
+            elif (wb, wa) in original_edge:
+                a, b = original_edge[(wb, wa)]
+                triangles.append([b, a, next_index])
+            else:
+                triangles = []
+                break
+            rim_original.extend((a, b))
+        if not triangles:
+            skipped += 1
+            continue
+
+        extra_vertices.append(centre.reshape(1, 3))
+        if uv is not None:
+            # Take the UV of the rim vertex nearest the centre rather than averaging.
+            # A loop that straddles a UV seam has rim coordinates on opposite sides of
+            # the atlas, and their mean lands somewhere unrelated -- a patch sampling
+            # the wrong part of the texture. Borrowing one neighbour's UV keeps the
+            # patch sampling a plausible nearby colour.
+            rim = np.array(sorted(set(rim_original)), dtype=np.int64)
+            nearest = rim[np.argmin(np.linalg.norm(vertices[rim] - centre, axis=1))]
+            extra_uv.append(uv[nearest].reshape(1, 2))
+        extra_faces.extend(triangles)
+        next_index += 1
+        filled += 1
+
+    fill.last_run = {"filled": filled, "skipped": skipped, "loops": len(loops)}
+
+    if not extra_faces:
+        return mesh.copy()
+
+    combined = trimesh.Trimesh(
+        vertices=np.vstack([vertices, *extra_vertices]),
+        faces=np.vstack([faces, np.array(extra_faces, dtype=np.int64)]),
+        process=False,
+    )
+    if uv is not None:
+        combined.visual = trimesh.visual.TextureVisuals(
+            uv=np.vstack([uv, *extra_uv]),
+            material=getattr(mesh.visual, "material", None),
+        )
+    return combined
+
+
 def boundary_loops(vertices: np.ndarray, faces: np.ndarray) -> list[list[int]]:
     """Trace open boundary edges into closed loops."""
     edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
@@ -119,73 +240,42 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    original = trimesh.load(args.mesh.expanduser().resolve(), force="mesh")
-    vertices, faces = weld(original)
-    scale = float(np.ptp(vertices, axis=0).max())
-    limit = scale * args.max_perimeter
-
-    loops = boundary_loops(vertices, faces)
-    print(f"boundary loops found: {len(loops)}")
-
-    # Every directed edge of the existing surface, so patches can be wound to match.
-    directed = set()
-    for tri in faces:
-        directed.add((int(tri[0]), int(tri[1])))
-        directed.add((int(tri[1]), int(tri[2])))
-        directed.add((int(tri[2]), int(tri[0])))
-
-    new_vertices = [vertices]
-    new_faces = [faces]
-    filled = skipped = added = 0
-    next_index = len(vertices)
-
-    for loop in loops:
-        ring = vertices[loop]
-        perimeter = float(np.linalg.norm(np.diff(ring, axis=0, append=ring[:1]), axis=1).sum())
-        if perimeter > limit:
-            skipped += 1
-            continue
-        # Fan from the loop's own centroid: robust for non-planar and concave loops,
-        # where a simple ear-clip on the ring would fold over itself.
-        centre = ring.mean(axis=0)
-        new_vertices.append(centre.reshape(1, 3))
-
-        # Wind each patch triangle to agree with the face it abuts. A boundary edge
-        # belongs to exactly one face, so the patch must traverse that edge in the
-        # OPPOSITE direction. Skipping this injects randomly-oriented faces, which
-        # measurably defeats normal recalculation afterwards -- filling holes then
-        # made a mesh *more* inside-out, not less.
-        triangles = []
-        for i in range(len(loop)):
-            a, b = loop[i], loop[(i + 1) % len(loop)]
-            if (a, b) in directed:  # the existing face runs a->b, so the patch runs b->a
-                triangles.append([b, a, next_index])
-            else:
-                triangles.append([a, b, next_index])
-        new_faces.append(np.array(triangles, dtype=np.int64))
-        next_index += 1
-        filled += 1
-        added += len(triangles)
-
-    patched = trimesh.Trimesh(
-        vertices=np.vstack(new_vertices),
-        faces=np.vstack(new_faces),
-        process=False,
+    original = trimesh.load(
+        args.mesh.expanduser().resolve(), force="mesh", process=False
     )
+    had_uv = getattr(original.visual, "uv", None) is not None
 
     def boundary_count(mesh: trimesh.Trimesh) -> int:
+        """Count open edges after welding by POSITION.
+
+        Counting on raw indices measures UV islands, not geometry: glTF splits a
+        vertex at every seam, so on the textured hero it reports ~83,000 "boundary
+        edges" against a true 6,877, and the number goes UP after a successful fill.
+        Now that this tool preserves UVs, its own report was the first casualty.
+        """
+        faces = weld_index(np.asarray(mesh.vertices))[np.asarray(mesh.faces)]
         edges = np.sort(
-            np.vstack(
-                [mesh.faces[:, [0, 1]], mesh.faces[:, [1, 2]], mesh.faces[:, [2, 0]]]
-            ),
-            axis=1,
+            np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]]), axis=1
         )
         _, counts = np.unique(edges, axis=0, return_counts=True)
         return int((counts == 1).sum())
 
-    before = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
-    print(f"filled {filled} holes ({added} new faces), skipped {skipped} too large")
-    print(f"boundary edges: {boundary_count(before)} -> {boundary_count(patched)}")
+    patched = fill(original, args.max_perimeter)
+    stats = fill.last_run
+
+    print(f"boundary loops found: {stats['loops']}")
+    print(
+        f"filled {stats['filled']} holes "
+        f"({len(patched.faces) - len(original.faces)} new faces), "
+        f"skipped {stats['skipped']} too large"
+    )
+    print(f"boundary edges: {boundary_count(original)} -> {boundary_count(patched)}")
+
+    kept_uv = getattr(patched.visual, "uv", None) is not None
+    print(f"UVs: {'preserved' if kept_uv else 'ABSENT'} "
+          f"(input {'had' if had_uv else 'had no'} UVs)")
+    if had_uv and not kept_uv:
+        raise SystemExit("refusing to write: the texture would be lost")
 
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

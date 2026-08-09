@@ -17,7 +17,14 @@ ENVIRONMENTS = {
 }
 
 
-def blender_code(asset: Path, output_dir: Path, label: str, env: str) -> str:
+def blender_code(
+    asset: Path,
+    output_dir: Path,
+    label: str,
+    env: str,
+    culled: bool = False,
+    recalc_normals: bool = False,
+) -> str:
     settings = ENVIRONMENTS[env]
     world_color = settings["world_color"]
     raytracing = settings["raytracing"]
@@ -67,6 +74,40 @@ for obj in imported:
 bpy.context.view_layer.update()
 
 mesh_objects = [obj for obj in imported if obj.type == "MESH"]
+
+# The honest test. glTF marks materials doubleSided, so a normal preview draws
+# surfaces from behind and visually fills in every hole -- which is why the
+# turntables, the wind demo and the cheers animation all looked fine over geometry
+# that is substantially perforated. SceneKit and RealityKit cull backfaces, so the
+# culled view is what the target engine will actually show.
+if {recalc_normals!r}:
+    # Culling WITHOUT fixing normals removes the correct faces and keeps the wrong
+    # ones, which makes the mesh look MORE complete, not less. Note the converse
+    # caution: on this asset Recalculate Outside has previously made a culled render
+    # worse, tearing solid regions open, so render both ways before concluding.
+    for obj in mesh_objects:
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.context.view_layer.objects.active = obj
+        obj.select_set(True)
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.normals_make_consistent(inside=False)
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+
+if {culled!r}:
+    # Plain grey, because texture disguises small gaps.
+    grey = bpy.data.materials.new("HONEST_GREY_" + label)
+    grey.use_nodes = True
+    shader = grey.node_tree.nodes["Principled BSDF"]
+    shader.inputs["Base Color"].default_value = (0.48, 0.48, 0.48, 1.0)
+    shader.inputs["Roughness"].default_value = 0.62
+    shader.inputs["Metallic"].default_value = 0.0
+    grey.use_backface_culling = True
+    for obj in mesh_objects:
+        obj.data.materials.clear()
+        obj.data.materials.append(grey)
+
 world_corners = [obj.matrix_world @ Vector(corner) for obj in mesh_objects for corner in obj.bound_box]
 min_corner = Vector((min(v.x for v in world_corners), min(v.y for v in world_corners), min(v.z for v in world_corners)))
 max_corner = Vector((max(v.x for v in world_corners), max(v.y for v in world_corners), max(v.z for v in world_corners)))
@@ -167,6 +208,18 @@ def main() -> int:
         default="dark",
         help="dark flatters matte assets; studio lifts the world for metallic (pbr) assets",
     )
+    parser.add_argument(
+        "--culled",
+        action="store_true",
+        help="the honest test: plain grey, backface culling on. Predicts what "
+        "SceneKit/RealityKit will show, where a textured doubleSided render hides holes",
+    )
+    parser.add_argument(
+        "--recalc-normals",
+        action="store_true",
+        help="Recalculate Outside before rendering. Culling without this keeps the "
+        "wrong faces; but it has also torn solid regions open here, so render both ways",
+    )
     args = parser.parse_args()
 
     asset = args.asset.expanduser().resolve()
@@ -174,7 +227,16 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     request = {
         "type": "execute_code",
-        "params": {"code": blender_code(asset, output_dir, args.label, args.env)},
+        "params": {
+            "code": blender_code(
+                asset,
+                output_dir,
+                args.label,
+                args.env,
+                culled=args.culled,
+                recalc_normals=args.recalc_normals,
+            )
+        },
     }
     with socket.create_connection((args.host, args.port), timeout=10) as connection:
         connection.settimeout(300)

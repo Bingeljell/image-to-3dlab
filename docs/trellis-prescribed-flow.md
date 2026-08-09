@@ -42,6 +42,16 @@ Note also the mesh is simplified **twice**: `fast_simplification` in the port be
 call, then `mesh.simplify(decimation_target * 3)` and `mesh.simplify(decimation_target)`
 inside `to_glb`.
 
+> **CORRECTION (2026-08-09): the two inner `simplify` calls never run.**
+> `patches/mps_compat.py` stubs `simplify`, `fill_holes` and `remove_faces` to `return`
+> immediately, because Metal `cumesh` segfaults on the 400K-vertex decode mesh. Only the
+> port's own `fast_simplification` executes. This document audited the *parameters*
+> `to_glb` accepts without checking whether the methods it calls still had bodies — the
+> same mistake it was written to warn about. See
+> [decode-cleanup-disabled.md](decode-cleanup-disabled.md), which also shows that the
+> four disabled `fill_holes` calls all precede `uv_unwrap`, making this a likely cause of
+> the UV fragmentation this document treats as a separate problem.
+
 ### 2. texture_size has no cap inside to_glb
 
 There is no assert, clamp, `min()` or `max()` on `texture_size` in the function; it is used

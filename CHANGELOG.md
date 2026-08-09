@@ -34,7 +34,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cream-versus-green structure — the concept art is lit and the albedo is not,
   so their lightness legitimately differs. `--strength` scales the correction.
 
+- `scripts/remove_loose_parts.py`, which drops disconnected junk from a generated
+  mesh while preserving UVs and the baked texture. On the hero fox it removes 688
+  components totalling 5,604 faces, taking connected components from 226 to 3.
+- `scripts/classify_thickness.py`, which measures local thickness by ray casting.
+  Recorded as a **failed** approach to deriving solid-vs-foliage labels without a
+  painted mask: on the moss fox the tail measures thicker than the legs, so no
+  threshold separates them. Kept for the negative result.
+- `scripts/blender_render_asset.py --culled` and `--recalc-normals`. `--culled`
+  renders plain grey with backface culling — what SceneKit and RealityKit actually
+  show, where a textured `doubleSided` render hides holes entirely.
+
 ### Fixed
+- **Hole filling no longer destroys the texture.** `scripts/fill_holes.py` welded by
+  position and exported the welded mesh, collapsing the vertices glTF splits at every
+  UV seam, so its output had no UVs and no material. It now welds only to locate
+  boundaries and appends patches against the original vertex indices, leaving existing
+  geometry and the baked texture untouched. Its own boundary-edge report is also fixed;
+  counting on raw indices measured UV islands, not geometry.
 - `bake_target_faces` is now honoured on the Metal bake path. The patch that
   introduced the option only rewrote the CPU fallback's budget line, so every
   Metal-accelerated run (that is, every run on Apple Silicon) silently pinned the

@@ -21,4 +21,11 @@ fi
 popd >/dev/null
 
 python3 "${PROJECT_DIR}/scripts/patch_trellis_no_bria.py"
+
+# The quality options are additive and default to the port's previous behaviour, with
+# one exception: brute-force UV packing ships on, for ~6 points of atlas coverage. Both
+# patches live in site-packages or the checkout, so re-run bootstrap after a reinstall.
+python3 "${PROJECT_DIR}/scripts/patch_ovoxel_pack_options.py"
+python3 "${PROJECT_DIR}/scripts/patch_trellis_quality.py"
+
 echo "TRELLIS setup complete; BRIA background removal is disabled."

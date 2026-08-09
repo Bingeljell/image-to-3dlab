@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/blender_render_asset.py --culled` and `--recalc-normals`. `--culled`
   renders plain grey with backface culling — what SceneKit and RealityKit actually
   show, where a textured `doubleSided` render hides holes entirely.
+- Brute-force UV packing, on by default. `scripts/patch_ovoxel_pack_options.py`
+  teaches `o_voxel.postprocess.to_glb` to forward `xatlas_pack_charts_kwargs` (which
+  `cumesh`'s `uv_unwrap` already accepted), and `scripts/patch_trellis_quality.py`
+  adds `--uv-brute-force-packing` / `--no-uv-brute-force-packing`. Measured on the
+  hero fox through the real Metal path, atlas coverage goes 52.90% → 58.76% for one
+  extra second on 101k faces — no geometry change, no regeneration. The generator
+  inspects `to_glb`'s signature first, so an unpatched or reinstalled `o_voxel`
+  warns and packs the old way rather than failing at bake time.
 
 ### Fixed
 - **Hole filling no longer destroys the texture.** `scripts/fill_holes.py` welded by

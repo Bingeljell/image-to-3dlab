@@ -143,6 +143,28 @@ regeneration. Everything else is noise. Setting every chart-segmentation weight 
 *increased* chart count to 10,331, so chart count is not controllable by those knobs and
 does not drive coverage regardless.
 
+### Experiment 1c — RUN 2026-08-09. It holds on the shipped path, and it is shipped.
+
+1b measured `xatlas.parametrize`, which is *not* what a Metal run does: `to_glb` calls
+`cumesh`'s own chart clustering and only then `xatlas.pack_charts`. Re-measured through
+that path on `output/hero/moss_fox_hero_101k_grade07.glb`, same chart-clustering
+arguments `to_glb` uses:
+
+| config | coverage | pack time |
+|---|---|---|
+| default | 52.90% | 1s |
+| **`brute_force=True`** | **58.76%** | 2s |
+
+The gain survives the real packer: +11% relative for one second on 101k faces. xatlas
+labels the option "slower", which on a mesh this size is not a cost worth reasoning about.
+
+Two patches make it reachable, because the option was blocked by a missing parameter
+rather than by a missing capability: `scripts/patch_ovoxel_pack_options.py` teaches
+`to_glb` to forward `xatlas_pack_charts_kwargs` (`cumesh.MtlMesh.uv_unwrap` already
+accepted it), and `scripts/patch_trellis_quality.py` adds `--uv-brute-force-packing`,
+**on by default**. The generator checks `to_glb`'s signature first, so an unpatched or
+reinstalled `o_voxel` warns and packs the old way instead of failing at bake time.
+
 **~60% is the practical ceiling**, and the chart count is intrinsic: a mesh of thousands
 of separate leaf blades genuinely needs thousands of charts. This closes the
 "island count is the blocker" theory for good — the repo's own data had already

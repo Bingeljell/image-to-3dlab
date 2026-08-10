@@ -147,18 +147,80 @@ def project(
         if not np.all(painted[:, :, 3] == 255):
             on_subject &= painted[:, :, 3][py, px] > 204
 
-    # Depth test: a vertex on the back of the head would otherwise sample the chest.
-    # Bin vertices by pixel and keep only those at (or near) the frontmost depth in
-    # their bin. This is topology-independent, which matters on a fragmented mesh.
+    # Occlusion test: a vertex on the back of the head would otherwise sample the chest.
+    if depth_buffer:
+        visible = ~occluded_binned(u, v, depth, depth_buffer, depth_tolerance)
+    else:
+        view = np.zeros(3)
+        view[d_axis] = -1.0 if flip_depth else 1.0
+        if yaw:
+            # project() rotated the vertices; rotate the camera the same way instead of
+            # un-rotating the mesh, so the ray cast runs against the original geometry.
+            angle = np.radians(yaw)
+            cos, sin = np.cos(angle), np.sin(angle)
+            turned = view.copy()
+            turned[h_axis] = view[h_axis] * cos + view[d_axis] * sin
+            turned[d_axis] = -view[h_axis] * sin + view[d_axis] * cos
+            view = turned
+        visible = ~occluded(mesh, view)
+    visible &= on_subject
+
+    return colours, visible, u, v, foreground
+
+
+def occluded_binned(
+    u: np.ndarray,
+    v: np.ndarray,
+    depth: np.ndarray,
+    depth_buffer: int,
+    depth_tolerance: float,
+) -> np.ndarray:
+    """The original screen-bin depth test. Kept for comparison; do not trust it.
+
+    Bins vertices by pixel and rejects any that sit behind the frontmost in their bin.
+    The flaw is arithmetic: a 512x512 grid is 262,144 bins, and the hero fox has 99,256
+    vertices, so the average occupied bin holds fewer than three. Almost every vertex is
+    alone in its bin and is therefore "frontmost" by default. Measured on that mesh, it
+    passed 68% of rear-facing vertices as visible, pasting front-view colours onto the
+    far side. Lowering the resolution trades leakage for coverage and never gets clean.
+    """
     bins = np.clip((u * depth_buffer).astype(np.int64), 0, depth_buffer - 1) + (
         np.clip((v * depth_buffer).astype(np.int64), 0, depth_buffer - 1) * depth_buffer
     )
     nearest = np.full(depth_buffer * depth_buffer, -np.inf)
     np.maximum.at(nearest, bins, depth)
     span = float(depth.max() - depth.min()) or 1.0
-    visible = (depth >= (nearest[bins] - depth_tolerance * span)) & on_subject
+    return depth < (nearest[bins] - depth_tolerance * span)
 
-    return colours, visible, u, v, foreground
+
+def occluded(mesh: trimesh.Trimesh, view: np.ndarray) -> np.ndarray:
+    """Which vertices have geometry between them and the camera.
+
+    Casts one ray per vertex toward the camera and asks whether it hits the mesh. This
+    is exact where the bin test was approximate, and it costs under a second for 100K
+    vertices, so there is no performance argument for the approximation.
+
+    Backface culling by vertex normal would be cheaper still, and does not work on these
+    meshes: winding is inconsistent (see docs/open-questions.md), and 36% of the hero
+    fox's rear vertices claim to face the camera. Normals cannot be trusted here.
+
+    A ray that escapes through a tear counts as unoccluded, which is correct -- the
+    decoder really did have a line of sight to that surface through the hole.
+    """
+    vertices = np.asarray(mesh.vertices)
+    direction = np.asarray(view, dtype=np.float64)
+    direction = direction / (np.linalg.norm(direction) or 1.0)
+
+    # Step off the surface before casting, or every vertex is blocked by its own faces.
+    scale = float(np.max(vertices.max(axis=0) - vertices.min(axis=0))) or 1.0
+    origins = vertices + direction * (scale * 1e-4)
+
+    return np.asarray(
+        mesh.ray.intersects_any(
+            ray_origins=origins,
+            ray_directions=np.broadcast_to(direction, vertices.shape),
+        )
+    )
 
 
 
@@ -258,7 +320,16 @@ def main() -> int:
         default="20,20,20",
         help="R,G,B given to vertices the view cannot see (unlabelled)",
     )
-    parser.add_argument("--depth-buffer", type=int, default=512)
+    parser.add_argument(
+        "--depth-buffer",
+        type=int,
+        default=0,
+        help=(
+            "0 (default) casts a ray per vertex to test occlusion exactly. A positive "
+            "value restores the old screen-bin approximation, which leaks front-view "
+            "colours onto the far side -- for comparison only"
+        ),
+    )
     parser.add_argument(
         "--depth-tolerance",
         type=float,

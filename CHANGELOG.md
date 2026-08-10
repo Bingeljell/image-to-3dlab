@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Provenance now records `software.pipeline_revision` — this repository's commit and
+  whether the working tree was dirty — alongside the existing `backend_revision`. The
+  patches that change TRELLIS's behaviour live in this repo, so the backend SHA alone
+  never identified the code that produced an asset. Two runs with identical recorded
+  parameters could behave differently with nothing in the sidecar to show it: the
+  clockwork pangolin generated 2026-08-02 declares `bake_target_faces: 200000`, but the
+  commit that made that value take effect on Metal landed five days later.
 - Repository guide (`CLAUDE.md`) with layout, commit conventions, and changelog rules.
 - `docs/` folder with an index and an architecture overview.
 - This changelog.

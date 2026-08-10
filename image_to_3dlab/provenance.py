@@ -116,6 +116,37 @@ def _git_revision(repo: Path) -> str | None:
         return None
 
 
+def _pipeline_revision() -> dict[str, Any] | None:
+    """This repository's commit, and whether the tree was dirty when the run started.
+
+    Distinct from `backend_revision`, which is the vendored backend checkout. The
+    patches in `scripts/patch_trellis_*.py` change what the backend *does* while living
+    here, so the backend SHA alone does not identify the code that produced an asset.
+
+    Without this, runs are only comparable by parameters -- and parameters can lie. The
+    pangolin generated on 2026-08-02 declares `bake_target_faces: 200000`, but the fix
+    that made that value take effect on Metal landed five days later, so the number in
+    its sidecar was never what ran.
+
+    `dirty` matters as much as the commit: uncommitted changes mean the SHA does not
+    pin the code, and a benchmark built on such a run is not reproducible.
+    """
+    repo = Path(__file__).resolve().parents[1]
+    commit = _git_revision(repo)
+    if commit is None:
+        return None
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return {"commit": commit, "dirty": None}
+    return {"commit": commit, "dirty": bool(status)}
+
+
 def _package_versions() -> dict[str, str]:
     result = {}
     for package in ("torch", "torchvision", "rembg", "transformers", "trimesh"):
@@ -200,6 +231,7 @@ def finalize_output(
         "software": {
             "packages": _package_versions(),
             "backend_revision": _git_revision(backend_repo) if backend_repo else None,
+            "pipeline_revision": _pipeline_revision(),
         },
         "source_manifest": {
             "path": str(source_manifest.resolve()),

@@ -126,6 +126,58 @@ component count and boundary edges collapse, this question is closed.
 
 ---
 
+## 1c. The tearing is the *subject*, not the pipeline — controlled comparison
+
+*(Settles a question 1b was being blamed for. Measured 2026-08-10.)*
+
+The extractor in 1b drops geometry wherever four neighbouring voxels are not all
+present, which would tear **every** mesh equally. That mechanism was the leading
+explanation for the hero fox's 96 large tears. **It is not the explanation.**
+
+Same pipeline, same parameters (`1024_cascade`, texture 2048, 100K bake faces, 12
+steps, seed 42, front view only), same repo state, two subjects:
+
+| | moss fox — fronds + fur | Snag — smooth stone, chunky |
+|---|---|---|
+| boundary edges | 16,467 | **505** |
+| boundary loops | 1,061 | 39 |
+| **large tears** (>0.15) | **90** | **0** |
+| total tear perimeter | 25.62 | **0.00** |
+| largest component | 97.0% of area | **99.9%** |
+
+Zero. Not fewer — none. A uniform extractor defect cannot produce that, so the
+extractor is not what tears the fox. Manifests: `manifests/fox-34-control-front-only.json`
+and `manifests/snag-34-control-front-only.json`.
+
+**Two subject properties drive the two visible defects**, and the culled render shows
+both plainly (`output/regions/honest*/`):
+
+* **Shingling** — TRELLIS turns high-frequency *surface texture* into *geometry*. Fur
+  and moss become overlapping plates, on the legs and muzzle as much as the ruff.
+  Smooth stone stays smooth.
+* **Tearing** — thin, sheet-like structures tear. Chunky volumes do not.
+
+**What this retires.** The framing that the tears are a decode or port defect to be
+fixed in code. They are a property of what we ask for. This is the *third* wrong story
+about these holes in as many sessions — first "the mesh is confetti" (measurement
+artefact, question 1), then "the tears are leaf shards that no view could see"
+(refuted by labelling: tear density is 26.60 on body vs 27.60 on foliage, a 4% gap
+inside an error bar of 31%), then "it is the extractor" (refuted here).
+
+**What survives from 1b.** `fill_holes()` really is disabled and the extractor really
+does drop boundary quads. Both remain true and worth fixing; neither is what makes the
+fox see-through.
+
+**Confounds, stated rather than buried.** Snag differs from the fox in surface *and*
+form, so this narrows the cause without isolating it — `Flicker` (smooth + thin) and
+`Monolith` (detailed + chunky) are the runs that separate them. One seed each so far.
+
+**The practical consequence** is an art-direction rule, not an engineering task: for a
+clean mesh, ask for chunky volumes and smooth surfaces. Fur, moss and fronds cost
+geometry quality, and no amount of post-repair buys it back.
+
+---
+
 ## 2. Large regions of the mesh ARE inside-out — and it is fixable
 
 **Observed.** Shading backfacing polygons near-black — expecting gaps to darken —

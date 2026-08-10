@@ -3,7 +3,7 @@
   "use_case": "showcase",
   "distribution": "private",
   "commercial_intent": false,
-  "input": { "path": "../assets_to_test/3-4th-snag-alpha-clean.png", "source": "user-provided" },
+  "input": { "path": "../assets_to_test/3-4th-stone-beast-alpha-clean.png", "source": "user-provided" },
   "model": {
     "backend": "trellis2",
     "id": "microsoft/TRELLIS.2-4B",

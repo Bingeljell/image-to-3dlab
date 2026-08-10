@@ -5,8 +5,13 @@ hierarchy, per-character joint positions. Any character rigged to this spec can 
 animation, and a gait authored once retargets by re-fitting markers rather than by
 re-authoring motion.
 
-Verified on: **moss fox** (foliage, thin, 16,467 boundary edges) and **Snag** (stone
-brute, chunky, 505 boundary edges). Those two bracket the range the pipeline produces.
+Verified on: **moss fox** (foliage, thin, 16,467 boundary edges) and the **stone beast**
+(chunky, smooth, 505 boundary edges). Those two bracket the range the pipeline produces.
+
+> The stone beast was generated as a control for the mesh-integrity benchmark and was
+> briefly called "Snag". It is not the Snag in the foe brief, which is a legless
+> thorn-knot — see `docs/bake-spec.md` §9. Its rig, walk and attack are real and reusable
+> as the reference quadruped; the creature is simply a different one.
 
 Consumed by `docs/bake-spec.md`, which is authoritative for camera, framing and sheet
 layout. This document is authoritative for the rig; neither should restate the other.
@@ -120,7 +125,7 @@ The only per-character work. Names are fixed; positions are fitted.
 | front legs ×2 | `front{L,R}_shoulder`, `_elbow`, `_wrist`, `_paw`, `_toe` |
 | back legs ×2 | `back{L,R}_hip`, `_knee`, `_ankle`, `_paw`, `_toe` |
 
-**Every marker must exist**, even where the anatomy doesn't. Snag has no tail: its three
+**Every marker must exist**, even where the anatomy doesn't. The stone beast has no tail: its three
 tail markers are parked as a short stub inside the rump, so the bones exist, sit within
 the mesh, and pick up negligible weight. Omitting them fails the build.
 
@@ -140,7 +145,7 @@ toe at ~12%.
 Ears have a **base marker only**. The bone is extrapolated outward from the head along
 the head→ear direction, so it lies along the ear and pivots at its base, which is how an
 ear moves. `--ear-length` controls the extrapolation: too long and the tip pushes outside
-the mesh. Fox ~0.12, Snag ~0.06 (nubs, not blades).
+the mesh. Fox ~0.12, stone beast ~0.06 (nubs, not blades).
 
 ---
 
@@ -155,15 +160,15 @@ bone grabbing a nearby ear. It needs a clean manifold to solve on. Measured:
 | mesh | boundary edges | heat weighting result |
 |---|---|---|
 | moss fox | 16,467 | fails — 21 empty groups |
-| Snag | 505 | **fails — 25 empty groups, all of them** |
+| stone beast | 505 | **fails — 25 empty groups, all of them** |
 
-Snag is 33× cleaner than the fox and heat still cannot solve it. This is not a
+The stone beast is 33x cleaner than the fox and heat still cannot solve it. This is not a
 fox-specific workaround; it is the default path for anything TRELLIS produces.
 
 The proxy route: voxel-remesh a copy into a watertight blob → heat-weight the proxy,
 which solves cleanly → transfer weights back by nearest-surface interpolation → bind the
 real mesh. The proxy is throwaway and its ugliness does not matter; only the transfer
-needs to be accurate. Result on Snag: 25 groups, **0 empty, 0 unweighted vertices**.
+needs to be accurate. Result on the stone beast: 25 groups, **0 empty, 0 unweighted vertices**.
 
 ---
 
@@ -173,7 +178,7 @@ needs to be accurate. Result on Snag: 25 groups, **0 empty, 0 unweighted vertice
 reach head height. **That heuristic assumes the head is the highest point on the body,
 and it produces false positives on any hunched character.**
 
-Snag tripped it on all four limbs. The head marker sits at z 0.157 while its shoulder
+The stone beast tripped it on all four limbs. The head marker sits at z 0.157 while its shoulder
 hump legitimately reaches 0.27 — the check was measuring anatomy, not bleed.
 
 The decisive test, which should be preferred whenever the heuristic fires:
@@ -181,7 +186,7 @@ The decisive test, which should be preferred whenever the heuristic fires:
 > Rotate one limb root by ~55°. Measure how far the centroid of the vertices weighted to
 > `head` + `jaw` moves. On a correct rig it does not move.
 
-Snag: **0.0003 units on a 0.788-tall mesh — 0.04%.** Correctly weighted.
+Stone beast: **0.0003 units on a 0.788-tall mesh — 0.04%.** Correctly weighted.
 
 ---
 
@@ -213,7 +218,7 @@ whichever character the rig was first authored on:
 |---|---|
 | armature / scene root | `Rig` |
 | animation clip | the gait — `Walk`, `Trot`, … |
-| mesh object | the character — `Snag` |
+| mesh object | the character — `StoneBeast` |
 
 The scripts default to `FoxRig` / `FoxRigAction`, which is wrong on anything that is not
 the fox. Rename before export.

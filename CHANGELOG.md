@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Documented that the see-through holes on detailed subjects are **zero-thickness
+  sheets, not tears**, and that a Blender Solidify pass closes every one of them:
+  pangolin 97.82 → 0.00, moss fox 126.58 → 0.00, monolith 44.78 → 0.00 (hole perimeter
+  relative to the mesh diagonal). Costs roughly 4x the faces. This supersedes the
+  art-direction rule recorded earlier the same day, which said detailed surfaces should
+  be avoided; they need thickening, not avoiding. See `docs/open-questions.md` §1d.
+
 ### Added
 - Provenance now records `software.pipeline_revision` — this repository's commit and
   whether the working tree was dirty — alongside the existing `backend_revision`. The

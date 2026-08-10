@@ -176,6 +176,49 @@ form, so this narrows the cause without isolating it — `Flicker` (smooth + thi
 clean mesh, ask for chunky volumes and smooth surfaces. Fur, moss and fronds cost
 geometry quality, and no amount of post-repair buys it back.
 
+> **Superseded the same day — see 1d.** The last sentence is wrong. Post-repair does
+> buy it back, in seconds, once you stop treating the holes as tears.
+
+---
+
+## 1d. The holes are sheets without thickness, and Solidify closes all of them
+
+*(Corrects 1c. Measured 2026-08-10.)*
+
+Every hole-related conclusion in this repo assumed a hole is a **tear in a surface that
+ought to be closed** — the thing `fill_holes` patches. On detailed subjects that is the
+wrong model. TRELLIS renders fine detail as **zero-thickness sheets**: a fur flake, an
+armour plate, a carved glyph edge. A sheet is invisible from behind, so backface culling
+makes the model see-through. Nothing is torn; there is simply no back face.
+
+The fix is thickness, not patching. A Blender **Solidify** modifier, extruding both ways
+from each sheet (`offset = 0.0`, which sidesteps the inconsistent winding in question 2):
+
+| subject | hole size before | after Solidify | faces |
+|---|---|---|---|
+| clockwork pangolin | 97.82 | **0.00** | 96K → 335K |
+| moss fox | 126.58 | **0.00** | 98K → 402K |
+| basalt monolith | 44.78 | **0.00** | 100K → 534K |
+
+Zero boundary loops in all three, verified backface-culled and by eye, not by metric
+alone (`output/regions/solidify_*.png`).
+
+**What this overturns.** The art-direction rule in 1c — "avoid fur, scales and carving"
+— is not needed. The subjects that scored worst are all recoverable. So is the framing
+running through this document that the tearing is an unfixable property of the decoder.
+
+**Why it took so long to see.** Every tool here measures boundary *edges*, and
+"sheet with no back" and "tear in a closed surface" are identical by that measure. Four
+sessions of tear analysis, a camera-visibility sweep, and two painted label masks all
+refined the measurement rather than questioning what was being measured. The culled
+render showed it in one look, once the right fix was tried.
+
+**Not yet established.** Face count roughly 4x, so decimation afterwards is untested.
+Solidify also shells regions that were already closed, wasting interior geometry — a
+smarter pass would thicken only sheet-like regions. Textured appearance is unchecked:
+new rim faces inherit UVs from their edge and may smear. And nothing has been rigged
+yet, so whether solidified plates hold together under deformation is open.
+
 ---
 
 ## 2. Large regions of the mesh ARE inside-out — and it is fixable

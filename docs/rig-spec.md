@@ -8,6 +8,9 @@ re-authoring motion.
 Verified on: **moss fox** (foliage, thin, 16,467 boundary edges) and **Snag** (stone
 brute, chunky, 505 boundary edges). Those two bracket the range the pipeline produces.
 
+Consumed by `docs/bake-spec.md`, which is authoritative for camera, framing and sheet
+layout. This document is authoritative for the rig; neither should restate the other.
+
 ---
 
 ## 1. Coordinate conventions
@@ -57,6 +60,51 @@ inboard of the spine, not on it.
 
 **Bone names are the contract.** `blender_walk_cycle.py` and every other animation script
 address bones by these exact names. Do not rename per character.
+
+---
+
+## 2a. `root` — specified, not yet built
+
+**Status: agreed, not implemented.** Nothing in `output/` has it, and adding it changes
+the bone count from 25 to 26.
+
+Every bone above sits *inside* the body, so they can bend the character but cannot
+**move** it. Rotating the spine tilts the chest; nothing lifts the creature off the
+ground. That is a real limitation, not a theoretical one:
+
+- Snag's slam attack can only arch and lean. A genuine rear needs the body to rise, and
+  there is nothing to rise with.
+- A walk cycle animates in place; it cannot travel.
+- `docs/bake-spec.md` §4 budgets ±0.25 BU horizontal / ±0.15 BU vertical for lunges,
+  hops and the downed sprawl. An earlier draft assigned that translation to "the topmost
+  bone of the spine chain", which stretches the legs — the feet stay planted while the
+  torso slides away from them.
+
+### The bone
+
+```
+root                     at ground level, between the feet, pointing forward
+├── spine_01
+└── (everything else, unchanged)
+```
+
+| property | value |
+| --- | --- |
+| head | `(0, 0, 0)` in character space — floor level, centred between the paws |
+| tail | `(0, -0.25, 0)` — points forward, so its local axes are legible |
+| parent | none. It becomes the armature root; `spine_01` parents to it, detached |
+| weights | **none.** It carries no vertices; it exists only to move everything below |
+
+`spine_01` stops being the root and becomes root's child. No other parenting changes, no
+marker changes — root is derived from the mesh's floor plane and centre, not fitted.
+
+### Consequences
+
+- **Animation scripts must not touch `root`** unless they intend the whole character to
+  move. A gait that rotates `root` will yaw the creature rather than turn its body.
+- **Translate `root`, rotate everything else.** That keeps the framing contract in
+  `bake-spec.md` §4 checkable: read root's translation, compare against the budget.
+- Existing clips stay valid — they drive bones that keep their names and parents.
 
 ---
 
@@ -179,6 +227,9 @@ is the only thing that proves the export round-tripped.
 
 ## 9. Known gaps
 
+- **`root` is specified but not built** (§2a). Until it lands, no pose that leaves the
+  ground is authorable, and `bake-spec.md` §4's translation budget has nothing to apply
+  to.
 - **Solidified meshes are untested under deformation.** Assets fixed per
   `docs/open-questions.md` §1d carry doubled shells; whether plates hold together when
   bones move is unverified, and is the next thing to check.

@@ -156,7 +156,28 @@ unrecoverable, autosave included.
 
 ---
 
-## 8. Known gaps
+## 8. Export naming
+
+Exported GLBs use generic names so a character is identified by its own name, not by
+whichever character the rig was first authored on:
+
+| thing | name |
+|---|---|
+| armature / scene root | `Rig` |
+| animation clip | the gait — `Walk`, `Trot`, … |
+| mesh object | the character — `Snag` |
+
+The scripts default to `FoxRig` / `FoxRigAction`, which is wrong on anything that is not
+the fox. Rename before export.
+
+Export with `export_animations`, `export_skins`, `export_yup`. Verify by reading the GLB
+header back — one mesh node, one skin, the expected joint count, one animation — and by
+rendering the animation **from the exported file** rather than from the live scene, which
+is the only thing that proves the export round-tripped.
+
+---
+
+## 9. Known gaps
 
 - **Solidified meshes are untested under deformation.** Assets fixed per
   `docs/open-questions.md` §1d carry doubled shells; whether plates hold together when

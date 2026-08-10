@@ -37,8 +37,14 @@ arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
 bpy.context.view_layer.objects.active = arm
 bpy.ops.object.mode_set(mode="POSE")
 
+# Detaching the old action is not enough: it survives in bpy.data.actions, so the new
+# one is created as "Attack.001", both get exported, and a viewer plays whichever comes
+# first -- silently showing the previous take. Delete any same-named action outright.
 if arm.animation_data and arm.animation_data.action:
     arm.animation_data.action = None
+for stale in [a for a in bpy.data.actions if a.name.split(".")[0] == "{action_name}"]:
+    bpy.data.actions.remove(stale)
+
 for pb in arm.pose.bones:
     pb.rotation_mode = "XYZ"
     pb.rotation_euler = (0.0, 0.0, 0.0)

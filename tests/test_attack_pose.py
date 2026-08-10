@@ -71,16 +71,44 @@ def test_forelimbs_travel_further_than_hind_limbs():
 
 
 def test_the_forelimb_lifts_before_it_strikes():
-    """Peak lift must land in the rear-up phase, the low point in the strike phase."""
+    """The rear-up extreme must be reached before the strike extreme.
+
+    Written sign-agnostically, against the CURVE's own rear and strike values, rather
+    than assuming lift is the minimum. An earlier version hard-coded min-is-lift and so
+    would have passed happily on the version where the forelimb signs were inverted --
+    the bug that made the attack look arthritic.
+    """
+    bone = "frontL_upperarm"
+    _, rear_value, strike_value, _ = CURVE[bone]
     poses = sample(100)
-    values = [p["frontL_upperarm"] for p in poses]
-    lift_at = min(range(len(values)), key=lambda i: values[i]) / 100
-    blow_at = max(range(len(values)), key=lambda i: values[i]) / 100
-    # The peak lift sits exactly on the rear/strike boundary, which phase() attributes
-    # to "strike"; what matters is that the lift completes before the blow travels.
+    values = [p[bone] for p in poses]
+
+    lift_at = min(range(len(values)), key=lambda i: abs(values[i] - rear_value)) / 100
+    blow_at = min(range(len(values)), key=lambda i: abs(values[i] - strike_value)) / 100
+
+    # The rear-up extreme sits exactly on the rear/strike boundary, which phase()
+    # attributes to "strike"; what matters is that it completes before the blow travels.
     assert lift_at <= REAR_END + 0.01, f"peak lift at t={lift_at:.2f} is too late"
     assert phase(blow_at) in {"strike", "recover"}, f"blow at t={blow_at:.2f}"
     assert lift_at < blow_at
+
+
+def test_the_forelimb_rears_opposite_to_where_it_strikes():
+    """Measured on the rig: for the forelimb, positive lifts and tucks, negative drives
+    down and forward. A rear-up and a strike sharing a sign means the arms never rise."""
+    for bone in ("frontL_upperarm", "frontR_upperarm", "frontL_forearm"):
+        _, rear_value, strike_value, _ = CURVE[bone]
+        assert rear_value * strike_value < 0, (
+            f"{bone}: rear {rear_value} and strike {strike_value} share a sign"
+        )
+        assert rear_value > 0, f"{bone}: rear-up must be positive to lift the paw"
+
+
+def test_the_back_arches_backwards_on_the_rear_up():
+    """Measured: negative spine rotation raises the chest. A positive rear-up hunches."""
+    for bone in ("spine_01", "spine_02", "neck", "head"):
+        _, rear_value, _, _ = CURVE[bone]
+        assert rear_value < 0, f"{bone}: rear-up {rear_value} hunches instead of arching"
 
 
 def test_no_bone_exceeds_a_sane_limit():

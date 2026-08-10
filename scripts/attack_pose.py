@@ -25,28 +25,40 @@ ANTICIPATE_END = 0.30
 REAR_END = 0.46
 STRIKE_END = 0.56
 
-# (bone, anticipation, rear-up, strike, settle) -- all degrees, rest is 0
+# Sign convention, MEASURED on the rig rather than assumed -- pose one bone, read where
+# the mesh actually goes. Guessing produced an attack that looked arthritic:
 #
-# Anticipation must lean AWAY from the blow: it is a small first move in the same
-# direction as the rear-up, so the body gathers before it commits. Winding up towards
-# the strike instead reads as a stumble, and is easy to write by accident.
+#   spine_01 / spine_02   negative -> chest rises, back arches BACK
+#   neck / head           negative -> head tilts back and up
+#   front*_upperarm       POSITIVE -> paw lifts and tucks under the body
+#                         negative -> paw drives down and FORWARD
+#
+# The forelimbs run opposite to the spine, which is the trap: a first pass used negative
+# for the rear-up, so the arms reached down and forward while the body tried to rear.
+#
+# (bone, anticipation, rear-up, strike, settle) -- degrees, rest is 0.
+# Anticipation is a small move in the rear-up direction, so the body gathers before it
+# commits; winding up towards the blow reads as a stumble.
 CURVE: dict[str, tuple[float, float, float, float]] = {
-    "spine_01": (-6.0, -16.0, 10.0, 2.0),
-    "spine_02": (-4.0, -10.0, 8.0, 1.5),
-    "neck": (-10.0, -14.0, 12.0, 2.0),
-    "head": (-8.0, -18.0, 16.0, 2.0),
-    "jaw": (0.0, 22.0, 10.0, 0.0),
-    "frontL_upperarm": (-14.0, -70.0, 46.0, 4.0),
-    "frontR_upperarm": (-14.0, -70.0, 46.0, 4.0),
-    "frontL_forearm": (-10.0, -46.0, 20.0, -3.0),
-    "frontR_forearm": (-10.0, -46.0, 20.0, -3.0),
-    "frontL_paw": (0.0, -18.0, 14.0, 0.0),
-    "frontR_paw": (0.0, -18.0, 14.0, 0.0),
-    # The hindquarters sink to take the weight, then push back up through the blow.
-    "backL_thigh": (-16.0, -22.0, -6.0, -2.0),
-    "backR_thigh": (-16.0, -22.0, -6.0, -2.0),
-    "backL_shin": (20.0, 26.0, 8.0, 2.0),
-    "backR_shin": (20.0, 26.0, 8.0, 2.0),
+    # The strike values are deliberately much smaller than the rear-up ones. Driving
+    # spine, head and forelimbs all hard forward at once buries the face in the floor --
+    # the blow should land in front of the animal, not through it.
+    "spine_01": (-9.0, -34.0, 8.0, 2.0),
+    "spine_02": (-6.0, -22.0, 6.0, 1.5),
+    "neck": (-8.0, -30.0, 8.0, 2.0),
+    "head": (-6.0, -34.0, 10.0, 2.0),
+    "jaw": (0.0, 26.0, 14.0, 0.0),
+    "frontL_upperarm": (12.0, 74.0, -26.0, 4.0),
+    "frontR_upperarm": (12.0, 74.0, -26.0, 4.0),
+    "frontL_forearm": (8.0, 44.0, -14.0, 2.0),
+    "frontR_forearm": (8.0, 44.0, -14.0, 2.0),
+    "frontL_paw": (0.0, 20.0, -8.0, 0.0),
+    "frontR_paw": (0.0, 20.0, -8.0, 0.0),
+    # The hindquarters sink to take the weight, then drive back up through the blow.
+    "backL_thigh": (-14.0, -24.0, -6.0, -2.0),
+    "backR_thigh": (-14.0, -24.0, -6.0, -2.0),
+    "backL_shin": (18.0, 28.0, 8.0, 2.0),
+    "backR_shin": (18.0, 28.0, 8.0, 2.0),
 }
 
 

@@ -21,6 +21,42 @@ is equally matte, so nothing catches light, and the asset reads as one undiffere
 lump. A user's description of the result was "it looks like a turd rather than bark",
 and that is exactly the defect: correct colour, no surface.
 
+
+## Gate the whole thing on how torn the decode is
+
+**Run `scripts/ribbon_metric.py` before spending a minute on anything below.** It reports
+the share of faces touching an open edge. A closed mesh is 0%, a surface with a few tears
+is 1-3%, and above ~10% no amount of finishing helps.
+
+Set empirically from our own assets: Flicker 3.1% (the asset judged best by eye), moss fox
+14.7%, thorn-knot Snag **40.9%** before the fix below. At 40% the average patch is two or
+three triangles wide -- a mesh of ribbons, not a surface with holes.
+
+**Three limits, all learned the hard way:**
+
+1. **Necessary, not sufficient.** Both SF3D assets score a perfect 0.0% and are unusable.
+   Use it to reject, never to accept.
+2. **Not comparable across face counts.** 392K faces scored 8.8% and 98K scored 8.9% for
+   meshes that look nothing alike: the same *proportion* over 4x the faces means many small
+   holes rather than few consolidated ones.
+3. **Judge smooth-shaded, or both.** Flat shading gives each face its own normal so tears
+   read as mild creases -- it flatters a torn mesh. Smooth shading interpolates across the
+   tear and glitters. Flat is right for diagnosis and wrong for shippability, and a full
+   round of conclusions here inverted when re-rendered smooth.
+
+### The defect the gate was catching
+
+`o_voxel/postprocess.py` calls `repair_non_manifold_edges()` immediately before every
+`simplify()`. That repair splits vertices -- cumesh's docstring: *"This creates duplicate
+vertices with the same coordinates."* QEM edge collapse cannot collapse across a duplicate
+pair, so the simplifier tears the surface open at every seam it just made: **7.8% torn
+entering that step, 44.7% leaving it.**
+
+Fix with `scripts/patch_ovoxel_weld_before_simplify.py`, which welds exactly-coincident
+vertices first. **Do not raise `bake_target_faces` to compensate** -- decimation is doing
+essential cleanup here, and more faces preserves more damage. Keep ~100K, and note that
+the raw decode is not a better master to finish from.
+
 ## The steps
 
 | # | Step | Script | Input it needs |

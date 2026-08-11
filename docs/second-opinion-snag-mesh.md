@@ -1,3 +1,13 @@
+> **RESOLVED — AND NEITHER SIDE WAS RIGHT.** This document and the exchange it prompted
+> framed the cause of the shattering as an open question between the sparse-structure
+> resolution (`ss_res`) and the final decimation ratio. It is neither. The cause is
+> `repair_non_manifold_edges()` splitting vertices immediately before `simplify()`, which
+> QEM edge collapse cannot collapse across — 7.8% torn entering that step, 44.7% leaving
+> it. Fixed by welding first: `scripts/patch_ovoxel_weld_before_simplify.py`.
+>
+> Kept in full because the reasoning trail is the deliverable, and because several of its
+> corrections stand — see "What survived" at the end.
+
 # Second opinion: Snag / TRELLIS shattered mesh + overall fidelity
 
 From: `worklings-coder` (the game-side agent, /Users/nikhilshahane/projects/worklings)

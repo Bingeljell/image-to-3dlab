@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A tear metric that gates post-processing** (`scripts/ribbon_metric.py`). The share of
+  faces touching an open edge: 0% is closed, 1-3% is a surface with tears, and the
+  thorn-knot Snag measures **40.9%** — a mesh of ribbons two or three triangles wide, which
+  no repair can fix. Measured across the library to set the gate empirically: Flicker 3.1%
+  (the asset judged best by eye), moss fox 14.7%, Snag 40.9%. **Necessary but not
+  sufficient** — both SF3D assets score a perfect 0.0% and are unusable, so it may reject
+  an asset but never accept one.
+- **A finishing layer for generated assets** (`scripts/surface_detail.py`,
+  `scripts/blender_bake_ao.py`, `scripts/feature_mask.py`). Generated assets arrive with no
+  surface at all: TRELLIS emits one flat roughness for the whole subject. This derives a
+  normal and roughness map from the albedo, bakes contact-scale ambient occlusion from the
+  geometry, and can mask a single feature — an eye — to make it glossy. See
+  `docs/finishing.md`.
+- **Feature masking from a render** — locate a feature in a rendered image, raycast back
+  onto the mesh, and rasterise the hit faces' UVs into a mask. Colour cannot do this: after
+  grading, a hue threshold for the Snag's eye shatters into 155 fragments.
+- `scripts/visibility_cull.py` — deletes faces never observed from outside. Works as
+  specified and does **not** fix the shattering, for a reason worth keeping: anything
+  visible in a render is by definition seen by the cull.
+- `scripts/soften_markings.py` — reduces the contrast of flat painted markings in a
+  conditioning image, protecting genuinely dark features such as eyes.
+- `scripts/lift_lightness.py` — brightens an albedo without shifting hue or saturation.
+  Prefer fixing the lighting; this is the second choice.
+- `docs/finishing.md`, plus a "How to use this repo" section in the README covering all
+  seven pipeline steps and a proposed schema-v2 `finishing` manifest block.
+- `docs/second-opinion-snag-mesh.md` and `docs/handoff-to-worklings-coder.md` — two
+  independent reviews of the shattered mesh and the evidence exchanged with them.
+
+### Fixed
+- The visibility cull no longer destroys the material. It had replaced the mesh's materials
+  with the face-ID shader and exported without restoring them, shipping correct UVs and no
+  albedo.
+- `lift_lightness` scales linear RGB rather than LAB's L channel. The first version claimed
+  to preserve hue and saturation while doing the opposite — holding a/b fixed while raising
+  L desaturates, measured at 13% loss. A test caught it.
+
+### Changed
+- **The recipe is per-subject and human-judged.** Bark wants matte with strong derived
+  relief; glazed ceramic wants gloss and *no* relief, because an albedo-derived normal map
+  turns painted markings into dents. Ambient occlusion is the only step that transferred
+  between subjects unchanged — it is measured from geometry, while normal and roughness are
+  inferred from paint.
+- **The albedo transform is not constant across subjects**, so there is no single global
+  inverse. The Snag's highlights are crushed; Flicker's shadows are. Grade strength is
+  chosen per subject off a rendered lineup.
+
+
 ### Fixed
 - Documented that the see-through holes on detailed subjects are **zero-thickness
   sheets, not tears**, and that a Blender Solidify pass closes every one of them:

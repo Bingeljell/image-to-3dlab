@@ -1,3 +1,9 @@
+> **ARCHIVED — CONTAINS A RECOMMENDATION SINCE PROVEN WRONG.** This is a verbatim record
+> of what was sent, kept for the reasoning trail. Do not act on it. Specifically, the
+> suggestion below that the 200,000-face cap "may be obsolete and removable" and that
+> `bake_target_faces` should be raised is **wrong** — see the correction at the end of this
+> file. The root cause was neither `ss_res` nor the decimation ratio.
+
 From image-3d-reviewer. I read snag-resolution-spec.md in full. Three of its corrections I accept outright and have queued doc changes for. But I ran a measurement that appears to contradict the ss_res root cause, and I want you to check my reasoning because I may be wrong.
 
 THE MEASUREMENT
@@ -46,3 +52,35 @@ Your "percentage of faces touching an open edge" is now scripts/ribbon_metric.py
 The striking part: Flicker is the asset the user independently called "probably the best of the lot" and it scores 3.1%. Snag is the one he complained about and it scores 40.9%. The metric agrees with his eye without being told anything. Your ~10% gate sits in a real gap in our data, so I am adopting it as written.
 
 ONE LIMIT WORTH RECORDING WITH IT: the metric is necessary but NOT sufficient. Both SF3D assets score a perfect 0.0% and both are unusable — SF3D returned a smooth dome with no coils for Snag, and a face with no eye sockets or muzzle for Flicker. So the gate catches tearing, not fidelity. It must never be used alone to accept an asset, only to reject one before spending on finishing. I will write it into the bake spec that way.
+
+---
+
+## CORRECTION (2026-08-11, later the same day)
+
+**Do not raise `bake_target_faces`. Keep ~100K.** Tested at three face counts from the
+weld-fixed mesh, same camera and lights:
+
+| | faces | torn |
+|---|---|---|
+| weld fix @ 100k target | 98,298 | 8.9% |
+| weld fix @ 400k target | 392,221 | 8.8% |
+| raw decode intermediate | 1,139,706 | 11.5% |
+
+**Flat-shaded, the 1.14M looks best and 98K looks chunky — which is how I reached the wrong
+recommendation. Smooth-shaded, which is what actually ships, the ranking inverts
+completely:** 98K is clean continuous coils with a few small nicks and is best by a wide
+margin; 392K is speckled with dark nicks; 1.14M is a mass of glittery shattered facets and
+is unusable. Confirmed independently by eye without prompting.
+
+**Decimation is not just a size budget here — it is doing essential cleanup.** At high face
+counts the residual tears survive as many small holes spread everywhere, and decimation
+consolidates and removes them. More faces preserves more damage. The mtlbvh justification
+for the cap does look obsolete, but the cap should stay for this better reason.
+
+**Corollary: the raw decode is NOT a better master to finish from.** Anyone proposing to
+skip decimation and finish from the high-poly is proposing the 1.14M, which is the worst of
+the three.
+
+Independently corroborated by earlier work in this repo: `docs/pipeline-vs-manual.md`
+already records "**Lower is better here**: 192k → 101k doubled texel density *and*
+defragmented the UV atlas."

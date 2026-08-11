@@ -131,3 +131,26 @@ result. If it matters to a decision, it is one 6–16 minute run to settle.
 4. Surface reads smooth at a glance.
 5. Nothing important is buried in a recess or behind another part.
 6. Framing matches the other characters, so results stay comparable.
+
+## High-contrast painted markings can become geometry
+
+**Verified on Flicker (2026-08-11).** Its crisp dark markings — the forehead V, the
+shoulder chevrons — came out of TRELLIS as *physical cracks in the mesh*, with ragged
+lips, and the eye rims were torn open. Rendering the asset with every texture stripped
+and a plain grey material shows all of it still there, which is the decisive test: if a
+defect survives losing its textures, no texture work will fix it.
+
+The likely mechanism, **not yet verified**: a hard dark line on a light body reads as a
+shadow, a shadow implies a crease, so the generator carves one. The irony is that the
+cleaner and more graphic the artwork's lines, the more likely this is.
+
+Two candidate fixes, neither yet tested:
+
+1. **Soften the markings in the conditioning image** so they read as paint rather than
+   shadow. Attacks the cause, one regeneration to test, and would improve every future
+   asset. Also the experiment that confirms or kills the mechanism above.
+2. **Repair the geometry afterwards** by smoothing only the creased vertices. Blanket
+   smoothing would also soften eyelids and nose, which are meant to be sharp — but on a
+   subject like Flicker the markings are dark on a light body, so a colour threshold
+   isolates them cleanly and `scripts/feature_mask.py` can turn that into a face
+   selection. Per-asset repair rather than a fix.

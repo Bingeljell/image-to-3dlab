@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A source-vs-render comparison** (`scripts/compare_to_source.py`). Renders an asset from
+  a camera matched to its source image and lays out source / textured / culled grey /
+  silhouette overlay. Every other metric here measures the mesh against itself and so
+  cannot see a dead texture or a thin marking. Angles are fixed per subject: Flicker 130,
+  Snag 95, fox 210. See `docs/baseline.md`.
+- **`soften_markings.py --protect`** — a mask of regions to leave alone. Softening treats
+  every dark region as flat paint, which is wrong for darkness that is *shading of real
+  geometry*: lightening Flicker's ear hollows made the generator build a membrane that
+  tore. With the ears protected, see-through holes fall from 2.67% to 1.07% of body area
+  across eight angles, with no angle worse than baseline.
+- **Marking projection** (`scripts/project_markings.py`). Paints the source's markings back
+  onto a generated texture after they have been softened out of the conditioning image.
+  Samples per texel from interpolated projected coordinates, derives the mask by comparing
+  the two conditioning images, and transfers the marking as a ratio so the artwork's own
+  lighting is not baked in.
+- **Re-unwrap and retopology bakes** (`scripts/blender_reunwrap_bake.py`,
+  `scripts/blender_retopo_bake.py`). Both work; both are negative results, kept so the
+  measurements are not repeated.
+
+### Changed
+- **The tear metric is a diagnostic, not a gate.** It cannot see a dead texture, a missing
+  sheen or a thin marking, and Flicker's score halved while the mesh visibly got worse.
+  Judge with the four-panel comparison instead. `docs/finishing.md` carries a banner.
+- **`docs/baseline.md` is the current state of Flicker, Snag and the fox**, all measured the
+  same way on 2026-08-12, and supersedes older per-experiment notes where they disagree.
+
+### Fixed
+- **The Snag's flat eye was self-inflicted.** `material_mode: matte` strips metalness
+  entirely, so a wet eyeball has no material to sit on; grading cannot restore it. Restore
+  gloss with the existing eye mask first, then grade.
+- **Most of the Snag's apparent tearing is flipped faces**, not missing geometry —
+  Recalculate Outside removes nearly all of it.
+
+### Added
 - **A tear metric that gates post-processing** (`scripts/ribbon_metric.py`). The share of
   faces touching an open edge: 0% is closed, 1-3% is a surface with tears, and the
   thorn-knot Snag measures **40.9%** — a mesh of ribbons two or three triangles wide, which

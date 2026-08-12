@@ -4,6 +4,7 @@ Design and reference documentation for the image-to-3D lab.
 
 | Doc | What it covers |
 |-----|----------------|
+| [RESUME-HERE-2026-08-12.md](RESUME-HERE-2026-08-12.md) | **Start every session here.** Full state, what was tried and failed, the ordered plan, and the standing rules |
 | [how-it-works-and-where-we-broke-it.md](how-it-works-and-where-we-broke-it.md) | **Plain-language walkthrough, no 3D knowledge assumed.** What each generation stage does, the post-processing the demo page doesn't show, and the two places our pipeline broke it |
 | [upstream-contributions.md](upstream-contributions.md) | **Drafts, unsent.** Two bugs found in the Mac port: the 200k pre-simplification, and remeshing producing a lattice. Evidence, proposed fixes, pre-submission checklists |
 | [self-inflicted-damage.md](self-inflicted-damage.md) | The same two defects for someone who already knows the pipeline: exact code, measurements, and the conclusions they invalidate. **Read first** Two defects our own pipeline added — a 200k face cap that destroyed 94% of the decode, and meshes shipped inside-out — and the list of earlier conclusions they invalidate |

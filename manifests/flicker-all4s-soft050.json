@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "use_case": "showcase",
+  "distribution": "private",
+  "commercial_intent": false,
+  "input": { "path": "../assets_to_test/3-4th-front-flicker-all4s-alpha-soft050.png", "source": "user-provided" },
+  "model": {
+    "backend": "trellis2",
+    "id": "microsoft/TRELLIS.2-4B",
+    "parameters": {
+      "seed": 42, "pipeline_type": "1024_cascade", "texture_size": 2048,
+      "bake_target_faces": 100000, "steps": 12, "material_mode": "matte"
+    }
+  },
+  "license_policy": { "allow_conditional": true, "allow_research_only": false },
+  "output": { "directory": "output" }
+}

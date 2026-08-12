@@ -1,3 +1,8 @@
+> **SUPERSEDED for current state by [baseline.md](baseline.md) (2026-08-12).** Keep reading
+> for the reasoning; but note the baseline adds a correction this document could not have
+> made: most of what looked like tearing on the Snag is **faces pointing the wrong way**,
+> not missing geometry, and Recalculate Outside removes nearly all of it.
+>
 > **RESOLVED — AND NEITHER SIDE WAS RIGHT.** This document and the exchange it prompted
 > framed the cause of the shattering as an open question between the sparse-structure
 > resolution (`ss_res`) and the final decimation ratio. It is neither. The cause is

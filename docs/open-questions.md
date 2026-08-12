@@ -1,5 +1,10 @@
 # Open questions
 
+> **Partly superseded by [baseline.md](baseline.md) (2026-08-12).** Where an entry here
+> concerns Flicker, Snag or the Fox, the baseline has the current measured position and
+> wins on conflict. Entries about other subjects and about the pipeline in general are
+> unaffected.
+
 Things this project has hit but not understood. Written after the Nikita side quest
 (see `docs/nikita-sidequest.md`), which surfaced most of them in one afternoon.
 

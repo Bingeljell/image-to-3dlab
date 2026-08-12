@@ -140,17 +140,44 @@ lips, and the eye rims were torn open. Rendering the asset with every texture st
 and a plain grey material shows all of it still there, which is the decisive test: if a
 defect survives losing its textures, no texture work will fix it.
 
-The likely mechanism, **not yet verified**: a hard dark line on a light body reads as a
-shadow, a shadow implies a crease, so the generator carves one. The irony is that the
-cleaner and more graphic the artwork's lines, the more likely this is.
+The mechanism, **now supported by a regeneration test (2026-08-12)**: a hard dark line on
+a light body reads as a shadow, a shadow implies a crease, so the generator carves one.
+The irony is that the cleaner and more graphic the artwork's lines, the more likely this
+is.
 
-Two candidate fixes, neither yet tested:
+Two fixes:
 
 1. **Soften the markings in the conditioning image** so they read as paint rather than
-   shadow. Attacks the cause, one regeneration to test, and would improve every future
-   asset. Also the experiment that confirms or kills the mechanism above.
+   shadow — `scripts/soften_markings.py`. Attacks the cause and improves every future
+   asset. **Tested:** at `--lighten 0.5`, see-through holes across eight camera angles
+   fell from 2.67% to 1.43% of body area.
 2. **Repair the geometry afterwards** by smoothing only the creased vertices. Blanket
    smoothing would also soften eyelids and nose, which are meant to be sharp — but on a
    subject like Flicker the markings are dark on a light body, so a colour threshold
    isolates them cleanly and `scripts/feature_mask.py` can turn that into a face
    selection. Per-asset repair rather than a fix.
+
+### Soften paint. Never soften shading.
+
+The 0.5 run improved seven of eight angles and made the **dead-front view worse** —
+holes 1.00% → 2.52% — with the whole regression in the ears.
+
+Softening treats every dark region as flat paint. Flicker's forehead V *is* flat paint.
+Its **ear interiors are not**: they are dark because they are a real hollow, and that
+darkness is a depth cue. Lightening it told the generator the ear was flatter than it is,
+so it built a thin membrane that tore.
+
+We tried to separate the two automatically by local variance — flat paint should be
+uniform, real shading should have a gradient. **It does not work.** Measured on Flicker,
+ear interior local standard deviation is 24–47 and painted markings 37–43; the ranges
+overlap, so no threshold separates them.
+
+So the region has to be *named*, not inferred. `--protect <mask.png>` takes a greyscale
+mask where white means "leave alone". Hand-painting it is entirely reasonable, and for
+Flicker one is derived from the image itself (the ear regions are the large dark connected
+components whose centre sits above the forehead marks) in
+`assets_to_test/flicker-ear-protect-mask.png`.
+
+**Apply the rule to any new subject:** before softening, look at every dark region and ask
+whether it is *paint on a surface* or *a hollow you are looking into*. Protect the
+hollows — ear cups, nostrils, open mouths, under-chin, deep-set eye sockets.

@@ -1,5 +1,12 @@
 # Finishing a generated asset
 
+> **The tear-metric gate in this document is retired — see [baseline.md](baseline.md)
+> (2026-08-12).** It measures the mesh against itself, so it cannot see a dead texture,
+> a missing sheen, or a marking that came out thin. It had already collected three
+> caveats; Flicker added a fourth when its tear score halved while the mesh visibly got
+> worse. Keep printing it as a diagnostic; judge with the four-panel source comparison
+> (`scripts/compare_to_source.py`) and your eye. Everything else here still stands.
+
 A generated asset arrives with a correct silhouette, roughly correct colour, and **no
 surface**. This document covers what happens after generation: the four post-processing
 steps that take an asset from "correct shape, lifeless" to something you would put in a

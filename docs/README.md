@@ -4,6 +4,7 @@ Design and reference documentation for the image-to-3D lab.
 
 | Doc | What it covers |
 |-----|----------------|
+| [baseline.md](baseline.md) | **Start here.** Where Flicker, Snag and the Fox actually stand as of 2026-08-12, all measured the same way. Supersedes older per-experiment notes where they disagree |
 | [architecture.md](architecture.md) | How the CLI, backends, and provenance layer fit together |
 | [finishing.md](finishing.md) | **The other six steps:** AO, normal/roughness, feature masks and gloss. Why the recipe is per-subject, and the traps |
 | [rigging-plan.md](rigging-plan.md) | Plan for the "animatable" lane: rigging a generated model and making it walk |

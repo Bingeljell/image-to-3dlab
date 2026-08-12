@@ -5,6 +5,7 @@ Design and reference documentation for the image-to-3D lab.
 | Doc | What it covers |
 |-----|----------------|
 | [how-it-works-and-where-we-broke-it.md](how-it-works-and-where-we-broke-it.md) | **Plain-language walkthrough, no 3D knowledge assumed.** What each generation stage does, the post-processing the demo page doesn't show, and the two places our pipeline broke it |
+| [upstream-contribution-draft.md](upstream-contribution-draft.md) | **Draft, unsent.** The 200k pre-simplification bug written up for `shivampkumar/trellis-mac`, with evidence, proposed fix and a pre-submission checklist |
 | [self-inflicted-damage.md](self-inflicted-damage.md) | The same two defects for someone who already knows the pipeline: exact code, measurements, and the conclusions they invalidate. **Read first** Two defects our own pipeline added — a 200k face cap that destroyed 94% of the decode, and meshes shipped inside-out — and the list of earlier conclusions they invalidate |
 | [baseline.md](baseline.md) | Was **start here**, but every figure in it was measured on damaged meshes; needs re-running. Where Flicker, Snag and the Fox actually stand as of 2026-08-12, all measured the same way. Supersedes older per-experiment notes where they disagree |
 | [architecture.md](architecture.md) | How the CLI, backends, and provenance layer fit together |

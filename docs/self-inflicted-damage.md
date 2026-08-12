@@ -56,10 +56,30 @@ The visible result is a surface crazed with cracks across the entire body.
   clamped value, including the commit concluding "do not raise `bake_target_faces`".
 - Lifting the cap: **290,662 faces, no crash, crazing gone.**
 
-**Fix:** `scripts/patch_trellis_face_cap.py` (idempotent, tested). Default ceiling
-1,000,000, matching the TRELLIS.2 README's own example `decimation_target`. Verified at
-300,000. The `mtlbvh` crash it guarded against is real but was never quantified — if a run
-crashes, lower the ceiling rather than restoring a blanket 200k clamp.
+**The fix is not a bigger cap — it is no pre-simplification at all.**
+
+Raising the ceiling to 300k helped only because it left the crude decimator less to do. The
+correct route is to hand o_voxel the **full decode** and let its quality-aware QEM
+decimator work, with cleanup between passes, which is what upstream does. On Flicker:
+
+```
+Pre-simplify SKIPPED: handing 3,207,582 faces to o_voxel QEM (target 300,000)
+After filling holes:          3,229,568 faces   <- holes filled on the FULL mesh
+After initial simplification:   866,044
+After initial cleanup:          861,438
+After final simplification:     292,799
+After final cleanup:            293,492
+```
+
+**5.4 minutes, and no `mtlbvh` crash.** The crash the cap guarded against did not occur at
+3.2M faces. It may still be real on far denser subjects — the Snag decodes at 27.6M — so
+keep a safety net, but set it as a genuine ceiling (4M) rather than a working target.
+
+`scripts/patch_trellis_face_cap.py` currently lifts the cap. That is the weaker fix and
+should be replaced by one that skips pre-simplification entirely; the QEM change is at
+present only a raw edit to `vendor/`.
+
+**And it explains defect 2 as well** — see below.
 
 ## Defect 2 — meshes shipped inside-out
 

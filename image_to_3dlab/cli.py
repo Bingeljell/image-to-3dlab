@@ -147,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.trellis_texture_size = parameters["texture_size"]
             if "bake_target_faces" in parameters:
                 args.trellis_bake_target_faces = parameters["bake_target_faces"]
+            if "pre_simplify_cap" in parameters:
+                args.trellis_pre_simplify_cap = parameters["pre_simplify_cap"]
             if "normalize_material" in parameters:
                 args.trellis_normalize_material = bool(parameters["normalize_material"])
             if "material_mode" in parameters:
@@ -247,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
                     steps=args.steps,
                     normalize_material=args.trellis_normalize_material,
                     material_mode=args.trellis_material_mode,
+                    pre_simplify_cap=args.trellis_pre_simplify_cap,
                 ),
             )
             result = trellis_result.asset
@@ -287,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         "material_normalized": trellis_material_normalized if args.trellis else None,
         "material_mode": trellis_material_mode if args.trellis else None,
         "steps": args.steps if args.trellis else None,
+        "pre_simplify_cap": args.trellis_pre_simplify_cap if args.trellis else None,
     }
     result, sidecar = finalize_output(
         generated=result,

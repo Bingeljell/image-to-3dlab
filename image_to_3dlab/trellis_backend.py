@@ -22,6 +22,7 @@ class TrellisOptions:
     steps: int | None = None
     normalize_material: bool = True
     material_mode: str = "matte"
+    fix_winding: bool = True
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,44 @@ class TrellisResult:
     texture_backend: str
     material_normalized: bool = False
     material_mode: str | None = None
+    winding_repaired: bool = False
+    winding_inverted: bool = False
+
+
+def _repair_winding(path: Path) -> tuple[bool, bool]:
+    """Make every face point outward. Returns (repaired, inverted).
+
+    Generated meshes ship with inconsistent winding and frequently inside-out: a Flicker
+    run measured a signed volume of **-0.02369**. glTF materials are double-sided by
+    default, so a textured preview hides it completely -- but SceneKit, RealityKit and
+    every game engine cull backfaces, and the asset renders hollow. Assets from the
+    official TRELLIS.2 demo are winding-consistent with positive volume; ours were not.
+
+    This also corrected our diagnostics: "see-through holes" counted on culled renders,
+    and the tear metric this repo gated on, were substantially counting flipped faces
+    rather than missing geometry.
+
+    Best-effort -- a mesh that cannot be loaded is left untouched rather than failing a
+    16-minute generation at its last step.
+    """
+    try:
+        import trimesh
+
+        mesh = trimesh.load(str(path), force="mesh", process=False)
+        volume_before = float(mesh.volume)
+        mesh.fix_normals()
+        inverted = float(mesh.volume) < 0.0
+        if inverted:
+            mesh.invert()
+        mesh.export(str(path))
+        print(
+            f"  [image-to-3dlab] winding repaired: volume {volume_before:+.5f} -> "
+            f"{float(mesh.volume):+.5f}{' (inverted)' if inverted else ''}"
+        )
+        return True, inverted
+    except Exception as exc:  # noqa: BLE001 - never fail a finished generation here
+        print(f"  [image-to-3dlab] winding repair skipped: {exc}")
+        return False, False
 
 
 def _normalize_glb_material(path: Path, mode: str = "matte") -> int:
@@ -180,6 +219,14 @@ def generate_trellis(
     if not result.is_file():
         raise RuntimeError(f"TRELLIS reported success but did not create {result}")
     texture_backend = "kdtree-cpu" if cpu_basecolor.is_file() else "metal-o-voxel"
+
+    # Winding repair comes BEFORE material normalisation, because that step rewrites the
+    # GLB's JSON chunk in place and expects the geometry buffers it was given.
+    winding_repaired = False
+    winding_inverted = False
+    if options.fix_winding:
+        winding_repaired, winding_inverted = _repair_winding(result)
+
     material_normalized = False
     material_mode = None
     if options.normalize_material:
@@ -191,4 +238,6 @@ def generate_trellis(
         texture_backend=texture_backend,
         material_normalized=material_normalized,
         material_mode=material_mode,
+        winding_repaired=winding_repaired,
+        winding_inverted=winding_inverted,
     )

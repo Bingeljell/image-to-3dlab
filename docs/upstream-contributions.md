@@ -1,8 +1,22 @@
-# Draft contribution to `shivampkumar/trellis-mac`
+# Draft contributions to `shivampkumar/trellis-mac`
 
-> **Status: draft, not yet submitted.** Written 2026-08-12. Intended for an issue or PR
-> against the Apple Silicon TRELLIS.2 port. Self-contained: assumes no knowledge of this
-> repo. Verify every number against a fresh run before submitting.
+> **Status: drafts, NOT submitted. Do not send without working the checklists.** Written
+> 2026-08-12 against the Apple Silicon TRELLIS.2 port
+> (`https://github.com/shivampkumar/trellis-mac`). Self-contained: assumes no knowledge of
+> this repo. Every number needs re-verifying from a clean checkout first.
+>
+> Two independent findings:
+>
+> 1. **[The 200,000-face pre-simplification](#finding-1--the-200000-face-pre-simplification)**
+>    — destroys 94–99% of every decode before the real pipeline runs. High confidence,
+>    affects every user of the port.
+> 2. **[Remeshing produces a wireframe lattice](#finding-2--remeshing-produces-a-lattice-not-a-surface)**
+>    — `--remesh` yields a cage of struts rather than a surface, at any `remesh_project`.
+>    Needs a minimal reproduction before filing.
+
+---
+
+# Finding 1 — the 200,000-face pre-simplification
 
 ## Summary
 
@@ -131,3 +145,86 @@ print(m.is_winding_consistent, m.volume)   # want True and positive
 - [ ] Note that `--remesh` defaults off here while the upstream README example uses
       `remesh=True, remesh_project=0`; on this port `remesh_project=0` produced an
       unusable lattice, which may be worth a separate report once understood
+
+---
+
+# Finding 2 — remeshing produces a lattice, not a surface
+
+## Summary
+
+Enabling `--remesh` (narrow-band dual-contouring remeshing, run before UV unwrapping)
+produces a **wireframe cage of thin struts instead of a closed surface**. The silhouette is
+correct — the subject is recognisable — but the skin is missing between the struts, so the
+asset is unusable.
+
+`remesh_project` has **no effect on this**: `0` and `0.9` produce visually identical
+lattices. Since that parameter controls how far rebuilt vertices are pulled back onto the
+original surface, a result that ignores it points at a defect *upstream* of the projection
+step — in the narrow-band construction or the dual-contouring kernel.
+
+This matters because the upstream TRELLIS.2 README's own example runs with
+`remesh=True, remesh_band=1, remesh_project=0`. Anyone following upstream's documented
+settings on this port gets an unusable mesh.
+
+## Evidence
+
+Same subject, same seed (261852270), `1024_cascade`, `texture_size=4096`,
+`bake_target_faces=1000000`, pre-simplification removed. Signed volume is the tell: a
+closed surface encloses volume, a cage encloses almost nothing.
+
+| Run | Faces out | Signed volume | See-through (culled, worst angle) |
+|-----|-----------|---------------|-----------------------------------|
+| no remesh | 282,882 | **+0.02830** | 4.6% |
+| `--remesh --remesh-project 0` | 948,910 | **+0.00013** | ~90% |
+| `--remesh --remesh-project 0.9` | 935,103 | **+0.00031** | ~90% |
+
+A ~90x collapse in enclosed volume, with the parameter that should change the result
+making no difference.
+
+Stage log (project 0.9), showing remeshing itself completing without error:
+
+```
+After filling holes: 2428063 vertices, 4956432 faces
+After remeshing:     1648841 vertices, 3108294 faces
+After cleanup:       1528229 vertices, 3021046 faces
+After simplifying:    468658 vertices,  954799 faces
+```
+
+Note `cumesh/metal_remeshing.py:188` also emits
+`UserWarning: Using torch.cross without specifying the dim arg is deprecated` during the
+run — probably unrelated, but it indicates this path is not exercised often.
+
+## Where the defect is likely to be
+
+`cumesh/metal_remeshing.py` (226 lines) is a near-parallel port of `cumesh/remeshing.py`
+(251 lines). Diffing them, the `project_back` block is **byte-for-byte identical**, which
+is consistent with `remesh_project` having no effect on the failure. The divergence is
+therefore earlier: either the narrow-band voxel construction, or the compiled call
+
+```python
+dual_verts, intersected = _C.simple_dual_contour(...)
+```
+
+which on this port resolves to a Metal kernel rather than the CUDA one. That kernel is
+compiled, so it cannot be inspected from Python.
+
+## Before filing
+
+- [ ] **Build a minimal reproduction** — call `remesh_narrow_band_dc` directly on a simple
+      watertight mesh (a sphere or a cube), with no TRELLIS pipeline involved. If a sphere
+      remeshes into a cage, the report is airtight and tiny. This is the single most
+      valuable next step.
+- [ ] Compare the intermediate `dual_verts` / `intersected` tensors against expectations —
+      are vertices missing, or are the quads that connect them missing?
+- [ ] Check whether `resolution` (taken from `grid_size.max()` in `o_voxel/postprocess.py`)
+      is sane for the subject; a too-coarse grid could plausibly produce sparse output
+- [ ] Confirm on a second machine / Metal version before blaming the kernel
+- [ ] Search the port's issues — the deprecation warning suggests this path is rarely run,
+      so it may simply be unreported rather than known-broken
+
+## Impact if confirmed
+
+Remeshing is how upstream produces a closed surface before UV unwrapping — the step whose
+own help text says it *"targets boundary edges at source"*. On this port it is effectively
+unavailable, which means Apple Silicon users have no working route to a watertight mesh
+and must rely on post-hoc hole repair instead.

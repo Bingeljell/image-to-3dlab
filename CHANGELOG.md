@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The 200,000-face cap that was destroying 94% of every decode**
+  (`scripts/patch_trellis_face_cap.py`). The Mac port pre-simplified the decoded mesh —
+  ~3.2 million triangles — down to 200k with a crude decimator *before* o_voxel's
+  postprocess, so hole filling, non-manifold repair, simplification, UV unwrapping and the
+  texture bake all ran on wreckage. This was the cause of the crazed, cracked surfaces. It
+  also made `bake_target_faces` **inert above 200k**: 300,000 and 3,000,000 both produced
+  ~197k faces. Lifting it gives 290,662 faces, no crash, and no crazing. Re-apply after
+  every bootstrap; `vendor/` is git-ignored.
+- **Meshes shipped inside-out** (`scripts/fix_winding.py`, wired into the TRELLIS backend
+  via `TrellisOptions.fix_winding`). Generated assets had inconsistent face winding and
+  frequently negative signed volume (-0.02369 on Flicker). glTF materials are double-sided
+  by default so previews looked fine, but backface-culled — as every game engine renders —
+  the asset was hollow. This also means previously reported "see-through hole" and tear
+  percentages were substantially counting flipped faces, not missing geometry.
+
+### Changed
+- **`docs/self-inflicted-damage.md` is the new entry point** for mesh-quality work. It
+  documents both defects above, how the official TRELLIS.2 HuggingFace demo exposed them as
+  a control group, and which earlier conclusions are withdrawn — notably "painted markings
+  become geometry" (the demo carves no grooves from the same artwork) and "do not raise
+  `bake_target_faces`". `docs/baseline.md` carries a banner: its method stands, its numbers
+  were measured on damaged meshes.
+
 ### Added
 - **A source-vs-render comparison** (`scripts/compare_to_source.py`). Renders an asset from
   a camera matched to its source image and lays out source / textured / culled grey /

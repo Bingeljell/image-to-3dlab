@@ -1,5 +1,18 @@
 # Baseline — 2026-08-12
 
+> **SUPERSEDED THE SAME DAY — every figure here was measured on damaged meshes.** Later on
+> 2026-08-12 we found two defects in our own pipeline: a 200,000-face cap that destroyed
+> 94% of the decode before any real processing, and meshes shipped **inside-out**. See
+> [self-inflicted-damage.md](self-inflicted-damage.md).
+>
+> What that means for this document: the hole percentages largely counted **flipped faces**
+> rather than missing geometry; the "markings become geometry" diagnosis is **withdrawn**
+> (the official demo carves no grooves from the same artwork); and the softening
+> experiments below were treating a symptom of the face cap.
+>
+> The **method** here still stands — matched camera, four panels, judge by eye. The
+> **numbers** need re-running on repaired meshes.
+
 **What this doc is.** A single, current snapshot of how close each asset is to the picture
 it was generated from, all measured the same way on the same day. Two weeks of experiments
 produced a lot of scattered renders that are no longer comparable to each other. This

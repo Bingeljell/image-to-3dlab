@@ -211,6 +211,25 @@ chmod +x scripts/bootstrap_trellis_macos.sh
 ./scripts/bootstrap_trellis_macos.sh
 ```
 
+### Required after bootstrap: lift the face cap
+
+```bash
+python scripts/patch_trellis_face_cap.py --ceiling 1000000
+```
+
+The Mac port pre-simplifies the decoded mesh to **200,000 faces** before any real
+processing runs. The decode is ~3.2 million triangles, so that destroys 94% of it with a
+crude decimator and leaves the surface crazed with cracks. It also makes
+`bake_target_faces` inert above 200k. `vendor/` is git-ignored, so this must be re-applied
+after every bootstrap — the patch is idempotent and safe to run repeatedly.
+
+Meshes also ship with inconsistent, often inward-facing winding; the backend repairs this
+automatically (`TrellisOptions.fix_winding`). Always judge an asset **backface-culled** —
+glTF materials are double-sided by default and will hide a hollow mesh completely.
+
+Both defects, and the list of earlier conclusions they invalidate, are written up in
+[docs/self-inflicted-damage.md](docs/self-inflicted-damage.md).
+
 Without full Xcode and its Metal Toolchain this uses the port's supported KDTree/PyTorch
 fallback. Install the required compiler component with:
 

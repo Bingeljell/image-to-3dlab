@@ -134,6 +134,17 @@ result. If it matters to a decision, it is one 6–16 minute run to settle.
 
 ## High-contrast painted markings can become geometry
 
+> **WITHDRAWN 2026-08-12.** The official TRELLIS.2 demo, given this exact artwork with its
+> markings intact, produces a mesh whose culled grey render has **no forehead groove at
+> all**. TRELLIS does not carve painted markings. The grooves and tearing were caused by a
+> 200,000-face cap in our own `generate.py` that destroyed 94% of the decode before any
+> real processing ran. See [self-inflicted-damage.md](self-inflicted-damage.md).
+>
+> The observation below — that the grooves survive stripping the texture — was real. The
+> *attribution* to the input artwork was wrong. `soften_markings.py` and its `--protect`
+> mask remain useful tools, but do not reach for them before checking that the face cap is
+> lifted and the winding repaired.
+
 **Verified on Flicker (2026-08-11).** Its crisp dark markings — the forehead V, the
 shoulder chevrons — came out of TRELLIS as *physical cracks in the mesh*, with ragged
 lips, and the eye rims were torn open. Rendering the asset with every texture stripped

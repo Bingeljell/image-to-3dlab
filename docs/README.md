@@ -9,6 +9,7 @@ Design and reference documentation for the image-to-3D lab.
 | [upstream-contributions.md](upstream-contributions.md) | **Drafts, unsent.** Two bugs found in the Mac port: the 200k pre-simplification, and remeshing producing a lattice. Evidence, proposed fixes, pre-submission checklists |
 | [self-inflicted-damage.md](self-inflicted-damage.md) | The same two defects for someone who already knows the pipeline: exact code, measurements, and the conclusions they invalidate. **Read first** Two defects our own pipeline added — a 200k face cap that destroyed 94% of the decode, and meshes shipped inside-out — and the list of earlier conclusions they invalidate |
 | [baseline.md](baseline.md) | Was **start here**, but every figure in it was measured on damaged meshes; needs re-running. Where Flicker, Snag and the Fox actually stand as of 2026-08-12, all measured the same way. Supersedes older per-experiment notes where they disagree |
+| [training-trellis.md](training-trellis.md) | Fine-tuning TRELLIS.2 on our own art — trainable components, hardware and data requirements, why it's parked, and what to start collecting now |
 | [architecture.md](architecture.md) | How the CLI, backends, and provenance layer fit together |
 | [finishing.md](finishing.md) | **The other six steps:** AO, normal/roughness, feature masks and gloss. Why the recipe is per-subject, and the traps |
 | [rigging-plan.md](rigging-plan.md) | Plan for the "animatable" lane: rigging a generated model and making it walk |

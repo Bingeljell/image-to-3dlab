@@ -65,11 +65,26 @@ def soften(
     high: float = 150.0,
     feather: float = 2.0,
     edge: float = 12.0,
+    protect: Image.Image | None = None,
 ) -> Image.Image:
     """Lighten banded pixels toward the subject's body level by `lighten` (0..1).
 
     0 leaves the image untouched; 1 takes the markings all the way to body colour and
     erases them. Hue is preserved by scaling RGB uniformly.
+
+    ``protect`` is an optional greyscale mask the same size as the image: white means
+    "leave this alone", black means "soften normally", and greys scale between.
+
+    **Why it exists.** Softening assumes every dark region is flat paint. That is false
+    for any darkness which is *shading of real geometry* -- Flicker's ear interiors are
+    dark because they are a real hollow, and that darkness is a depth cue the generator
+    needs. Lightening it in the 0.5 run told the generator the ear was flatter than it
+    is, and it built a thin membrane that tore: see-through holes at the dead-front view
+    went 1.00% -> 2.52% of body area, while every other angle improved.
+
+    Local variance does not separate the two cases here (measured on Flicker: ear
+    interior 24-47, painted markings 37-43 -- overlapping), so the region has to be
+    named rather than inferred. Hand-painting this mask is entirely reasonable.
     """
     if not 0.0 <= lighten <= 1.0:
         raise ValueError("lighten must be in 0..1")
@@ -89,6 +104,17 @@ def soften(
                 ImageFilter.GaussianBlur(feather)
             )
         ).astype(np.float32) / 255.0
+
+    if protect is not None:
+        # Applied after the feather so a hand-painted mask keeps whatever edge it was
+        # painted with, instead of having ours blurred across its boundary.
+        keep = np.asarray(protect.convert("L")).astype(np.float32) / 255.0
+        if keep.shape != weight.shape:
+            raise ValueError(
+                f"protect mask is {keep.shape[1]}x{keep.shape[0]}, "
+                f"image is {weight.shape[1]}x{weight.shape[0]} -- they must match"
+            )
+        weight = weight * (1.0 - keep)
 
     new_lum = lum + (target - lum) * lighten * weight
     scale = np.where(lum > 1e-3, new_lum / np.maximum(lum, 1e-3), 1.0)
@@ -111,10 +137,16 @@ def main() -> int:
     p.add_argument("--feather", type=float, default=2.0)
     p.add_argument("--edge", type=float, default=12.0,
                    help="luminance width of the protected ramp above --low (default: 12)")
+    p.add_argument("--protect", type=Path, default=None,
+                   help="greyscale mask, same size as the image: white = leave alone. "
+                        "Use it for darkness that is real shading rather than flat paint "
+                        "(ear hollows, nostrils, under-chin) -- softening those removes a "
+                        "depth cue and the generator builds a membrane that tears")
     args = p.parse_args()
 
     src = Image.open(args.image)
-    out = soften(src, args.lighten, args.low, args.high, args.feather, args.edge)
+    protect = Image.open(args.protect) if args.protect else None
+    out = soften(src, args.lighten, args.low, args.high, args.feather, args.edge, protect)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     out.save(args.output)
 

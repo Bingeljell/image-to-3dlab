@@ -108,3 +108,68 @@ def test_edge_ramp_is_a_fixed_width_not_a_fraction_of_the_band():
 def test_edge_must_be_positive():
     with pytest.raises(ValueError):
         band_weight(np.zeros((2, 2)), 40.0, 150.0, edge=0.0)
+
+
+# --- protect mask -------------------------------------------------------------------
+# Softening assumes every dark region is flat paint. Where darkness is shading of real
+# geometry -- an ear hollow -- lightening it removes a depth cue and the generator builds
+# a membrane that tears. Measured on Flicker: holes at the dead-front view went
+# 1.00% -> 2.52% of body area from softening the ears, while every other angle improved.
+
+
+def _protect_mask(size=32, rows=slice(8, 10), value=255):
+    """White over part of the marking stripe: 'leave this alone'."""
+    mask = np.zeros((size, size), dtype=np.uint8)
+    mask[rows, :] = value
+    return Image.fromarray(mask, mode="L")
+
+
+def test_protected_region_is_not_softened():
+    art = _art()
+    out = soften(art, lighten=1.0, protect=_protect_mask())
+    after = luminance(np.asarray(out.convert("RGB")).astype(np.float32))
+    # rows 8:10 are protected, rows 10:12 are the same stripe left unprotected.
+    # The unprotected half does not reach the full body level because the feather
+    # blurs the band weight down near the stripe's own edge -- what matters is that
+    # it moves a long way while the protected half does not move at all.
+    assert after[8:10, :].mean() == pytest.approx(65, abs=1.0)
+    assert after[10:12, :].mean() > 120
+
+
+def test_no_protect_mask_matches_the_old_behaviour():
+    """The flag must be inert when absent, or every earlier result is invalidated."""
+    art = _art()
+    a = np.asarray(soften(art, lighten=0.5).convert("RGB"))
+    b = np.asarray(soften(art, lighten=0.5, protect=None).convert("RGB"))
+    assert np.array_equal(a, b)
+
+
+def test_black_protect_mask_is_a_no_op():
+    art = _art()
+    black = Image.fromarray(np.zeros((32, 32), dtype=np.uint8), mode="L")
+    a = np.asarray(soften(art, lighten=0.6).convert("RGB"))
+    b = np.asarray(soften(art, lighten=0.6, protect=black).convert("RGB"))
+    assert np.array_equal(a, b)
+
+
+def test_grey_protect_mask_scales_the_effect():
+    """Half-white must soften roughly half as much, so feathered edges behave."""
+    art = _art()
+    full = luminance(np.asarray(soften(art, 1.0).convert("RGB")).astype(np.float32))
+    half = luminance(
+        np.asarray(
+            soften(art, 1.0, protect=_protect_mask(value=128)).convert("RGB")
+        ).astype(np.float32)
+    )
+    original = 65.0
+    lifted_full = full[8:10, :].mean() - original
+    lifted_half = half[8:10, :].mean() - original
+    assert 0.4 < lifted_half / lifted_full < 0.6
+
+
+def test_mismatched_mask_size_is_rejected_with_a_useful_message():
+    """A silently-ignored mask would look like the protection simply did not work."""
+    art = _art(size=32)
+    wrong = Image.fromarray(np.zeros((16, 16), dtype=np.uint8), mode="L")
+    with pytest.raises(ValueError, match="must match"):
+        soften(art, lighten=0.5, protect=wrong)

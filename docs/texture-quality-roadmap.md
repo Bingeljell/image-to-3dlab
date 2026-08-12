@@ -175,3 +175,57 @@ and should not be repeated.
 Second-order option if xatlas repacking also disappoints: reduce the island count itself.
 11,340 islands for 101k faces is high, and fewer, larger islands would pack better under
 any packer.
+
+---
+
+## The albedo is darkened and desaturated at bake (2026-08-11)
+
+**Every lever in this document is about *sharpness*. The user's actual complaint was
+*colour*, and no amount of texel budget addresses it.**
+
+They gave two examples of the thorn-knot Snag against its source: *"the eye was brighter
+and amber, more alive and menacing — the model texture is flatter and pale"*, and *"there
+are nice mossy green patches on the tentacles in the image; it's just barky brown with
+brown patches in the model."*
+
+Measured — source subject pixels against the used texels of the baked 2048 map:
+
+| | source | baked texture |
+|---|---|---|
+| mean brightness | 63.2 | **31.8** |
+| saturation | 0.701 | **0.429** (−39%) |
+| **peak brightness** | **252** | **129** |
+| amber pixels | 7.60% | **0.00%** |
+
+**Peak 129/255 is the finding.** The texture never gets brighter than mid-grey, so a
+bright amber eye is not rendered dim — it is *unrepresentable*. Amber goes from 7.6% of
+the source to exactly zero. The moss is the same effect: take 39% of the saturation off
+olive-green and it becomes drab bark.
+
+### What we got wrong on the way
+
+The first diagnosis was **texel density**, and the numbers supported it: the thorn-knot
+runs at **27 texels per triangle** (97,707 faces on one 2048 map, 63.1% of the atlas
+used), against the moss fox's 41. That is a real problem and everything above still
+applies to it — but it is a *sharpness* problem, and it would not have recovered the
+amber eye or the green moss. Both of the user's examples survive at any resolution,
+because the transform happens after the detail is placed.
+
+The lesson is the one this repo keeps relearning: **a plausible cause that predicts the
+right direction is not the cause.** "Texture looks worse than the source" is consistent
+with both low resolution and a global grade, and only a measurement separates them.
+
+### What follows
+
+- It is a **global transform, so it should invert as a post-process** — no regeneration.
+  `scripts/colour_match_albedo.py` exists for this, and `docs/roadmap.md` already records
+  the moss fox's albedo running cool by +17 red, which looks like the same phenomenon at
+  smaller magnitude.
+- **If the transform is constant across subjects, it becomes a standard pipeline step**
+  and every asset already generated improves at once. Worth checking on two or three.
+- **Cause is not established, and should not be guessed.** Candidates: shading or ambient
+  occlusion baked into the albedo, a colour-space mismatch at bake time, or a
+  deliberately darkened unlit base that expects lighting on top. The measurement stands
+  whichever it is.
+- **Ordering changes.** Fix the grade first — minutes, no compute, affects everything.
+  Then the sharpness levers in this document.

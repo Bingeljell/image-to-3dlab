@@ -26,6 +26,15 @@ The hole-count gap is the second: it tracks **thin geometry** (fur, leaf tips fi
 than the voxel grid) rather than anything about the pipeline. A fuzzy subject will
 always perforate more than a clothed human, no matter what we fix.
 
+> **Corrected 2026-08-10 — the cause is surface detail, not thinness.** A five-subject
+> controlled comparison separated the two variables. Holding the surface smooth and
+> changing the form from chunky to thin moved hole size 0.48 → 1.07; holding the form
+> chunky and changing the surface from smooth to carved moved it 0.48 → **44.78**. A
+> ceramic creature with paper-thin ears and a tapering tail came out essentially clean.
+> The fox perforates because of its fur, not because it is fine. See
+> `docs/open-questions.md` §1c, and §1d for the fix (the holes are zero-thickness
+> sheets, and a Solidify pass closes all of them).
+
 ## Recommended shape: profiles, not parallel pipelines
 
 The instinct is "two pipelines". That would be a maintenance trap — generation, texture

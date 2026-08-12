@@ -48,6 +48,84 @@ python pipeline.py --run-manifest manifests/moss-fox-showcase.json
 The sections below cover the full prerequisites, the TRELLIS and Hunyuan backends, Blender
 previews, and TRELLIS material modes.
 
+## How to use this repo
+
+Generating the mesh is **one step out of seven**. A raw generated asset has a correct
+silhouette, roughly correct colour, and no surface at all — every part of it is uniformly
+matte, so nothing catches light and the whole thing reads as one lump. The remaining six
+steps are what make it look like a thing rather than a shape.
+
+```
+  source image
+       |
+   [1] generate ........ pipeline.py --run-manifest      <- the AI model
+       |
+   [2] close holes ..... blender_solidify.py             <- everything below
+   [3] grade colour .... colour_match_albedo.py             is this repo
+   [4] bake AO ......... blender_bake_ao.py
+   [5] mask features ... feature_mask.py
+   [6] build surface ... surface_detail.py
+   [7] render & judge .. headless Blender
+       |
+  finished .glb  (+ .provenance.json from step 1)
+```
+
+**Only step 1 depends on the backend.** Steps 2–7 need nothing but a GLB with UVs and a
+base colour texture, so they apply equally to SF3D or Hunyuan output. Full detail,
+worked commands, and the traps are in **[`docs/finishing.md`](docs/finishing.md)**.
+
+Two things to know before you start:
+
+- **The recipe is per-subject and you pick it by eye.** Bark wants matte with strong
+  derived relief; glazed ceramic wants gloss and *no* relief, because a normal map
+  derived from albedo turns painted markings into dents. Settings do not transfer
+  between subjects — neither do colour-grade strengths.
+- **Judge visually, not numerically.** Render a lineup of variants side by side, zoom in,
+  and orbit. Several confident conclusions on this project have been overturned by
+  looking at the render.
+
+### Run manifests
+
+A manifest is the reproducible record of a run — prefer it over ad-hoc CLI flags.
+Manifests live in `manifests/` and currently describe **generation only** (schema v1):
+
+```json
+{
+  "schema_version": 1,
+  "use_case": "showcase",
+  "distribution": "private",
+  "commercial_intent": false,
+  "input": { "path": "../assets_to_test/3-4th-snag-roots-alpha.png", "source": "user-provided" },
+  "model": {
+    "backend": "trellis2",
+    "id": "microsoft/TRELLIS.2-4B",
+    "parameters": {
+      "seed": 42, "pipeline_type": "1024_cascade", "texture_size": 2048,
+      "bake_target_faces": 100000, "steps": 12, "material_mode": "matte"
+    }
+  },
+  "license_policy": { "allow_conditional": true, "allow_research_only": false },
+  "output": { "directory": "output" }
+}
+```
+
+**Planned — finishing is not yet covered by the manifest.** Steps 2–6 are currently loose
+scripts run by hand, which means a finished asset is only reproducible by someone
+retracing the commands. The proposed schema v2 addition:
+
+```json
+"finishing": {
+  "solidify": { "enabled": true },
+  "colour": { "strength": 0.6 },
+  "ao": { "distance_frac": 0.035, "strength": 0.35 },
+  "material": { "roughness": [0.55, 0.95], "normal_strength": 6.0 },
+  "features": [ { "name": "eye", "roughness": 0.3 } ]
+}
+```
+
+Tracked with the rest of the packaging work — see
+[`docs/finishing.md`](docs/finishing.md) ("Not done yet").
+
 ## Prerequisites
 
 - macOS on Apple Silicon, 32 GB unified memory recommended

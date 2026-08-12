@@ -126,6 +126,101 @@ component count and boundary edges collapse, this question is closed.
 
 ---
 
+## 1c. The tearing is the *subject*, not the pipeline — controlled comparison
+
+*(Settles a question 1b was being blamed for. Measured 2026-08-10.)*
+
+The extractor in 1b drops geometry wherever four neighbouring voxels are not all
+present, which would tear **every** mesh equally. That mechanism was the leading
+explanation for the hero fox's 96 large tears. **It is not the explanation.**
+
+Same pipeline, same parameters (`1024_cascade`, texture 2048, 100K bake faces, 12
+steps, seed 42, front view only), same repo state, two subjects:
+
+| | moss fox — fronds + fur | Snag — smooth stone, chunky |
+|---|---|---|
+| boundary edges | 16,467 | **505** |
+| boundary loops | 1,061 | 39 |
+| **large tears** (>0.15) | **90** | **0** |
+| total tear perimeter | 25.62 | **0.00** |
+| largest component | 97.0% of area | **99.9%** |
+
+Zero. Not fewer — none. A uniform extractor defect cannot produce that, so the
+extractor is not what tears the fox. Manifests: `manifests/fox-34-control-front-only.json`
+and `manifests/snag-34-control-front-only.json`.
+
+**Two subject properties drive the two visible defects**, and the culled render shows
+both plainly (`output/regions/honest*/`):
+
+* **Shingling** — TRELLIS turns high-frequency *surface texture* into *geometry*. Fur
+  and moss become overlapping plates, on the legs and muzzle as much as the ruff.
+  Smooth stone stays smooth.
+* **Tearing** — thin, sheet-like structures tear. Chunky volumes do not.
+
+**What this retires.** The framing that the tears are a decode or port defect to be
+fixed in code. They are a property of what we ask for. This is the *third* wrong story
+about these holes in as many sessions — first "the mesh is confetti" (measurement
+artefact, question 1), then "the tears are leaf shards that no view could see"
+(refuted by labelling: tear density is 26.60 on body vs 27.60 on foliage, a 4% gap
+inside an error bar of 31%), then "it is the extractor" (refuted here).
+
+**What survives from 1b.** `fill_holes()` really is disabled and the extractor really
+does drop boundary quads. Both remain true and worth fixing; neither is what makes the
+fox see-through.
+
+**Confounds, stated rather than buried.** Snag differs from the fox in surface *and*
+form, so this narrows the cause without isolating it — `Flicker` (smooth + thin) and
+`Monolith` (detailed + chunky) are the runs that separate them. One seed each so far.
+
+**The practical consequence** is an art-direction rule, not an engineering task: for a
+clean mesh, ask for chunky volumes and smooth surfaces. Fur, moss and fronds cost
+geometry quality, and no amount of post-repair buys it back.
+
+> **Superseded the same day — see 1d.** The last sentence is wrong. Post-repair does
+> buy it back, in seconds, once you stop treating the holes as tears.
+
+---
+
+## 1d. The holes are sheets without thickness, and Solidify closes all of them
+
+*(Corrects 1c. Measured 2026-08-10.)*
+
+Every hole-related conclusion in this repo assumed a hole is a **tear in a surface that
+ought to be closed** — the thing `fill_holes` patches. On detailed subjects that is the
+wrong model. TRELLIS renders fine detail as **zero-thickness sheets**: a fur flake, an
+armour plate, a carved glyph edge. A sheet is invisible from behind, so backface culling
+makes the model see-through. Nothing is torn; there is simply no back face.
+
+The fix is thickness, not patching. A Blender **Solidify** modifier, extruding both ways
+from each sheet (`offset = 0.0`, which sidesteps the inconsistent winding in question 2):
+
+| subject | hole size before | after Solidify | faces |
+|---|---|---|---|
+| clockwork pangolin | 97.82 | **0.00** | 96K → 335K |
+| moss fox | 126.58 | **0.00** | 98K → 402K |
+| basalt monolith | 44.78 | **0.00** | 100K → 534K |
+
+Zero boundary loops in all three, verified backface-culled and by eye, not by metric
+alone (`output/regions/solidify_*.png`).
+
+**What this overturns.** The art-direction rule in 1c — "avoid fur, scales and carving"
+— is not needed. The subjects that scored worst are all recoverable. So is the framing
+running through this document that the tearing is an unfixable property of the decoder.
+
+**Why it took so long to see.** Every tool here measures boundary *edges*, and
+"sheet with no back" and "tear in a closed surface" are identical by that measure. Four
+sessions of tear analysis, a camera-visibility sweep, and two painted label masks all
+refined the measurement rather than questioning what was being measured. The culled
+render showed it in one look, once the right fix was tried.
+
+**Not yet established.** Face count roughly 4x, so decimation afterwards is untested.
+Solidify also shells regions that were already closed, wasting interior geometry — a
+smarter pass would thicken only sheet-like regions. Textured appearance is unchecked:
+new rim faces inherit UVs from their edge and may smear. And nothing has been rigged
+yet, so whether solidified plates hold together under deformation is open.
+
+---
+
 ## 2. Large regions of the mesh ARE inside-out — and it is fixable
 
 **Observed.** Shading backfacing polygons near-black — expecting gaps to darken —

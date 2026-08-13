@@ -84,7 +84,48 @@ after fix_normals volume -0.000328   winding_consistent False
 
 The volume is absent because the surface is absent, not because it is inside-out.
 
-## The surviving hypothesis
+## SOLVED — the narrow band is one voxel thick
+
+`eps = band * scale / resolution`, and with the demo's `band=1` at resolution 1024:
+
+```
+band=1.0  scale=1.0029296875  resolution=1024  ->  eps=0.00097942
+voxel size = scale / resolution                  =  0.00098
+```
+
+**`eps` is exactly one voxel.** `bvh.unsigned_distance` returns an *unsigned* field, so
+`distances_vert -= eps` makes negative only the points within `eps` of the surface — a shell
+straddling it, not the interior. The UDF minimum is exactly `-eps` (-0.00098), which is the
+signature of an unsigned field: its minimum is 0, on the surface.
+
+A shell one voxel thick is at the sampling limit. Most voxel edges step clean over it, so few
+register a sign change, and voxels that register none fall back to their grid centre — which
+is the lattice.
+
+Thickening the band fixes it:
+
+| band | eps | UDF negative | fallback to centre | **volume after remesh** |
+|---|---|---|---|---|
+| 1 | 0.00098 | 13.98% | 29.16% | **-0.000817** |
+| 2 | 0.00196 | 27.68% | 23.66% | **+0.001046** |
+| **3** | **0.00296** | **37.63%** | 22.47% | **+0.005824** |
+
+Control: **+0.005202**. Band 3 is within 12% — a solid mesh, and the first one this pipeline
+has produced on the remesh path.
+
+**The metric that tracks it is the negative fraction, not the fallback rate.** Fallback
+plateaus (29% → 23.7% → 22.5%) while the result goes from inverted to correct; predicting
+from fallback alone would have called band 3 a failure.
+
+Cost: faces after remesh go 3.9M → 9.6M → **15.3M**, so band 3 is ~4x the geometry to
+simplify down, and correspondingly slower.
+
+**Open question for upstream:** the reference demo runs `band=1` and gets a solid mesh. If
+one voxel of band suffices on CUDA and not here, either `MtlBVH.unsigned_distance` differs
+from `cuBVH`'s, or there is a half-voxel offset between where distances are sampled and where
+crossings are tested. Thickening the band works but is treating the symptom.
+
+## The original hypothesis (confirmed)
 
 `simple_dual_contour_u32_kernel` (`src/metal/remesh.metal:291`) places one vertex per voxel
 at the mean of its edge-surface intersections, and **falls back to the voxel centre when it

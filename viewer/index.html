@@ -86,6 +86,11 @@ const state = {
 };
 const views = [];
 
+// Render-on-demand state. Declared here because applyState() and frame() both need to
+// request a repaint and are defined above the render loop.
+let dirty = true;
+const invalidate = () => { dirty = true; };
+
 function makeView(spec) {
   const pane = document.createElement('div');
   pane.className = 'pane';
@@ -182,6 +187,7 @@ function applyState() {
       rec.mesh.material = mat;
     }
   }
+  invalidate();
 }
 
 let azimuth = 20, elevation = 0.18;
@@ -208,6 +214,7 @@ function frame() {
     view.controls.target.set(0, 0, 0);
     view.controls.update();
   }
+  invalidate();
 }
 
 function setAzimuth(deg) { azimuth = deg; frame(); }
@@ -255,13 +262,29 @@ function resize() {
 addEventListener('resize', () => { resize(); frame(); });
 resize();
 
-let last = null;
+// Render on demand, not continuously.
+//
+// A permanent requestAnimationFrame loop re-renders three 300k-face textured meshes at
+// 60fps forever, even while nothing moves. That sustained GPU load tightens the macOS GPU
+// watchdog, which is the same watchdog that kills the remesh kernel mid-dispatch and, on
+// 2026-08-13, took the machine down. A viewer used to diagnose that failure must not be
+// contributing to it.
+for (const view of views) view.controls.addEventListener('change', invalidate);
+
 function tick() {
   requestAnimationFrame(tick);
-  if (state.spin) for (const v of views) if (v.root) v.root.rotation.y += 0.004;
+  if (state.spin) {
+    for (const v of views) if (v.root) v.root.rotation.y += 0.004;
+    dirty = true;
+  }
+  // Damping keeps easing for a few frames after input stops; honour it, then settle.
+  let moving = false;
+  for (const v of views) if (v.controls.update()) moving = true;
+  if (!dirty && !moving) return;
+
   // One camera drives the rest, so a side-by-side comparison stays honest.
   if (state.sync && views.length > 1) {
-    const lead = views.find((v) => v.controls.enabled && v !== last) || views[0];
+    const lead = views[0];
     for (const v of views) {
       if (v === lead) continue;
       v.camera.position.copy(lead.camera.position);
@@ -269,9 +292,11 @@ function tick() {
       v.controls.target.copy(lead.controls.target);
     }
   }
-  for (const v of views) { v.controls.update(); v.renderer.render(v.scene, v.camera); }
+  for (const v of views) v.renderer.render(v.scene, v.camera);
+  dirty = false;
 }
 tick();
+window.__viewerInvalidate = invalidate;   // so automation can force a repaint
 window.__viewerReady = true;
 </script>
 </body>

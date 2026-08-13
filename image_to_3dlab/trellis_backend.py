@@ -64,6 +64,12 @@ class TrellisOptions:
     normalize_material: bool = True
     material_mode: str = "pbr"
     fix_winding: bool = True
+    # Off by default: at the port's own remesh_project of 0.9 this measurably worsens the
+    # mesh. Kept expressible because generate.py describes it as the only stage that
+    # targets boundary edges at source, and every asset we have produced is open.
+    remesh: bool = False
+    remesh_project: float = 0.0
+    remesh_band: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -161,6 +167,49 @@ def _normalize_glb_material(path: Path, mode: str = "pbr") -> int:
     return changed
 
 
+def build_generate_command(
+    python: Path,
+    generator: Path,
+    views: Sequence[Path],
+    output_base: Path,
+    options: TrellisOptions,
+) -> list[str]:
+    """The argv handed to the vendored ``generate.py``.
+
+    Pulled out of ``generate_trellis`` so the flags can be asserted without a 16-minute
+    run. A missing flag here is otherwise only discoverable by generating an asset and
+    measuring it afterwards, which is how ``--remesh`` went unpassed for the life of this
+    backend while we attributed the resulting open meshes to the model.
+    """
+    command = [
+        str(python),
+        str(generator),
+        *[str(path) for path in views],
+        "--seed",
+        str(options.seed),
+        "--output",
+        str(output_base),
+        "--pipeline-type",
+        options.pipeline_type,
+        "--texture-size",
+        str(options.texture_size),
+        "--bake-target-faces",
+        str(options.bake_target_faces),
+    ]
+    if options.steps is not None:
+        command.extend(("--steps", str(options.steps)))
+    if options.remesh:
+        # generate.py: "Narrow-band DC remeshing before UV unwrap ... Targets boundary
+        # edges at source". The port defaults remesh_project to 0.9, which snaps vertices
+        # almost all the way back to the original surface; measured on the Forest Variant
+        # that made boundary edges worse (6,008 -> 16,954), so the value is passed
+        # explicitly rather than inherited.
+        command.append("--remesh")
+        command.extend(("--remesh-project", str(options.remesh_project)))
+        command.extend(("--remesh-band", str(options.remesh_band)))
+    return command
+
+
 def _prepare_rgba(image: Path, destination: Path) -> Path:
     import rembg
     from PIL import Image
@@ -213,23 +262,7 @@ def generate_trellis(
     output_base = output_dir / f"{views[0].stem}_trellis2"
     cpu_basecolor = Path(f"{output_base}_basecolor.png")
     cpu_basecolor.unlink(missing_ok=True)
-    command = [
-        str(python),
-        str(generator),
-        *[str(path) for path in prepared_views],
-        "--seed",
-        str(options.seed),
-        "--output",
-        str(output_base),
-        "--pipeline-type",
-        options.pipeline_type,
-        "--texture-size",
-        str(options.texture_size),
-        "--bake-target-faces",
-        str(options.bake_target_faces),
-    ]
-    if options.steps is not None:
-        command.extend(("--steps", str(options.steps)))
+    command = build_generate_command(python, generator, prepared_views, output_base, options)
     env = os.environ.copy()
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     xcode_developer_dir = Path("/Applications/Xcode.app/Contents/Developer")

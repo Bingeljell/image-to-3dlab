@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -134,3 +135,61 @@ def test_normalize_material_is_idempotent(tmp_path):
         ],
     )
     assert _normalize_glb_material(glb) == 0
+
+
+# --- the generate.py argv ----------------------------------------------------------
+
+def _opts(**kw):
+    from image_to_3dlab.trellis_backend import TrellisOptions
+    return TrellisOptions(repo=Path("/repo"), **kw)
+
+
+def test_command_omits_remesh_by_default():
+    from image_to_3dlab.trellis_backend import build_generate_command
+
+    cmd = build_generate_command(
+        Path("/py"), Path("/gen.py"), [Path("a.png")], Path("/out"), _opts()
+    )
+    assert "--remesh" not in cmd
+
+
+def test_command_passes_remesh_and_an_explicit_project():
+    """The port defaults remesh_project to 0.9; we must never inherit that silently.
+
+    At 0.9 the Forest Variant went from 6,008 to 16,954 boundary edges, so the value has
+    to travel with the flag rather than being left to the vendored default.
+    """
+    from image_to_3dlab.trellis_backend import build_generate_command
+
+    cmd = build_generate_command(
+        Path("/py"), Path("/gen.py"), [Path("a.png")], Path("/out"),
+        _opts(remesh=True, remesh_project=0.0),
+    )
+    assert "--remesh" in cmd
+    assert cmd[cmd.index("--remesh-project") + 1] == "0.0"
+    assert cmd[cmd.index("--remesh-band") + 1] == "1.0"
+
+
+def test_command_carries_the_core_settings():
+    from image_to_3dlab.trellis_backend import build_generate_command
+
+    cmd = build_generate_command(
+        Path("/py"), Path("/gen.py"), [Path("a.png"), Path("b.png")], Path("/out"),
+        _opts(seed=42, pipeline_type="1024_cascade", texture_size=3072,
+              bake_target_faces=300000, steps=12),
+    )
+    assert cmd[cmd.index("--seed") + 1] == "42"
+    assert cmd[cmd.index("--pipeline-type") + 1] == "1024_cascade"
+    assert cmd[cmd.index("--bake-target-faces") + 1] == "300000"
+    assert cmd[cmd.index("--steps") + 1] == "12"
+    # Both views must reach the generator; a dropped view silently halves the conditioning.
+    assert "a.png" in cmd and "b.png" in cmd
+
+
+def test_steps_omitted_when_unset():
+    from image_to_3dlab.trellis_backend import build_generate_command
+
+    cmd = build_generate_command(
+        Path("/py"), Path("/gen.py"), [Path("a.png")], Path("/out"), _opts(steps=None)
+    )
+    assert "--steps" not in cmd

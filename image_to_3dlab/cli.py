@@ -81,6 +81,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Keep TRELLIS's raw material instead of normalizing it (leaves it transparent)",
     )
     trellis.add_argument(
+        "--trellis-remesh",
+        action="store_true",
+        help="Narrow-band DC remeshing before UV unwrap. generate.py calls this the stage "
+             "that targets boundary edges at source; every asset we ship is open",
+    )
+    trellis.add_argument(
+        "--trellis-remesh-project",
+        type=float,
+        default=0.0,
+        help="How far remeshed vertices snap back to the original surface. The vendored "
+             "port defaults to 0.9, which measurably worsened boundary edges "
+             "(6,008 -> 16,954 on the Forest Variant), so we default to 0.0",
+    )
+    trellis.add_argument(
         "--trellis-material-mode",
         choices=("matte", "pbr"),
         default="pbr",
@@ -154,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.trellis_normalize_material = bool(parameters["normalize_material"])
             if "material_mode" in parameters:
                 args.trellis_material_mode = parameters["material_mode"]
+            if "trellis_remesh" in parameters:
+                args.trellis_remesh = bool(parameters["trellis_remesh"])
+            if "trellis_remesh_project" in parameters:
+                args.trellis_remesh_project = float(parameters["trellis_remesh_project"])
             args.output_dir = Path(
                 manifest_data.get("output", {}).get("directory", args.output_dir)
             )
@@ -251,6 +269,8 @@ def main(argv: list[str] | None = None) -> int:
                     normalize_material=args.trellis_normalize_material,
                     material_mode=args.trellis_material_mode,
                     pre_simplify_cap=args.trellis_pre_simplify_cap,
+                    remesh=args.trellis_remesh,
+                    remesh_project=args.trellis_remesh_project,
                 ),
             )
             result = trellis_result.asset
@@ -290,6 +310,10 @@ def main(argv: list[str] | None = None) -> int:
         "texture_backend": trellis_texture_backend if args.trellis else None,
         "material_normalized": trellis_material_normalized if args.trellis else None,
         "material_mode": trellis_material_mode if args.trellis else None,
+        "trellis_remesh": args.trellis_remesh if args.trellis else None,
+        "trellis_remesh_project": (
+            args.trellis_remesh_project if args.trellis and args.trellis_remesh else None
+        ),
         "steps": args.steps if args.trellis else None,
         "pre_simplify_cap": args.trellis_pre_simplify_cap if args.trellis else None,
     }

@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mesh viewer</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #14161a; color: #d8dee9; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #bar { position: fixed; inset: 0 0 auto 0; z-index: 10; display: flex; flex-wrap: wrap;
+         gap: 6px; align-items: center; padding: 8px 10px; background: #1b1e24ee;
+         border-bottom: 1px solid #2c313a; backdrop-filter: blur(6px); }
+  button { background: #262b33; color: #d8dee9; border: 1px solid #39404b; border-radius: 5px;
+           padding: 5px 10px; cursor: pointer; font: inherit; }
+  button:hover { background: #303743; }
+  button.on { background: #3b6ea5; border-color: #4d84c0; color: #fff; }
+  .sep { width: 1px; height: 20px; background: #39404b; margin: 0 4px; }
+  .lbl { opacity: .55; }
+  #panes { position: fixed; inset: 44px 0 0 0; display: flex; }
+  .pane { position: relative; flex: 1 1 0; min-width: 0; border-left: 1px solid #2c313a; }
+  .pane:first-child { border-left: none; }
+  .cap { position: absolute; left: 8px; top: 8px; z-index: 5; padding: 3px 7px; border-radius: 4px; background: #14161acc; font-size: 12px; }
+  .cap b { color: #8fb8e8; }
+  .stats { position: absolute; left: 8px; bottom: 8px; z-index: 5; background: #14161acc;
+           padding: 4px 7px; border-radius: 4px; font-size: 11px; opacity: .8; white-space: pre; }
+  canvas { display: block; }
+  #err { position: fixed; left: 10px; bottom: 10px; z-index: 20; color: #e88; max-width: 70vw; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="lbl">culling</span>
+  <button id="cull" class="on">backface ON</button>
+  <div class="sep"></div>
+  <button id="wire">wireframe</button>
+  <button id="flat">flat grey</button>
+  <button id="norm">normals</button>
+  <div class="sep"></div>
+  <span class="lbl">view</span>
+  <button data-az="0">front</button>
+  <button data-az="90">side</button>
+  <button data-az="180">back</button>
+  <button data-az="210">az210</button>
+  <button data-az="130">az130</button>
+  <div class="sep"></div>
+  <button id="spin">spin</button>
+  <button id="sync" class="on">sync cams</button>
+</div>
+<div id="panes"></div>
+<div id="err"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
+import { OrbitControls } from './vendor/controls/OrbitControls.js';
+
+// Assets come from the query string: ?a=path/to.glb&b=other.glb&la=label&lb=label
+// Paths are relative to the repo root, which serve.py serves.
+const q = new URLSearchParams(location.search);
+const specs = [];
+for (const key of ['a', 'b', 'c']) {
+  const url = q.get(key);
+  // Repo-relative: anchor at the server root, not at /viewer/ where this page lives.
+  if (url) specs.push({
+    url: /^(https?:|\/)/.test(url) ? url : '/' + url,
+    label: q.get('l' + key) || url.split('/').pop(),
+  });
+}
+if (!specs.length) {
+  document.getElementById('err').textContent =
+    'no assets — try ?a=output/foo.glb&b=assets_to_test/bar.glb';
+}
+
+const state = {
+  cull: true,          // default ON: a double-sided preview cannot show a hollow mesh
+  wire: false,
+  mode: 'textured',    // textured | flat | normals
+  spin: false,
+  sync: true,
+};
+const views = [];
+
+function makeView(spec) {
+  const pane = document.createElement('div');
+  pane.className = 'pane';
+  pane.innerHTML = `<div class="cap"><b>${spec.label}</b></div><div class="stats">loading…</div>`;
+  document.getElementById('panes').appendChild(pane);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  pane.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x14161a);
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+  camera.position.set(0, 0.3, 3);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.target.set(0, 0, 0);
+
+  // Three-point rig, matching scripts/blender_stage.py so judgements transfer.
+  scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x30302a, 0.55));
+  for (const [x, y, z, i] of [[-2.8, 4.5, 3.8, 2.4], [3.2, 2.7, 1.8, 1.3], [1.0, 4.0, -3.5, 1.8]]) {
+    const l = new THREE.DirectionalLight(0xffffff, i);
+    l.position.set(x, y, z);
+    scene.add(l);
+  }
+
+  const view = { spec, pane, renderer, scene, camera, controls, root: null,
+                 stats: pane.querySelector('.stats'), materials: [] };
+  views.push(view);
+  load(view);
+  return view;
+}
+
+function load(view) {
+  new GLTFLoader().load(view.spec.url, (gltf) => {
+    const root = gltf.scene;
+
+    // Normalise to a unit box centred on the origin, so a size difference cannot
+    // masquerade as a quality difference between panes.
+    //
+    // Wrapped in a group rather than transforming `root` directly: Box3.setFromObject
+    // reads world matrices, so measuring and then mutating the same object needs a
+    // matrix flush between each step and silently mis-frames if you forget one.
+    const pivot = new THREE.Group();
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const centre = box.getCenter(new THREE.Vector3());
+    const s = 1 / Math.max(size.x, size.y, size.z);
+    root.position.sub(centre);          // centre in local space, before scaling
+    pivot.scale.setScalar(s);
+    pivot.add(root);
+    pivot.updateMatrixWorld(true);
+
+    let faces = 0, verts = 0;
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      const g = o.geometry;
+      verts += g.attributes.position.count;
+      faces += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        view.materials.push({ mesh: o, original: m, flat: null, normal: null });
+      }
+    });
+    view.root = pivot;
+    view.scene.add(pivot);
+    view.stats.textContent =
+      `${faces.toLocaleString()} faces\n${verts.toLocaleString()} verts (as stored)`;
+    applyState();
+    frame();
+  }, undefined, (e) => {
+    view.stats.textContent = 'FAILED';
+    document.getElementById('err').textContent = `${view.spec.url}: ${e.message || e}`;
+  });
+}
+
+function applyState() {
+  for (const view of views) {
+    for (const rec of view.materials) {
+      let mat = rec.original;
+      if (state.mode === 'flat') {
+        rec.flat ||= new THREE.MeshStandardMaterial({ color: 0x9aa4b2, roughness: 0.85 });
+        mat = rec.flat;
+      } else if (state.mode === 'normals') {
+        rec.normal ||= new THREE.MeshNormalMaterial();
+        mat = rec.normal;
+      }
+      mat.side = state.cull ? THREE.FrontSide : THREE.DoubleSide;
+      mat.wireframe = state.wire;
+      mat.needsUpdate = true;
+      rec.mesh.material = mat;
+    }
+  }
+}
+
+let azimuth = 20, elevation = 0.18;
+
+function fitDistance(camera) {
+  // Model is normalised into a unit box centred on the origin, so its bounding sphere
+  // radius is at most sqrt(3)/2. Fit that, with a small margin, in the narrower of the
+  // two FOVs -- otherwise a tall pane crops the subject horizontally.
+  const radius = Math.sqrt(3) / 2;
+  const vFov = camera.fov * Math.PI / 180;
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  return 1.25 * radius / Math.sin(Math.min(vFov, hFov) / 2);
+}
+
+function frame() {
+  const a = azimuth * Math.PI / 180;
+  for (const view of views) {
+    const d = fitDistance(view.camera);
+    view.camera.position.set(
+      Math.sin(a) * d * Math.cos(elevation),
+      Math.sin(elevation) * d,
+      Math.cos(a) * d * Math.cos(elevation),
+    );
+    view.controls.target.set(0, 0, 0);
+    view.controls.update();
+  }
+}
+
+function setAzimuth(deg) { azimuth = deg; frame(); }
+
+// --- wiring ---
+const btn = (id) => document.getElementById(id);
+btn('cull').onclick = (e) => {
+  state.cull = !state.cull;
+  e.target.classList.toggle('on', state.cull);
+  e.target.textContent = state.cull ? 'backface ON' : 'DOUBLE-SIDED';
+  applyState();
+};
+btn('wire').onclick = (e) => { state.wire = !state.wire; e.target.classList.toggle('on', state.wire); applyState(); };
+btn('flat').onclick = (e) => {
+  state.mode = state.mode === 'flat' ? 'textured' : 'flat';
+  e.target.classList.toggle('on', state.mode === 'flat');
+  btn('norm').classList.remove('on');
+  applyState();
+};
+btn('norm').onclick = (e) => {
+  state.mode = state.mode === 'normals' ? 'textured' : 'normals';
+  e.target.classList.toggle('on', state.mode === 'normals');
+  btn('flat').classList.remove('on');
+  applyState();
+};
+btn('spin').onclick = (e) => { state.spin = !state.spin; e.target.classList.toggle('on', state.spin); };
+btn('sync').onclick = (e) => { state.sync = !state.sync; e.target.classList.toggle('on', state.sync); };
+for (const b of document.querySelectorAll('[data-az]')) {
+  b.onclick = () => setAzimuth(Number(b.dataset.az));
+}
+
+specs.forEach(makeView);
+
+function resize() {
+  for (const view of views) {
+    const w = view.pane.clientWidth, h = view.pane.clientHeight;
+    // updateStyle must stay ON. With it off, three.js leaves the canvas CSS size equal to
+    // the drawing buffer, so at devicePixelRatio 2 the canvas is twice the pane and you see
+    // the top-left quadrant of a correctly framed scene.
+    view.renderer.setSize(w, h);
+    view.camera.aspect = w / h;
+    view.camera.updateProjectionMatrix();
+  }
+}
+addEventListener('resize', () => { resize(); frame(); });
+resize();
+
+let last = null;
+function tick() {
+  requestAnimationFrame(tick);
+  if (state.spin) for (const v of views) if (v.root) v.root.rotation.y += 0.004;
+  // One camera drives the rest, so a side-by-side comparison stays honest.
+  if (state.sync && views.length > 1) {
+    const lead = views.find((v) => v.controls.enabled && v !== last) || views[0];
+    for (const v of views) {
+      if (v === lead) continue;
+      v.camera.position.copy(lead.camera.position);
+      v.camera.quaternion.copy(lead.camera.quaternion);
+      v.controls.target.copy(lead.controls.target);
+    }
+  }
+  for (const v of views) { v.controls.update(); v.renderer.render(v.scene, v.camera); }
+}
+tick();
+window.__viewerReady = true;
+</script>
+</body>
+</html>

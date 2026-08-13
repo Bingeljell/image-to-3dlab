@@ -1,7 +1,8 @@
 # The remesh cage: a one-voxel narrow band, and four things it was not
 
-**Date:** 2026-08-13. **Status:** SOLVED — the narrow band is one voxel thick. `remesh_band=3`
-produces a solid mesh (volume +0.005824 against the control's +0.005202). See the section
+**Date:** 2026-08-13. **Status:** cause identified, **NOT fixed**. The narrow band being one
+voxel thick is real and `remesh_band=3` improves it substantially — but judged by eye the
+output is *still a cage*, just a denser chain-link one. See the correction below. See the section
 below; the four eliminated causes are kept so nobody re-runs them. Everything below is measured on `output/branch_test/fox_decode.pt` (the cached
 12.8M-face decode of `3-4th-fox-alpha-front.png`), re-bakeable in ~2 minutes with
 `scripts/trellis_rebake.py --remesh`.
@@ -85,7 +86,22 @@ after fix_normals volume -0.000328   winding_consistent False
 
 The volume is absent because the surface is absent, not because it is inside-out.
 
-## SOLVED — the narrow band is one voxel thick
+## The narrow band is one voxel thick — real, but not the whole story
+
+> **CORRECTION.** An earlier version of this section said SOLVED on the strength of the
+> volume figure. That was wrong, and wrong in an instructive way.
+>
+> **Signed volume does not detect a cage.** A chain-link fence in the shape of a fox
+> encloses approximately the right volume, because the integral only sums the faces that
+> exist and the silhouette is correct. Band 3 reaches 93% of the control's volume and is
+> still visibly a wireframe under backface culling.
+>
+> Surface area is the better proxy — 3.96 against the control's 4.99, i.e. **21% of the
+> surface is still missing** — and even that understates it. The honest test remains the
+> culled render, which is what caught this.
+>
+> Band width is a real contributing cause and band 3 is a real improvement. It is not
+> sufficient.
 
 `eps = band * scale / resolution`, and with the demo's `band=1` at resolution 1024:
 
@@ -111,8 +127,8 @@ Thickening the band fixes it:
 | 2 | 0.00196 | 27.68% | 23.66% | **+0.001046** |
 | **3** | **0.00296** | **37.63%** | 22.47% | **+0.005824** |
 
-Control: **+0.005202**. Band 3 is within 12% — a solid mesh, and the first one this pipeline
-has produced on the remesh path.
+Control: **+0.005202**. Band 3 is within 12% on volume — but see the correction above: that
+number does not mean the surface is closed, and by eye it is not.
 
 **The metric that tracks it is the negative fraction, not the fallback rate.** Fallback
 plateaus (29% → 23.7% → 22.5%) while the result goes from inverted to correct; predicting

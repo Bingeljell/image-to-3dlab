@@ -30,6 +30,7 @@ Design and reference documentation for the image-to-3D lab.
 Keep the top-level `README.md` as the quickstart; move anything longer-form here and
 link to it.
 - [pipeline-vs-manual.md](pipeline-vs-manual.md) — what generalises to the next character, what is manual per asset, and what was only ever this fox
+- [remesh-cage-investigation.md](remesh-cage-investigation.md) — why `remesh=True` yields a wireframe: four causes eliminated by measurement (hashmap, GPU watchdog, simplify, winding), and the surviving one
 - [hunyuan-eval-2026-08-13.md](hunyuan-eval-2026-08-13.md) — **current** Hunyuan position, from first principles: control-GLB forensics, the abandoned-upstream picture, and why the first fix is ours (a wrong material default), not Hunyuan's
 - [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — **superseded**; kept for the reasoning behind the paint-on-existing-geometry experiment
 - [hunyuan-port-notes.md](hunyuan-port-notes.md) — a dev's 11-category CUDA→MPS port list (April 2026); evaluated in the eval above

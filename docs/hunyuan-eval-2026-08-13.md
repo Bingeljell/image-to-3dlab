@@ -55,8 +55,8 @@ Reproduce with `python scripts/glb_forensics.py <file.glb>`.
 |---|---|---|---|---|
 | faces | 281,889 | 293,488 | 283,149 | 282,610 |
 | vertices | 180,610 | 193,930 | 274,113 | **340,015** |
-| boundary edges | 75,673 | 88,890 | 224,057 | 295,892 |
-| **non-manifold edges** | — | — | **1** | **1,233** |
+| boundary edges | **1** | **1,153** | **1** | **38,122** |
+| non-manifold edges | 132 | 1,519 | 1,455 | 23,144 |
 | winding consistent | yes | yes | yes | **no** |
 | `doubleSided` | **false** | **true** | **false** | **true** |
 | metallicRoughness map | **3072²** | **none** | **3072²** | **none** |
@@ -70,7 +70,7 @@ is which, because conflating them is how a repo talks itself into re-doing settl
 
 | | Status |
 |---|---|
-| Boundary edges are not a quality metric | **already known** (`holes-are-sheets-not-tears`, `check-what-the-metric-measures`) — new here is only that it is now anchored to a control |
+| ~~Boundary edges are not a quality metric~~ | **RETRACTED** — see §2.2. The measurement was broken; the references have **1** boundary edge and our fox has 38,122. It is the sharpest metric we have |
 | We ship no surface material | **already known** (`surface-finishing-lane`, `matte-mode-kills-the-eye`) — new is the specific channel, its size, and that TRELLIS already emits it |
 | Face counts now match the reference | **new** — first control-anchored confirmation the cap fix landed |
 | Our fox is still winding-inconsistent | **new** — a live defect on a hero asset |
@@ -85,7 +85,33 @@ The two "already known" rows are the ones that matter least. Read §2.3 and §2.
 ~282k against ~283k and ~293k. We are in the same geometric budget as the reference. The
 200k-cap repair landed and it is done. **Stop tuning face counts.**
 
-### 2.2 The control is full of holes, and it looks great anyway — *confirms 2026-08-12*
+### 2.2 ~~The control is full of holes, and it looks great anyway~~ — **WRONG, corrected same day**
+
+> **This section was wrong and its conclusion was backwards.** The boundary-edge counts
+> below came from `geometry_summary` calling `merge_vertices()` bare, which preserves UV and
+> normal seams — so every edge along an atlas seam was counted as a hole. Corrected numbers:
+>
+> | | reported | actual |
+> |---|---|---|
+> | HF moss fox | 224,057 | **1** |
+> | HF Flicker | 75,673 | **1** |
+> | our fox | 295,892 | **38,122** |
+> | our Flicker | 87,596 | **1,153** |
+>
+> **The references are essentially closed surfaces.** Boundary-edge count does not need
+> retiring — it is the sharpest discriminator we have, and the user's "holes everywhere"
+> judgement of our fox was correct while this document argued them out of it. Judged
+> backface-culled the same day: the control is solid, ours has eyes missing from their
+> sockets and a visible tongue through the side of the face.
+>
+> **The lesson is the one already in `check-what-the-metric-measures`, incurred again.** The
+> test that should have caught it used a synthetic box with no UVs, so bare
+> `merge_vertices()` merged it by position and the test passed against broken code — a test
+> that exercised the right idea on an artifact that could not express the bug.
+
+The original text follows, retained because the reasoning pattern is the error worth keeping.
+
+### 2.2 (original, wrong) The control is full of holes, and it looks great anyway
 
 The reference moss fox has **224,077 boundary edges**. Merging by position changes that by
 20 edges, so these are genuine open boundaries, not UV seam splits
@@ -313,7 +339,8 @@ Ordered by evidence-per-unit-cost, not by ambition.
    eye afterwards; `matte-mode-kills-the-eye` predicts it fixes itself.
 2. **Fix the fox's winding** (§2.3) — `is_winding_consistent: false` is a live defect on a
    hero asset, and it is our own.
-3. **Adopt non-manifold edge count as the geometric gate** (§2.5), alongside
+3. **Adopt boundary-edge count as the geometric gate** — references sit at 1, our Flicker at
+   1,153, our fox at 38,122. Use it alongside
    `scripts/compare_to_source.py` and a culled render, per `closeness-to-source-is-the-goal`
    and `acceptance-is-what-you-can-see`. Then find which post-processing step introduces
    1,233 of them — winding, slivers and non-manifold edges are almost certainly one bug.

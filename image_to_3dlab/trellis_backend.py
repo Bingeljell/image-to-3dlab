@@ -12,6 +12,47 @@ _GLB_MAGIC = 0x46546C67
 _GLB_JSON_CHUNK = 0x4E4F534A
 
 
+def read_glb(path: Path) -> tuple[dict, list[list], int, int]:
+    """Split a GLB into (parsed JSON, all chunks, JSON chunk index, glTF version).
+
+    Editing a GLB's material means rewriting only its JSON chunk and leaving the binary
+    buffers — geometry and texture images — byte-for-byte intact. That property is what
+    makes it possible to restore a texture reference long after the fact, without
+    regenerating the asset: the image data never left the file.
+    """
+    data = path.read_bytes()
+    magic, version, length = struct.unpack_from("<III", data, 0)
+    if magic != _GLB_MAGIC:
+        raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
+    offset = 12
+    chunks: list[list] = []
+    while offset < length:
+        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
+        chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
+        offset += 8 + chunk_len
+    try:
+        json_index = next(i for i, c in enumerate(chunks) if c[0] == _GLB_JSON_CHUNK)
+    except StopIteration as exc:
+        raise RuntimeError(f"{path} has no glTF JSON chunk") from exc
+    return json.loads(chunks[json_index][1].decode("utf-8")), chunks, json_index, version
+
+
+def write_glb(path: Path, gltf: dict, chunks: list[list], json_index: int, version: int) -> None:
+    """Write chunks back out with `gltf` replacing the JSON chunk.
+
+    Chunks must be padded to a 4-byte boundary — JSON with spaces, binary with zeros —
+    or the file is silently unreadable by some loaders.
+    """
+    chunks[json_index][1] = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    body = b""
+    for chunk_type, chunk_data in chunks:
+        pad = (4 - (len(chunk_data) % 4)) % 4
+        filler = b"\x20" if chunk_type == _GLB_JSON_CHUNK else b"\x00"
+        chunk_data = chunk_data + filler * pad
+        body += struct.pack("<II", len(chunk_data), chunk_type) + chunk_data
+    path.write_bytes(struct.pack("<III", _GLB_MAGIC, version, 12 + len(body)) + body)
+
+
 @dataclass(frozen=True)
 class TrellisOptions:
     repo: Path
@@ -92,22 +133,7 @@ def _normalize_glb_material(path: Path, mode: str = "matte") -> int:
     """
     if mode not in {"matte", "pbr"}:
         raise ValueError(f"material mode must be 'matte' or 'pbr', got {mode!r}")
-    data = path.read_bytes()
-    magic, version, length = struct.unpack_from("<III", data, 0)
-    if magic != _GLB_MAGIC:
-        raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
-    offset = 12
-    chunks: list[list] = []
-    while offset < length:
-        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
-        chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
-        offset += 8 + chunk_len
-    try:
-        json_index = next(i for i, c in enumerate(chunks) if c[0] == _GLB_JSON_CHUNK)
-    except StopIteration as exc:
-        raise RuntimeError(f"{path} has no glTF JSON chunk") from exc
-
-    gltf = json.loads(chunks[json_index][1].decode("utf-8"))
+    gltf, chunks, json_index, version = read_glb(path)
     changed = 0
     for material in gltf.get("materials", []):
         pbr = material.setdefault("pbrMetallicRoughness", {})
@@ -123,15 +149,7 @@ def _normalize_glb_material(path: Path, mode: str = "matte") -> int:
             if pbr.pop("metallicRoughnessTexture", None) is not None:
                 changed += 1
         # "pbr" mode keeps metalness/roughness and the metallic-roughness texture.
-    chunks[json_index][1] = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
-
-    body = b""
-    for chunk_type, chunk_data in chunks:
-        pad = (4 - (len(chunk_data) % 4)) % 4
-        filler = b"\x20" if chunk_type == _GLB_JSON_CHUNK else b"\x00"
-        chunk_data = chunk_data + filler * pad
-        body += struct.pack("<II", len(chunk_data), chunk_type) + chunk_data
-    path.write_bytes(struct.pack("<III", _GLB_MAGIC, version, 12 + len(body)) + body)
+    write_glb(path, gltf, chunks, json_index, version)
     return changed
 
 

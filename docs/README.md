@@ -30,6 +30,8 @@ Design and reference documentation for the image-to-3D lab.
 Keep the top-level `README.md` as the quickstart; move anything longer-form here and
 link to it.
 - [pipeline-vs-manual.md](pipeline-vs-manual.md) — what generalises to the next character, what is manual per asset, and what was only ever this fox
-- [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — Hunyuan paint on Apple Silicon: CPU-rasteriser fallback, disabled by default; degraded rather than impossible
+- [hunyuan-eval-2026-08-13.md](hunyuan-eval-2026-08-13.md) — **current** Hunyuan position, from first principles: control-GLB forensics, the abandoned-upstream picture, and why the first fix is ours (a wrong material default), not Hunyuan's
+- [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — **superseded**; kept for the reasoning behind the paint-on-existing-geometry experiment
+- [hunyuan-port-notes.md](hunyuan-port-notes.md) — a dev's 11-category CUDA→MPS port list (April 2026); evaluated in the eval above
 - [texture-quality-roadmap.md](texture-quality-roadmap.md) — the path to Meshy-grade output: region splitting, normal maps, SD texture refinement, quad remesh
 - [trellis-prescribed-flow.md](trellis-prescribed-flow.md) — the upstream contract and how far our usage deviates: unused remesh and UV-clustering controls, and a texture_size cap that is only in the wrapper

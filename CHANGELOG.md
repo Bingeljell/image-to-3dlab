@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`scripts/glb_forensics.py`** — dumps what a GLB actually contains (PBR channels present,
+  `doubleSided`, texture sizes, boundary vs non-manifold edges, winding, signed volume,
+  edge-length CV) so a reference asset from a hosted demo can be diffed against ours
+  instead of judged by eye. Reads the glTF JSON chunk directly rather than through a mesh
+  library, because loaders normalise materials — the very thing being inspected.
+- **`docs/hunyuan-eval-2026-08-13.md`** — Hunyuan3D evaluated from first principles, with
+  every claim graded MEASURED / READ / CLAIMED. Records that upstream Hunyuan3D has been
+  unmaintained since October 2025, that the "CUDA-blocked paint stage" was a build-system
+  problem, and that a dev's April port notes are pinned to a diffusers release that is now
+  two versions stale with the two most output-affecting fixes coupled to it.
+
 ### Fixed
 - **The 200,000-face cap that was destroying 94% of every decode**
   (`scripts/patch_trellis_face_cap.py`). The Mac port pre-simplified the decoded mesh —

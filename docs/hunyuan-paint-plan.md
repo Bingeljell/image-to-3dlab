@@ -1,5 +1,20 @@
 # Hunyuan3D paint lane — degraded, not blocked, on Apple Silicon
 
+> ## ⚠️ SUPERSEDED 2026-08-13 — see [hunyuan-eval-2026-08-13.md](hunyuan-eval-2026-08-13.md)
+>
+> Two things below are now known to be wrong, and both were wrong the day they were written:
+>
+> 1. **The CUDA rasteriser is not an algorithmic blocker.** `custom_rasterizer` already
+>    contained CPU code; it simply could not *build* without CUDA. A dev's port notes fixed
+>    that in one item.
+> 2. **This document cited `Brainkeys/Hunyuan3D-2.1-mac` as the state of the art. That fork
+>    had already been untouched for a year.** We read its README and never checked its
+>    commit date. Upstream Hunyuan3D itself has been cold since October 2025.
+>
+> The revised options list at the end is also stale: it recommends normal maps and a
+> head-crop pass while missing that we were *deleting TRELLIS's own metallicRoughness map
+> on export by default*. Kept for the reasoning, not the conclusions.
+
 > **Outcome (2026-08-07): degraded, and disabled by default — but not impossible.**
 > Hunyuan's paint stage depends on a custom CUDA rasteriser (`nvdiffrast`). The community
 > Mac fork (`Brainkeys/Hunyuan3D-2.1-mac`) substitutes a **CPU software rasteriser**, not

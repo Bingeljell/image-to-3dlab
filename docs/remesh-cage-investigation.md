@@ -166,6 +166,77 @@ crossing.
 **Measured and confirmed:** 29.16% of dual-contour vertices sit exactly on a voxel centre at
 `band=1`. The kernel found no intersections; it did not place them badly.
 
+## The failure, characterised properly (2026-08-13, later)
+
+A thin cross-section is the view that finally read it. Slice the mesh and look at the
+profile: a solid shell gives a closed contour, scaffolding gives scattered blobs.
+
+**It is neither. It is beads on a string** — the contour follows the correct silhouette
+(body profile, head loop) but is made of fragments with gaps between them. A **perforated
+shell**, not a lattice and not a surface.
+
+That reconciles every number, and explains why three metrics missed it:
+
+| observation | cause |
+|---|---|
+| volume ≈ correct | the integral over fragments approximates the enclosure |
+| surface area ≈ correct at band 3 (4.88 vs 4.99) | fragment edges add up; a dense perforated shell has plenty of area |
+| rays pass through | the gaps |
+| renders as chain-link | holes everywhere, seen at distance |
+
+**Only the culled render and the cross-section could see it.** Signed volume, surface area
+and the fallback rate were each blind in a different way.
+
+## The hashmap, cleared by direct test
+
+Earlier this was cleared by argument — corner 0 missing 0.00% and neighbours 5-6% *looked*
+like legitimate band-boundary behaviour. That reasoning was not evidence. The direct test
+compares each missed lookup against the very array that was inserted:
+
+```
+MISSED lookups analysed = 376,077
+  voxel PRESENT in coords but lookup missed = 0 (0.00%)
+  voxel genuinely absent from coords        = 376,077 (100.00%)
+  of the absent ones, in grid range         = 376,077
+```
+
+**Zero.** The hashmap returns every key it was given. The quads are not lost at lookup —
+**the narrow band does not contain the voxels they need.** All the absent voxels are inside
+the grid, so they are not out-of-bounds either.
+
+## The band-membership threshold has no margin
+
+`metal_remeshing.py`, and identically in the CUDA reference:
+
+```python
+cell_size = scale / base_resolution
+distances = torch.abs(bvh.unsigned_distance(pts)[0] - eps)
+subdiv_mask = distances < 0.87 * cell_size    # "approx sqrt(3)/2, the diagonal radius"
+```
+
+0.87 is √3/2 = 0.866, the half-diagonal of a voxel — the **exact theoretical minimum** for
+"this cell might contain the isosurface". But a DC quad needs all four voxels sharing a
+crossing edge, and the furthest of those sits at exactly 0.866 cell-widths from a crossing at
+the edge's end. **Zero margin.** Any inexactness — float error, or `|UDF - eps|` only
+approximating distance-to-isosurface where the surface curves — drops a voxel some quad
+needed.
+
+Since the constant is identical in both implementations and the reference works, the
+suspicion is that `MtlBVH.unsigned_distance` is fractionally less accurate than `cuBVH`'s and
+the marginal threshold converts that into dropped quads.
+
+Tunable via `I2L_SUBDIV_K`. First result, at band 1:
+
+| k | quads surviving | area |
+|---|---|---|
+| 0.87 (default) | 87.49% | 0.878 |
+| 1.0 | 91.75% | 1.186 |
+
+Real but partial. **Note the test was run in the wrong configuration**: band 1 has a separate,
+larger deficit (area only 24% of control regardless of quad survival), so it masks what the
+threshold does. Band 3 already has the area right (4.88 vs 4.99) and its only remaining defect
+is the 17% quad loss — that is where k should be swept.
+
 ## One unexplained deviation
 
 `metal_remeshing.py:117` adds `coords = torch.unique(coords, dim=0)` inside the octree

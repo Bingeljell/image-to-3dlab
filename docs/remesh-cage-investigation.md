@@ -1,7 +1,8 @@
-# The remesh cage: what it is, and four things it is not
+# The remesh cage: a one-voxel narrow band, and four things it was not
 
-**Date:** 2026-08-13. **Status:** cause narrowed to dual-contouring vertex placement; not yet
-proven. Everything below is measured on `output/branch_test/fox_decode.pt` (the cached
+**Date:** 2026-08-13. **Status:** SOLVED — the narrow band is one voxel thick. `remesh_band=3`
+produces a solid mesh (volume +0.005824 against the control's +0.005202). See the section
+below; the four eliminated causes are kept so nobody re-runs them. Everything below is measured on `output/branch_test/fox_decode.pt` (the cached
 12.8M-face decode of `3-4th-fox-alpha-front.png`), re-bakeable in ~2 minutes with
 `scripts/trellis_rebake.py --remesh`.
 
@@ -146,9 +147,8 @@ The sign test is `(val1 < 0 && val2 >= 0) || (val1 >= 0 && val2 < 0)` over a fie
 If `eps` or the shift behaves differently here than in the CUDA path, few edges register a
 crossing.
 
-**Next measurement:** count how many dual-contour vertices land exactly on voxel centres.
-That distinguishes "the kernel found no intersections" from "it found them and placed them
-badly", and needs one instrumented rebake.
+**Measured and confirmed:** 29.16% of dual-contour vertices sit exactly on a voxel centre at
+`band=1`. The kernel found no intersections; it did not place them badly.
 
 ## One unexplained deviation
 

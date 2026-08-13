@@ -170,7 +170,32 @@ of separate leaf blades genuinely needs thousands of charts. This closes the
 "island count is the blocker" theory for good — the repo's own data had already
 contradicted it once, when the tail had half the head's islands and packed no better.
 
-### Experiment 2 — NOT RUN, and the case for it has weakened
+### Experiment 2 — **RUNNING 2026-08-13.** The case is now much stronger
+
+> **Reopened.** The argument below for shelving this was written 2026-08-09 and two of its
+> three legs have since given way:
+>
+> 1. *"Filling holes doesn't improve the atlas."* True (Experiment 1) and now irrelevant —
+>    we care about the holes themselves. Judged backface-culled on 2026-08-13, our fox has
+>    eyes missing from their sockets and a visible tongue through the side of the face.
+> 2. *"The remaining defect needs information, not cleanup — multi-view, better art."*
+>    **Refuted by the control.** The Hugging Face reference, from the same single source
+>    image, has **1 boundary edge**. Ours run 891–48,261 across 23 fox generations. It is
+>    not missing information.
+> 3. *"Upstream's `3e-2` is stricter than our `0.15`, so it would fill fewer holes."* Still
+>    true, and still the reason to expect a partial result — but it runs at full decode
+>    resolution before decimation and before UV unwrap, which is where upstream does it.
+>
+> Also note `simplify` being stubbed leaves the port's crude `fast_simplification` as the
+> *only* decimation. That is a candidate for our face-area max/median of 80.9 against the
+> reference's 20.0.
+>
+> Toggle with `scripts/patch_trellis_enable_cleanup.py` (`--check` / `--revert`). The
+> segfault risk is real and unresolved: removing the 200k cap made decode meshes larger.
+
+The original 2026-08-09 reasoning follows.
+
+### Experiment 2 (original) — NOT RUN, and the case for it has weakened
 
 Proposed: replace the three `return` stubs with pure-Python equivalents so cleanup runs
 before `uv_unwrap`. Experiment 1 removed the atlas justification. The geometry

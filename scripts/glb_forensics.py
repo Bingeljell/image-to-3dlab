@@ -80,7 +80,13 @@ def geometry_summary(mesh) -> dict[str, Any]:
     import numpy as np
 
     merged = mesh.copy()
-    merged.merge_vertices()
+    # merge_tex/merge_norm are REQUIRED. Bare merge_vertices() preserves UV and normal
+    # seams, so a textured mesh stays split along every atlas boundary: on the moss fox it
+    # leaves 333,170 vertices where only 136,367 distinct positions exist. Every edge along
+    # a seam then counts as a boundary edge, and the hole and non-manifold counts are
+    # inflated by more than 2x. This is `mesh-topology-measurement-trap`, and it was in this
+    # file's own docstring while the code did the wrong thing.
+    merged.merge_vertices(merge_tex=True, merge_norm=True)
     edges = merged.edges_sorted
     _uniq, counts = np.unique(edges, axis=0, return_counts=True)
 

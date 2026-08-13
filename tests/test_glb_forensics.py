@@ -126,6 +126,30 @@ def test_boundary_count_ignores_uv_seam_splits():
     assert gf.geometry_summary(split)["boundary_edges"] == 0
 
 
+def test_boundary_count_ignores_seams_on_a_UV_TEXTURED_mesh():
+    """The case the box test above misses, and the one that actually bit us.
+
+    `merge_vertices()` merges by position only when there is nothing else to preserve. Give
+    the mesh per-vertex UVs and it keeps every atlas seam split, which on the moss fox left
+    333,170 vertices against 136,367 real positions and more than doubled the hole count.
+    A synthetic box has no UVs, so it cannot catch this - the regression has to be tested on
+    a textured mesh.
+    """
+    box = trimesh.creation.box()
+    split = box.copy()
+    split.unmerge_vertices()
+    # Distinct UVs per corner: this is what makes bare merge_vertices() refuse to merge.
+    rng = np.random.default_rng(0)
+    split.visual = trimesh.visual.TextureVisuals(
+        uv=rng.random((len(split.vertices), 2))
+    )
+
+    summary = gf.geometry_summary(split)
+    assert summary["boundary_edges"] == 0, "UV seams must not be counted as holes"
+    assert summary["watertight"] is False  # the un-merged copy itself is still split
+    assert summary["vertices_merged"] == len(box.vertices)
+
+
 def test_inside_out_box_reports_negative_volume():
     flipped = trimesh.creation.box()
     flipped.faces = np.fliplr(flipped.faces)

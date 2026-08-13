@@ -6,5 +6,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 output/
-vendor/
+# Anchored to the repo root on purpose. The multi-GB backend checkouts live in /vendor/;
+# an unanchored `vendor/` also swallowed viewer/vendor/ (1.5 MB of MIT three.js), which
+# silently shipped a viewer that renders a blank page on a fresh clone.
+/vendor/
 

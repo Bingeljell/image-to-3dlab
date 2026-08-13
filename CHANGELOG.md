@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scripts/restore_pbr_material.py`** — re-attaches the metallicRoughness map that
+  `--material-mode matte` orphaned, on assets already on disk. `matte` only ever rewrote the
+  GLB's JSON chunk, so the 3072² map is still in every file we shipped, merely unreferenced;
+  restoring it is a JSON edit rather than a regeneration. Also restores `metallicFactor: 1.0`
+  (in glTF the factor multiplies the texture — restoring the map while leaving the factor at
+  0.0 changes nothing) and turns `doubleSided` off to match the reference. Verified on the
+  moss fox: the orphaned texture has an all-zero red channel and G/B distributions matching
+  the Hugging Face reference's own MR map.
 - **`scripts/glb_forensics.py`** — dumps what a GLB actually contains (PBR channels present,
   `doubleSided`, texture sizes, boundary vs non-manifold edges, winding, signed volume,
   edge-length CV) so a reference asset from a hosted demo can be diffed against ours

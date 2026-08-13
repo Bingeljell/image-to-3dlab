@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scripts/mark_asset.py`** — an append-only register of human verdicts on generated
+  assets (`output/verdicts.jsonl`). The provenance sidecar records source art, settings and
+  output but never whether the result was any good, so a render that looked right could not
+  be traced back to the GLB that produced it. Keyed by content hash because the interesting
+  derived assets have no sidecar and get renamed; snapshots the forensic measurements beside
+  the verdict so it accumulates into the fine-tuning dataset described in
+  `docs/training-trellis.md`; and records whether the judgement was made backface-culled,
+  since a double-sided verdict cannot distinguish a solid mesh from a hollow one.
 - **`scripts/restore_pbr_material.py`** — re-attaches the metallicRoughness map that
   `--material-mode matte` orphaned, on assets already on disk. `matte` only ever rewrote the
   GLB's JSON chunk, so the 3072² map is still in every file we shipped, merely unreferenced;

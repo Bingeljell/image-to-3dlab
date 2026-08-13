@@ -62,7 +62,7 @@ class TrellisOptions:
     bake_target_faces: int = 50_000
     steps: int | None = None
     normalize_material: bool = True
-    material_mode: str = "matte"
+    material_mode: str = "pbr"
     fix_winding: bool = True
 
 
@@ -112,7 +112,7 @@ def _repair_winding(path: Path) -> tuple[bool, bool]:
         return False, False
 
 
-def _normalize_glb_material(path: Path, mode: str = "matte") -> int:
+def _normalize_glb_material(path: Path, mode: str = "pbr") -> int:
     """Rewrite a GLB's material JSON so it renders correctly.
 
     TRELLIS exports each material with ``alphaMode=BLEND`` and ``metallicFactor=1``
@@ -123,11 +123,19 @@ def _normalize_glb_material(path: Path, mode: str = "matte") -> int:
     Both modes force ``alphaMode`` to ``OPAQUE`` (the actual cause of the glass
     look). They then differ in how they treat metalness:
 
-    - ``matte`` (default): drop all metalness (``metallicFactor`` 0, matte
-      roughness, metallic-roughness texture removed). Best for organic subjects
-      whose shading is already baked into the albedo (e.g. foliage, fur).
-    - ``pbr``: keep the baked metallic-roughness so genuinely metallic subjects
-      (brass, chrome) keep their sheen under environment lighting.
+    - ``pbr`` (default): keep the baked metallic-roughness map. This is what the
+      reference implementation ships, and our maps match its values closely —
+      moss fox roughness 0.765/metallic 0.412 against the reference's 0.784/0.384,
+      Flicker 0.396/0.000 against 0.404/0.004.
+    - ``matte``: drop all metalness (``metallicFactor`` 0, matte roughness,
+      metallic-roughness texture removed).
+
+    ``matte`` was the default until 2026-08-13, which was a mistake worth
+    recording. The bug being fixed at the time was ``alphaMode=BLEND`` (the glass
+    look) and **both** modes fix that; discarding metalness rode along in the same
+    change and was never revisited. The cost was that every organic asset shipped
+    mathematically flat — no specular response under any light — while the
+    metallic-roughness map sat unreferenced inside the same file.
 
     Returns the number of material properties changed.
     """

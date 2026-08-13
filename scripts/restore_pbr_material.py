@@ -63,17 +63,27 @@ def restore_material(
     mr_texture: int | None = None,
     *,
     single_sided: bool = True,
+    roughness_scale: float = 1.0,
 ) -> list[str]:
     """Re-attach the MR map and undo matte's flattening. Returns what changed.
 
     `metallicFactor` goes back to 1.0 because in glTF the factor *multiplies* the texture:
     left at 0.0 the restored map would be scaled to nothing and the change would appear to
     do nothing at all.
+
+    `roughness_scale` is the same multiplication used deliberately. TRELLIS's map is
+    moderately rough — Flicker's runs 0.27-0.66, median 0.40 — which restores a real surface
+    but still reads duller than source art painted with strong highlights. Below 1.0 makes
+    the whole asset glossier without touching the texture, so the map keeps describing
+    *where* the surface varies while the factor sets *how much*.
     """
     changes: list[str] = []
     materials = gltf.get("materials", [])
     if not materials:
         raise ValueError("GLB has no materials")
+
+    if not 0.0 < roughness_scale <= 1.0:
+        raise ValueError(f"roughness_scale must be in (0, 1], got {roughness_scale}")
 
     index = mr_texture if mr_texture is not None else find_orphan_texture(gltf)
     if index is None:
@@ -92,9 +102,9 @@ def restore_material(
         if pbr.get("metallicFactor") != 1.0:
             pbr["metallicFactor"] = 1.0
             changes.append(f"material[{position}]: metallicFactor -> 1.0")
-        if pbr.get("roughnessFactor") != 1.0:
-            pbr["roughnessFactor"] = 1.0
-            changes.append(f"material[{position}]: roughnessFactor -> 1.0")
+        if pbr.get("roughnessFactor") != roughness_scale:
+            pbr["roughnessFactor"] = roughness_scale
+            changes.append(f"material[{position}]: roughnessFactor -> {roughness_scale}")
         if single_sided and material.get("doubleSided"):
             material["doubleSided"] = False
             changes.append(f"material[{position}]: doubleSided -> false")
@@ -111,6 +121,13 @@ def main() -> None:
         action="store_true",
         help="leave doubleSided alone; by default it is turned off so culling tells the truth",
     )
+    parser.add_argument(
+        "--roughness-scale",
+        type=float,
+        default=1.0,
+        help="multiply the roughness map (0-1]. Below 1.0 is glossier; try 0.6 when the "
+             "restored surface still reads duller than the source art",
+    )
     args = parser.parse_args()
 
     target = args.asset
@@ -120,7 +137,10 @@ def main() -> None:
 
     gltf, chunks, json_index, version = read_glb(target)
     changes = restore_material(
-        gltf, args.mr_texture, single_sided=not args.keep_double_sided
+        gltf,
+        args.mr_texture,
+        single_sided=not args.keep_double_sided,
+        roughness_scale=args.roughness_scale,
     )
     write_glb(target, gltf, chunks, json_index, version)
 

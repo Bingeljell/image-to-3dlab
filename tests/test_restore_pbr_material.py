@@ -164,3 +164,31 @@ def test_roundtrip_preserves_the_binary_chunk(tmp_path):
     assert gltf2["materials"][0]["pbrMetallicRoughness"]["metallicRoughnessTexture"] == {
         "index": 1
     }
+
+
+# --- roughness scaling -------------------------------------------------------------
+
+def test_roughness_scale_sets_the_factor():
+    """The factor multiplies the map, so it is the gloss knob without touching texels."""
+    gltf = matte_gltf()
+    rpm.restore_material(gltf, roughness_scale=0.6)
+    assert gltf["materials"][0]["pbrMetallicRoughness"]["roughnessFactor"] == 0.6
+
+
+def test_roughness_scale_defaults_to_unity():
+    gltf = matte_gltf()
+    rpm.restore_material(gltf)
+    assert gltf["materials"][0]["pbrMetallicRoughness"]["roughnessFactor"] == 1.0
+
+
+@pytest.mark.parametrize("bad", [0.0, -0.5, 1.5])
+def test_roughness_scale_out_of_range_is_refused(bad):
+    """Zero would make a mirror of the whole asset; above 1 pushes past fully rough."""
+    with pytest.raises(ValueError, match="roughness_scale"):
+        rpm.restore_material(matte_gltf(), roughness_scale=bad)
+
+
+def test_idempotent_at_a_scaled_roughness():
+    gltf = matte_gltf()
+    rpm.restore_material(gltf, roughness_scale=0.6)
+    assert rpm.restore_material(gltf, mr_texture=1, roughness_scale=0.6) == []

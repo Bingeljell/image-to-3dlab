@@ -53,7 +53,7 @@ def test_normalize_material_forces_opaque_matte(tmp_path):
             }
         ],
     )
-    changed = _normalize_glb_material(glb)
+    changed = _normalize_glb_material(glb, "matte")
     assert changed == 3
 
     material = _read_materials(glb)[0]
@@ -64,6 +64,33 @@ def test_normalize_material_forces_opaque_matte(tmp_path):
     assert "metallicRoughnessTexture" not in pbr
     # The base color texture that carries the baked albedo must survive untouched.
     assert pbr["baseColorTexture"] == {"index": 0}
+
+
+def test_default_mode_keeps_the_metallic_roughness_map(tmp_path):
+    """The default must be `pbr` — matte silently discarded a map TRELLIS had produced.
+
+    Pinned as its own test because the default is the whole defect: our maps match the
+    reference implementation's values closely, so shipping flat was purely self-inflicted.
+    """
+    glb = _make_glb(
+        tmp_path / "d.glb",
+        [
+            {
+                "alphaMode": "BLEND",
+                "pbrMetallicRoughness": {
+                    "metallicFactor": 1.0,
+                    "baseColorTexture": {"index": 0},
+                    "metallicRoughnessTexture": {"index": 1},
+                },
+            }
+        ],
+    )
+    changed = _normalize_glb_material(glb)  # no mode: exercise the default
+    assert changed == 1  # only alphaMode, the actual glass-look bug
+
+    pbr = _read_materials(glb)[0]["pbrMetallicRoughness"]
+    assert pbr["metallicRoughnessTexture"] == {"index": 1}
+    assert pbr["metallicFactor"] == 1.0
 
 
 def test_normalize_material_pbr_mode_keeps_metalness(tmp_path):

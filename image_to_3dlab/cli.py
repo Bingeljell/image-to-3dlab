@@ -83,8 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
     trellis.add_argument(
         "--trellis-material-mode",
         choices=("matte", "pbr"),
-        default="matte",
-        help="matte drops metalness (organic subjects); pbr keeps it (brass/chrome)",
+        default="pbr",
+        help="pbr keeps TRELLIS's metallic-roughness map, matching the reference "
+             "implementation; matte discards it and renders mathematically flat",
     )
 
     quality = parser.add_argument_group("ComfyUI/Hunyuan3D options")

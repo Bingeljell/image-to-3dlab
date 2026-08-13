@@ -35,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   problem, and that a dev's April port notes are pinned to a diffusers release that is now
   two versions stale with the two most output-affecting fixes coupled to it.
 
+### Changed
+- **`--material-mode` now defaults to `pbr`, not `matte`.** `matte` discarded TRELLIS's
+  metallic-roughness map and pinned the factors flat, so every organic asset shipped with no
+  specular response under any light. Measuring our maps against the Hugging Face reference
+  shows they match closely — moss fox roughness 0.765 / metallic 0.412 against the
+  reference's 0.784 / 0.384, Flicker 0.396 / 0.000 against 0.404 / 0.004 — so TRELLIS was
+  producing exactly what the reference implementation ships and we were deleting it on
+  export. Judged backface-culled on Flicker: eye reflections return and the body gains
+  surface variation. `matte` remains available.
+- `restore_pbr_material.py --roughness-scale` multiplies the roughness map for subjects that
+  still read duller than their source art.
+
 ### Fixed
 - **The 200,000-face cap that was destroying 94% of every decode**
   (`scripts/patch_trellis_face_cap.py`). The Mac port pre-simplified the decoded mesh —

@@ -57,24 +57,32 @@ MARKER = "// i2l: guard the hashmap miss"
 PATCHES = (
     (
         "inline float get_vertex_val_u32(",
-        "    uint idx = linear_probing_lookup_u32(hashmap_keys, hashmap_vals, flat_idx, M);\n"
-        "    return udf[idx];\n",
-        "    uint idx = linear_probing_lookup_u32(hashmap_keys, hashmap_vals, flat_idx, M);\n"
+        (
+            "    uint idx = linear_probing_lookup_u32(hashmap_keys, hashmap_vals, flat_idx, M);\n"
+            "    return udf[idx];\n"
+        ),
+        (
+            "    uint idx = linear_probing_lookup_u32(hashmap_keys, hashmap_vals, flat_idx, M);\n"
         f"    {MARKER}: a miss returns 0xFFFFFFFF, and udf[0xFFFFFFFF] is an out-of-bounds\n"
         "    // read that Metal defines as 0.0 - which the crossing test reads as \"exactly on\n"
         "    // the surface\", the most wrong possible answer. A vertex outside the narrow band\n"
         "    // is far outside it, so report a large positive distance.\n"
-        "    if (idx == 0xFFFFFFFFu) return 1.0e30f;\n"
-        "    return udf[idx];\n",
+            "    if (idx == 0xFFFFFFFFu) return 1.0e30f;\n"
+            "    return udf[idx];\n"
+        ),
     ),
     (
         "inline float get_vertex_val_u64(",
-        "    uint idx = linear_probing_lookup_u64(hashmap_keys, hashmap_vals, flat_idx, M);\n"
-        "    return udf[idx];\n",
-        "    uint idx = linear_probing_lookup_u64(hashmap_keys, hashmap_vals, flat_idx, M);\n"
-        f"    {MARKER} (u64 variant, same defect)\n"
-        "    if (idx == 0xFFFFFFFFu) return 1.0e30f;\n"
-        "    return udf[idx];\n",
+        (
+            "    uint idx = linear_probing_lookup_u64(hashmap_keys, hashmap_vals, flat_idx, M);\n"
+            "    return udf[idx];\n"
+        ),
+        (
+            "    uint idx = linear_probing_lookup_u64(hashmap_keys, hashmap_vals, flat_idx, M);\n"
+            f"    {MARKER} (u64 variant, same defect)\n"
+            "    if (idx == 0xFFFFFFFFu) return 1.0e30f;\n"
+            "    return udf[idx];\n"
+        ),
     ),
 )
 

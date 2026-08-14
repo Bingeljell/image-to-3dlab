@@ -60,6 +60,10 @@ class TrellisOptions:
     pipeline_type: str = "512"
     texture_size: int = 1024
     bake_target_faces: int = 50_000
+    # None leaves generate.py's crude pre-simplify safety net at its 4,000,000 default.
+    # A value forces the I2L_PRE_CAP env var so the crude decimator threshold is
+    # controllable without editing the vendored generate.py.
+    pre_simplify_cap: int | None = None
     steps: int | None = None
     normalize_material: bool = True
     material_mode: str = "pbr"
@@ -265,6 +269,8 @@ def generate_trellis(
     command = build_generate_command(python, generator, prepared_views, output_base, options)
     env = os.environ.copy()
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    if options.pre_simplify_cap is not None:
+        env["I2L_PRE_CAP"] = str(options.pre_simplify_cap)
     xcode_developer_dir = Path("/Applications/Xcode.app/Contents/Developer")
     if xcode_developer_dir.is_dir():
         env.setdefault("DEVELOPER_DIR", str(xcode_developer_dir))

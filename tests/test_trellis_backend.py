@@ -193,3 +193,29 @@ def test_steps_omitted_when_unset():
         Path("/py"), Path("/gen.py"), [Path("a.png")], Path("/out"), _opts(steps=None)
     )
     assert "--steps" not in cmd
+
+
+# --- pre_simplify_cap: a half-wired knob that crashed every manifest run -------------
+#
+# cli.py read args.trellis_pre_simplify_cap and passed it to TrellisOptions(...)
+# unconditionally, but neither an argparse argument nor the dataclass field existed.
+# Any manifest lacking 'pre_simplify_cap' aborted with AttributeError before generation,
+# and adding only the arg would then have raised TypeError on TrellisOptions. Both
+# surfaces are pinned so the crash cannot come back.
+
+def test_trellis_options_accepts_pre_simplify_cap():
+    assert _opts().pre_simplify_cap is None
+    assert _opts(pre_simplify_cap=4_000_000).pre_simplify_cap == 4_000_000
+
+
+def test_cli_defines_pre_simplify_cap_so_the_attr_always_exists():
+    from image_to_3dlab.cli import build_parser
+
+    # The exact failing shape: a run with no explicit cap must still define the attribute.
+    args = build_parser().parse_args(["img.png", "--trellis"])
+    assert args.trellis_pre_simplify_cap is None
+
+    args = build_parser().parse_args(
+        ["img.png", "--trellis", "--trellis-pre-simplify-cap", "4000000"]
+    )
+    assert args.trellis_pre_simplify_cap == 4_000_000

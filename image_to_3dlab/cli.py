@@ -73,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=50_000,
         help="Triangle budget used by the CPU UV/texture fallback",
     )
+    trellis.add_argument(
+        "--trellis-pre-simplify-cap",
+        type=int,
+        default=None,
+        help="Face count above which generate.py's crude pre-simplify safety net runs "
+             "(maps to the I2L_PRE_CAP env var). Leave unset to use the port's default "
+             "of 4,000,000; a manifest may override it via 'pre_simplify_cap'.",
+    )
     trellis.add_argument("--steps", type=int)
     trellis.add_argument(
         "--trellis-raw-material",

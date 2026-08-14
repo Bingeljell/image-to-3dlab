@@ -188,7 +188,15 @@ def patch_run_wraps_samplers() -> bool:
         # shape and texture SLat are sampled in later statements.
         self.install_multi_image_hooks(len(images))
         coords = self.sample_sparse_structure("""
-    return replace(PIPELINE, needle, replacement, "install_multi_image_hooks")
+    # The method definition itself contains ``install_multi_image_hooks``. Using that
+    # broad substring as the idempotence marker made a fresh install skip this call,
+    # leaving all of the injected multi-view machinery dormant.
+    return replace(
+        PIPELINE,
+        needle,
+        replacement,
+        "self.install_multi_image_hooks(len(images))",
+    )
 
 
 def patch_generate_arg() -> bool:

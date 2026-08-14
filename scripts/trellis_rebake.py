@@ -28,6 +28,42 @@ import time
 from pathlib import Path
 
 
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _geometry_ref_path(cache_path: Path, reference: str) -> Path:
+    """Resolve a split material cache's geometry reference portably."""
+    path = Path(reference)
+    if path.is_absolute():
+        return path
+    repo_relative = REPO / path
+    if repo_relative.is_file():
+        return repo_relative
+    return cache_path.parent / path
+
+
+def load_payload(path: Path, torch_module) -> dict:
+    """Load either a traditional full decode or a split Stage-3 material cache.
+
+    Stage-3 candidates share hundreds of megabytes of vertices and faces. A split cache
+    stores only the new attrs/coords and points at the original geometry decode.
+    """
+    payload = torch_module.load(path, weights_only=False)
+    reference = payload.get("geometry_ref")
+    if reference is None:
+        return payload
+
+    geometry_path = _geometry_ref_path(path, reference)
+    if not geometry_path.is_file():
+        raise FileNotFoundError(
+            f"geometry_ref {reference!r} from {path} resolved to missing {geometry_path}"
+        )
+    geometry = torch_module.load(geometry_path, weights_only=False)
+    merged = dict(geometry)
+    merged.update({key: value for key, value in payload.items() if key != "geometry_ref"})
+    return merged
+
+
 def build_to_glb_kwargs(payload: dict, args: argparse.Namespace) -> dict:
     """Assemble the `to_glb` call. Pure, so the argument mapping is testable.
 
@@ -89,7 +125,7 @@ def main() -> int:
     import o_voxel
     import torch
 
-    payload = torch.load(args.decode, weights_only=False)
+    payload = load_payload(args.decode, torch)
     print(f"Loaded decode: {summarise(payload)}")
     print(f"Branch: {'2 (remesh/DC rebuild)' if args.remesh else '1 (clean + simplify)'}")
 

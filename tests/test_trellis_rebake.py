@@ -88,6 +88,42 @@ def test_summarise_reports_counts():
     assert "3,999,999 faces" in text
 
 
+def test_split_material_cache_reuses_geometry_without_overwriting_new_attrs(tmp_path):
+    class FakeTorch:
+        payloads = {}
+
+        @classmethod
+        def load(cls, path, weights_only=False):
+            return cls.payloads[Path(path)]
+
+    geometry = tmp_path / "geometry.pt"
+    material = tmp_path / "candidate.pt"
+    geometry.touch()
+    material.touch()
+    FakeTorch.payloads = {
+        geometry: {"vertices": "V", "faces": "F", "attrs": "old", "coords": "oldC"},
+        material: {"geometry_ref": str(geometry), "attrs": "new", "coords": "newC"},
+    }
+
+    payload = rebake.load_payload(material, FakeTorch)
+    assert payload["vertices"] == "V"
+    assert payload["faces"] == "F"
+    assert payload["attrs"] == "new"
+    assert payload["coords"] == "newC"
+
+
+def test_split_material_cache_reports_missing_geometry(tmp_path):
+    class FakeTorch:
+        @staticmethod
+        def load(path, weights_only=False):
+            return {"geometry_ref": "missing.pt"}
+
+    material = tmp_path / "candidate.pt"
+    material.touch()
+    with pytest.raises(FileNotFoundError, match="geometry_ref"):
+        rebake.load_payload(material, FakeTorch)
+
+
 # --- the generate.py patch ---------------------------------------------------------
 
 GENERATE = '''\

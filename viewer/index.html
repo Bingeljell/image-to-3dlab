@@ -13,22 +13,68 @@
   button { background: #262b33; color: #d8dee9; border: 1px solid #39404b; border-radius: 5px;
            padding: 5px 10px; cursor: pointer; font: inherit; }
   button:hover { background: #303743; }
+  button:disabled { opacity: .4; cursor: default; }
   button.on { background: #3b6ea5; border-color: #4d84c0; color: #fff; }
+  #add { background: #2f5233; border-color: #3f6d45; }
+  #add:hover:not(:disabled) { background: #396b40; }
   .sep { width: 1px; height: 20px; background: #39404b; margin: 0 4px; }
   .lbl { opacity: .55; }
   #panes { position: fixed; inset: 44px 0 0 0; display: flex; }
-  .pane { position: relative; flex: 1 1 0; min-width: 0; border-left: 1px solid #2c313a; }
+  .pane { position: relative; flex: 1 1 0; min-width: 0; border-left: 1px solid #2c313a; overflow: hidden; }
   .pane:first-child { border-left: none; }
-  .cap { position: absolute; left: 8px; top: 8px; z-index: 5; padding: 3px 7px; border-radius: 4px; background: #14161acc; font-size: 12px; }
+  .pane.dragtarget::after { content: 'drop here'; position: absolute; inset: 0; z-index: 8;
+           display: flex; align-items: center; justify-content: center; font-size: 14px;
+           color: #cfe3ff; background: #3b6ea533; border: 2px dashed #4d84c0; pointer-events: none; }
+  .pane.model.dragtarget::after { content: 'drop model to replace · image to overlay'; }
+  /* Empty "add another pane" placeholder, shown while there is a free slot. This is the
+     discoverable way to load a second/third model or a source image side by side. */
+  .pane.ghost { display: flex; align-items: center; justify-content: center; cursor: pointer;
+                color: #6b7480; border-left: 1px dashed #39404b; }
+  .pane.ghost:hover, .pane.ghost.dragtarget { background: #3b6ea51a; color: #cfe3ff; }
+  .pane.ghost .inner { text-align: center; pointer-events: none; }
+  .pane.ghost .plus { font-size: 34px; line-height: 1; opacity: .7; }
+  .pane.ghost .t { margin-top: 10px; }
+  .pane.ghost .s { font-size: 11px; opacity: .6; margin-top: 4px; }
+  .cap { position: absolute; left: 8px; top: 8px; z-index: 6; padding: 3px 7px; border-radius: 4px; background: #14161acc; font-size: 12px; }
   .cap b { color: #8fb8e8; }
-  .stats { position: absolute; left: 8px; bottom: 8px; z-index: 5; background: #14161acc;
+  .cap .kind { opacity: .5; margin-right: 5px; text-transform: uppercase; font-size: 10px; letter-spacing: .05em; }
+  .ctl { position: absolute; right: 8px; top: 8px; z-index: 6; display: flex; gap: 4px; }
+  .ctl button { padding: 2px 8px; font-size: 12px; line-height: 1.3; background: #14161acc; }
+  .ctl button.on { background: #3b6ea5; border-color: #4d84c0; color: #fff; }
+  .stats { position: absolute; left: 8px; bottom: 8px; z-index: 6; background: #14161acc;
            padding: 4px 7px; border-radius: 4px; font-size: 11px; opacity: .8; white-space: pre; }
   canvas { display: block; }
+  /* Source-image pane: fit, then pan/zoom. */
+  .imgwrap { position: absolute; inset: 0; overflow: hidden; cursor: grab; }
+  .imgwrap.grabbing { cursor: grabbing; }
+  .imgwrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+                 transform-origin: center center; user-select: none; -webkit-user-drag: none; }
+  /* Onion-skin overlay pinned over a model pane. */
+  .model-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+                   pointer-events: none; z-index: 5; }
+  .ovlbar { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 7;
+            display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 6px;
+            background: #14161acc; border: 1px solid #2c313a; }
+  .ovlbar input[type=range] { width: 130px; accent-color: #4d84c0; }
+  .ovlbar button { padding: 1px 7px; }
   #err { position: fixed; left: 10px; bottom: 10px; z-index: 20; color: #e88; max-width: 70vw; }
+  /* Full-area drop zone, shown only when nothing is loaded. */
+  #drop { position: fixed; inset: 44px 0 0 0; z-index: 9; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 14px; text-align: center; }
+  #drop.hidden { display: none; }
+  #drop .big { font-size: 20px; color: #cfe3ff; }
+  #drop .sub { opacity: .6; max-width: 500px; }
+  body.dragging #drop:not(.hidden) { background: #3b6ea51a; }
+  #drop .zone { border: 2px dashed #39404b; border-radius: 12px; padding: 40px 60px;
+                transition: border-color .12s, background .12s; }
+  body.dragging #drop .zone { border-color: #4d84c0; background: #3b6ea522; }
+  #drop button { padding: 8px 16px; font-size: 14px; }
 </style>
 </head>
 <body>
 <div id="bar">
+  <button id="add" title="add another pane, side by side">＋ add pane <span id="addcount">(0/3)</span></button>
+  <div class="sep"></div>
   <span class="lbl">culling</span>
   <button id="cull" class="on">backface ON</button>
   <div class="sep"></div>
@@ -47,6 +93,18 @@
   <button id="sync" class="on">sync cams</button>
 </div>
 <div id="panes"></div>
+<div id="drop">
+  <div class="zone">
+    <div class="big">Drop up to 3 models or images here</div>
+    <div class="sub">or click to browse. Models: GLB · GLTF · OBJ. Source image: PNG · JPG · WebP.
+      Drag a whole folder (or select every file) to bring a .gltf's .bin and textures with it.
+      Drop an image <b>onto a loaded model</b> to overlay it for alignment.</div>
+    <button id="browse">browse…</button>
+  </div>
+</div>
+<input id="file" type="file" multiple
+       accept=".glb,.gltf,.obj,.bin,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.ktx2" style="display:none">
+<input id="ovlfile" type="file" accept="image/*" style="display:none">
 <div id="err"></div>
 
 <script type="importmap">
@@ -59,23 +117,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 import { OrbitControls } from './vendor/controls/OrbitControls.js';
+import { IndexedOBJLoader } from './IndexedOBJLoader.js';
 
-// Assets come from the query string: ?a=path/to.glb&b=other.glb&la=label&lb=label
-// Paths are relative to the repo root, which serve.py serves.
-const q = new URLSearchParams(location.search);
-const specs = [];
-for (const key of ['a', 'b', 'c']) {
-  const url = q.get(key);
-  // Repo-relative: anchor at the server root, not at /viewer/ where this page lives.
-  if (url) specs.push({
-    url: /^(https?:|\/)/.test(url) ? url : '/' + url,
-    label: q.get('l' + key) || url.split('/').pop(),
-  });
-}
-if (!specs.length) {
-  document.getElementById('err').textContent =
-    'no assets — try ?a=output/foo.glb&b=assets_to_test/bar.glb';
-}
+// What a slot can hold. A model root drives the 3D pipeline; an image becomes a source
+// pane (or, dropped onto a model, an alignment overlay). Adding a model format is one line
+// here plus a vendored loader import; anything unlisted is rejected in the UI.
+const MODEL_EXTS = new Set(['glb', 'gltf', 'obj']);
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif']);
+const extOf = (name) => name.split('.').pop().toLowerCase();
+const isModelFile = (f) => MODEL_EXTS.has(extOf(f.name));
+const isImageFile = (f) => IMAGE_EXTS.has(extOf(f.name));
 
 const state = {
   cull: true,          // default ON: a double-sided preview cannot show a hollow mesh
@@ -84,18 +135,142 @@ const state = {
   spin: false,
   sync: true,
 };
-const views = [];
 
-// Render-on-demand state. Declared here because applyState() and frame() both need to
-// request a repaint and are defined above the render loop.
-let dirty = true;
-const invalidate = () => { dirty = true; };
+// Up to three slots. Each holds a model view, an image view, or null. `views` is the
+// compacted list of *model* views — the only ones the 3D render/frame/sync loops touch;
+// image panes are static. Both are kept in sync by rebuildViews().
+const MAX = 3;
+const slots = [null, null, null];
+let views = [];
+const rebuildViews = () => { views = slots.filter((s) => s && s.kind === 'model'); updateChrome(); };
 
-function makeView(spec) {
+const panesEl = document.getElementById('panes');
+const dropEl = document.getElementById('drop');
+let ghostEl = null;     // the "＋ add pane" placeholder, built once in the wiring section
+const errEl = document.getElementById('err');
+const setErr = (msg) => { errEl.textContent = msg || ''; };
+
+// Fully event-driven rendering. Nothing repaints unless something asked it to: a moved
+// camera, a state change, or an active spin. When idle there is no requestAnimationFrame
+// scheduled at all -- zero CPU, zero GPU. This matters beyond battery: a free-running
+// 60fps loop tightens the macOS GPU watchdog, the same watchdog that kills the remesh
+// kernel mid-dispatch and, on 2026-08-13, took the machine down. `renderFrame` is a
+// hoisted declaration defined with the render loop below.
+let renderPending = false;
+function requestRender() {
+  if (renderPending) return;
+  renderPending = true;
+  requestAnimationFrame(renderFrame);
+}
+const invalidate = requestRender;
+
+// --- turning dropped files into slot specs -------------------------------------------
+
+function firstEmpty() { return slots.findIndex((s) => s === null); }
+function occupied() { return slots.filter(Boolean).length; }
+
+// A "bundle" is one root file plus any sibling resources it references (a .gltf's .bin and
+// textures). Local files carry no server path, so we hand the loader blob URLs and a
+// LoadingManager that resolves each referenced resource by basename.
+function makeManager(blobByName) {
+  const m = new THREE.LoadingManager();
+  m.setURLModifier((url) => {
+    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+    const base = decodeURIComponent(url.split('/').pop().split('?')[0]);
+    return blobByName.get(base) || url;
+  });
+  return m;
+}
+
+// A drop that contains a model file loads the model (images ride along as its textures).
+// A drop with no model file treats each image as its own source-image pane. This is the
+// rule that keeps "gltf + textures" and "a bare reference photo" from colliding.
+function specsFromFiles(fileList) {
+  const files = [...fileList];
+  const models = files.filter(isModelFile);
+  if (models.length) {
+    const blobByName = new Map();
+    const urls = [];
+    for (const f of files) {
+      const u = URL.createObjectURL(f);
+      urls.push(u);
+      blobByName.set(f.name, u);
+    }
+    const manager = makeManager(blobByName);
+    return models.map((f) => ({
+      kind: 'model', url: blobByName.get(f.name), label: f.name,
+      ext: extOf(f.name), manager, revoke: urls,
+    }));
+  }
+  const images = files.filter(isImageFile);
+  if (images.length) {
+    return images.map((f) => {
+      const u = URL.createObjectURL(f);
+      return { kind: 'image', url: u, label: f.name, revoke: [u] };
+    });
+  }
+  throw new Error('nothing loadable — expected a .glb/.gltf/.obj model or a PNG/JPG image');
+}
+
+// Load specs into slots. `targetSlot` (or null) forces the first spec to replace a
+// specific pane; the rest fill empty slots in order, up to MAX.
+function loadSpecs(specList, targetSlot = null) {
+  let placed = 0;
+  for (const spec of specList) {
+    const idx = (targetSlot != null && placed === 0) ? targetSlot : firstEmpty();
+    if (idx < 0) {
+      setErr(`only ${MAX} panes — "${spec.label}" and any after it were skipped`);
+      break;
+    }
+    mountSlot(idx, spec);
+    placed++;
+  }
+}
+
+function handleFiles(fileList, targetSlot = null) {
+  setErr('');
+  const files = [...fileList];
+  // An image-only drop onto a loaded model pane means "align to this", not "replace".
+  if (targetSlot != null && slots[targetSlot]?.kind === 'model'
+      && !files.some(isModelFile) && files.some(isImageFile)) {
+    setOverlay(slots[targetSlot], files.find(isImageFile));
+    return;
+  }
+  try {
+    loadSpecs(specsFromFiles(files), targetSlot);
+  } catch (e) {
+    setErr(e.message || String(e));
+  }
+}
+
+// --- slot lifecycle ------------------------------------------------------------------
+
+function mountSlot(slotIndex, spec) {
+  if (slots[slotIndex]) clearSlot(slotIndex);
+  if (spec.kind === 'image') mountImage(slotIndex, spec);
+  else mountModel(slotIndex, spec);
+}
+
+// Shared pane chrome: caption, control cluster (top-right), stats. Returns the pane and a
+// hook the caller fills with kind-specific controls.
+function makePane(slotIndex, spec, kindLabel, ctlHtml) {
   const pane = document.createElement('div');
-  pane.className = 'pane';
-  pane.innerHTML = `<div class="cap"><b>${spec.label}</b></div><div class="stats">loading…</div>`;
-  document.getElementById('panes').appendChild(pane);
+  pane.className = `pane ${spec.kind}`;
+  pane.style.order = String(slotIndex);   // keep visual order == slot order
+  pane.innerHTML =
+    `<div class="cap"><span class="kind">${kindLabel}</span><b>${spec.label}</b></div>` +
+    `<div class="ctl">${ctlHtml}</div>` +
+    `<div class="stats">loading…</div>`;
+  panesEl.appendChild(pane);
+  pane.querySelector('.clear').onclick = () => clearSlot(slotIndex);
+  wirePaneDrop(pane, slotIndex);
+  return pane;
+}
+
+function mountModel(slotIndex, spec) {
+  const pane = makePane(slotIndex, spec, 'model',
+    `<button class="ovl" title="overlay a source image ON TOP of this model, to align it">⧉ overlay</button>` +
+    `<button class="clear" title="remove">✕</button>`);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -119,17 +294,101 @@ function makeView(spec) {
     scene.add(l);
   }
 
-  const view = { spec, pane, renderer, scene, camera, controls, root: null,
-                 stats: pane.querySelector('.stats'), materials: [] };
-  views.push(view);
-  load(view);
-  return view;
+  const view = { kind: 'model', spec, slotIndex, pane, renderer, scene, camera, controls,
+                 root: null, stats: pane.querySelector('.stats'), materials: [], overlay: null };
+
+  // Render on demand: a moving camera is the only reason to repaint. See renderFrame()'s
+  // note on the GPU watchdog for why this viewer never runs a free-running 60fps loop.
+  controls.addEventListener('change', invalidate);
+  view.ovlBtn = pane.querySelector('.ovl');
+  view.ovlBtn.onclick = () => { pendingOverlay = view; ovlInput.click(); };
+
+  slots[slotIndex] = view;
+  rebuildViews();
+  resize();
+  loadModel(view);
 }
 
-function load(view) {
-  new GLTFLoader().load(view.spec.url, (gltf) => {
-    const root = gltf.scene;
+function mountImage(slotIndex, spec) {
+  const pane = makePane(slotIndex, spec, 'image',
+    `<button class="clear" title="remove">✕</button>`);
 
+  const wrap = document.createElement('div');
+  wrap.className = 'imgwrap';
+  const img = document.createElement('img');
+  img.src = spec.url;
+  wrap.appendChild(img);
+  pane.appendChild(wrap);
+
+  const view = { kind: 'image', spec, slotIndex, pane, wrap, img,
+                 stats: pane.querySelector('.stats') };
+
+  img.onload = () => { updateImageStats(view); };
+  img.onerror = () => { view.stats.textContent = 'FAILED'; setErr(`${spec.label}: could not decode image`); };
+  wireImagePanZoom(view);
+
+  slots[slotIndex] = view;
+  rebuildViews();
+}
+
+// Wheel to zoom, drag to pan, double-click to reset — so a source image can be inspected
+// at the same detail as the mesh beside it.
+function wireImagePanZoom(view) {
+  let scale = 1, tx = 0, ty = 0;
+  view.zoom = () => scale;
+  const apply = () => {
+    view.img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    updateImageStats(view);
+  };
+  view.wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    scale = Math.max(0.2, Math.min(20, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    apply();
+  }, { passive: false });
+  let drag = null;
+  view.wrap.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX - tx, y: e.clientY - ty };
+    view.wrap.classList.add('grabbing');
+    view.wrap.setPointerCapture(e.pointerId);
+  });
+  view.wrap.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    tx = e.clientX - drag.x; ty = e.clientY - drag.y; apply();
+  });
+  const end = () => { drag = null; view.wrap.classList.remove('grabbing'); };
+  view.wrap.addEventListener('pointerup', end);
+  view.wrap.addEventListener('pointercancel', end);
+  view.wrap.addEventListener('dblclick', () => { scale = 1; tx = 0; ty = 0; apply(); });
+}
+
+function updateImageStats(view) {
+  const z = view.zoom ? Math.round(view.zoom() * 100) : 100;
+  view.stats.textContent = `${view.img.naturalWidth}×${view.img.naturalHeight}px\n${z}% zoom`;
+}
+
+function clearSlot(slotIndex) {
+  const view = slots[slotIndex];
+  if (!view) return;
+  if (view.kind === 'model') {
+    removeOverlay(view);
+    view.controls.dispose();
+    view.renderer.dispose();
+    view.renderer.forceContextLoss();
+  }
+  view.pane.remove();
+  for (const u of (view.spec.revoke || [])) {
+    // Only revoke once the last view sharing this blob set is gone (model bundles share one).
+    const stillUsed = slots.some((s) => s && s !== view && s.spec.revoke === view.spec.revoke);
+    if (!stillUsed) URL.revokeObjectURL(u);
+  }
+  slots[slotIndex] = null;
+  rebuildViews();
+  invalidate();
+}
+
+function loadModel(view) {
+  const spec = view.spec;
+  const onLoad = (root) => {
     // Normalise to a unit box centred on the origin, so a size difference cannot
     // masquerade as a quality difference between panes.
     //
@@ -164,11 +423,75 @@ function load(view) {
       `${faces.toLocaleString()} faces\n${verts.toLocaleString()} verts (as stored)`;
     applyState();
     frame();
-  }, undefined, (e) => {
+  };
+  const onProgress = (e) => {
+    if (!e.lengthComputable) return;
+    view.stats.textContent = `loading… ${Math.round(e.loaded / e.total * 100)}%`;
+  };
+  const onError = (e) => {
     view.stats.textContent = 'FAILED';
-    document.getElementById('err').textContent = `${view.spec.url}: ${e.message || e}`;
-  });
+    setErr(`${spec.label}: ${e.message || e}`);
+  };
+
+  if (spec.ext === 'obj') {
+    new IndexedOBJLoader().load(spec.url, (root) => {
+      // o_voxel's GLB exporter maps native TRELLIS coordinates as
+      // (x, y, z) -> (x, z, -y). Apply the identical view-only transform so a raw OBJ
+      // and its processed GLB share an up axis and camera angle.
+      root.rotation.x = -Math.PI / 2;
+      onLoad(root);
+    }, onProgress, onError);
+  } else {
+    const loader = spec.manager ? new GLTFLoader(spec.manager) : new GLTFLoader();
+    loader.load(spec.url, (gltf) => onLoad(gltf.scene), onProgress, onError);
+  }
 }
+
+// --- alignment overlay (onion-skin) --------------------------------------------------
+
+let pendingOverlay = null;   // model view awaiting an image from the overlay picker
+
+function setOverlay(view, file) {
+  if (view.kind !== 'model') return;
+  removeOverlay(view);
+  const url = URL.createObjectURL(file);
+  const img = document.createElement('img');
+  img.className = 'model-overlay';
+  img.src = url;
+  img.style.opacity = '0.6';
+  view.pane.appendChild(img);
+
+  const bar = document.createElement('div');
+  bar.className = 'ovlbar';
+  const label = document.createElement('span');
+  label.className = 'lbl';
+  label.textContent = 'overlay';
+  const range = document.createElement('input');
+  range.type = 'range'; range.min = '0'; range.max = '100'; range.value = '60';
+  const pct = document.createElement('span');
+  pct.textContent = '60%';
+  range.oninput = () => { img.style.opacity = String(range.value / 100); pct.textContent = `${range.value}%`; };
+  const rm = document.createElement('button');
+  rm.textContent = '✕'; rm.title = 'remove overlay';
+  rm.onclick = () => removeOverlay(view);
+  bar.append(label, range, pct, rm);
+  view.pane.appendChild(bar);
+
+  view.overlay = { img, url, bar };
+  view.ovlBtn?.classList.add('on');
+  invalidate();
+}
+
+function removeOverlay(view) {
+  if (!view.overlay) return;
+  URL.revokeObjectURL(view.overlay.url);
+  view.overlay.img.remove();
+  view.overlay.bar.remove();
+  view.overlay = null;
+  view.ovlBtn?.classList.remove('on');
+}
+
+// --- shared 3D render state ----------------------------------------------------------
 
 function applyState() {
   for (const view of views) {
@@ -219,7 +542,20 @@ function frame() {
 
 function setAzimuth(deg) { azimuth = deg; frame(); }
 
-// --- wiring ---
+// --- chrome (drop zone, add button) --------------------------------------------------
+
+function updateChrome() {
+  const n = occupied();
+  // Fully empty -> the big centred drop zone. One or two loaded -> a ghost "add pane" in
+  // the remaining space so loading side by side is obvious. Full -> neither.
+  dropEl.classList.toggle('hidden', n > 0);
+  if (ghostEl) ghostEl.style.display = (n > 0 && n < MAX) ? 'flex' : 'none';
+  document.getElementById('addcount').textContent = `(${n}/${MAX})`;
+  document.getElementById('add').disabled = n >= MAX;
+}
+
+// --- wiring --------------------------------------------------------------------------
+
 const btn = (id) => document.getElementById(id);
 btn('cull').onclick = (e) => {
   state.cull = !state.cull;
@@ -240,13 +576,92 @@ btn('norm').onclick = (e) => {
   btn('flat').classList.remove('on');
   applyState();
 };
-btn('spin').onclick = (e) => { state.spin = !state.spin; e.target.classList.toggle('on', state.spin); };
+btn('spin').onclick = (e) => { state.spin = !state.spin; e.target.classList.toggle('on', state.spin); if (state.spin) invalidate(); };
 btn('sync').onclick = (e) => { state.sync = !state.sync; e.target.classList.toggle('on', state.sync); };
 for (const b of document.querySelectorAll('[data-az]')) {
   b.onclick = () => setAzimuth(Number(b.dataset.az));
 }
 
-specs.forEach(makeView);
+// File pickers. The ＋ button and drop-zone "browse" share one input; overlay images use
+// a second so they never fill a new slot by mistake.
+const fileInput = btn('file');
+const openPicker = () => fileInput.click();
+btn('add').onclick = openPicker;
+btn('browse').onclick = openPicker;
+fileInput.onchange = () => {
+  if (fileInput.files.length) handleFiles(fileInput.files);
+  fileInput.value = '';        // let the same file be re-picked later
+};
+const ovlInput = btn('ovlfile');
+ovlInput.onchange = () => {
+  if (pendingOverlay && ovlInput.files[0]) setOverlay(pendingOverlay, ovlInput.files[0]);
+  pendingOverlay = null;
+  ovlInput.value = '';
+};
+
+// The in-layout "＋ add pane" placeholder. It fills the empty space beside loaded panes;
+// clicking or dropping onto it loads the next model or source image side by side. `order`
+// keeps it visually last, after the real panes (which order by slot index).
+ghostEl = document.createElement('div');
+ghostEl.className = 'pane ghost';
+ghostEl.style.order = '99';
+ghostEl.style.display = 'none';
+ghostEl.innerHTML =
+  `<div class="inner"><div class="plus">＋</div>` +
+  `<div class="t">Add a model or source image</div>` +
+  `<div class="s">click to browse · or drop a file here</div></div>`;
+ghostEl.onclick = openPicker;
+ghostEl.addEventListener('dragover', (e) => { e.preventDefault(); ghostEl.classList.add('dragtarget'); });
+ghostEl.addEventListener('dragleave', () => ghostEl.classList.remove('dragtarget'));
+ghostEl.addEventListener('drop', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  ghostEl.classList.remove('dragtarget');
+  document.body.classList.remove('dragging');
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+panesEl.appendChild(ghostEl);
+
+// Drag-and-drop. Dropping onto a pane targets that pane (replace, or overlay an image on a
+// model); dropping elsewhere fills the next empty slots. dragover must preventDefault or
+// the browser navigates to the file.
+function wirePaneDrop(pane, slotIndex) {
+  pane.addEventListener('dragover', (e) => { e.preventDefault(); pane.classList.add('dragtarget'); });
+  pane.addEventListener('dragleave', () => pane.classList.remove('dragtarget'));
+  pane.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    pane.classList.remove('dragtarget');
+    document.body.classList.remove('dragging');
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files, slotIndex);
+  });
+}
+document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.classList.add('dragging'); });
+document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  document.body.classList.remove('dragging');
+  if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+});
+
+// --- initial load from the query string ----------------------------------------------
+// Assets come from ?a=path&b=path&c=path (+ la/lb/lc labels), relative to the repo root
+// that serve.py serves. An image extension makes an image pane; anything else, a model.
+// This keeps `serve.py --open` and browser automation working; drops layer on top.
+const q = new URLSearchParams(location.search);
+for (const key of ['a', 'b', 'c']) {
+  const url = q.get(key);
+  if (!url) continue;
+  // Repo-relative: anchor at the server root, not at /viewer/ where this page lives.
+  const resolved = /^(https?:|\/|blob:)/.test(url) ? url : '/' + url;
+  const ext = extOf(new URL(resolved, location.href).pathname);
+  const label = q.get('l' + key) || url.split('/').pop();
+  const idx = firstEmpty();
+  if (idx < 0) break;
+  if (IMAGE_EXTS.has(ext)) mountSlot(idx, { kind: 'image', url: resolved, label });
+  else mountSlot(idx, { kind: 'model', url: resolved, label, ext });
+}
+updateChrome();
+
+// --- sizing + render loop ------------------------------------------------------------
 
 function resize() {
   for (const view of views) {
@@ -260,27 +675,22 @@ function resize() {
   }
 }
 addEventListener('resize', () => { resize(); frame(); });
-resize();
 
-// Render on demand, not continuously.
-//
-// A permanent requestAnimationFrame loop re-renders three 300k-face textured meshes at
-// 60fps forever, even while nothing moves. That sustained GPU load tightens the macOS GPU
-// watchdog, which is the same watchdog that kills the remesh kernel mid-dispatch and, on
-// 2026-08-13, took the machine down. A viewer used to diagnose that failure must not be
-// contributing to it.
-for (const view of views) view.controls.addEventListener('change', invalidate);
+// One rendered frame. Advances spin, lets OrbitControls damping settle, mirrors the lead
+// camera when synced, draws every model pane, and reschedules itself *only* while
+// something is still moving. When nothing moves it simply stops -- no rAF stays queued, so
+// an idle viewer costs nothing. Image panes are static DOM and never enter this loop.
+function renderFrame() {
+  renderPending = false;
+  let moving = false;
 
-function tick() {
-  requestAnimationFrame(tick);
   if (state.spin) {
-    for (const v of views) if (v.root) v.root.rotation.y += 0.004;
-    dirty = true;
+    let spun = false;
+    for (const v of views) if (v.root) { v.root.rotation.y += 0.004; spun = true; }
+    if (spun) moving = true;      // never reschedule forever with nothing to spin
   }
   // Damping keeps easing for a few frames after input stops; honour it, then settle.
-  let moving = false;
   for (const v of views) if (v.controls.update()) moving = true;
-  if (!dirty && !moving) return;
 
   // One camera drives the rest, so a side-by-side comparison stays honest.
   if (state.sync && views.length > 1) {
@@ -293,9 +703,9 @@ function tick() {
     }
   }
   for (const v of views) v.renderer.render(v.scene, v.camera);
-  dirty = false;
+
+  if (moving) requestRender();
 }
-tick();
 window.__viewerInvalidate = invalidate;   // so automation can force a repaint
 window.__viewerReady = true;
 </script>

@@ -2,13 +2,20 @@
   "schema_version": 1,
   "created": "2026-08-14",
   "upstreams": {
+    "microsoft_hf_space": {
+      "url": "https://huggingface.co/spaces/microsoft/TRELLIS.2",
+      "commit": "ebf60b20fc5a4607f90a1c11c0aab0ceeda5429d",
+      "role": "primary executable parity specification"
+    },
     "microsoft_trellis2": {
       "url": "https://github.com/microsoft/TRELLIS.2.git",
-      "commit": "75fbf0183001ed9876c8dbb35de6b68552ee08bd"
+      "commit": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
+      "role": "official library and training-code comparison"
     },
     "shiv_trellis_mac": {
       "url": "https://github.com/shivampkumar/trellis-mac.git",
-      "commit": "0b8efd434f195e7225199b669165bc764d67a404"
+      "commit": "0b8efd434f195e7225199b669165bc764d67a404",
+      "role": "Mac compatibility inventory; not the source foundation"
     },
     "pedro_trellis2_apple": {
       "url": "https://github.com/pedronaugusto/trellis2-apple.git",

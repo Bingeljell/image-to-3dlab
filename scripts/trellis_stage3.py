@@ -171,7 +171,9 @@ def main() -> int:
 
     image = pipeline.preprocess_image(Image.open(image_path))
     cond_started = time.time()
-    cond = pipeline.get_cond(image, 1024)
+    # pipeline.run always wraps even a single image before get_cond; the extractor
+    # deliberately accepts a list of PIL images, not one PIL object.
+    cond = pipeline.get_cond([image], 1024)
     cond_seconds = time.time() - cond_started
     print(f"Image conditioning encoded in {cond_seconds:.1f}s", flush=True)
 

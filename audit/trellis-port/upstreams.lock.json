@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "created": "2026-08-14",
+  "upstreams": {
+    "microsoft_trellis2": {
+      "url": "https://github.com/microsoft/TRELLIS.2.git",
+      "commit": "75fbf0183001ed9876c8dbb35de6b68552ee08bd"
+    },
+    "shiv_trellis_mac": {
+      "url": "https://github.com/shivampkumar/trellis-mac.git",
+      "commit": "0b8efd434f195e7225199b669165bc764d67a404"
+    },
+    "pedro_trellis2_apple": {
+      "url": "https://github.com/pedronaugusto/trellis2-apple.git",
+      "commit": "6055b868734af6e12769d229d90580e775fae9f0"
+    },
+    "pedro_mtlbvh": {
+      "url": "https://github.com/pedronaugusto/mtlbvh.git",
+      "commit": "23f441c470ce1f537e1fd836f3ffb5b8245f7975"
+    },
+    "pedro_mtldiffrast": {
+      "url": "https://github.com/pedronaugusto/mtldiffrast.git",
+      "commit": "4668cd91cb6d27f5e264731f94a06841fbf7aab8"
+    },
+    "pedro_mtlgemm": {
+      "url": "https://github.com/pedronaugusto/mtlgemm.git",
+      "commit": "867aec8234299a7fe1ede7f802c8debe5a939a82"
+    },
+    "pedro_mtlmesh": {
+      "url": "https://github.com/pedronaugusto/mtlmesh.git",
+      "commit": "212079e55772cff3d648a21372392c37e0643f3b"
+    }
+  }
+}

@@ -61,6 +61,13 @@ def test_apply_is_idempotent():
     assert once == twice
 
 
+def test_apply_can_retarget_an_older_patch():
+    once = cap.apply(REAL, 1_000_000)
+    retargeted = cap.apply(once, 16_777_216)
+    assert cap.find_cap(retargeted) == 16_777_216
+    assert retargeted != once
+
+
 def test_apply_leaves_surrounding_code_intact():
     out = cap.apply(REAL, 300000)
     assert "import fast_simplification" in out
@@ -80,6 +87,5 @@ def test_patched_line_records_why():
     assert cap.MARKER in line
 
 
-def test_default_ceiling_matches_the_upstream_example():
-    """TRELLIS.2's README example uses decimation_target=1000000."""
-    assert cap.DEFAULT_CEILING == 1_000_000
+def test_default_ceiling_matches_the_official_demo_pre_simplification():
+    assert cap.DEFAULT_CEILING == 16_777_216

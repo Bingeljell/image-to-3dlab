@@ -51,7 +51,9 @@ from pathlib import Path
 MARKER = "i2l_face_cap"
 
 DEFAULT_TARGET = Path("vendor/trellis-mac/generate.py")
-DEFAULT_CEILING = 1_000_000  # the TRELLIS.2 README's own example decimation_target
+# The official demo simplifies the decoded mesh to 2**24 faces before to_glb. This remains
+# a safety ceiling while allowing the demo UI's multi-million-face export targets through.
+DEFAULT_CEILING = 16_777_216
 
 ORIGINAL = "target_faces = min(args.bake_target_faces, 200000, len(faces_np))"
 
@@ -84,15 +86,22 @@ def find_cap(source: str) -> int | None:
 
 
 def apply(source: str, ceiling: int) -> str:
-    """Return the patched source. Idempotent; raises if the anchor is gone."""
-    if is_patched(source):
-        return source
+    """Return the patched source. Idempotent and able to retarget an older patch."""
     current = find_cap(source)
     if current is None:
         raise SystemExit(
             "anchor not found: generate.py no longer contains the "
             "`min(args.bake_target_faces, <n>, len(faces_np))` pre-simplification. "
             "Check whether the Mac port changed it before assuming this patch is needed."
+        )
+    if is_patched(source):
+        if current == ceiling:
+            return source
+        return re.sub(
+            r"(target_faces\s*=\s*min\(\s*args\.bake_target_faces\s*,\s*)\d+(\s*,\s*len\(faces_np\)\s*\))",
+            rf"\g<1>{ceiling}\g<2>",
+            source,
+            count=1,
         )
     return re.sub(
         r"target_faces\s*=\s*min\(\s*args\.bake_target_faces\s*,\s*\d+\s*,\s*len\(faces_np\)\s*\)",
@@ -127,12 +136,12 @@ def main() -> int:
             print(f"NOT PATCHED (cap is {find_cap(source)})")
         return 0
 
-    if is_patched(source):
+    updated = apply(source, args.ceiling)
+    if updated == source:
         print(f"already patched, cap is {find_cap(source)} -- nothing to do")
         return 0
-
-    path.write_text(apply(source, args.ceiling))
-    print(f"lifted the face cap: 200000 -> {args.ceiling:,} in {path}")
+    path.write_text(updated)
+    print(f"lifted the face cap: {find_cap(source):,} -> {args.ceiling:,} in {path}")
     return 0
 
 

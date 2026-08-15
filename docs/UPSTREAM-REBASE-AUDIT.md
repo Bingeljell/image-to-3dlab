@@ -140,8 +140,29 @@ The material-specific numerical gates are expanded in
 ## Current verdict
 
 An official-Space-first reconstruction is feasible and preferable to continuing with
-untracked in-place patches. It is not yet safe to claim that a fresh source replay fixes
-material fidelity: the MPS SDPA replacement participates directly in Stage 3 and needs a
-numerical equivalence test, while the observed brown/green variation may still include
-normal sampling variance. The paper nevertheless narrows the likely fault domain to Stage-3
-conditioning/attention/precision rather than UV baking.
+untracked in-place patches. The first full-size attention experiment found a concrete limit
+in Pedro's fused kernel rather than a material-fidelity improvement:
+
+- the Snag shape has `22,894` sparse tokens in one sequence;
+- TRELLIS.2-4B uses `1,536 / 12 = 128` values per attention head;
+- Pedro's tiled Metal kernel accepts only head dimensions through `64`;
+- at `128` it silently selects a per-query kernel that loops over every key serially;
+- Pedro's parity tests cover head dimensions `32` and `64`, and its largest benchmark uses
+  `2,048` tokens per sequence.
+
+The real Stage-3 run completed zero of 12 steps in `29m44s` before interruption. The stack
+stopped at the first cross-attention prefix transfer, which is an MPS synchronization point;
+the preceding full self-attention dispatch was still outstanding. This is an unsupported
+production shape, not evidence that the sampler or Python process crashed.
+
+The clean port now uses sequence-wise PyTorch SDPA for TRELLIS.2-4B. It has the same
+block-diagonal equation as upstream FlashAttention without padding or cross-sequence mixing.
+A real-head-width MPS integration gate passed with maximum errors of `5.96046e-08` for sparse
+self-attention and `4.47035e-08` for DINO cross-attention. Selecting `metal_flash` with a
+head dimension above `64` now fails immediately instead of entering the serial fallback.
+
+This clears attention semantics as the likely cause for a normal single-image run. Material
+fidelity is still not proved: DINO drift is only about `1e-6` RMSE, while the hosted and local
+texture samples may differ because Stage 3 is generative. The next expensive gate is one
+official-Space-first Stage-3 sample through the validated SDPA path, followed by a latent
+comparison before decoding or GLB baking.

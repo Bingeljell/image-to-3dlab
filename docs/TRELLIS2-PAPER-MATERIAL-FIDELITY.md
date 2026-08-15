@@ -25,8 +25,9 @@ semantic separation.
 
 For Stage 3, a sparse DiT is conditioned on both DINOv3-L features from the source image and
 the generated geometry latent. Image conditioning enters through cross-attention; geometry
-is concatenated with the material model's input channels. This is the highest-risk area when
-replacing CUDA FlashAttention with MPS SDPA.
+is concatenated with the material model's input channels. This was the highest-risk area when
+replacing CUDA FlashAttention with MPS SDPA; the 128-wide self/cross-attention integration
+gate now matches the reference equation within `6e-8` on MPS.
 
 ## What the material contains
 
@@ -65,6 +66,23 @@ darker, glossier, or flatter, but it cannot recover absent spatial color informa
 Seed variance can change a generative result, but it is not a sufficient explanation until
 the same source image, preprocessing, checkpoint, pipeline type, sampler defaults, and seed
 have been shown to produce comparable conditioning and Stage-3 latents on CUDA and MPS.
+
+There is also an important seed-boundary detail. The official demo seeds once before all
+three stages. A Stage-3-only experiment that resets that same integer immediately before
+material sampling does **not** recreate the demo's texture noise. On the frozen Snag shape,
+the full-run and reset-before-Stage-3 texture latents have identical coordinates but only
+`0.7411` cosine similarity (`1.5494` mean absolute difference). Treat an independent texture
+seed as a new candidate, not a replay of the hosted seed.
+
+## Metal attention audit
+
+Pedro's fused attention is correct on its tested shapes but is not the production backend
+for TRELLIS.2-4B. Its optimized tiled kernel supports head dimensions through `64`; the model
+uses `128`. The fallback performs a serial key loop for each query and did not finish the
+first Snag material step in `29m44s` at `22,894` tokens. The clean port therefore uses
+sequence-wise PyTorch SDPA for the 4B model and fails fast if the unsupported fused path is
+selected. For a normal one-image job, this makes one direct SDPA call per attention layer—no
+padding is introduced.
 
 ## Cheap parity gates before another full run
 

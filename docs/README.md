@@ -9,7 +9,7 @@ Silicon (Lucian, controller and Flicker all baked). Old docs are preserved in
 | Doc | For |
 |---|---|
 | [STATE-OF-REPO-2026-08-16.md](STATE-OF-REPO-2026-08-16.md) | **Start here.** The two ports, how to run image→GLB, measured timings, what's next |
-| [MPS-BAKE-FIXES-2026-08-15.md](MPS-BAKE-FIXES-2026-08-15.md) | The decode→GLB fixes: the five bugs found and the assumptions that were wrong |
+| [MPS-BAKE-FIXES-2026-08-15.md](MPS-BAKE-FIXES-2026-08-15.md) | The full fix chain: bake path, venv relocation, env hygiene, instrumentation |
 | [legacy/](legacy/) | Everything written before the 2026-08-16 baseline (kept for history) |
 
 ## Current docs
@@ -17,7 +17,7 @@ Silicon (Lucian, controller and Flicker all baked). Old docs are preserved in
 | Doc | For |
 |---|---|
 | `STATE-OF-REPO-2026-08-16.md` | Two ports, run recipes, timings, open threads |
-| `MPS-BAKE-FIXES-2026-08-15.md` | Session fixes: pre-cap subprocess, verify/retry, CPU tensors, `--from-decode` |
+| `MPS-BAKE-FIXES-2026-08-15.md` | Session fixes: pre-cap subprocess, verify/retry, CPU tensors, `--from-decode`, viewer wiring |
 
 ## Conventions
 

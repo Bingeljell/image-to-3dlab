@@ -99,7 +99,7 @@ game engine. Measure holes with a **position-only** vertex merge
 | Read | For |
 |---|---|
 | `docs/STATE-OF-REPO-2026-08-16.md` | The two ports, run recipes, timings, open threads |
-| `docs/MPS-BAKE-FIXES-2026-08-15.md` | The decode→GLB fixes and the assumptions that were wrong |
+| `docs/MPS-BAKE-FIXES-2026-08-15.md` | The full fix chain: bake path, venv relocation, env hygiene, instrumentation |
 | `docs/legacy/` | Everything written before the 2026-08-16 baseline (history, including the old backends' docs) |
 
 ## Legacy backends

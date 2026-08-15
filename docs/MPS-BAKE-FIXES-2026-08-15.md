@@ -2,9 +2,10 @@
 
 **What this is.** The clean TRELLIS.2 port (`vendor/trellis-space-mac`) could sample latents
 (the 78-minute Lucian run was banked) but was **blocked at decode → GLB packaging**: cumesh's
-Metal `simplify` crashed on ~20M-face meshes. This session unblocked it. Every fix below was
-found by validating from first principles — several assumptions in the older docs were wrong,
-and the corrections are recorded here so the next session does not re-learn them.
+Metal `simplify` crashed on ~20M-face meshes. This session unblocked it and wired it into the
+web viewer. Every fix below was found by validating from first principles — several
+assumptions in the older docs were wrong, and the corrections are recorded here so the next
+session does not re-learn them.
 
 ---
 
@@ -89,6 +90,63 @@ context × input size, not memory alone. And at 20.2M input (Snag) it never misf
 | The crash was memory pressure | ❌ Partly wrong — o_voxel import context is the trigger; memory was secondary |
 | `fast_simplification` output can be trusted | ❌ Wrong above ~20M input faces — verify-and-retry added |
 | The doc's "CPU pre-cap" plan was sufficient | ❌ Needed subprocess isolation + verification the plan didn't anticipate |
+| The built venv can be moved between locations | ❌ Wrong — compiled kernels embed absolute rpaths; rebuild in place |
+| `setdefault` env is safe against stale inherited values | ❌ Wrong — the generator must own backend-selection vars |
+
+---
+
+## Follow-up findings (2026-08-15 evening → 2026-08-16)
+
+The five fixes above got the clean port producing GLBs. Wiring that same engine into the web
+viewer and relocating the built venv surfaced four more issues, each again found by
+measurement rather than assumption.
+
+### 8. A moved venv breaks `flex_gemm` via a stale `LC_RPATH` (the conv_none chain)
+
+The built venv was moved (audit worktree → repo root). `flex_gemm`'s compiled `_C.so`
+embeds an absolute `LC_RPATH` pointing at torch's `lib` directory **at the old path**, so
+`import flex_gemm` fails after a move. The generator's
+`setdefault("SPARSE_CONV_BACKEND", "flex_gemm")` then kept whatever the environment said —
+`"none"` — and trellis2 imports `conv_<CONV>`, so it died on `ModuleNotFoundError: no module
+named conv_none`, after which the model loader tried to re-download the checkpoint with a
+mangled repo id (the `RepositoryNotFoundError` 404). Three stacked symptoms, one root cause.
+Fixes:
+
+- `install_name_tool -delete_rpath <old> -add_rpath <new>` on the `.so` (delete-then-add in
+  one call — the load-command table has no spare headerpad for a plain add).
+- The generator now **hard-pins** `SPARSE_CONV_BACKEND=flex_gemm` and fails loudly with the
+  rebuild command if flex_gemm cannot import — `"none"` is not a real backend, so a silent
+  fallback only produces a confusing crash.
+
+**The real lesson: do not relocate a built venv — rebuild it in place.** A fresh clone's
+bootstrap builds at the final location and is unaffected.
+
+### 9. Stale environment variables silently select the wrong backend
+
+The web viewer's job subprocess inherits the server's environment; a stale
+`SPARSE_CONV_BACKEND` (or `ATTN_BACKEND`) exported in some earlier shell survived into the
+generator, and `setdefault` honoured it. Fixes: the generator hard-assigns
+`ATTN_BACKEND`/`SPARSE_ATTN_BACKEND`/`SPARSE_CONV_BACKEND` in `configure_environment`
+(`require_flex_gemm`), and the viewer strips backend-selection vars from the job subprocess
+env (`_job_env`).
+
+### 10. "Run setup" can re-break a moved build
+
+The web UI's Run-setup endpoint spawned a bootstrap even on a machine with a working build
+(the button is hidden in that case, but the endpoint was callable) — and a bootstrap rebuild
+over a **moved** venv re-bakes the stale torch rpath into `flex_gemm`'s `_C.so` (mtlgemm's
+`setup.py` adds `-Wl,-rpath` from the resolved torch path). The endpoint now refuses (409)
+when the build already exists, and setup runs are mutually exclusive with generation jobs.
+
+### 11. Silent death during shape-fine — instrumented, not yet explained
+
+A web-UI run died mid shape-fine with **no traceback, no crash report, no jetsam event and
+plenty of free RAM** — a silent exit. The exit code existed only in the in-memory SSE
+stream, so nothing was written to disk. The viewer now appends `generator exited with code
+<n>` (with the signal name for negative codes, e.g. SIGKILL/SIGTERM) and a `[rss X GB]`
+sample every 30 s to the job log, so a future silent death leaves a paper trail — the RSS
+trajectory distinguishes an OOM-style climb from a flat-then-vanished kill. At the time of
+writing the death remains unexplained.
 
 ---
 
@@ -120,10 +178,18 @@ budget, volume within 5%).
 
 ---
 
-## Files changed (audit worktree)
+## Files changed
 
 - `scripts/trellis_space_generate.py` — `_precap_subprocess`, `filter_out_of_range_faces`,
-  `_decode_mesh`, `_decode_and_cache`, `_bake_export`, `generate_from_decode`, and the
-  `--from-decode` / `--pre-cap` / `--no-save-decode` flags.
-- `tests/test_trellis_space_generate.py` — `precap_ratio` and `filter_out_of_range_faces`
-  tests (24 passing).
+  `_decode_mesh`, `_decode_and_cache`, `_bake_export`, `generate_from_decode`, the
+  `--from-decode` / `--pre-cap` / `--no-save-decode` flags, `require_flex_gemm` (hard-pins
+  the conv backend, fails loudly), and hardened `configure_environment`.
+- `tests/test_trellis_space_generate.py` — `precap_ratio`, `filter_out_of_range_faces` and
+  `require_flex_gemm` tests.
+- `viewer/generate_api.py` — repo-root wrapper paths, sanitized job env (`_job_env`),
+  weights-on-disk + setup status, Run-setup endpoint with the build-present guard, and the
+  exit-code / RSS instrumentation.
+- `viewer/index.html` — Generate tab Setup card (build + weights checks, Run-setup button
+  with live log).
+- `tests/test_viewer_generate_api.py` — env hygiene, weights-on-disk, setup availability,
+  signal-hint and RSS-probe tests.

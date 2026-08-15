@@ -8,7 +8,7 @@ clean port's decode→GLB bake. Previous snapshot and all older docs: [`legacy/`
 **The clean TRELLIS.2 port produces GLBs end-to-end on Apple Silicon.** Three assets baked in
 one session: Lucian, controller, Flicker. The decode→GLB blocker (cumesh Metal simplify
 crashing on ~20M-face meshes) is fixed — see [MPS-BAKE-FIXES-2026-08-15.md](MPS-BAKE-FIXES-2026-08-15.md)
-for the five bugs found and the assumptions that were wrong.
+for the full fix chain (bake path, venv relocation, env hygiene) and the assumptions that were wrong.
 
 ## The two ports
 

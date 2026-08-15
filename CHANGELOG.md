@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still read duller than their source art.
 
 ### Fixed
+- **Clean TRELLIS.2 port now produces GLBs end-to-end on Apple Silicon.** The decode→GLB
+  bake was blocked by cumesh Metal simplify crashing on ~20M-face meshes. The clean-port
+  wrapper (`vendor/upstream-audit-worktree/scripts/trellis_space_generate.py`) now CPU
+  pre-caps the decoded mesh with `fast_simplification` — in a subprocess (the C extension
+  crashes in any process that imported o_voxel's Metal/OpenCV deps), with verify-and-retry
+  (its output is nondeterministically corrupt above ~20M input faces) and a post-filter for
+  the residual corrupt indices that segfaulted mtlbvh's BVH build — hands `to_glb` CPU
+  tensors, frees the 4B pipeline before the bake, and caches the decoded mesh so
+  `--from-decode` re-bakes without the model or a re-decode. First assets: Lucian,
+  controller, Flicker (Flicker geometrically matches the HF demo control). See
+  `docs/MPS-BAKE-FIXES-2026-08-15.md`.
+- **`viewer/serve.py` imports `generate_api` robustly.** The sibling import only resolved
+  when run as a script; importlib-loaded by the test suite it broke collection.
 - **The 200,000-face cap that was destroying 94% of every decode**
   (`scripts/patch_trellis_face_cap.py`). The Mac port pre-simplified the decoded mesh —
   ~3.2 million triangles — down to 200k with a crude decimator *before* o_voxel's

@@ -27,6 +27,9 @@ Consequences you must know about:
 
 | Read | For |
 |------|-----|
+| [docs/STATE-OF-REPO-2026-08-16.md](docs/STATE-OF-REPO-2026-08-16.md) | **Start here.** The two TRELLIS ports (old `trellis-mac` vs clean `trellis-space-mac`), how to run image→GLB on the clean port, and measured timings |
+| [docs/MPS-BAKE-FIXES-2026-08-15.md](docs/MPS-BAKE-FIXES-2026-08-15.md) | The decode→GLB fixes: five bugs found and the assumptions that were wrong |
+| [docs/legacy/](docs/legacy/) | Everything written before the 2026-08-16 baseline, preserved for history |
 | [docs/self-inflicted-damage.md](docs/self-inflicted-damage.md) | The two defects, exact code, and what they invalidate |
 | [docs/how-it-works-and-where-we-broke-it.md](docs/how-it-works-and-where-we-broke-it.md) | Plain-language walkthrough, no 3D knowledge assumed |
 | [docs/upstream-contributions.md](docs/upstream-contributions.md) | Both bugs drafted for the port maintainers — **unsent**, checklists first |
@@ -45,7 +48,7 @@ before diagnosing. And judge assets **backface-culled**, by eye, not by a metric
 | `scripts/` | Bootstrap + patch scripts, Blender render helper |
 | `workflows/` | ComfyUI API-format workflow JSON for the Hunyuan `--quality` path |
 | `tests/` | pytest suite (currently `provenance`, `comfyui_backend`) |
-| `docs/` | Design and reference docs — see `docs/README.md` |
+| `docs/` | Current docs — see `docs/README.md`; legacy docs live in `docs/legacy/` |
 | `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts. `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels). Ignored because it is someone else's repo at multi-GB scale; the cost is that our patches there vanish on re-bootstrap, so they live in `scripts/patch_*.py` |
 | `output/` | Generated assets + `.provenance.json` sidecars (git-ignored) |
 

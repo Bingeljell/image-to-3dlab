@@ -15,7 +15,7 @@ Everything runs on your Mac; nothing is uploaded to a cloud service.
   provenance sidecar (input/output hashes, settings, license classification, component
   licenses).
 - **Preview in Blender** with a one-command render script (matte or metallic lighting).
-- **Rig and animate a model** — *in progress*; see [`docs/rigging-plan.md`](docs/rigging-plan.md).
+- **Rig and animate a model** — *in progress*; see [`docs/legacy/rigging-plan.md`](docs/legacy/rigging-plan.md).
 
 ## The three backends
 
@@ -72,7 +72,7 @@ steps are what make it look like a thing rather than a shape.
 
 **Only step 1 depends on the backend.** Steps 2–7 need nothing but a GLB with UVs and a
 base colour texture, so they apply equally to SF3D or Hunyuan output. Full detail,
-worked commands, and the traps are in **[`docs/finishing.md`](docs/finishing.md)**.
+worked commands, and the traps are in **[`docs/legacy/finishing.md`](docs/legacy/finishing.md)**.
 
 Two things to know before you start:
 
@@ -124,7 +124,7 @@ retracing the commands. The proposed schema v2 addition:
 ```
 
 Tracked with the rest of the packaging work — see
-[`docs/finishing.md`](docs/finishing.md) ("Not done yet").
+[`docs/legacy/finishing.md`](docs/legacy/finishing.md) ("Not done yet").
 
 ## Prerequisites
 
@@ -228,7 +228,7 @@ automatically (`TrellisOptions.fix_winding`). Always judge an asset **backface-c
 glTF materials are double-sided by default and will hide a hollow mesh completely.
 
 Both defects, and the list of earlier conclusions they invalidate, are written up in
-[docs/self-inflicted-damage.md](docs/self-inflicted-damage.md).
+[docs/legacy/self-inflicted-damage.md](docs/legacy/self-inflicted-damage.md).
 
 Without full Xcode and its Metal Toolchain this uses the port's supported KDTree/PyTorch
 fallback. Install the required compiler component with:

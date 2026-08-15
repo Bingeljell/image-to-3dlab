@@ -1,38 +1,31 @@
-# Docs
+# Documentation
 
-Design and reference documentation for the image-to-3D lab.
+**Baseline:** 2026-08-16 — the clean TRELLIS.2 port now produces GLBs end-to-end on Apple
+Silicon (Lucian, controller and Flicker all baked). Old docs are preserved in
+[`legacy/`](legacy/README.md); everything here describes the current state.
 
-| Doc | What it covers |
-|-----|----------------|
-| [RESUME-HERE-2026-08-12.md](RESUME-HERE-2026-08-12.md) | **Start every session here.** Full state, what was tried and failed, the ordered plan, and the standing rules |
-| [how-it-works-and-where-we-broke-it.md](how-it-works-and-where-we-broke-it.md) | **Plain-language walkthrough, no 3D knowledge assumed.** What each generation stage does, the post-processing the demo page doesn't show, and the two places our pipeline broke it |
-| [upstream-contributions.md](upstream-contributions.md) | **Drafts, unsent.** Two bugs found in the Mac port: the 200k pre-simplification, and remeshing producing a lattice. Evidence, proposed fixes, pre-submission checklists |
-| [self-inflicted-damage.md](self-inflicted-damage.md) | The same two defects for someone who already knows the pipeline: exact code, measurements, and the conclusions they invalidate. **Read first** Two defects our own pipeline added — a 200k face cap that destroyed 94% of the decode, and meshes shipped inside-out — and the list of earlier conclusions they invalidate |
-| [baseline.md](baseline.md) | Was **start here**, but every figure in it was measured on damaged meshes; needs re-running. Where Flicker, Snag and the Fox actually stand as of 2026-08-12, all measured the same way. Supersedes older per-experiment notes where they disagree |
-| [training-trellis.md](training-trellis.md) | Fine-tuning TRELLIS.2 on our own art — trainable components, hardware and data requirements, why it's parked, and what to start collecting now |
-| [architecture.md](architecture.md) | How the CLI, backends, and provenance layer fit together |
-| [finishing.md](finishing.md) | **The other six steps:** AO, normal/roughness, feature masks and gloss. Why the recipe is per-subject, and the traps |
-| [rigging-plan.md](rigging-plan.md) | Plan for the "animatable" lane: rigging a generated model and making it walk |
-| [fidelity-plan.md](fidelity-plan.md) | Eval of how to close the output-quality gap to hosted services (cascade modes, geometry gate, multi-view) |
-| [fidelity-explained.md](fidelity-explained.md) | Teaching write-up: why fine detail looks garbled, and the base-mesh / materials / VFX three-layer model of a game character |
-| [labelling-pipeline.md](labelling-pipeline.md) | Painted masks → part-aware meshes: how to tell a generated blob which bits are leaves, and the wind demo it unlocks |
-| [subject-profiles.md](subject-profiles.md) | Proposal: per-subject-class defaults and optional stages, since settings measurably do not transfer between subjects |
-| [decode-cleanup-disabled.md](decode-cleanup-disabled.md) | **Root defect:** the port stubs out `fill_holes`/`remove_faces`/`simplify`, so every asset was UV-unwrapped from an uncleaned mesh. Corrects three earlier docs |
-| [open-questions.md](open-questions.md) | Roadblocks we hit but do not yet understand, and the experiment that would settle each |
-| [nikita-sidequest.md](nikita-sidequest.md) | Session log: T-pose human → turntable + rigged "cheers" animation, including the dead ends |
+## Read this first
 
-## What goes here
+| Doc | For |
+|---|---|
+| [STATE-OF-REPO-2026-08-16.md](STATE-OF-REPO-2026-08-16.md) | **Start here.** The two ports, how to run image→GLB, measured timings, what's next |
+| [MPS-BAKE-FIXES-2026-08-15.md](MPS-BAKE-FIXES-2026-08-15.md) | The decode→GLB fixes: the five bugs found and the assumptions that were wrong |
+| [legacy/](legacy/) | Everything written before the 2026-08-16 baseline (kept for history) |
 
-- **Design notes** — why a piece works the way it does (e.g. why Hunyuan is ComfyUI-only).
-- **Reference** — schemas (run manifest, provenance sidecar), backend setup deep-dives.
-- **Runbooks** — reproducible steps for a run or a bootstrap that outgrows the README.
+## Current docs
 
-Keep the top-level `README.md` as the quickstart; move anything longer-form here and
-link to it.
-- [pipeline-vs-manual.md](pipeline-vs-manual.md) — what generalises to the next character, what is manual per asset, and what was only ever this fox
-- [remesh-cage-investigation.md](remesh-cage-investigation.md) — why `remesh=True` yields a wireframe: four causes eliminated by measurement (hashmap, GPU watchdog, simplify, winding), and the surviving one
-- [hunyuan-eval-2026-08-13.md](hunyuan-eval-2026-08-13.md) — **current** Hunyuan position, from first principles: control-GLB forensics, the abandoned-upstream picture, and why the first fix is ours (a wrong material default), not Hunyuan's
-- [hunyuan-paint-plan.md](hunyuan-paint-plan.md) — **superseded**; kept for the reasoning behind the paint-on-existing-geometry experiment
-- [hunyuan-port-notes.md](hunyuan-port-notes.md) — a dev's 11-category CUDA→MPS port list (April 2026); evaluated in the eval above
-- [texture-quality-roadmap.md](texture-quality-roadmap.md) — the path to Meshy-grade output: region splitting, normal maps, SD texture refinement, quad remesh
-- [trellis-prescribed-flow.md](trellis-prescribed-flow.md) — the upstream contract and how far our usage deviates: unused remesh and UV-clustering controls, and a texture_size cap that is only in the wrapper
+| Doc | For |
+|---|---|
+| `STATE-OF-REPO-2026-08-16.md` | Two ports, run recipes, timings, open threads |
+| `MPS-BAKE-FIXES-2026-08-15.md` | Session fixes: pre-cap subprocess, verify/retry, CPU tensors, `--from-decode` |
+
+## Conventions
+
+- **Conventional Commits**, one logical change per commit.
+- **Keep a Changelog** in `CHANGELOG.md`; every user-facing change lands under `[Unreleased]`.
+- **Test first.** Generation runs cost 15–80 minutes; unit tests are nearly free. Import the
+  real module; never re-derive a copy.
+- **Judge assets backface-culled, by eye** — glTF is double-sided, so a hollow mesh looks fine
+  in preview and fails only in a game engine.
+- **Measure holes with a position-only merge** (`merge_vertices(merge_tex=True, merge_norm=True)`);
+  UV/normal seams otherwise read as fake holes.

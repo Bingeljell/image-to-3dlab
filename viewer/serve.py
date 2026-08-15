@@ -16,9 +16,14 @@ from __future__ import annotations
 
 import argparse
 import socketserver
+import sys
 import urllib.parse
 import webbrowser
 from pathlib import Path
+
+# Sibling import: works when run as `python viewer/serve.py` (script dir on sys.path)
+# and when loaded by the test suite via importlib (script dir not on sys.path).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from generate_api import Handler
 

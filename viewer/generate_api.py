@@ -218,7 +218,8 @@ PHASE_LABELS = {
 TQDM_RE = re.compile(
     r"(?P<label>[^:]+):\s+(?P<pct>\d+)%.*?"
     r"(?P<step>\d+)/(?P<total>\d+)\s+\[(?P<elapsed>\d+:\d+)"
-    r"(?:<(?P<remain>\d+:\d+))?,?\s*(?P<rate>[\d.]+)s/it\]"
+    r"(?:<(?P<remain>\d+:\d+))?,?\s*"
+    r"(?P<rate>[\d.]+)(?P<rate_unit>s/it|it/s)\]"
 )
 SECONDS_RE = re.compile(r"(?:in|Total:)\s*(?P<seconds>[\d.]+)s?")
 JOB_RE = re.compile(r"^[0-9a-f]{32}$")
@@ -243,6 +244,7 @@ def parse_tqdm_line(line: str) -> dict[str, Any] | None:
     match = TQDM_RE.search(line.strip())
     if not match:
         return None
+    rate = float(match.group("rate"))
     return {
         "label": match.group("label").strip(),
         "pct": int(match.group("pct")),
@@ -250,7 +252,7 @@ def parse_tqdm_line(line: str) -> dict[str, Any] | None:
         "total": int(match.group("total")),
         "elapsed": _seconds(match.group("elapsed")),
         "remain": _seconds(match.group("remain")),
-        "s_per_it": float(match.group("rate")),
+        "s_per_it": rate if match.group("rate_unit") == "s/it" else 1.0 / rate,
     }
 
 
@@ -465,12 +467,14 @@ def _emit_banner(job: Job, line: str) -> None:
     elif "pipeline loaded" in lower:
         event = {"phase": "load", "stage_pct": 100, "overall_pct": _overall_pct("load", 100),
                  "message": line.strip()}
-    elif "decode_latent done" in lower:
+    elif "decode_latent" in lower and "done in" in lower:
         event = {"phase": "decode", "stage_pct": 100, "overall_pct": _overall_pct("decode", 100),
                  "message": "Decode complete"}
-    elif "to_glb + export done" in lower:
+    elif "to_glb + export" in lower and "done in" in lower:
         event = {"phase": "bake", "stage_pct": 100, "overall_pct": _overall_pct("bake", 100),
                  "message": "GLB export complete"}
+    elif "pre-cap done" in lower:
+        event = {"phase": "bake", "message": "Pre-cap complete, starting to_glb…"}
     if event:
         job.emit(event)
 

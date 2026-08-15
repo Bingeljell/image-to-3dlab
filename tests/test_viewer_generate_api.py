@@ -144,3 +144,26 @@ def test_process_rss_gb_returns_zero_on_failure(monkeypatch):
 
     monkeypatch.setattr(api.subprocess, "run", boom)
     assert api._process_rss_gb(999999) == 0.0
+
+
+# --- stage visibility: to_glb tqdm (it/s) and the decode/bake banner lines ---
+def test_parse_tqdm_line_accepts_it_per_second_rate():
+    event = api.parse_tqdm_line("Extracting GLB:  17%|█▋        | 1/6 [00:00<00:03,  1.59it/s]")
+    assert event["label"] == "Extracting GLB"
+    assert event["pct"] == 17 and event["step"] == 1 and event["total"] == 6
+    assert event["remain"] == 3.0
+    assert abs(event["s_per_it"] - 1.0 / 1.59) < 1e-6
+
+
+def test_parse_tqdm_line_keeps_s_per_it_format():
+    event = api.parse_tqdm_line("Sampling shape SLat:  33%|███▎ | 4/12 [07:59<15:58, 119.80s/it]")
+    assert event["s_per_it"] == 119.8
+
+
+def test_emit_banner_fires_decode_and_bake(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {})
+    api._emit_banner(job, "decode_latent (+face filter) done in 38.3s")
+    assert job.events[-1]["phase"] == "decode"
+    assert job.events[-1]["overall_pct"] == api._overall_pct("decode", 100)
+    api._emit_banner(job, "bake (pre-cap + to_glb + export) done in 442.5s -> /x/out.glb")
+    assert job.events[-1]["phase"] == "bake"

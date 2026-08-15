@@ -100,6 +100,42 @@ def test_configure_environment_sets_sdpa(monkeypatch, tmp_path):
     assert os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] == "1"
 
 
+def test_configure_environment_overrides_stale_attention_env(monkeypatch, tmp_path):
+    """A stale inherited ATTN_BACKEND must not silently win (the conv_none crash class)."""
+    import os
+
+    monkeypatch.setenv("ATTN_BACKEND", "flash_attn")
+    gen.configure_environment(tmp_path, "sdpa")
+    assert os.environ["ATTN_BACKEND"] == "sdpa"
+
+
+def test_require_flex_gemm_pins_flex_gemm(monkeypatch):
+    import os
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "flex_gemm", types.ModuleType("flex_gemm"))
+    monkeypatch.delenv("SPARSE_CONV_BACKEND", raising=False)
+    gen.require_flex_gemm()
+    assert os.environ["SPARSE_CONV_BACKEND"] == "flex_gemm"
+
+
+def test_require_flex_gemm_raises_instead_of_invalid_none(monkeypatch):
+    """flex_gemm is mandatory on MPS; 'none' is not a real backend, so fail loudly."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def broken_import(name, *args, **kwargs):
+        if name == "flex_gemm":
+            raise ImportError("dlopen: library not loaded, stale rpath")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", broken_import)
+    with pytest.raises(RuntimeError, match="flex_gemm"):
+        gen.require_flex_gemm()
+
+
 # --- filesystem verification ---
 def test_verify_paths_flags_missing_build(tmp_path):
     problems = gen.verify_paths(tmp_path / "does-not-exist")

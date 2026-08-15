@@ -172,14 +172,44 @@ def build_manifest(
 
 
 def configure_environment(vendor_root: Path, sparse_attn_backend: str) -> None:
-    """Set the Mac backend env BEFORE any torch/TRELLIS import. Idempotent (setdefault)."""
+    """Pin the Mac backend env BEFORE any torch/TRELLIS import.
+
+    ATTN_BACKEND / SPARSE_ATTN_BACKEND are hard-assigned, not setdefault: a stale value in
+    the inherited environment would silently select a different backend. (The web UI once
+    inherited SPARSE_CONV_BACKEND=none and the pipeline died importing the nonexistent
+    conv_none module.) sdpa is the validated backend; --sparse-attn-backend is the only way
+    to change it.
+    """
+    os.environ["ATTN_BACKEND"] = "sdpa"
+    os.environ["SPARSE_ATTN_BACKEND"] = sparse_attn_backend
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-    os.environ.setdefault("ATTN_BACKEND", "sdpa")
-    os.environ.setdefault("SPARSE_ATTN_BACKEND", sparse_attn_backend)
     os.environ.setdefault(
         "FLEX_GEMM_AUTOTUNE_CACHE_PATH",
         str(vendor_root / "cache" / "flex_gemm_autotune.json"),
     )
+
+
+def require_flex_gemm() -> None:
+    """Import flex_gemm and pin SPARSE_CONV_BACKEND, or fail with an actionable error.
+
+    flex_gemm is the only Metal sparse-conv backend in this port (spconv/torchsparse are
+    CUDA). 'none' is NOT a valid backend: trellis2 imports ``conv_<CONV>`` and there is no
+    conv_none module, so a silent fallback to 'none' dies mid-load and the model loader
+    then tries to re-download checkpoints with a mangled repo id. Fail loudly instead, so
+    the real problem (e.g. a moved venv whose compiled kernels embed stale rpaths) is
+    visible at load time.
+    """
+    try:
+        import flex_gemm  # noqa: F401
+    except (ImportError, RuntimeError) as exc:
+        raise RuntimeError(
+            "flex_gemm (the only Metal sparse-conv backend in this port) failed to import: "
+            f"{exc}. 'none' is not a valid SPARSE_CONV_BACKEND (no conv_none module exists). "
+            "If the built venv was moved or relocated, its compiled kernels embed absolute "
+            "rpaths; rebuild it in place: uv pip install --python .venv/bin/python "
+            "--no-build-isolation --force-reinstall deps/mtlgemm"
+        ) from exc
+    os.environ["SPARSE_CONV_BACKEND"] = "flex_gemm"
 
 
 def verify_paths(vendor_root: Path) -> list[str]:
@@ -497,11 +527,7 @@ def load_pipeline(vendor_root: Path, sparse_attn_backend: str, load_rembg: bool)
     stubs = vendor_root / "stubs"
     if stubs.is_dir():
         sys.path.append(str(stubs))
-    try:
-        import flex_gemm  # noqa: F401
-        os.environ.setdefault("SPARSE_CONV_BACKEND", "flex_gemm")
-    except (ImportError, RuntimeError):
-        os.environ.setdefault("SPARSE_CONV_BACKEND", "none")
+    require_flex_gemm()
 
     import torch
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline

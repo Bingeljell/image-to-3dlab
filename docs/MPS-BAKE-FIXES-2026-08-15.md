@@ -148,6 +148,15 @@ sample every 30 s to the job log, so a future silent death leaves a paper trail 
 trajectory distinguishes an OOM-style climb from a flat-then-vanished kill. At the time of
 writing the death remains unexplained.
 
+### 12. `fast_simplification` is flaky below the "20M" note too
+
+During a web-UI controller run the pre-cap **SIGBUS'd in a clean subprocess at 9.97M input
+faces** — well under the ~20M note in fixes 4/5. Two attempts crashed, attempt 3 succeeded
+(the verify-and-retry doing exactly what it was built for). The reliability is not a clean
+size cutoff; it is content-and-size-dependent (the controller's dense small features create
+many simultaneous collapse candidates). The retry loop is a safety net, not a cure — a
+deterministic decimator would be the long-term replacement.
+
 ---
 
 ## Results (measured)

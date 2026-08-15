@@ -5,10 +5,27 @@ clean port's decode→GLB bake. Previous snapshot and all older docs: [`legacy/`
 
 ## The headline
 
-**The clean TRELLIS.2 port produces GLBs end-to-end on Apple Silicon.** Three assets baked in
-one session: Lucian, controller, Flicker. The decode→GLB blocker (cumesh Metal simplify
-crashing on ~20M-face meshes) is fixed — see [MPS-BAKE-FIXES-2026-08-15.md](MPS-BAKE-FIXES-2026-08-15.md)
-for the full fix chain (bake path, venv relocation, env hygiene) and the assumptions that were wrong.
+**The clean TRELLIS.2 port produces GLBs end-to-end on Apple Silicon — from the web UI.**
+Three assets baked in one session (Lucian, controller, Flicker) via the CLI, and the
+controller was then generated entirely through the browser (Generate tab + Setup card).
+The decode→GLB blocker (cumesh Metal simplify crashing on ~20M-face meshes) is fixed —
+see [MPS-BAKE-FIXES-2026-08-15.md](MPS-BAKE-FIXES-2026-08-15.md) for the full fix chain
+(bake path, venv relocation, env hygiene) and the assumptions that were wrong.
+
+## Resume here (2026-08-16 evening)
+
+- **Web UI works end-to-end** (`python viewer/serve.py` → Generate → Setup card → run).
+  The controller generated through the browser completed cleanly: 289,522 faces, 600
+  holes, correct volume.
+- **The open quality issue is texture, not geometry.** The controller's buttons (ABXY) came
+  out glossy black instead of coloured, and the model reads darker than the source.
+  Stage-3 material generation is the suspect (see "Known gaps" — the seed-search lever is
+  ready).
+- **fast_simplification is flakier than the docs said**: it also SIGBUS'd at 9.97M input
+  faces (below the "20M" note) in a clean subprocess — the verify-and-retry caught it
+  (attempt 3 succeeded). It is a safety net, not a cure.
+- **The viewer now shows Decode/Bake stage progress** (tqdm `it/s` parsing + banner fix;
+  committed `1607bfd`, viewer restarted). Next run will display all stages.
 
 ## The two ports
 
@@ -68,7 +85,8 @@ corrupt indices) → Metal `to_glb` (CPU tensors) → export. Full reasoning in
 | Asset | Tokens | Sampling | Decode | Bake | Total | Holes |
 |---|---|---|---|---|---|---|
 | Lucian | 21,765 | 78 min (banked) | 189 s | 443 s | ~12 min from cache | 6,733 (86% pinholes) |
-| Controller | ~12k | 23.5 min | 38 s | 141 s | 27.9 min | 591 |
+| Controller (CLI) | ~12k | 23.5 min | 38 s | 141 s | 27.9 min | 591 |
+| Controller (web UI) | ~12k | ~23 min | ~40 s | ~10 min (heavier remesh) | ~35 min | 600 |
 | Flicker | ~8k | 10.6 min | 24 s | 85 s | 13.8 min | 561 |
 
 Flicker's clean-port output is geometrically near-identical to the HF demo control
@@ -81,17 +99,22 @@ tokens.
 
 ## Known gaps / open threads
 
-1. **Holes** (561–6,733 vs the HF demo's 1–14): mostly pinholes; the pre-cap + DC-remesh path
-   loses some fidelity vs running `to_glb` on the full mesh (CUDA can). Worth a targeted look.
-2. **Texture drift** vs the HF demo: Stage 3 runs at guidance 1.0 (pure sampling), so texture
-   is seed-sensitive; MPS RNG ≠ CUDA RNG at the same seed. Frozen-shape seed search
-   (`scripts/trellis_stage3.py`) is the lever.
+1. **Texture fidelity vs the source (the current priority).** Two concrete symptoms from the
+   web-UI controller run: the model reads **darker** than the source, and the coloured ABXY
+   buttons came out **glossy black**. Stage 3 (tex SLat) runs at guidance 1.0 — pure
+   sampling, so the result is seed/RNG-sensitive (MPS RNG ≠ CUDA RNG at the same seed).
+   The frozen-shape seed search (`scripts/trellis_stage3.py`, ~8 min per Stage-3-only run on
+   cached latents) is the ready lever; a seed sweep on the cached controller latents is the
+   obvious first experiment.
+2. **Holes** (561–6,733 vs the HF demo's 1–14): mostly pinholes; the pre-cap + DC-remesh path
+   loses some fidelity vs running `to_glb` on the full mesh (CUDA can).
 3. **Speed**: the real lever is extending Pedro's fused `mtlgemm` kernel head-dim 64 → 128
    (TRELLIS.2-4B uses 128); multiplier grows with n².
-4. **Old-port CLI**: `pipeline.py` still defaults to `vendor/trellis-mac`; the old lane
+4. **fast_simplification reliability**: flaky in content-dependent ways below the documented
+   "20M" note (SIGBUS at 9.97M on the controller decode). The verify-and-retry subprocess
+   handles it; a deterministic decimator would be the long-term fix.
+5. **Old-port CLI**: `pipeline.py` still defaults to `vendor/trellis-mac`; the old lane
    (rebake/restore) still produced the pre-baseline references.
-5. **Housekeeping**: repo cleanup is ongoing (this baseline); `vendor/` stays git-ignored, so
-   the clean-port patch state lives in the replayable `scripts/patch_trellis_*` scripts.
 
 ## Session assets
 

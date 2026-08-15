@@ -488,7 +488,7 @@ def _process_rss_gb(pid: int) -> float:
     try:
         kb = subprocess.run(
             ["ps", "-o", "rss=", "-p", str(pid)],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, check=False,  # best-effort probe
         ).stdout.strip()
         return round(int(kb) / (1024 ** 2), 2) if kb.isdigit() else 0.0
     except (OSError, ValueError, subprocess.TimeoutExpired):

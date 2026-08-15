@@ -113,6 +113,10 @@
   .setup-check .warn { color: #f5d742; }
   .setup-check code { background: #0d0f12; border: 1px solid #303744; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
   .setup-check .hint { opacity: .7; }
+  #setup-run { margin-top: 10px; }
+  #setup-run-btn { background: #2f5233; border-color: #3f6d45; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+  #setup-run-btn:disabled { opacity: .6; cursor: default; }
+  #setup-log { display: none; margin: 8px 0 0; padding: 8px; max-height: 220px; overflow: auto; background: #0d0f12; border: 1px solid #303744; border-radius: 6px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #cfe3ff; }
   #generate-progress-box { flex: 1; min-height: 450px; }
   #generate-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   #generate-overall-label { color: #cfe3ff; }
@@ -181,6 +185,10 @@
     <h2>Setup</h2>
     <p>Machine readiness for the clean TRELLIS.2 port. Serve with <code>python viewer/serve.py</code> and open <code>http://127.0.0.1:8777/viewer/index.html</code>.</p>
     <div id="setup-checks" style="min-height:20px">checking…</div>
+    <div id="setup-run" hidden>
+      <button id="setup-run-btn">Run setup — bootstrap the clean-port build (~1h)</button>
+      <pre id="setup-log"></pre>
+    </div>
   </div>
   <div class="generate-grid">
     <div class="generate-card">
@@ -1023,11 +1031,29 @@ async function refreshSetup() {
         : '<div class="setup-check"><span class="warn">⚠</span><span>' + repo.label + '</span><code>not on disk — first run downloads</code></div>');
     }
     el.innerHTML = rows.join('');
+    const runBox = g('setup-run');
+    runBox.hidden = !!(s.build && s.build.present);
+    if (runBox.hidden) g('setup-run-btn').disabled = false;
   } catch (e) {
     el.innerHTML = '<div class="setup-check"><span class="bad">✗</span><span>Setup check failed: ' + e + '</span></div>';
   }
   updateGenerateButton();
 }
+g('setup-run-btn').onclick = async () => {
+  const btn = g('setup-run-btn'), log = g('setup-log');
+  btn.disabled = true; log.style.display = 'block'; log.textContent = 'starting bootstrap…\n';
+  try {
+    const res = await fetch('/api/setup/run', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) { log.textContent += (data.error || res.statusText) + '\n'; btn.disabled = false; return; }
+    const source = new EventSource(data.events_url);
+    source.onmessage = (e) => {
+      const ev = JSON.parse(e.data);
+      if (ev.message) { log.textContent += ev.message + '\n'; log.scrollTop = log.scrollHeight; }
+      if (ev.phase === 'setup_done') { source.close(); refreshSetup(); }
+    };
+  } catch (e) { log.textContent += e.message + '\n'; btn.disabled = false; }
+};
 refreshSetup();
 </script>
 </body>

@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -112,6 +114,74 @@ def setup_status() -> dict[str, Any]:
         "warning": "first run will download missing weights" if missing else None,
     }
 
+
+# Setup-run state: one bootstrap subprocess at a time, mirrored to the browser over SSE.
+SETUP_RUNS: dict[str, SetupRun] = {}
+SETUP_ACTIVE: str | None = None
+SETUP_LOCK = threading.Lock()
+
+
+class SetupRun:
+    """A bootstrap subprocess exposing the same SSE surface (condition/events/status) as Job."""
+
+    def __init__(self, run_id: str):
+        self.id = run_id
+        self.status = "queued"
+        self.process: subprocess.Popen[bytes] | None = None
+        self.started = time.monotonic()
+        self.events: list[dict[str, Any]] = []
+        self.condition = threading.Condition()
+
+    def emit(self, event: dict[str, Any]) -> None:
+        event = {"elapsed_seconds": round(time.monotonic() - self.started, 1), **event}
+        with self.condition:
+            self.events.append(event)
+            self.condition.notify_all()
+
+
+def setup_available() -> tuple[bool, str | None]:
+    """Whether the setup runner can start: uv on PATH and the bootstrap script present."""
+    if shutil.which("uv") is None:
+        return False, "uv is not installed — install it first (https://docs.astral.sh/uv/)"
+    bootstrap = REPO / "scripts" / "bootstrap_trellis_space_macos.py"
+    if not bootstrap.is_file():
+        return False, f"bootstrap script missing: {bootstrap}"
+    return True, None
+
+
+def _start_setup_run(run_id: str) -> SetupRun:
+    """Spawn the bootstrap and stream its output into the run's events (SSE)."""
+    run = SetupRun(run_id)
+    bootstrap = REPO / "scripts" / "bootstrap_trellis_space_macos.py"
+    proc = subprocess.Popen(
+        [sys.executable, str(bootstrap)],
+        cwd=str(REPO),
+        env=_job_env(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=0,
+    )
+    run.process = proc
+    run.status = "running"
+
+    def reader() -> None:
+        global SETUP_ACTIVE
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.decode("utf-8", errors="replace").rstrip("\n")
+            if line:
+                run.emit({"phase": "setup", "message": line})
+        code = proc.wait()
+        ok = code == 0
+        run.emit({"phase": "setup_done", "status": "done" if ok else "error",
+                  "message": f"bootstrap exited with code {code}"
+                             + ("" if ok else " — review the output above")})
+        run.status = "done" if ok else "error"
+        with SETUP_LOCK:
+            SETUP_ACTIVE = None
+
+    threading.Thread(target=reader, daemon=True, name=f"setup-{run_id[:8]}").start()
+    return run
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "resolution": "1024",
@@ -523,6 +593,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parts = self._path_parts()
+        if parts == ["api", "setup", "run"]:
+            self._start_setup()
+            return
         if parts == ["api", "generate"]:
             self._create_job()
             return
@@ -535,6 +608,13 @@ class Handler(SimpleHTTPRequestHandler):
         parts = self._path_parts()
         if parts == ["api", "setup"]:
             self._send_json(200, setup_status())
+            return
+        if len(parts) == 4 and parts[:3] == ["api", "setup", "run"] and parts[3] == "events":
+            run = SETUP_RUNS.get(parts[2]) if _safe_id(parts[2]) else None
+            if run is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._stream_events(run)
             return
         if len(parts) == 4 and parts[:2] == ["api", "generate"]:
             job_id, action = parts[2], parts[3]
@@ -550,6 +630,9 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if not PYTHON.is_file() or not WRAPPER.is_file():
                 self._send_json(503, {"error": "clean-port generator is not installed"})
+                return
+            if SETUP_ACTIVE is not None:
+                self._send_json(409, {"error": "setup is running; wait for it to finish"})
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 50 * 1024 * 1024:
@@ -613,6 +696,10 @@ class Handler(SimpleHTTPRequestHandler):
         if job is None:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+        self._stream_events(job)
+
+    def _stream_events(self, run: Job | SetupRun) -> None:
+        """SSE pump shared by generation jobs and setup runs."""
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -621,12 +708,12 @@ class Handler(SimpleHTTPRequestHandler):
         index = 0
         try:
             while True:
-                with job.condition:
-                    if index >= len(job.events):
-                        job.condition.wait(timeout=15)
-                    pending = job.events[index:]
-                    index = len(job.events)
-                    terminal = job.status in {"done", "error", "cancelled"} and not pending
+                with run.condition:
+                    if index >= len(run.events):
+                        run.condition.wait(timeout=15)
+                    pending = run.events[index:]
+                    index = len(run.events)
+                    terminal = run.status in {"done", "error", "cancelled"} and not pending
                 for event in pending:
                     payload = json.dumps(event, separators=(",", ":"))
                     self.wfile.write(f"data: {payload}\n\n".encode())
@@ -637,6 +724,28 @@ class Handler(SimpleHTTPRequestHandler):
                     break
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def _start_setup(self) -> None:
+        global SETUP_ACTIVE
+        with SETUP_LOCK:
+            active = JOBS.get(JOBS.active)
+            if active is not None and active.status in {"queued", "running", "cancelling"}:
+                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
+                return
+            if SETUP_ACTIVE is not None:
+                self._send_json(409, {"error": "setup is already running"})
+                return
+            ok, reason = setup_available()
+            if not ok:
+                self._send_json(503, {"error": reason})
+                return
+            setup_id = uuid.uuid4().hex
+            SETUP_ACTIVE = setup_id
+            SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+        self._send_json(202, {
+            "setup_run_id": setup_id,
+            "events_url": f"/api/setup/run/{setup_id}/events",
+        })
 
     def _artifact(self, job_id: str, action: str) -> None:
         job = self._find_job(job_id)

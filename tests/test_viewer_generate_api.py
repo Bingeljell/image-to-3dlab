@@ -84,3 +84,27 @@ def test_weights_on_disk_reports_present_and_missing(tmp_path):
     assert trellis["human"] == "2.0 KB"
     dino = result["models--facebook--dinov3-vitl16-pretrain-lvd1689m"]
     assert dino["present"] is False
+
+
+# --- setup runner (bootstrap via the web UI) ---
+def test_setup_available_reports_missing_uv(monkeypatch):
+    monkeypatch.setattr(api.shutil, "which", lambda name: None if name == "uv" else "/usr/bin/uv")
+    ok, reason = api.setup_available()
+    assert ok is False and "uv" in reason
+
+
+def test_setup_available_reports_missing_bootstrap(monkeypatch, tmp_path):
+    monkeypatch.setattr(api.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    monkeypatch.setattr(api, "REPO", tmp_path)
+    ok, reason = api.setup_available()
+    assert ok is False and "bootstrap" in reason
+
+
+def test_setup_run_exposes_the_job_sse_contract():
+    run = api.SetupRun("0" * 32)
+    run.status = "running"
+    run.emit({"phase": "setup", "message": "+ git clone https://github.com/..."})
+    event = run.events[-1]
+    assert event["phase"] == "setup"
+    assert event["message"].startswith("+ git clone")
+    assert "elapsed_seconds" in event

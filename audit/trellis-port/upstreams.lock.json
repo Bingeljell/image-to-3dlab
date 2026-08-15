@@ -12,6 +12,11 @@
       "commit": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
       "role": "official library and training-code comparison"
     },
+    "utils3d": {
+      "url": "https://github.com/EasternJournalist/utils3d.git",
+      "commit": "9a4eb15e4021b67b12c460c7057d642626897ec8",
+      "role": "official Space utility dependency"
+    },
     "shiv_trellis_mac": {
       "url": "https://github.com/shivampkumar/trellis-mac.git",
       "commit": "0b8efd434f195e7225199b669165bc764d67a404",

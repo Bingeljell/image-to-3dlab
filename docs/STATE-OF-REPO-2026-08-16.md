@@ -14,21 +14,42 @@ for the five bugs found and the assumptions that were wrong.
 
 | Port | Path | Status |
 |---|---|---|
-| **Clean** (upstream Microsoft HF Space, MPS-adapted) | `vendor/upstream-audit-worktree/vendor/trellis-space-mac` | **The path forward.** Full image→GLB works |
+| **Clean** (upstream Microsoft HF Space, MPS-adapted) | `vendor/trellis-space-mac` (built by the bootstrap) | **The path forward.** Full image→GLB works |
 | **Old** (Shiv `trellis-mac`, pre-fix) | `vendor/trellis-mac` | Still `pipeline.py`'s default CLI backend; legacy lane |
 
-The clean port lives inside the audit worktree (`vendor/upstream-audit-worktree`, branch
-`audit/upstream-rebase`, merged into the baseline at `feat/tear-provenance`). Its vendored
-build is git-ignored and rebuilt by `scripts/bootstrap_trellis_space_macos.py` + the
-`patch_trellis_*` scripts.
+The clean port's code, bootstrap and patches are in this repository (on `main`); the built
+environment (`vendor/trellis-space-mac/`) is git-ignored and rebuilt by
+`scripts/bootstrap_trellis_space_macos.py` + the `patch_trellis_*` scripts. On this
+machine the only existing build lives in the legacy audit worktree
+(`vendor/upstream-audit-worktree/`), so run with `--vendor-root` as shown below until a
+fresh build exists at the repo root.
 
 ## How to run image → GLB (clean port)
 
+### Fresh machine / fresh clone (reproducible)
+
 ```bash
-cd vendor/upstream-audit-worktree
+git clone <repo> && cd image-to-3dlab
+# requires: uv, Python 3.11, Xcode command-line tools (builds the Metal kernels; ~1h)
+python scripts/bootstrap_trellis_space_macos.py
+# first run downloads the ~14 GB TRELLIS.2-4B weights automatically
 env PYTHONUNBUFFERED=1 vendor/trellis-space-mac/.venv/bin/python \
-  scripts/trellis_space_generate.py \
-  /abs/path/input.png output/space_baseline/out.glb
+  scripts/trellis_space_generate.py input.png output/out.glb
+```
+
+The bootstrap clones the pinned upstream sources into `vendor/trellis-space-mac/` (exactly
+where the generator's default `--vendor-root` points) and builds the Metal kernels. The
+vendored build is git-ignored by design — the bootstrap + patch scripts are the
+reproducible path.
+
+### This machine (existing build)
+
+The only built environment on disk lives in the audit worktree, so pass it explicitly:
+
+```bash
+env PYTHONUNBUFFERED=1 vendor/upstream-audit-worktree/vendor/trellis-space-mac/.venv/bin/python \
+  scripts/trellis_space_generate.py input.png output/out.glb \
+  --vendor-root vendor/upstream-audit-worktree/vendor/trellis-space-mac
 ```
 
 - `--check` verifies the environment first (seconds, no model load).

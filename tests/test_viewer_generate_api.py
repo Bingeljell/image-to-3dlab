@@ -108,3 +108,14 @@ def test_setup_run_exposes_the_job_sse_contract():
     assert event["phase"] == "setup"
     assert event["message"].startswith("+ git clone")
     assert "elapsed_seconds" in event
+
+
+def test_clean_port_build_present(monkeypatch, tmp_path):
+    monkeypatch.setattr(api, "PYTHON", tmp_path / "no-such")
+    monkeypatch.setattr(api, "WRAPPER", tmp_path / "no-such")
+    assert api.clean_port_build_present() is False
+    p = tmp_path / "exists"
+    p.write_text("")
+    monkeypatch.setattr(api, "PYTHON", p)
+    monkeypatch.setattr(api, "WRAPPER", p)
+    assert api.clean_port_build_present() is True

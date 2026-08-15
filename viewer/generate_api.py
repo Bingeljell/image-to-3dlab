@@ -90,9 +90,14 @@ def weights_on_disk(cache_dir: Path | None = None) -> dict[str, dict[str, Any]]:
     return out
 
 
+def clean_port_build_present() -> bool:
+    """Whether the clean-port build (interpreter + wrapper) is installed."""
+    return PYTHON.is_file() and WRAPPER.is_file()
+
+
 def setup_status() -> dict[str, Any]:
     """Machine readiness for the clean-port generator, for the Generate > Setup card."""
-    build_present = PYTHON.is_file() and WRAPPER.is_file()
+    build_present = clean_port_build_present()
     weights = weights_on_disk()
     missing = [w["label"] for w in weights.values() if not w["present"]]
     return {
@@ -734,6 +739,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is already running"})
+                return
+            if clean_port_build_present():
+                self._send_json(409, {"error": "the clean-port build is already installed — nothing to set up"})
                 return
             ok, reason = setup_available()
             if not ok:

@@ -30,9 +30,7 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[1]
-VENDOR = REPO / "vendor" / "trellis-mac"
-TRELLIS = VENDOR / "TRELLIS.2"
-STUBS = VENDOR / "stubs"
+DEFAULT_VENDOR = REPO / "vendor" / "trellis-mac"
 
 REQUIRED_LATENT_KEYS = {
     "shape_slat_feats",
@@ -109,6 +107,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rescale-t", type=float, default=3.0)
     parser.add_argument("--tex-latent-output", type=Path)
     parser.add_argument("--metadata", type=Path)
+    parser.add_argument("--vendor-root", type=Path, default=DEFAULT_VENDOR,
+                        help="TRELLIS wrapper containing TRELLIS.2 and .venv")
+    parser.add_argument("--sparse-attn-backend", default="sdpa",
+                        choices=("sdpa", "metal_flash"))
+    parser.add_argument("--sample-only", action="store_true",
+                        help="save the texture latent and stop before material decoding")
     parser.add_argument("--dry-run", action="store_true",
                         help="validate inputs and print the experiment without loading models")
     return parser.parse_args()
@@ -122,7 +126,14 @@ def main() -> int:
     # Backend configuration must precede every torch/TRELLIS import.
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     os.environ.setdefault("ATTN_BACKEND", "sdpa")
-    os.environ.setdefault("SPARSE_ATTN_BACKEND", "sdpa")
+    os.environ.setdefault("SPARSE_ATTN_BACKEND", args.sparse_attn_backend)
+    vendor = args.vendor_root.resolve()
+    trellis = vendor / "TRELLIS.2"
+    stubs = vendor / "stubs"
+    os.environ.setdefault(
+        "FLEX_GEMM_AUTOTUNE_CACHE_PATH",
+        str(vendor / "cache/flex_gemm_autotune.json"),
+    )
     import torch
 
     bundle = torch.load(args.latents, map_location="cpu", weights_only=False)
@@ -145,6 +156,8 @@ def main() -> int:
         "geometry_decode": repo_relative(geometry_path),
         "image": repo_relative(image_path),
         "output": repo_relative(args.output),
+        "vendor_root": str(vendor),
+        "sparse_attention_backend": args.sparse_attn_backend,
     }
     print(json.dumps(experiment, indent=2), flush=True)
     if args.dry_run:
@@ -156,20 +169,28 @@ def main() -> int:
     except (ImportError, RuntimeError):
         os.environ.setdefault("SPARSE_CONV_BACKEND", "none")
 
-    sys.path.insert(0, str(TRELLIS))
-    sys.path.append(str(STUBS))
+    sys.path.insert(0, str(trellis))
+    if stubs.is_dir():
+        sys.path.append(str(stubs))
     from PIL import Image
     from trellis2.modules.sparse import SparseTensor
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 
     started = time.time()
+    raw_image = Image.open(image_path)
+    has_transparent_alpha = (
+        raw_image.mode == "RGBA" and raw_image.getextrema()[3][0] < 255
+    )
     print("Loading TRELLIS.2 pipeline...", flush=True)
-    pipeline = Trellis2ImageTo3DPipeline.from_pretrained("microsoft/TRELLIS.2-4B")
+    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(
+        "microsoft/TRELLIS.2-4B",
+        load_rembg=not has_transparent_alpha,
+    )
     pipeline.to(torch.device("mps"))
     load_seconds = time.time() - started
     print(f"Pipeline loaded in {load_seconds:.1f}s", flush=True)
 
-    image = pipeline.preprocess_image(Image.open(image_path))
+    image = pipeline.preprocess_image(raw_image)
     cond_started = time.time()
     # pipeline.run always wraps even a single image before get_cond; the extractor
     # deliberately accepts a list of PIL images, not one PIL object.
@@ -212,6 +233,31 @@ def main() -> int:
         tex_latent_path,
     )
     print(f"Texture latent cached: {tex_latent_path}", flush=True)
+
+    if args.sample_only:
+        metadata = {
+            "schema_version": 1,
+            "experiment": experiment,
+            "timings_seconds": {
+                "pipeline_load": load_seconds,
+                "conditioning": cond_seconds,
+                "stage3_sample": sample_seconds,
+                "total": time.time() - started,
+            },
+            "artifacts": {
+                "texture_latent": {
+                    "path": repo_relative(tex_latent_path),
+                    "sha256": sha256(tex_latent_path),
+                    "bytes": tex_latent_path.stat().st_size,
+                }
+            },
+        }
+        metadata_path = args.metadata or args.output.with_suffix(".json")
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+        print("Sample-only run complete; material decode intentionally skipped.", flush=True)
+        print(f"Metadata: {metadata_path}", flush=True)
+        return 0
 
     decode_started = time.time()
     _meshes, subs = pipeline.decode_shape_slat(shape_slat, int(bundle["res"]))

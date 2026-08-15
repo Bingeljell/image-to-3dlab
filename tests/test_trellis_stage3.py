@@ -64,3 +64,13 @@ def test_official_texture_defaults_are_explicit():
         "guidance_interval": (0.6, 0.9),
         "rescale_t": 3.0,
     }
+
+
+def test_runner_can_target_the_clean_space_port_and_stop_after_sampling():
+    source = SCRIPT.read_text()
+    assert '"--vendor-root"' in source
+    assert 'default="sdpa"' in source
+    assert '"metal_flash"' in source
+    assert '"--sample-only"' in source
+    assert "material decode intentionally skipped" in source
+    assert "load_rembg=not has_transparent_alpha" in source

@@ -73,6 +73,21 @@ def test_alpha_is_transparent(mode, alpha_min, expected):
     assert gen.alpha_is_transparent(mode, alpha_min) is expected
 
 
+# --- degenerate-face filter (the MPS decode -1 index crash) ---
+def test_valid_face_mask_drops_out_of_range():
+    faces = [[0, 1, 2], [59990, 59991, -1], [3, 4, 5], [1, 2, 10]]
+    # V=10 -> index 10 is out of range, and -1 is the degenerate marker
+    mask = gen.valid_face_mask(faces, num_vertices=10)
+    assert list(mask) == [True, False, True, False]
+
+
+def test_valid_face_mask_boundary_index_is_valid():
+    # index num_vertices-1 is the last valid vertex
+    assert list(gen.valid_face_mask([[0, 9, 9]], num_vertices=10)) == [True]
+    # all-good faces stay
+    assert gen.valid_face_mask([[0, 1, 2], [2, 3, 4]], num_vertices=5).all()
+
+
 # --- environment configuration ---
 def test_configure_environment_sets_sdpa(monkeypatch, tmp_path):
     for key in ("ATTN_BACKEND", "SPARSE_ATTN_BACKEND", "PYTORCH_ENABLE_MPS_FALLBACK",
@@ -109,6 +124,23 @@ def test_build_manifest_shape():
     assert m["timings_seconds"]["total"] == 1.0
 
 
+# --- CPU pre-cap ratio (the MPS decode->GLB path: fast_simplification before Metal to_glb) ---
+def test_precap_ratio_math():
+    # 20M faces -> 4M cap means removing 80% of faces
+    assert gen.precap_ratio(20_000_000, 4_000_000) == 0.8
+    assert gen.precap_ratio(8_000_000, 4_000_000) == 0.5
+    # already at or under the cap -> no-op (0.0 = fast_simplification keeps everything)
+    assert gen.precap_ratio(4_000_000, 4_000_000) == 0.0
+    assert gen.precap_ratio(1_000_000, 4_000_000) == 0.0
+
+
+def test_precap_ratio_rejects_bad_cap():
+    with pytest.raises(ValueError):
+        gen.precap_ratio(100, 0)
+    with pytest.raises(ValueError):
+        gen.precap_ratio(100, -5)
+
+
 # --- guard the demo constants against accidental drift ---
 def test_demo_params_integrity():
     assert gen.DEMO_PARAMS["seed"] == 0
@@ -120,3 +152,32 @@ def test_demo_params_integrity():
     assert gen.DEMO_PARAMS["remesh"] == {"remesh": True, "remesh_band": 1, "remesh_project": 0}
     for stage in ("sparse_structure", "shape_slat", "tex_slat"):
         assert gen.DEMO_PARAMS[stage]["steps"] == 12
+
+
+# --- post-pre-cap corruption filter (fast_simplification emits stray out-of-range indices) ---
+def test_filter_out_of_range_faces_drops_bad():
+    import torch
+
+    faces = torch.tensor([[0, 1, 2], [3, 4, 5], [1, 2, 99], [4, 5, 6]])
+    kept, removed = gen.filter_out_of_range_faces(faces, num_vertices=10)
+    assert removed == 1
+    assert kept.tolist() == [[0, 1, 2], [3, 4, 5], [4, 5, 6]]
+
+
+def test_filter_out_of_range_faces_clean_input_untouched():
+    import torch
+
+    faces = torch.tensor([[0, 1, 2], [3, 4, 5]])
+    kept, removed = gen.filter_out_of_range_faces(faces, num_vertices=10)
+    assert removed == 0
+    assert kept.shape[0] == 2
+    assert kept.dtype == faces.dtype
+
+
+def test_filter_out_of_range_faces_negative_index():
+    import torch
+
+    faces = torch.tensor([[0, 1, 2], [-1, 4, 5]])
+    kept, removed = gen.filter_out_of_range_faces(faces, num_vertices=10)
+    assert removed == 1
+    assert kept.tolist() == [[0, 1, 2]]

@@ -64,3 +64,66 @@ def test_official_texture_defaults_are_explicit():
         "guidance_interval": (0.6, 0.9),
         "rescale_t": 3.0,
     }
+
+
+def test_resume_texture_latent_flag_is_available(monkeypatch, tmp_path):
+    latent = tmp_path / "cached_tex.pt"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "trellis_stage3.py",
+            "shape.pt",
+            "material.pt",
+            "--texture-seed",
+            "7",
+            "--resume-texture-latent",
+            str(latent),
+        ],
+    )
+    args = stage3.parse_args()
+    assert args.resume_texture_latent == latent
+
+
+def test_subdivision_guides_reproduce_frozen_final_coordinates():
+    shape_coords = torch.tensor(
+        [[0, 0, 0, 0], [0, 1, 1, 1], [0, 3, 3, 3]], dtype=torch.int32
+    )
+    final_coords = torch.tensor(
+        [[0, 0, 0], [1, 0, 0], [16, 16, 16], [31, 31, 31]],
+        dtype=torch.int32,
+    )
+    guides = stage3.derive_subdivision_guide_tensors(
+        final_coords, shape_coords, resolution=64, levels=4
+    )
+    assert len(guides) == 4
+    assert guides[0][0].shape == (3, 8)
+    assert guides[-1][1].shape[0] == 3
+
+    parent = guides[0][1]
+    for features, coords in guides:
+        assert torch.equal(coords, parent)
+        row, subindex = features.nonzero(as_tuple=True)
+        bits = torch.stack(
+            (subindex % 2, subindex // 2 % 2, subindex // 4 % 2), dim=1
+        ).to(torch.int32)
+        parent = torch.cat(
+            (coords[row, :1], coords[row, 1:] * 2 + bits), dim=1
+        )
+    assert {
+        tuple(coord) for coord in parent[:, 1:].tolist()
+    } == {tuple(coord) for coord in final_coords.tolist()}
+
+
+def test_subdivision_guides_reject_unmatched_shape_lattice():
+    with pytest.raises(ValueError, match="shape lattice"):
+        stage3.derive_subdivision_guide_tensors(
+            torch.tensor([[63, 63, 63]], dtype=torch.int32),
+            torch.tensor([[0, 0, 0, 0]], dtype=torch.int32),
+            resolution=64,
+            levels=4,
+        )
+
+
+def test_expensive_inference_calls_are_no_grad_guarded():
+    source = SCRIPT.read_text()
+    assert source.count("with torch.no_grad():") >= 2

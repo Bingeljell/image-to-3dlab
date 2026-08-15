@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>live run log</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0d1117; color: #c9d1d9;
+         font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { position: sticky; top: 0; padding: 9px 12px; background: #161b22ee;
+           border-bottom: 1px solid #30363d; color: #8b949e; }
+  #state { color: #7ee787; }
+  pre { margin: 0; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header><span id="state">connecting</span> · <span id="name"></span></header>
+<pre id="log"></pre>
+<script>
+const q = new URLSearchParams(location.search);
+const requested = q.get('file') || 'output/bvh_stack_fix/fox_remesh_live.log';
+const url = /^(https?:|\/)/.test(requested) ? requested : '/' + requested;
+const log = document.getElementById('log');
+const state = document.getElementById('state');
+document.getElementById('name').textContent = requested;
+let last = '';
+async function refresh() {
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const text = await response.text();
+    if (text !== last) {
+      const pinned = innerHeight + scrollY >= document.body.scrollHeight - 80;
+      log.textContent = text;
+      last = text;
+      if (pinned) scrollTo(0, document.body.scrollHeight);
+    }
+    state.textContent = 'live';
+  } catch (error) {
+    state.textContent = `waiting: ${error.message}`;
+  }
+}
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

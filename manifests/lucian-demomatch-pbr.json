@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "use_case": "showcase",
+  "distribution": "private",
+  "commercial_intent": false,
+  "input": { "path": "../assets_to_test/cute-creature-lucian.png", "source": "user-provided" },
+  "model": {
+    "backend": "trellis2",
+    "id": "microsoft/TRELLIS.2-4B",
+    "parameters": {
+      "seed": 20260815, "pipeline_type": "1024_cascade", "texture_size": 3072,
+      "bake_target_faces": 3000000, "steps": 12, "material_mode": "pbr"
+    }
+  },
+  "license_policy": { "allow_conditional": true, "allow_research_only": false },
+  "output": { "directory": "output" }
+}

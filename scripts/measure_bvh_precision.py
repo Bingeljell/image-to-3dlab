@@ -60,7 +60,7 @@ def error_report(measured, exact, eps: float) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--radius", type=float, default=0.4)
-    parser.add_argument("--subdivisions", type=int, default=5)
+    parser.add_argument("--subdivisions", type=int, default=6)
     parser.add_argument("--samples", type=int, default=50_000)
     parser.add_argument(
         "--eps", type=float, default=0.00097942,
@@ -93,10 +93,12 @@ def main() -> int:
     )[0].cpu().numpy()
     print("distances measured", flush=True)
 
-    # The icosphere is a polyhedron, not a true sphere, so subtract its own faceting error:
-    # a face's centre sits slightly inside the ideal radius. Compare against trimesh's exact
-    # point-to-mesh distance instead, which shares that faceting.
-    exact = trimesh.proximity.closest_point(sphere, points)[1]
+    # Ground truth is analytic: for a sphere centred on the origin the distance to the
+    # surface is exactly abs(|p| - r). The icosphere is a polyhedron so it sits fractionally
+    # inside the ideal sphere, but at subdivision 6 that faceting error is ~3e-5 - two orders
+    # below eps - so it cannot account for anything we are looking for.
+    # (trimesh's exact closest_point would need rtree, which this venv lacks.)
+    exact = sphere_ground_truth(points, args.radius)
 
     stats = error_report(measured, exact, args.eps)
     for key, value in stats.items():

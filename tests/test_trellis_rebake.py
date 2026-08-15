@@ -124,6 +124,39 @@ def test_split_material_cache_reports_missing_geometry(tmp_path):
         rebake.load_payload(material, FakeTorch)
 
 
+def test_existing_glb_geometry_replaces_only_vertices_and_faces():
+    import torch
+
+    class Mesh:
+        vertices = torch.tensor([[1.0, 2.0, 3.0]]).numpy()
+        faces = torch.tensor([[0, 0, 0]]).numpy()
+
+        def merge_vertices(self, merge_tex, merge_norm):
+            assert merge_tex is True
+            assert merge_norm is True
+
+    class Trimesh:
+        @staticmethod
+        def load(path, force, process):
+            assert path == "accepted.glb"
+            assert force == "mesh"
+            assert process is False
+            return Mesh()
+
+    payload = {
+        "vertices": torch.zeros((2, 3)),
+        "faces": torch.zeros((2, 3)),
+        "attrs": "keep",
+    }
+    replaced = rebake.replace_geometry_from_glb(
+        payload, Path("accepted.glb"), torch, Trimesh
+    )
+    assert replaced["vertices"].shape == (1, 3)
+    assert replaced["vertices"].tolist() == [[1.0, -3.0, 2.0]]
+    assert replaced["faces"].dtype == torch.int32
+    assert replaced["attrs"] == "keep"
+
+
 # --- the generate.py patch ---------------------------------------------------------
 
 GENERATE = '''\

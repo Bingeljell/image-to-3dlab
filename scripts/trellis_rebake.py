@@ -96,6 +96,31 @@ def summarise(payload: dict) -> str:
     )
 
 
+def replace_geometry_from_glb(payload: dict, glb_path: Path, torch_module, trimesh_module):
+    """Use an accepted GLB mesh while retaining this cache's voxel material field."""
+    mesh = trimesh_module.load(str(glb_path), force="mesh", process=False)
+    if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+        raise ValueError(f"no triangle mesh found in {glb_path}")
+    # Textured glTF duplicates positions at UV seams. Passing those duplicates
+    # back to clean_mesh makes every chart look like a boundary and triggers
+    # shape-changing hole fills. The preview discards the old UVs, so weld them.
+    mesh.merge_vertices(merge_tex=True, merge_norm=True)
+    merged = dict(payload)
+    glb_vertices = torch_module.as_tensor(
+        mesh.vertices.copy(), dtype=torch_module.float32
+    )
+    # to_glb exports TRELLIS (Y-up) as (x, z, -y). This mesh has already passed
+    # through that conversion; invert it before material sampling and re-export.
+    trellis_vertices = glb_vertices.clone()
+    trellis_vertices[:, 1] = -glb_vertices[:, 2]
+    trellis_vertices[:, 2] = glb_vertices[:, 1]
+    merged["vertices"] = trellis_vertices
+    merged["faces"] = torch_module.as_tensor(
+        mesh.faces.copy(), dtype=torch_module.int32
+    )
+    return merged
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("decode", type=Path, help="cached decode from --dump-decode")
@@ -113,6 +138,11 @@ def main() -> int:
     )
     parser.add_argument("--texture-size", type=int, default=3072)
     parser.add_argument(
+        "--geometry-glb",
+        type=Path,
+        help="preview on an accepted GLB mesh while retaining this cache's material field",
+    )
+    parser.add_argument(
         "--no-webp", action="store_true",
         help="skip WebP texture compression. The reference exports with it, and its "
              "EXT_texture_webp is how we identified which pipeline made the controls",
@@ -126,7 +156,15 @@ def main() -> int:
     import torch
 
     payload = load_payload(args.decode, torch)
+    if args.geometry_glb:
+        if not args.geometry_glb.is_file():
+            parser.error(f"geometry preview GLB does not exist: {args.geometry_glb}")
+        import trimesh
+
+        payload = replace_geometry_from_glb(payload, args.geometry_glb, torch, trimesh)
     print(f"Loaded decode: {summarise(payload)}")
+    if args.geometry_glb:
+        print(f"Preview geometry: {args.geometry_glb}")
     print(f"Branch: {'2 (remesh/DC rebuild)' if args.remesh else '1 (clean + simplify)'}")
 
     started = time.time()

@@ -475,6 +475,36 @@ def _emit_banner(job: Job, line: str) -> None:
         job.emit(event)
 
 
+def _signal_hint(return_code: int) -> str:
+    """Human-readable suffix for a negative (signal-killed) exit code, empty otherwise."""
+    signals = {-9: "SIGKILL", -15: "SIGTERM", -6: "SIGABRT", -4: "SIGILL", -11: "SIGSEGV"}
+    if return_code < 0:
+        return f" — killed by {signals.get(return_code, f'signal {abs(return_code)}')}"
+    return ""
+
+
+def _process_rss_gb(pid: int) -> float:
+    """Resident set size of a child process in GB (macOS ps; best-effort, 0.0 on failure)."""
+    try:
+        kb = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+        return round(int(kb) / (1024 ** 2), 2) if kb.isdigit() else 0.0
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return 0.0
+
+
+def _rss_monitor(job: Job) -> None:
+    """Append the generator's RSS to the job log every 30s so a silent death leaves a
+    memory trajectory behind (an OOM-style kill climbs before it vanishes)."""
+    assert job.process is not None
+    pid = job.process.pid
+    while job.status in {"queued", "running"}:
+        job.append_log(f"[rss {_process_rss_gb(pid)} GB]")
+        time.sleep(30)
+
+
 def _read_process(job: Job) -> None:
     assert job.process is not None and job.process.stdout is not None
     buffer = ""
@@ -538,13 +568,18 @@ def _run_job(job: Job) -> None:
         )
         reader = threading.Thread(target=_read_process, args=(job,), daemon=True)
         reader.start()
+        threading.Thread(target=_rss_monitor, args=(job,), daemon=True,
+                         name=f"rss-{job.id[:8]}").start()
         return_code = job.process.wait()
         reader.join(timeout=5)
+        job.append_log(f"generator exited with code {return_code}{_signal_hint(return_code)}")
         if job.cancel_requested:
             job.status = "cancelled"
+            job.append_log("generation cancelled")
             job.emit({"phase": "error", "message": "Generation cancelled"})
         elif return_code == 0 and job.output_path.is_file():
             job.status = "done"
+            job.append_log("generation complete")
             _update_baseline(job)
             job.emit({
                 "phase": "done", "overall_pct": 100, "message": "Generation complete",

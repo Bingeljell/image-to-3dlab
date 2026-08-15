@@ -119,3 +119,28 @@ def test_clean_port_build_present(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "PYTHON", p)
     monkeypatch.setattr(api, "WRAPPER", p)
     assert api.clean_port_build_present() is True
+
+
+# --- silent-death diagnostics (exit code + RSS trajectory) ---
+def test_signal_hint_decodes_kills():
+    assert api._signal_hint(-9) == " — killed by SIGKILL"
+    assert api._signal_hint(-15) == " — killed by SIGTERM"
+    assert api._signal_hint(-11) == " — killed by SIGSEGV"
+    assert api._signal_hint(1) == ""
+    assert api._signal_hint(0) == ""
+
+
+def test_process_rss_gb_parses_ps_output(monkeypatch):
+    class FakeResult:
+        stdout = "1048576\n"
+
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: FakeResult())
+    assert api._process_rss_gb(1234) == 1.0
+
+
+def test_process_rss_gb_returns_zero_on_failure(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("no such process")
+
+    monkeypatch.setattr(api.subprocess, "run", boom)
+    assert api._process_rss_gb(999999) == 0.0

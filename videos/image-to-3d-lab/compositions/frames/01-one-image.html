@@ -1,0 +1,31 @@
+<template>
+  <style>
+    @font-face{font-family:EB;src:url('assets/fonts/eb-garamond-400.woff2')}@font-face{font-family:Mono;src:url('assets/fonts/jetbrains-mono-400.woff2')}@font-face{font-family:Inter;src:url('assets/fonts/inter-400.woff2')}
+    #root{width:1920px;height:1080px;position:relative;overflow:hidden;container-type:size;color:#141413}
+    *{box-sizing:border-box}.ground{position:absolute;inset:0;background:#FAF9F5}.stage{position:absolute;inset:0;overflow:hidden}.fox-wrap{position:absolute;right:-40px;top:-115px;width:1170px;height:1310px;overflow:hidden;background:#EFE9DE;border-left:2px solid rgba(20,20,19,.18)}
+    .fox{width:100%;height:100%;object-fit:contain;transform-origin:center}.word{position:absolute;left:76px;font:400 252px/.78 EB;color:#141413;letter-spacing:-.055em}.one{top:108px}.image{top:405px;font-size:292px}.rail{position:absolute;left:82px;top:60px;right:82px;display:flex;justify-content:space-between;font:400 20px/1 Mono;letter-spacing:.16em;text-transform:uppercase}.spike{color:#A9553B}.scan{position:absolute;left:0;right:0;top:590px;height:8px;background:#CC785C;transform-origin:left center}.measure{position:absolute;border:2px solid rgba(20,20,19,.48);width:760px;height:810px;right:165px;top:128px}.corner{position:absolute;width:34px;height:34px;border-color:#CC785C}.c1{left:-4px;top:-4px;border-left:5px solid #CC785C;border-top:5px solid #CC785C}.c2{right:-4px;bottom:-4px;border-right:5px solid #CC785C;border-bottom:5px solid #CC785C}.meta{position:absolute;left:82px;bottom:62px;font:400 22px/1.2 Mono;letter-spacing:.08em;text-transform:uppercase}.navy-edge{position:absolute;right:0;top:0;width:26px;height:1080px;background:#181715}
+  </style>
+  <div data-hf-id="hf-pxwv" id="root" data-composition-id="01-one-image" data-start="0" data-duration="3" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-zo5k" id="f01-ground" class="clip ground" data-start="0" data-duration="3" data-track-index="0"></div>
+    <div data-hf-id="hf-8vnv" id="f01-stage" class="clip stage" data-start="0" data-duration="3" data-track-index="1">
+      <div data-hf-id="hf-70w4" class="fox-wrap"><img data-hf-id="hf-j43w" class="fox" src="assets/moss-fox-alpha_big.png" alt="Moss fox source image"></div>
+      <div data-hf-id="hf-f4su" class="rail" data-layout-allow-overlap=""><span data-hf-id="hf-mc7z"><span data-hf-id="hf-3274" class="spike">✱</span> INPUT / IMAGE</span><span data-hf-id="hf-51sb">01 / 06</span></div>
+      <div data-hf-id="hf-spfu" class="word one" data-layout-allow-overlap="">ONE</div><div data-hf-id="hf-l7ce" class="word image">IMAGE.</div>
+      <div data-hf-id="hf-az1f" class="scan"></div><div data-hf-id="hf-xa1k" class="measure"><i data-hf-id="hf-vbjl" class="corner c1"></i><i data-hf-id="hf-z9nm" class="corner c2"></i></div>
+      <div data-hf-id="hf-mpok" class="meta">moss_fox · 1414 × 2000 · RGBA</div><div data-hf-id="hf-za56" class="navy-edge"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});
+      tl.fromTo('.one',{x:-420,opacity:0},{x:0,opacity:1,duration:.38,ease:'power4.out'},.12)
+        .fromTo('.fox-wrap',{x:330,scale:.92},{x:0,scale:1,duration:.72,ease:'expo.out'},.16)
+        .fromTo('.measure',{opacity:0,scale:.72},{opacity:1,scale:1,duration:.5,ease:'power3.out'},.34)
+        .fromTo('.image',{x:-560,opacity:0},{x:0,opacity:1,duration:.42,ease:'power4.out'},.56)
+        .fromTo('.scan',{scaleX:0},{scaleX:1,duration:.36,ease:'power3.inOut'},.8)
+        .fromTo('.rail,.meta',{opacity:0},{opacity:1,duration:.28,stagger:.12,ease:'power2.out'},1.02)
+        .fromTo('.fox',{scale:1.08},{scale:.93,duration:1.5,ease:'power3.inOut'},1.22)
+        .fromTo('.navy-edge',{scaleX:0,transformOrigin:'right center'},{scaleX:1,duration:.28,ease:'power3.out'},2.55);
+      window.__timelines['01-one-image']=tl;
+    </script>
+  </div>
+</template>

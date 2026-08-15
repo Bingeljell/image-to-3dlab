@@ -1,128 +1,160 @@
 ---
 format: 1920x1080
-duration: 29s
+duration: 27.5s
 mode: autonomous
-status: animated
-message: Turn a single image into a local, inspectable, reproducible 3D asset.
-arc: Future Pacing → Demo Loop → Proof → Capability Cascade → CTA
+music: "Immediate 155 BPM industrial breakbeat with no intro and hard sectional attacks"
+message: "One image becomes a local, inspectable, reproducible 3D asset."
+arc: Source shock → Transformation rupture → Full-screen proof → Receipt → Experimental cascade → Lockup
 audience: technical artists, indie game developers, and local AI/3D builders
 ---
 
-# Image to 3D Lab — visual treatment
+# Image to 3D Lab — V4 readable impact cut
 
 ## Video direction
 
-Warm-editorial developer-tool film. The visual language is cream paper, warm tile, ink, and one restrained terracotta signal accent, with warm-navy code surfaces reserved for technical proof. EB Garamond carries the main statement; Inter carries explanatory copy; JetBrains Mono carries the index, backend labels, and provenance fields.
+V4 keeps the code-editorial palette and proof-first structure, but separates editorial tempo from reading tempo. Cream is the intake state, warm navy is the proof state, and coral appears as voltage at collision points. Real images and videos occupy 60–100% of the canvas instead of sitting inside polite cards. Claims hold; media, proof inserts, and accents keep cutting underneath them.
 
-The three approved clips are the visual spine: the moss fox supplies the living, labelled-wind experiment; Nikita’s turntable supplies the inspectable 3D result; Nikita’s cheer supplies the early rigging/animation proof. The source images appear only where they clarify the image-to-asset transformation. There is no fake product UI and no claim that the output is finished or game-ready.
+Rhythm: **hit → collide-collide → READ → build-build → cut-cut-cut → lock**. Primary claims remain readable for 2–3 seconds while secondary visual state changes arrive every 0.8–1.5 seconds. Entrances stay forceful and exits stay sharp; readability is never purchased with sluggish motion.
 
-Motion is restrained but legible: image scan, panel lift, turntable hold, capability cards entering on beat, and a final lockup. Every experimental lane is explicitly marked `EXPERIMENTAL`. Music is `launch-bed__v01.wav`; the short generated SFX are used as scan, model-lock, and provenance punctuation.
+Audio is the metronome: a full-length 155 BPM Stable Audio Medium breakbeat plays at natural speed, while bass, glitch, and metal impacts punch scene boundaries and the two-second experimental cuts. Every effect is a one-second Stable Audio Small SFX.
 
-## Frame plan
+## Frame 1 — One image
 
-### Frame 01 — “One image, locally”
+- status: animated
+- src: compositions/frames/01-one-image.html
+- duration: 3s
+- poster: 1.8s
+- transition_in: cut
+- scene: The source image is treated as a physical object about to break out of the page.
+- voiceover: none
+- type: hook
+- persuasion: Immediate evidence
+- blueprint: kinetic-type-beats (Adapt)
+- asset_candidates: `assets/moss-fox-alpha_big.png`
+- focal: `assets/moss-fox-alpha_big.png`
+- roles: source image = background and subject; measurement chrome = foreground proof
+- sfx: paper-rip
 
-- **status:** animated
-- **time:** 00:00–00:03
-- **duration:** 3s
-- **transition_in:** scan-line reveal from a quiet cream ground
-- **scene:** Hook / Future Pacing
-- **voiceover:** What if one image could become a real 3D asset — locally?
-- **poster:** Source fox image on a tile card, with a second dark technical card beginning to resolve as a model silhouette.
-- **type:** concept-demo
-- **persuasion:** Future Pacing
-- **blueprint:** concept-demo-decode-pan
-- **asset_candidates:** `assets/moss-fox-alpha_big.png`, `assets/nikita_holding_beer.png`
-- **focal:** the fox source image moving from reference to “3D asset” language
-- **roles:** hero image, scan marker, opening kicker, caption
-- **sfx:** `assets/audio/image-to-3d-lab/scan-whoosh/scan-whoosh__v01.wav` at 00:00.15
+Adapt: keep the kinetic beat-slam signature, but let the real source image carry the first hit.
 
-The opening should feel like a research note becoming an interface: one large image, one exact promise, one coral spike. The image gets a thin measurement frame and a small `INPUT / IMAGE` label; the right-hand panel is a graphic suggestion of depth, not a fabricated render.
+Scene 1 (0.0–0.7s): the fox and `ONE` collide into the frame while registration marks snap around the source.
+Scene 2 (0.7–1.3s): `IMAGE.` lands; a coral scan rule cuts through the picture and the filename locks into the rail.
+Scene 3 (1.3–3.0s): the full phrase remains readable while the source makes a deliberate scale push and the navy edge prepares the cut.
 
-### Frame 02 — “Three local routes”
+## Frame 2 — Break the plane
 
-- **status:** animated
-- **time:** 00:03–00:08
-- **duration:** 5s
-- **transition_in:** image card compresses into the left rail; route cards step in from the right
-- **scene:** Product promise / Demo Loop
-- **voiceover:** Image to 3D Lab turns a reference into a textured model, with three local backends.
-- **poster:** Nikita source image beside three numbered backend lanes and a compact manifest strip.
-- **type:** workflow
-- **persuasion:** Demo Loop
-- **blueprint:** messaging-multi-phrase
-- **asset_candidates:** `assets/nikita_holding_beer.png`, `assets/nikita_hero.provenance.json`
-- **focal:** “reference → textured model” as the dominant reading path
-- **roles:** source card, three route cards, manifest chrome, caption
-- **sfx:** `assets/audio/image-to-3d-lab/model-lock/model-lock__v01.wav` at 00:03.20
+- status: animated
+- src: compositions/frames/02-break-plane.html
+- duration: 4s
+- poster: 3.1s
+- transition_in: hard-cut
+- scene: The flat source is violently replaced by dimensional evidence.
+- voiceover: none
+- type: product_intro
+- persuasion: Transformation payoff
+- blueprint: ticker-takeover (Adapt)
+- asset_candidates: `assets/nikita_holding_beer.png`, `assets/nikita_turntable.mp4`
+- focal: `assets/nikita_turntable.mp4`
+- roles: source = outgoing paper plane; turntable = incoming full-height hero
+- sfx: model-impact
 
-Use three simple route labels rather than inventing backend names in the film: `LOCAL ROUTE / 01`, `LOCAL ROUTE / 02`, and `LOCAL ROUTE / 03`. The route cards should read as selectable pathways, not as a dashboard. The manifest strip reinforces that the result can be repeated.
+Adapt: keep the physical takeover collision; the incoming real turntable shoves the source image out of frame.
 
-### Frame 03 — “Proof beside the result”
+Scene 1 (0.0–1.25s): `PIXELS` and the Nikita source portrait collide over a drawing depth grid.
+Scene 2 (1.25–2.4s): `BECOME` flash-swaps as the source buckles and the turntable crashes in from the right.
+Scene 3 (2.4–4.0s): `GEOMETRY.` lands across the lower third; the turntable snaps sharp and remains readable while coral depth ticks fan outward.
 
-- **status:** animated
-- **time:** 00:08–00:14
-- **duration:** 6s
-- **transition_in:** a hard editorial cut into the turntable, followed by a slow hold
-- **scene:** Proof / Reproducibility
-- **voiceover:** Preview it in Blender. Re-run from a manifest. Keep hashes, settings, and license provenance beside every result.
-- **poster:** Nikita turntable video on the left; provenance receipt and `GLB / RE-RUN / HASHED` code surface on the right.
-- **type:** proof
-- **persuasion:** Proof
-- **blueprint:** metric-video-text-pivot
-- **asset_candidates:** `assets/nikita_turntable.mp4`, `assets/nikita_hero.provenance.json`, `assets/nikita_hero.glb`
-- **focal:** real turntable motion paired with legible provenance fields
-- **roles:** video proof, code surface, receipt stamp, caption
-- **sfx:** `assets/audio/image-to-3d-lab/provenance-stamp/provenance-stamp__v01.wav` at 00:08.65
+## Frame 3 — The proof is the model
 
-This is the trust beat. Keep the turntable large enough to read as a real 3D result, while the receipt is dense enough to communicate reproducibility without pretending to be a full application screenshot. Highlight `hash`, `settings`, and `license` one at a time.
+- status: animated
+- src: compositions/frames/03-model-proof.html
+- duration: 5s
+- poster: 3.8s
+- transition_in: zoom-through
+- scene: The real turntable owns the screen; the product claim is reduced to three proof words.
+- voiceover: none
+- type: feature_showcase
+- persuasion: Product proof
+- blueprint: video-text-pivot (Adapt)
+- asset_candidates: `assets/nikita_turntable.mp4`
+- focal: `assets/nikita_turntable.mp4`
+- roles: turntable = full-bleed background and hero; words = foreground proof rail
+- sfx: none
 
-### Frame 04 — “The lab opens up”
+Adapt: keep the video-to-text weight transfer, but never shrink the model into a card.
 
-- **status:** animated
-- **time:** 00:14–00:21
-- **duration:** 7s
-- **transition_in:** proof card splits into a three-card capability cascade
-- **scene:** Capability cascade / Experimental lanes
-- **voiceover:** Then go further: multiple views, labeled parts for wind, and early rigging experiments.
-- **poster:** Moss fox wind clip, Nikita cheer clip, and a third tile with multi-view / labelled-part notation.
-- **type:** comparison
-- **persuasion:** Capability Cascade
-- **blueprint:** comparison-split-cards
-- **asset_candidates:** `assets/moss_fox_wind.mp4`, `assets/nikita_cheers.mp4`, `assets/moss-fox-alpha_big.png`
-- **focal:** real motion in the two video cards; experimental badge on each extension lane
-- **roles:** video cards, experimental tags, multi-view notation, caption
-- **sfx:** none; let the music carry the widening
+Scene 1 (0.0–1.05s): the turntable arrives full-bleed with a huge ghost `3D` behind the real model.
+Scene 2 (1.05–2.1s): `LOCAL.` punches into the left third and holds with a mono `GLB` label.
+Scene 3 (2.1–3.15s): `TEXTURED.` replaces it while the prior word becomes a proof chip.
+Scene 4 (3.15–5.0s): `INSPECTABLE.` stretches across the lower half and holds over the rotating real output.
 
-The cards should arrive in sequence, not as a simultaneous grid dump. The moss fox card gets `LABELLED WIND / EXPERIMENTAL`; the Nikita card gets `RIGGING / EXPERIMENTAL`; the third card gets `MULTI-VIEW / EXPERIMENTAL`. That language keeps the ambition clear without overclaiming.
+## Frame 4 — Keep the receipt
 
-### Frame 05 — “Inspect. Iterate. Build.”
+- status: animated
+- src: compositions/frames/04-receipt.html
+- duration: 5s
+- poster: 4.25s
+- transition_in: hard-cut
+- scene: A manifest and provenance receipt build beside the living result.
+- voiceover: none
+- type: feature_showcase
+- persuasion: Reproducibility
+- blueprint: agent-progress-theater (Adapt)
+- asset_candidates: `assets/nikita_turntable.mp4`, `assets/nikita_hero.provenance.json`
+- focal: `assets/nikita_hero.provenance.json`
+- roles: receipt = foreground hero; turntable = background continuity proof
+- sfx: receipt-click
 
-- **status:** animated
-- **time:** 00:21–00:29
-- **duration:** 8s
-- **transition_in:** capability cards collapse into a single hero plane
-- **scene:** Close / CTA
-- **voiceover:** From pixels to something you can inspect, iterate, and build with. Image to 3D Lab.
-- **poster:** Nikita cheer/turntable hero on a warm-navy field with the product lockup and a small “local / reproducible / inspectable” index.
-- **type:** cta
-- **persuasion:** CTA
-- **blueprint:** cta-orbit-collapse
-- **asset_candidates:** `assets/nikita_cheers.mp4`, `assets/nikita_turntable.mp4`, `assets/nikita_hero.provenance.json`
-- **focal:** the final lockup and the real animated model behind it
-- **roles:** hero video, product name, three-word value line, coral CTA mark
-- **sfx:** none; allow a 1.2s musical tail after the lockup resolves
+Adapt: keep the status-to-receipt cascade signature, using real provenance fields instead of fabricated agent UI.
 
-Close with a single terracotta voltage moment: the product name or a thin CTA rule, not both. The final frame should hold long enough for the viewer to remember the name and the three-word value line.
+Scene 1 (0.0–1.0s): hard cut to `RE-RUN THE RESULT.` with the living turntable continuing at far right.
+Scene 2 (1.0–2.4s): `manifest.json` and its backend, seed, and source fields waterfall into place.
+Scene 3 (2.4–3.8s): the hash rule draws and `SETTINGS`, `HASH`, `LICENSE`, and `VERIFIED` stamp on.
+Scene 4 (3.8–5.0s): the receipt compresses into `LOCAL / REPRODUCIBLE / INSPECTABLE` and holds.
 
-## Audio map
+## Frame 5 — The lab opens
 
-- `assets/audio/image-to-3d-lab/launch-bed/launch-bed__v01.wav` — 29s, medium music model, full-bed ducked under captions.
-- `assets/audio/image-to-3d-lab/scan-whoosh/scan-whoosh__v01.wav` — 1s, small SFX model, frame 01.
-- `assets/audio/image-to-3d-lab/model-lock/model-lock__v01.wav` — 1s, small SFX model, frame 02.
-- `assets/audio/image-to-3d-lab/provenance-stamp/provenance-stamp__v01.wav` — 1s, small SFX model, frame 03.
+- status: animated
+- src: compositions/frames/05-experiments.html
+- duration: 6s
+- poster: 5.1s
+- transition_in: whip-pan
+- scene: Three experimental lanes hit as full-screen evidence, not a card grid.
+- voiceover: none
+- type: benefit_highlight
+- persuasion: Capability cascade
+- blueprint: kinetic-type-beats (Adapt)
+- asset_candidates: `assets/moss_fox_wind.mp4`, `assets/moss-fox-alpha_big.png`, `assets/nikita_cheers_loop.mp4`
+- focal: `assets/moss_fox_wind.mp4`
+- roles: each asset = one sequential full-screen beat; experimental label = persistent foreground guardrail
+- sfx: cascade-whip
 
-## First-cut artifact
+Adapt: keep the fast phrase relay, pairing every phrase with its own full-screen proof plate.
 
-- `renders/image-to-3d-lab-first-cut.mp4` — 1920×1080, 30fps, 29s, H.264 + AAC.
-- Looped local derivatives keep the 3-second Nikita cheer source frame-safe across the longer capability and closing holds: `assets/nikita_cheers_loop.mp4` and `assets/nikita_cheers_close_loop.mp4`.
+Scene 1 (0.0–2.0s): moss fox wind footage fills the frame; `LABELLED WIND` slams in and remains readable while part labels streak toward the fur.
+Scene 2 (2.0–4.0s): hard cut into three large fox silhouettes; `MULTI-VIEW` flash-swaps and holds after the views expand outward.
+Scene 3 (4.0–6.0s): hard cut to Nikita cheer footage; `EARLY RIGGING` lands and holds while pose markers snap to joints.
+
+## Frame 6 — Build on it
+
+- status: animated
+- src: compositions/frames/06-lockup.html
+- duration: 4.5s
+- poster: 3.5s
+- transition_in: flash-through-cream
+- scene: The real animated model resolves into a memorable product lockup.
+- voiceover: none
+- type: cta
+- persuasion: Brand lockup
+- blueprint: titlecard-reveal (Adapt)
+- asset_candidates: `assets/nikita_cheers_close_loop.mp4`
+- focal: `assets/nikita_cheers_close_loop.mp4`
+- roles: animated model = right-side proof; lockup = left-side hero; value rail = final read
+- sfx: final-lock
+
+Adapt: preserve the one-move calm landing, but enter from the energy of the experimental cascade.
+
+Scene 1 (0.0–1.1s): a cream flash clears to warm navy; Nikita finishes the cheer while `FROM PIXELS` hits left.
+Scene 2 (1.1–2.25s): `TO SOMETHING` replaces the first line and a coral rule draws beneath it.
+Scene 3 (2.25–3.2s): `YOU CAN BUILD ON.` lands as the largest statement and the product name locks beneath.
+Scene 4 (3.2–4.5s): final held lockup: `IMAGE TO 3D LAB` and `LOCAL / REPRODUCIBLE / INSPECTABLE`.

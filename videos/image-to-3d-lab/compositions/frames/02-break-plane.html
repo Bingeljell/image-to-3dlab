@@ -1,0 +1,30 @@
+<template>
+  <style>
+    @font-face{font-family:EB;src:url('assets/fonts/eb-garamond-400.woff2')}@font-face{font-family:Mono;src:url('assets/fonts/jetbrains-mono-400.woff2')}@font-face{font-family:Inter;src:url('assets/fonts/inter-400.woff2')}
+    #root{width:1920px;height:1080px;position:relative;overflow:hidden;container-type:size;color:#FAF9F5}*{box-sizing:border-box}.ground{position:absolute;inset:0;background:linear-gradient(90deg,#181715 0 46%,transparent 46%)}.stage{position:absolute;inset:0;overflow:hidden}.grid{position:absolute;inset:-12%;background-image:linear-gradient(rgba(250,249,245,.09) 2px,transparent 2px),linear-gradient(90deg,rgba(250,249,245,.09) 2px,transparent 2px);background-size:90px 90px;transform:perspective(900px) rotateX(64deg) translateY(420px)}
+    .source{position:absolute;right:90px;top:70px;width:720px;height:920px;object-fit:contain;background:#EFE9DE;border:2px solid rgba(250,249,245,.35)}.turn-wrap{position:absolute;right:-40px;top:0;width:1110px;height:1080px;overflow:hidden}.phrase{position:absolute;left:72px;top:160px;width:980px;font:400 225px/.82 EB;letter-spacing:-.055em}.phrase span{position:absolute;left:0;top:0}.geometry{top:690px;width:1780px;font-size:202px;white-space:nowrap}.rail{position:absolute;left:78px;right:78px;top:62px;display:flex;justify-content:space-between;font:400 20px/1 Mono;letter-spacing:.16em;text-transform:uppercase}.rail b{font-weight:400;color:#CC785C}.ticks{position:absolute;left:78px;right:78px;bottom:56px;height:22px;display:flex;gap:32px}.ticks i{width:92px;height:5px;background:#CC785C;display:block}
+  </style>
+  <div data-hf-id="hf-robw" id="root" data-composition-id="02-break-plane" data-start="0" data-duration="4" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-azjl" id="f02-ground" class="clip ground" data-start="0" data-duration="4" data-track-index="0"></div>
+    <div data-hf-id="hf-nrr4" id="f02-stage" class="clip stage" data-start="0" data-duration="4" data-track-index="1">
+      <div data-hf-id="hf-kxq8" class="grid"></div><img data-hf-id="hf-xccw" class="source" src="assets/nikita_holding_beer.png" alt="Nikita source image"><div data-hf-id="hf-d1om" class="turn-wrap"></div>
+      <div data-hf-id="hf-qzq8" class="rail"><span data-hf-id="hf-vysg"><b data-hf-id="hf-u3lo">✱</b> IMAGE → ASSET</span><span data-hf-id="hf-ui0s">02 / 06</span></div>
+      <div data-hf-id="hf-58jb" class="phrase"><span data-hf-id="hf-od5v" class="pixels">PIXELS</span><span data-hf-id="hf-om17" class="become">BECOME</span></div><div data-hf-id="hf-cl25" class="phrase geometry">GEOMETRY.</div>
+      <div data-hf-id="hf-895q" class="ticks"><i data-hf-id="hf-wt6k"></i><i data-hf-id="hf-zeb8"></i><i data-hf-id="hf-y7e5"></i><i data-hf-id="hf-ylp6"></i><i data-hf-id="hf-0l8b"></i><i data-hf-id="hf-0zjc"></i><i data-hf-id="hf-zsm9"></i></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>
+      window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});
+      tl.fromTo('.pixels',{x:-380,opacity:0},{x:0,opacity:1,duration:.42,ease:'power4.out'},.12)
+        .fromTo('.source',{x:240,rotationY:-18,opacity:0},{x:0,rotationY:0,opacity:1,duration:.62,ease:'expo.out'},.16)
+        .fromTo('.grid',{opacity:0},{opacity:1,duration:.5,ease:'power2.out'},.3)
+        .to('.pixels',{x:-260,opacity:0,duration:.2,ease:'power3.in'},1.2)
+        .fromTo('.become',{x:280,opacity:0},{x:0,opacity:1,duration:.3,ease:'power4.out'},1.25)
+        .to('.source',{x:-560,scale:.68,rotation:-7,opacity:.25,duration:.46,ease:'power3.in'},2.05)
+        .fromTo('.turn-wrap',{x:1120,filter:'blur(30px)'},{x:0,filter:'blur(0px)',duration:.5,ease:'expo.out'},2)
+        .to('.become',{x:-300,opacity:0,duration:.18,ease:'power3.in'},2.35)
+        .fromTo('.geometry',{y:190,opacity:0,scale:1.06},{y:0,opacity:1,scale:1,duration:.44,ease:'power4.out'},2.4)
+        .fromTo('.ticks i',{scaleX:0,transformOrigin:'left center'},{scaleX:1,duration:.28,stagger:.055,ease:'power3.out'},2.65);
+      window.__timelines['02-break-plane']=tl;
+    </script>
+  </div>
+</template>

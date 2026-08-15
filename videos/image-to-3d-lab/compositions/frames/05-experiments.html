@@ -1,0 +1,28 @@
+<template>
+  <style>
+    @font-face{font-family:EB;src:url('assets/fonts/eb-garamond-400.woff2')}@font-face{font-family:Mono;src:url('assets/fonts/jetbrains-mono-400.woff2')}@font-face{font-family:Inter;src:url('assets/fonts/inter-400.woff2')}
+    #root{width:1920px;height:1080px;position:relative;overflow:hidden;container-type:size;color:#FAF9F5}*{box-sizing:border-box}.ground{position:absolute;inset:0;background:transparent}.stage{position:absolute;inset:0;overflow:hidden}.plate{position:absolute;inset:0;overflow:hidden}.p2,.p3{opacity:0}.plate img{width:100%;height:100%;object-fit:cover}.plate:after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(24,23,21,.78),rgba(24,23,21,.08) 68%)}.p2{background:#FAF9F5;color:#141413}.p2:after{display:none}.views{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:18px}.view{position:relative;width:500px;height:780px;overflow:hidden;background:#EFE9DE;border:2px solid rgba(20,20,19,.22)}.view:before{content:attr(data-label);position:absolute;left:14px;top:13px;z-index:2;font:400 15px/1 Mono;letter-spacing:.12em;background:#FAF9F5;padding:8px 10px}.view img{width:100%;height:100%;object-fit:contain}.v1 img{transform:scale(1.05)}.v2 img{transform:scale(1.24)}.v3 img{transform:scale(1.05)}.title{position:absolute;left:70px;bottom:112px;z-index:4;font:400 164px/.86 EB;letter-spacing:-.05em;white-space:nowrap}.p2 .title{color:#141413}.badge{position:absolute;right:66px;top:62px;z-index:5;padding:16px 20px;background:#A9553B;color:#FAF9F5;font:400 20px/1 Mono;letter-spacing:.14em}.index{position:absolute;left:70px;top:65px;z-index:5;font:400 20px/1 Mono;letter-spacing:.16em}.marker{position:absolute;width:88px;height:88px;border:3px solid #CC785C;z-index:5}.m1{left:54%;top:34%}.m2{left:63%;top:52%}.m3{left:49%;top:67%}.joint{border-radius:50%;width:34px;height:34px}.j1{left:58%;top:31%}.j2{left:66%;top:47%}.j3{left:59%;top:69%}.joint:after{content:'';position:absolute;width:170px;height:2px;background:#CC785C;left:30px;top:14px;transform-origin:left center;transform:rotate(18deg)}
+  </style>
+  <div data-hf-id="hf-9hfk" id="root" data-composition-id="05-experiments" data-start="0" data-duration="6" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-v5kz" id="f05-ground" class="clip ground" data-start="0" data-duration="6" data-track-index="0"></div><div data-hf-id="hf-n8la" id="f05-stage" class="clip stage" data-start="0" data-duration="6" data-track-index="1">
+      <section data-hf-id="hf-00s1" class="plate p1" data-layout-allow-overlap=""><div data-hf-id="hf-um00" class="index">✱ LAB / 01</div><div data-hf-id="hf-qeo1" class="title">LABELLED WIND</div><div data-hf-id="hf-3r8j" class="badge">EXPERIMENTAL</div><i data-hf-id="hf-jrws" class="marker m1"></i><i data-hf-id="hf-sfsn" class="marker m2"></i><i data-hf-id="hf-ohom" class="marker m3"></i></section>
+      <section data-hf-id="hf-5q3g" class="plate p2" data-layout-allow-overlap=""><div data-hf-id="hf-vr6y" class="views"><div data-hf-id="hf-85hf" class="view v1" data-label="FRONT"><img data-hf-id="hf-5cr8" src="assets/moss-fox-mv-front.png" alt="Moss fox front view"></div><div data-hf-id="hf-5s3w" class="view v2" data-label="REFERENCE"><img data-hf-id="hf-3o4e" src="assets/moss-fox-alpha_big.png" alt="Moss fox reference view"></div><div data-hf-id="hf-p52t" class="view v3" data-label="BACK"><img data-hf-id="hf-tza4" src="assets/moss-fox-mv-back.png" alt="Moss fox back view"></div></div><div data-hf-id="hf-tf2x" class="index">✱ LAB / 02</div><div data-hf-id="hf-mbyb" class="title">MULTI-VIEW</div><div data-hf-id="hf-96zn" class="badge">EXPERIMENTAL</div></section>
+      <section data-hf-id="hf-mt67" class="plate p3" data-layout-allow-overlap=""><div data-hf-id="hf-ttdy" class="index">✱ LAB / 03</div><div data-hf-id="hf-8gz8" class="title">EARLY RIGGING</div><div data-hf-id="hf-8som" class="badge">EXPERIMENTAL</div><i data-hf-id="hf-yqnl" class="marker joint j1"></i><i data-hf-id="hf-2orm" class="marker joint j2"></i><i data-hf-id="hf-6mvn" class="marker joint j3"></i></section>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>
+      window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});
+      tl.fromTo('.p1',{x:300,opacity:0},{x:0,opacity:1,duration:.3,ease:'power4.out'},.08)
+        .fromTo('.p1 .title',{x:-420,opacity:0},{x:0,opacity:1,duration:.38,ease:'power4.out'},.24)
+        .fromTo('.p1 .marker',{scale:1.8,opacity:0},{scale:1,opacity:1,duration:.24,stagger:.08,ease:'power3.out'},.72)
+        .to('.p1',{x:-380,filter:'blur(22px)',opacity:0,duration:.22,ease:'power3.in'},1.78)
+        .fromTo('.p2',{x:420,filter:'blur(20px)',opacity:0},{x:0,filter:'blur(0px)',opacity:1,duration:.26,ease:'power4.out'},1.8)
+        .fromTo('.p2 .view',{x:0,y:0,scale:.08,opacity:0},{scale:1,opacity:1,duration:.34,stagger:.08,ease:'power4.out'},2.08)
+        .fromTo('.p2 .title',{y:130,opacity:0},{y:0,opacity:1,duration:.3,ease:'power4.out'},2.5)
+        .to('.p2',{x:-400,filter:'blur(22px)',opacity:0,duration:.22,ease:'power3.in'},3.78)
+        .fromTo('.p3',{x:430,filter:'blur(20px)',opacity:0},{x:0,filter:'blur(0px)',opacity:1,duration:.28,ease:'power4.out'},3.8)
+        .fromTo('.p3 .title',{x:-500,opacity:0},{x:0,opacity:1,duration:.38,ease:'power4.out'},4.04)
+        .fromTo('.p3 .joint',{scale:2.2,opacity:0},{scale:1,opacity:1,duration:.24,stagger:.08,ease:'power3.out'},4.5);
+      window.__timelines['05-experiments']=tl;
+    </script>
+  </div>
+</template>

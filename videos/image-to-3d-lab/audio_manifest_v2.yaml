@@ -1,0 +1,102 @@
+version: 1
+project: image-to-3d-lab-v2
+
+defaults:
+  sample_rate: 48000
+  channels: stereo
+  master_format: wav
+  exports:
+    - wav
+    - ogg
+
+assets:
+  - id: impact-bed
+    kind: music
+    engine: stable-audio-3-medium
+    prompt: >
+      Immediate percussive editorial electronica for a technical product film,
+      tactile low drums, clipped analog synth pulse, warm mechanical texture,
+      confident forward motion, rising energy in the second half, decisive final
+      cadence, instrumental, no vocals, no speech, no ambient intro, no slow build
+    duration: 26
+    seeds: [260807]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params:
+      steps: 8
+      cfg: 1.0
+      apg: 1.0
+    postprocess:
+      - op: crop
+        start_seconds: 0
+        duration_seconds: 24
+      - op: fade
+        in_ms: 20
+        out_ms: 900
+      - op: peak_normalize
+        peak_db: -3
+
+  - id: paper-rip
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A sharp paper tear whoosh sound effect.
+    duration: 1
+    seeds: [26101, 26102, 26103]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params: { steps: 8, cfg: 1.0, apg: 1.0 }
+    postprocess:
+      - op: peak_normalize
+        peak_db: -5
+
+  - id: model-impact
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A heavy cinematic impact sound effect.
+    duration: 1
+    seeds: [26201, 26202, 26203]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params: { steps: 8, cfg: 1.0, apg: 1.0 }
+    postprocess:
+      - op: peak_normalize
+        peak_db: -4
+
+  - id: receipt-click
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A crisp mechanical latch click sound effect.
+    duration: 1
+    seeds: [26301, 26302, 26303]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params: { steps: 8, cfg: 1.0, apg: 1.0 }
+    postprocess:
+      - op: peak_normalize
+        peak_db: -6
+
+  - id: cascade-whip
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A fast dry whip whoosh sound effect.
+    duration: 1
+    seeds: [26401, 26402, 26403]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params: { steps: 8, cfg: 1.0, apg: 1.0 }
+    postprocess:
+      - op: peak_normalize
+        peak_db: -5
+
+  - id: final-lock
+    kind: sfx
+    engine: stable-audio-3-small-sfx
+    prompt: A clean metallic lock sound effect.
+    duration: 1
+    seeds: [26501, 26502, 26503]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params: { steps: 8, cfg: 1.0, apg: 1.0 }
+    postprocess:
+      - op: peak_normalize
+        peak_db: -6

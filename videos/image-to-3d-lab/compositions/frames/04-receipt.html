@@ -1,0 +1,27 @@
+<template>
+  <style>
+    @font-face{font-family:EB;src:url('assets/fonts/eb-garamond-400.woff2')}@font-face{font-family:Mono;src:url('assets/fonts/jetbrains-mono-400.woff2')}@font-face{font-family:Inter;src:url('assets/fonts/inter-400.woff2')}
+    #root{width:1920px;height:1080px;position:relative;overflow:hidden;container-type:size;color:#FAF9F5}*{box-sizing:border-box}.ground{position:absolute;inset:0;background:linear-gradient(90deg,#181715 0 68%,transparent 68%)}.stage{position:absolute;inset:0;overflow:hidden}.hero-title{position:absolute;left:72px;top:84px;width:1260px;font:400 150px/.84 EB;letter-spacing:-.05em}.turn-window{position:absolute;right:60px;top:62px;width:500px;height:956px;border:2px solid rgba(250,249,245,.28);overflow:hidden}.turn-label{position:absolute;left:18px;top:18px;padding:10px 13px;background:#181715;font:400 16px/1 Mono;letter-spacing:.12em}.receipt{position:absolute;left:72px;top:450px;width:1170px;border-top:2px solid rgba(250,249,245,.25)}.file{padding:20px 0 18px;font:400 25px/1 Mono;color:#CC785C;border-bottom:1px solid rgba(250,249,245,.18)}.rows{display:grid;grid-template-columns:220px 1fr}.label,.value{padding:16px 0;border-bottom:1px solid rgba(250,249,245,.11);font:400 20px/1.15 Mono}.label{opacity:.58;letter-spacing:.12em;text-transform:uppercase}.value{color:#FAF9F5}.hash{position:absolute;left:72px;bottom:104px;width:1170px;font:400 22px/1 Mono;letter-spacing:.08em;color:#5DB8A6}.hash-rule{position:absolute;left:72px;bottom:150px;width:1170px;height:4px;background:#CC785C;transform-origin:left center}.stamps{position:absolute;left:72px;bottom:35px;display:flex;gap:12px}.stamp{padding:12px 16px;border:2px solid rgba(250,249,245,.38);font:400 17px/1 Mono;letter-spacing:.11em}.verified{border-color:#CC785C;color:#FAF9F5}.final-strip{position:absolute;left:72px;right:72px;top:440px;padding:42px 48px;background:#FAF9F5;color:#141413;font:400 61px/1 Mono;letter-spacing:.08em;text-align:center;border-bottom:12px solid #CC785C}
+  </style>
+  <div data-hf-id="hf-e2nv" id="root" data-composition-id="04-receipt" data-start="0" data-duration="5" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-w6uu" id="f04-ground" class="clip ground" data-start="0" data-duration="5" data-track-index="0"></div><div data-hf-id="hf-u6m1" id="f04-stage" class="clip stage" data-start="0" data-duration="5" data-track-index="1">
+      <div data-hf-id="hf-rxn6" class="hero-title">RE-RUN<br data-hf-id="hf-x5px">THE RESULT.</div><div data-hf-id="hf-ewpq" class="turn-window"><div data-hf-id="hf-vw85" class="turn-label">CONTINUITY / PROOF</div></div>
+      <div data-hf-id="hf-3en8" class="receipt"><div data-hf-id="hf-zz4l" class="file">manifest.json</div><div data-hf-id="hf-hnc7" class="rows"><div data-hf-id="hf-devq" class="label">backend</div><div data-hf-id="hf-8jay" class="value">trellis2 / commercial-conditional</div><div data-hf-id="hf-qocz" class="label">seed</div><div data-hf-id="hf-qmog" class="value">480361379</div><div data-hf-id="hf-iolr" class="label">source</div><div data-hf-id="hf-vc2p" class="value">nikita_holding_beer.png</div></div></div>
+      <div data-hf-id="hf-yuhv" class="hash-rule"></div><div data-hf-id="hf-rk1h" class="hash">sha256 / 480361379a16 · settings frozen · license attached</div><div data-hf-id="hf-1mkc" class="stamps"><span data-hf-id="hf-fcm7" class="stamp">SETTINGS</span><span data-hf-id="hf-bu7i" class="stamp">HASH</span><span data-hf-id="hf-c3ol" class="stamp">LICENSE</span><span data-hf-id="hf-q0sr" class="stamp verified">✱ VERIFIED</span></div>
+      <div data-hf-id="hf-u9iq" class="final-strip">LOCAL / REPRODUCIBLE / INSPECTABLE</div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>
+      window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});
+      tl.fromTo('.hero-title',{x:-340,opacity:0},{x:0,opacity:1,duration:.46,ease:'power4.out'},.12)
+        .fromTo('.turn-window',{x:360,opacity:0},{x:0,opacity:1,duration:.58,ease:'expo.out'},.2)
+        .fromTo('.file',{width:'0%',opacity:0},{width:'100%',opacity:1,duration:.4,ease:'power3.out'},.92)
+        .fromTo('.rows>div',{y:34,opacity:0},{y:0,opacity:1,duration:.28,stagger:.12,ease:'power3.out'},1.18)
+        .fromTo('.hash-rule',{scaleX:0},{scaleX:1,duration:.62,ease:'power3.inOut'},2.36)
+        .fromTo('.hash',{opacity:0,x:-40},{opacity:1,x:0,duration:.3,ease:'power3.out'},2.66)
+        .fromTo('.stamp',{y:45,opacity:0},{y:0,opacity:1,duration:.25,stagger:.14,ease:'power4.out'},2.82)
+        .to('.hero-title,.turn-window,.receipt,.hash-rule,.hash,.stamps',{opacity:0,scale:.96,duration:.24,ease:'power3.in'},3.74)
+        .fromTo('.final-strip',{scaleX:.08,opacity:0},{scaleX:1,opacity:1,duration:.52,ease:'expo.out'},3.9);
+      window.__timelines['04-receipt']=tl;
+    </script>
+  </div>
+</template>

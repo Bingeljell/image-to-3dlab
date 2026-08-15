@@ -7,18 +7,18 @@ destination: website-embed
 aspect: 1920x1080
 language: en
 audience: "technical artists, indie game developers, and local AI/3D builders"
-length: 29s
+length: 27.5s
 angle: "Demo Loop"
-narration: yes
+narration: no
 style_preset: code-editorial
 ---
 
 ## Intent
 
-Create a concise product launch film for Image to 3D Lab. The piece should feel like a
-research-grade tool becoming useful in the hands of a builder: one image becomes a
-textured model, the result is previewable and reproducible, and the project opens into
-experimental multi-view, labelling, wind, rigging, and animation lanes.
+Create a high-impact product launch film for Image to 3D Lab. The piece should feel like
+a research-grade tool crossing from experiment into something tangible: one image
+ruptures into a real textured model, the full-screen result becomes the proof, and the
+project opens into experimental multi-view, labelling, wind, rigging, and animation lanes.
 
 ## Assets
 
@@ -32,14 +32,14 @@ experimental multi-view, labelling, wind, rigging, and animation lanes.
 
 ## Customizations
 
-- Use the approved 28–30 second script from the conversation as the narration/caption copy.
+- Use terse kinetic on-screen copy instead of narration or sentence-length subtitles.
 - Use the three approved videos as the visual spine: moss fox wind, Nikita turntable, Nikita cheers.
 - Use local `audio-lab` only for music and SFX; do not use its procedural/synthesized route.
 - Generate music with `stable-audio-3-medium` or `stable-audio-3-small-music`.
 - Generate short SFX with `stable-audio-3-small-sfx`, each with duration exactly 1 second.
 - Mark multi-view, labelled wind, and rigging/animation as experimental on screen.
 - Keep the visual language warm-editorial and technical: paper/ink surfaces, dark code panels,
-  amber/terracotta signal accents, restrained motion, and real output evidence.
+  amber/terracotta signal accents, forceful motion, hard editorial cuts, and real output evidence.
 
 ## Notes
 
@@ -47,5 +47,6 @@ experimental multi-view, labelling, wind, rigging, and animation lanes.
 - The first pass is autonomous and should produce a reviewable draft plus contact sheet.
 - Do not describe the output as a finished game-ready character; describe it as an inspectable,
   reproducible base asset that can be built on.
-- If narration cannot be generated locally without violating the audio constraint, keep the
-  locked script in `SCRIPT.md` and ship the first visual draft with captions, music, and SFX.
+- V4 is intentionally unnarrated: a 155 BPM Stable Audio breakbeat drives a 27.5-second editorial
+  cut. Energy comes from proof inserts, reframes, and sound hits while every primary claim remains
+  readable for at least two seconds.

@@ -11,3 +11,16 @@ output/
 # silently shipped a viewer that renders a blank page on a fresh clone.
 /vendor/
 
+
+# Generated HyperFrames video content (caches, thumbnails, snapshots, audio assets)
+videos/image-to-3d-lab/.hyperframes/
+videos/image-to-3d-lab/.thumbnails/
+videos/image-to-3d-lab/.waveform-cache/
+videos/image-to-3d-lab/snapshots/
+videos/image-to-3d-lab/audio-v2/
+videos/image-to-3d-lab/audio-v3/
+videos/image-to-3d-lab/audio-v4/
+videos/image-to-3d-lab/assets/audio-v2/
+videos/image-to-3d-lab/assets/audio-v3/
+videos/image-to-3d-lab/assets/audio-v4/
+videos/image-to-3d-lab/assets/fonts/

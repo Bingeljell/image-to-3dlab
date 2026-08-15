@@ -1,0 +1,25 @@
+<template>
+  <style>
+    @font-face{font-family:EB;src:url('assets/fonts/eb-garamond-400.woff2')}@font-face{font-family:Mono;src:url('assets/fonts/jetbrains-mono-400.woff2')}@font-face{font-family:Inter;src:url('assets/fonts/inter-400.woff2')}
+    #root{width:1920px;height:1080px;position:relative;overflow:hidden;container-type:size;color:#FAF9F5}*{box-sizing:border-box}.ground{position:absolute;inset:0;background:linear-gradient(90deg,#181715 0 60%,transparent 60%)}.stage{position:absolute;inset:0;overflow:hidden}.hero{position:absolute;right:0;top:0;width:780px;height:1080px;overflow:hidden;border-left:2px solid rgba(250,249,245,.18)}.hero:after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(24,23,21,.55),transparent 45%)}.copy{position:absolute;left:72px;top:112px;width:1240px;height:700px}.line{position:absolute;left:0;top:0;font:400 142px/.88 EB;letter-spacing:-.055em}.from{top:0}.to{top:145px}.build{top:278px;font-size:172px;width:1210px}.rule{position:absolute;left:72px;top:785px;width:980px;height:8px;background:#CC785C;transform-origin:left center}.brand{position:absolute;left:74px;bottom:133px;font:400 56px/1 Mono;letter-spacing:.12em}.value{position:absolute;left:76px;bottom:72px;font:400 19px/1 Mono;letter-spacing:.14em;color:rgba(250,249,245,.76)}.spike{color:#CC785C}.flash{position:absolute;inset:0;background:#FAF9F5;z-index:10}.index{position:absolute;right:65px;top:56px;font:400 18px/1 Mono;letter-spacing:.16em;z-index:8}
+  </style>
+  <div data-hf-id="hf-yadp" id="root" data-composition-id="06-lockup" data-start="0" data-duration="4.5" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-w5le" id="f06-ground" class="clip ground" data-start="0" data-duration="4.5" data-track-index="0"></div><div data-hf-id="hf-hdyh" id="f06-stage" class="clip stage" data-start="0" data-duration="4.5" data-track-index="1">
+      <div data-hf-id="hf-hie8" class="hero"></div><div data-hf-id="hf-eodn" class="index">06 / 06</div>
+      <div data-hf-id="hf-cu7f" class="copy" data-layout-allow-overlap=""><div data-hf-id="hf-98jn" class="line from">FROM PIXELS</div><div data-hf-id="hf-jssc" class="line to">TO SOMETHING</div><div data-hf-id="hf-33yi" class="line build">YOU CAN BUILD ON.</div></div><div data-hf-id="hf-a46i" class="rule"></div>
+      <div data-hf-id="hf-gu7z" class="brand"><span data-hf-id="hf-3274" class="spike">✱</span> IMAGE TO 3D LAB</div><div data-hf-id="hf-b36c" class="value">LOCAL / REPRODUCIBLE / INSPECTABLE</div><div data-hf-id="hf-xwk6" class="flash"></div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>
+      window.__timelines=window.__timelines||{};const tl=gsap.timeline({paused:true});
+      tl.to('.flash',{opacity:0,duration:.18,ease:'power2.out'},.04)
+        .fromTo('.hero',{x:500,filter:'blur(18px)'},{x:0,filter:'blur(0px)',duration:.62,ease:'expo.out'},.14)
+        .fromTo('.from',{x:-420,opacity:0},{x:0,opacity:1,duration:.42,ease:'power4.out'},.22)
+        .fromTo('.to',{x:320,opacity:0},{x:0,opacity:1,duration:.44,ease:'power4.out'},1.05)
+        .fromTo('.rule',{scaleX:0},{scaleX:1,duration:.5,ease:'power3.inOut'},1.58)
+        .fromTo('.build',{y:150,opacity:0},{y:0,opacity:1,duration:.48,ease:'power4.out'},2.08)
+        .fromTo('.brand',{y:55,opacity:0,scale:1.04},{y:0,opacity:1,scale:1,duration:.38,ease:'power3.out'},2.72)
+        .fromTo('.value',{opacity:0,x:-30},{opacity:1,x:0,duration:.32,ease:'power3.out'},3.05);
+      window.__timelines['06-lockup']=tl;
+    </script>
+  </div>
+</template>

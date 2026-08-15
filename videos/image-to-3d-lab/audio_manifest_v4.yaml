@@ -1,0 +1,29 @@
+version: 1
+project: image-to-3d-lab-v4
+defaults:
+  sample_rate: 48000
+  channels: stereo
+  master_format: wav
+  exports: [wav, ogg]
+assets:
+  - id: velocity-bed-long
+    kind: music
+    engine: stable-audio-3-medium
+    prompt: >-
+      High-energy breakbeat techno for a technical product trailer,
+      immediate hard kick on the first beat, 155 BPM, pounding acoustic drums,
+      syncopated industrial percussion, distorted analog bass, clipped synth
+      stabs, sharp section changes, relentless forward drive, a short half-time
+      breakdown in the middle, decisive final impact, instrumental, no vocals,
+      no speech, no ambient intro, no slow build
+    duration: 30
+    seeds: [270808]
+    variants_to_keep: 1
+    license: Stability AI Community License
+    params: { steps: 8, cfg: 1.0, apg: 1.0 }
+    postprocess:
+      - op: fade
+        in_ms: 5
+        out_ms: 500
+      - op: peak_normalize
+        peak_db: -2

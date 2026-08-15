@@ -26,9 +26,8 @@ from typing import Any, ClassVar
 from urllib.parse import unquote, urlparse
 
 REPO = Path(__file__).resolve().parents[1]
-AUDIT_ROOT = REPO / "vendor" / "upstream-audit-worktree"
-WRAPPER = AUDIT_ROOT / "scripts" / "trellis_space_generate.py"
-PYTHON = AUDIT_ROOT / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
+WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
+PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
 OUTPUT_ROOT = REPO / "output" / "space_web"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
 
@@ -351,7 +350,6 @@ def _read_process(job: Job) -> None:
 def _run_job(job: Job) -> None:
     args = [
         str(PYTHON), str(WRAPPER), str(job.image_path), str(job.output_path),
-        "--vendor-root", str(AUDIT_ROOT / "vendor" / "trellis-space-mac"),
         "--resolution", job.settings["resolution"],
         "--seed", str(job.settings["seed"]),
         "--decimation-target", str(job.settings["decimation_target"]),

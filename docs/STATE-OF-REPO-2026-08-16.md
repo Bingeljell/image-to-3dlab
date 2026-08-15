@@ -19,10 +19,7 @@ for the five bugs found and the assumptions that were wrong.
 
 The clean port's code, bootstrap and patches are in this repository (on `main`); the built
 environment (`vendor/trellis-space-mac/`) is git-ignored and rebuilt by
-`scripts/bootstrap_trellis_space_macos.py` + the `patch_trellis_*` scripts. On this
-machine the only existing build lives in the legacy audit worktree
-(`vendor/upstream-audit-worktree/`), so run with `--vendor-root` as shown below until a
-fresh build exists at the repo root.
+`scripts/bootstrap_trellis_space_macos.py` + the `patch_trellis_*` scripts.
 
 ## How to run image → GLB (clean port)
 
@@ -42,15 +39,8 @@ where the generator's default `--vendor-root` points) and builds the Metal kerne
 vendored build is git-ignored by design — the bootstrap + patch scripts are the
 reproducible path.
 
-### This machine (existing build)
-
-The only built environment on disk lives in the audit worktree, so pass it explicitly:
-
-```bash
-env PYTHONUNBUFFERED=1 vendor/upstream-audit-worktree/vendor/trellis-space-mac/.venv/bin/python \
-  scripts/trellis_space_generate.py input.png output/out.glb \
-  --vendor-root vendor/upstream-audit-worktree/vendor/trellis-space-mac
-```
+**This machine** already has a build at `vendor/trellis-space-mac/` (moved here from the
+legacy audit worktree), so the fresh-machine recipe works as-is with no flags.
 
 - `--check` verifies the environment first (seconds, no model load).
 - The input must have a transparent alpha foreground (BRIA guardrail); RGBA with real alpha

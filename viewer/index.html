@@ -7,7 +7,11 @@
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #14161a; color: #d8dee9; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-  #bar { position: fixed; inset: 0 0 auto 0; z-index: 10; display: flex; flex-wrap: wrap;
+  #mode-switch { position: fixed; inset: 0 0 auto 0; z-index: 30; display: flex; gap: 6px;
+         align-items: center; padding: 6px 10px; height: 42px; background: #111318;
+         border-bottom: 1px solid #2c313a; }
+  #mode-switch .mode { padding: 3px 12px; }
+  #bar { position: fixed; inset: 42px 0 auto 0; z-index: 10; display: flex; flex-wrap: wrap;
          gap: 6px; align-items: center; padding: 8px 10px; background: #1b1e24ee;
          border-bottom: 1px solid #2c313a; backdrop-filter: blur(6px); }
   button { background: #262b33; color: #d8dee9; border: 1px solid #39404b; border-radius: 5px;
@@ -19,7 +23,7 @@
   #add:hover:not(:disabled) { background: #396b40; }
   .sep { width: 1px; height: 20px; background: #39404b; margin: 0 4px; }
   .lbl { opacity: .55; }
-  #panes { position: fixed; inset: 44px 0 0 0; display: flex; }
+  #panes { position: fixed; inset: 86px 0 0 0; display: flex; }
   .pane { position: relative; flex: 1 1 0; min-width: 0; border-left: 1px solid #2c313a; overflow: hidden; }
   .pane:first-child { border-left: none; }
   .pane.dragtarget::after { content: 'drop here'; position: absolute; inset: 0; z-index: 8;
@@ -59,7 +63,7 @@
   .ovlbar button { padding: 1px 7px; }
   #err { position: fixed; left: 10px; bottom: 10px; z-index: 20; color: #e88; max-width: 70vw; }
   /* Full-area drop zone, shown only when nothing is loaded. */
-  #drop { position: fixed; inset: 44px 0 0 0; z-index: 9; display: flex; flex-direction: column;
+  #drop { position: fixed; inset: 86px 0 0 0; z-index: 9; display: flex; flex-direction: column;
           align-items: center; justify-content: center; gap: 14px; text-align: center; }
   #drop.hidden { display: none; }
   #drop .big { font-size: 20px; color: #cfe3ff; }
@@ -69,9 +73,65 @@
                 transition: border-color .12s, background .12s; }
   body.dragging #drop .zone { border-color: #4d84c0; background: #3b6ea522; }
   #drop button { padding: 8px 16px; font-size: 14px; }
+  #compare-view.hidden { display: none; }
+  #generate-view { position: fixed; inset: 42px 0 0 0; overflow: auto; padding: 22px 24px 30px;
+                   background: radial-gradient(circle at 75% 20%, #1d2a3a 0, transparent 38%), #14161a; }
+  .generate-grid { max-width: 1280px; min-height: calc(100vh - 94px); margin: 0 auto;
+                   display: grid; grid-template-columns: minmax(280px, 390px) minmax(0, 1fr); gap: 18px; }
+  .generate-card { background: #1b1e24e8; border: 1px solid #303744; border-radius: 10px;
+                   padding: 16px; box-shadow: 0 14px 45px #0004; }
+  .generate-card h2 { margin: 0 0 4px; font-size: 16px; color: #cfe3ff; }
+  .generate-card p { margin: 0 0 14px; opacity: .68; font-size: 12px; }
+  #generate-drop { border: 2px dashed #39404b; border-radius: 9px; min-height: 180px; padding: 14px;
+                   display: flex; align-items: center; justify-content: center; text-align: center;
+                   cursor: pointer; transition: .12s; }
+  #generate-drop.drag { border-color: #4d84c0; background: #3b6ea522; }
+  #generate-preview { max-width: 100%; max-height: 220px; display: none; object-fit: contain; border-radius: 6px; }
+  #generate-drop.has-image #generate-preview { display: block; }
+  #generate-drop.has-image #generate-prompt { display: none; }
+  #generate-prompt { opacity: .75; }
+  .alpha-badge { display: inline-block; margin-top: 8px; padding: 3px 7px; border-radius: 4px; font-size: 11px; }
+  .alpha-good { background: #254f32; color: #a8e6b7; }
+  .alpha-bad { background: #5a322e; color: #ffc2b8; }
+  .field { margin-top: 12px; display: grid; grid-template-columns: 1fr 150px; gap: 8px; align-items: center; }
+  .field small { grid-column: 1 / -1; opacity: .52; font-size: 10px; }
+  .field input, .field select { width: 100%; background: #12151a; color: #d8dee9; border: 1px solid #39404b;
+                                  border-radius: 4px; padding: 6px; font: inherit; }
+  .check { display: flex; gap: 7px; align-items: center; margin-top: 14px; }
+  .check small { opacity: .58; }
+  #generate-submit, #generate-cancel { margin-top: 16px; width: 100%; padding: 9px; }
+  #generate-submit { background: #2f5233; border-color: #3f6d45; }
+  #generate-submit:hover:not(:disabled) { background: #396b40; }
+  #generate-cancel { display: none; }
+  #generate-status { min-height: 20px; margin-top: 10px; color: #ffb8ae; font-size: 12px; white-space: pre-wrap; }
+  #generate-right { min-width: 0; display: flex; flex-direction: column; }
+  #generate-progress-box { flex: 1; min-height: 450px; }
+  #generate-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  #generate-overall-label { color: #cfe3ff; }
+  #generate-overall-eta { opacity: .75; white-space: nowrap; }
+  .progress-track { height: 9px; margin: 12px 0 16px; background: #0d0f12; border-radius: 99px; overflow: hidden; }
+  #generate-overall-bar { height: 100%; width: 0; background: linear-gradient(90deg, #4d84c0, #7eb4ef); transition: width .2s; }
+  #generate-stages { display: grid; gap: 8px; }
+  .stage-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 7px; align-items: center; padding: 7px 8px;
+               border-radius: 5px; background: #14161a; color: #8993a2; }
+  .stage-row.active { color: #d8dee9; background: #243247; }
+  .stage-row.done { color: #a8e6b7; }
+  .stage-row .stage-detail { text-align: right; font-size: 11px; opacity: .8; }
+  #generate-viewer { display: none; flex: 1; min-height: 450px; position: relative; }
+  #generate-viewer iframe { width: 100%; height: 100%; min-height: 450px; border: 1px solid #303744; border-radius: 8px; background: #14161a; }
+  #generate-downloads { display: none; gap: 10px; margin-top: 10px; font-size: 12px; }
+  #generate-downloads a { color: #9bc8ff; }
+  #generate-summary { display: none; margin-top: 8px; opacity: .7; font-size: 11px; white-space: pre-wrap; }
+  @media (max-width: 760px) { .generate-grid { grid-template-columns: 1fr; } #generate-progress-box { min-height: 420px; } }
 </style>
 </head>
 <body>
+<div id="mode-switch">
+  <span class="lbl">TRELLIS.2</span>
+  <button id="mode-compare" class="mode on">Compare</button>
+  <button id="mode-generate" class="mode">Generate</button>
+</div>
+<section id="compare-view">
 <div id="bar">
   <button id="add" title="add another pane, side by side">＋ add pane <span id="addcount">(0/3)</span></button>
   <div class="sep"></div>
@@ -106,6 +166,43 @@
        accept=".glb,.gltf,.obj,.bin,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp,.avif,.ktx2" style="display:none">
 <input id="ovlfile" type="file" accept="image/*" style="display:none">
 <div id="err"></div>
+</section>
+
+<section id="generate-view" hidden>
+  <div class="generate-grid">
+    <div class="generate-card">
+      <h2>Image → 3D</h2>
+      <p>Clean TRELLIS.2 Mac port · demo defaults are recommended.</p>
+      <div id="generate-drop">
+        <div id="generate-prompt">Drop a pre-masked PNG here<br>or click to choose an image</div>
+        <img id="generate-preview" alt="input preview">
+      </div>
+      <input id="generate-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
+      <div id="generate-alpha" class="alpha-badge" hidden></div>
+      <div class="field"><label for="generate-resolution">Resolution</label>
+        <select id="generate-resolution"><option>512</option><option selected>1024</option><option>1536</option></select></div>
+      <div class="field"><label for="generate-seed">Seed</label><input id="generate-seed" type="number" step="1" value="0"></div>
+      <div class="field"><label for="generate-decimation">Decimation target</label><input id="generate-decimation" type="number" min="1" step="1" value="300000">
+        <small>Advanced: remesh is fixed demo-faithful, so this is a cap rather than a target.</small></div>
+      <div class="field"><label for="generate-texture">Texture size</label>
+        <select id="generate-texture"><option>1024</option><option selected>2048</option><option>3072</option><option>4096</option></select></div>
+      <label class="check"><input id="generate-rembg" type="checkbox"><span>allow rembg</span><small>only for images without alpha</small></label>
+      <button id="generate-submit" disabled>Generate</button>
+      <button id="generate-cancel">Cancel job</button>
+      <div id="generate-status"></div>
+    </div>
+    <div id="generate-right">
+      <div id="generate-progress-box" class="generate-card">
+        <div id="generate-progress-head"><span id="generate-overall-label">Choose an image to begin</span><span id="generate-overall-eta"></span></div>
+        <div class="progress-track"><div id="generate-overall-bar"></div></div>
+        <div id="generate-stages"></div>
+      </div>
+      <div id="generate-viewer"><iframe id="generate-frame" title="generated model viewer"></iframe></div>
+      <div id="generate-downloads"><a id="generate-glb" download>Download GLB</a><a id="generate-manifest" download>Download manifest</a></div>
+      <div id="generate-summary"></div>
+    </div>
+  </div>
+</section>
 
 <script type="importmap">
 { "imports": {
@@ -708,6 +805,190 @@ function renderFrame() {
 }
 window.__viewerInvalidate = invalidate;   // so automation can force a repaint
 window.__viewerReady = true;
+
+// --- Generate mode -------------------------------------------------------------------
+// Kept in this same shell so the generated result can open the exact Compare viewer (including
+// its backface-cull acceptance toggle) without changing any of Compare's loading/render code.
+const generateView = document.getElementById('generate-view');
+const compareView = document.getElementById('compare-view');
+const generateStages = [
+  ['load', 'Load'], ['sparse_structure', 'Sparse structure'],
+  ['shape_slat_coarse', 'Shape SLat coarse'], ['shape_slat_fine', 'Shape SLat fine'],
+  ['texture_slat', 'Texture SLat'], ['decode', 'Decode'], ['bake', 'Bake / remesh'],
+];
+const stageRows = new Map();
+const generateStagesEl = document.getElementById('generate-stages');
+for (const [phase, label] of generateStages) {
+  const row = document.createElement('div');
+  row.className = 'stage-row'; row.dataset.phase = phase;
+  row.innerHTML = `<span class="stage-dot">○</span><span>${label}</span><span class="stage-detail">queued</span>`;
+  generateStagesEl.appendChild(row);
+  stageRows.set(phase, row);
+}
+const gen = {
+  file: null, objectUrl: null, hasAlpha: false, jobId: null, source: null,
+  running: false,
+};
+const g = (id) => document.getElementById(id);
+const formatDuration = (seconds) => {
+  if (seconds == null || !Number.isFinite(Number(seconds))) return 'estimating…';
+  const n = Math.max(0, Math.round(Number(seconds)));
+  if (n < 60) return `${n}s`;
+  const m = Math.round(n / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+};
+const resetStageRows = () => {
+  for (const row of stageRows.values()) {
+    row.className = 'stage-row'; row.querySelector('.stage-dot').textContent = '○';
+    row.querySelector('.stage-detail').textContent = 'queued';
+  }
+};
+const updateGenerateButton = () => {
+  const needsRembg = !gen.hasAlpha && !g('generate-rembg').checked;
+  g('generate-submit').disabled = !gen.file || gen.running || needsRembg;
+};
+const setGenerateMode = (mode) => {
+  const generate = mode === 'generate';
+  compareView.classList.toggle('hidden', generate);
+  generateView.hidden = !generate;
+  g('mode-compare').classList.toggle('on', !generate);
+  g('mode-generate').classList.toggle('on', generate);
+};
+g('mode-compare').onclick = () => setGenerateMode('compare');
+g('mode-generate').onclick = () => setGenerateMode('generate');
+
+async function inspectAlpha(file) {
+  // JPEG and opaque formats cannot carry a useful foreground alpha. For PNG/WebP, inspect the
+  // decoded pixels in-browser so the guardrail is visible before a long job is submitted.
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width; canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0);
+    const pixels = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    let min = 255;
+    for (let i = 3; i < pixels.length; i += 4) { if (pixels[i] < min) min = pixels[i]; if (min === 0) break; }
+    bitmap.close();
+    return file.type === 'image/png' || file.type === 'image/webp' ? min < 255 : false;
+  } catch (_) { return false; }
+}
+function setGenerateFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  if (gen.objectUrl) URL.revokeObjectURL(gen.objectUrl);
+  gen.file = file; gen.objectUrl = URL.createObjectURL(file); gen.hasAlpha = false;
+  g('generate-preview').src = gen.objectUrl;
+  g('generate-drop').classList.add('has-image');
+  const badge = g('generate-alpha'); badge.hidden = false; badge.className = 'alpha-badge';
+  badge.textContent = 'checking alpha…';
+  inspectAlpha(file).then((hasAlpha) => {
+    if (gen.file !== file) return;
+    gen.hasAlpha = hasAlpha;
+    badge.className = `alpha-badge ${hasAlpha ? 'alpha-good' : 'alpha-bad'}`;
+    badge.textContent = hasAlpha ? 'transparent foreground ✓' : 'no alpha — enable rembg to continue';
+    updateGenerateButton();
+  });
+  updateGenerateButton();
+  g('generate-status').textContent = '';
+}
+const generateFile = g('generate-file');
+const generateDrop = g('generate-drop');
+generateDrop.onclick = () => generateFile.click();
+generateFile.onchange = () => { if (generateFile.files[0]) setGenerateFile(generateFile.files[0]); generateFile.value = ''; };
+for (const event of ['dragenter', 'dragover']) generateDrop.addEventListener(event, (e) => { e.preventDefault(); generateDrop.classList.add('drag'); });
+for (const event of ['dragleave', 'drop']) generateDrop.addEventListener(event, (e) => { e.preventDefault(); generateDrop.classList.remove('drag'); });
+generateDrop.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) setGenerateFile(e.dataTransfer.files[0]); });
+g('generate-rembg').onchange = updateGenerateButton;
+
+function applyGenerateProgress(event) {
+  const phase = event.phase;
+  if (stageRows.has(phase)) {
+    const current = generateStages.findIndex(([name]) => name === phase);
+    for (let i = 0; i < current; i++) {
+      const row = stageRows.get(generateStages[i][0]);
+      row.className = 'stage-row done'; row.querySelector('.stage-dot').textContent = '✓';
+      row.querySelector('.stage-detail').textContent = 'done';
+    }
+    const row = stageRows.get(phase);
+    const pct = event.stage_pct == null ? '' : `${event.stage_pct}%`;
+    const steps = event.step != null ? `${event.step}/${event.total}` : pct;
+    row.className = event.stage_pct === 100 ? 'stage-row done' : 'stage-row active';
+    row.querySelector('.stage-dot').textContent = event.stage_pct === 100 ? '✓' : '●';
+    row.querySelector('.stage-detail').textContent = event.stage_pct === 100
+      ? 'done' : `${steps} · ~${formatDuration(event.stage_eta_seconds)}`;
+    g('generate-overall-bar').style.width = `${Math.max(0, Math.min(100, event.overall_pct || 0))}%`;
+    g('generate-overall-label').textContent = event.message || phase;
+    g('generate-overall-eta').textContent = event.total_eta_seconds == null
+      ? 'Total still estimating' : `Total ~${formatDuration(event.total_eta_seconds)}`;
+  }
+  if (phase === 'done') {
+    g('generate-overall-bar').style.width = '100%';
+    g('generate-overall-label').textContent = 'Generation complete';
+    g('generate-overall-eta').textContent = '';
+    g('generate-status').textContent = 'Done — the generated GLB is ready below.';
+    g('generate-progress-box').style.display = 'none';
+    g('generate-viewer').style.display = 'block';
+    g('generate-downloads').style.display = 'flex';
+    g('generate-summary').style.display = 'block';
+    const src = `${event.result_url}?t=${Date.now()}`;
+    g('generate-frame').src = `/viewer/index.html?a=${encodeURIComponent(src)}&la=Generated`;
+    g('generate-glb').href = event.result_url;
+    g('generate-manifest').href = event.manifest_url;
+    fetch(event.manifest_url).then((response) => response.json()).then((manifest) => {
+      const timings = manifest.timings_seconds || {};
+      g('generate-summary').textContent = `clean-port manifest · total ${formatDuration(timings.total)} · ` +
+        `pipeline ${formatDuration(timings.run_stages_1_3)} · bake ${formatDuration(timings.to_glb)}`;
+    }).catch(() => {});
+  } else if (phase === 'error') {
+    g('generate-status').textContent = event.message || 'Generation failed';
+  }
+}
+function stopGenerateStream() { if (gen.source) { gen.source.close(); gen.source = null; } }
+function startGenerateStream(jobId) {
+  stopGenerateStream();
+  const source = new EventSource(`/api/generate/${jobId}/events`); gen.source = source;
+  source.onmessage = (message) => {
+    const event = JSON.parse(message.data); applyGenerateProgress(event);
+    if (event.phase === 'done' || event.phase === 'error') {
+      gen.running = false; g('generate-cancel').style.display = 'none'; updateGenerateButton();
+      source.close();
+    }
+  };
+  source.onerror = () => {
+    if (gen.running) g('generate-status').textContent = 'Progress connection lost; reconnecting…';
+  };
+}
+g('generate-submit').onclick = async () => {
+  if (!gen.file || gen.running) return;
+  gen.running = true; resetStageRows();
+  g('generate-progress-box').style.display = 'block'; g('generate-viewer').style.display = 'none';
+  g('generate-downloads').style.display = 'none'; g('generate-summary').style.display = 'none';
+  g('generate-status').textContent = 'Submitting job…';
+  g('generate-cancel').style.display = 'block'; updateGenerateButton();
+  const settings = {
+    resolution: g('generate-resolution').value,
+    seed: Number(g('generate-seed').value),
+    decimation_target: Number(g('generate-decimation').value),
+    texture_size: Number(g('generate-texture').value),
+    allow_rembg: g('generate-rembg').checked,
+  };
+  const body = new FormData(); body.append('image', gen.file); body.append('settings', JSON.stringify(settings));
+  try {
+    const response = await fetch('/api/generate', { method: 'POST', body });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `request failed (${response.status})`);
+    gen.jobId = payload.job_id; g('generate-status').textContent = 'Job started. MPS is serialized; this may take a while.';
+    startGenerateStream(gen.jobId);
+  } catch (error) {
+    gen.running = false; g('generate-cancel').style.display = 'none'; updateGenerateButton();
+    g('generate-status').textContent = error.message || String(error);
+  }
+};
+g('generate-cancel').onclick = async () => {
+  if (!gen.jobId) return;
+  try { await fetch(`/api/generate/${gen.jobId}/cancel`, { method: 'POST' }); }
+  catch (_) { /* the SSE stream will surface the process outcome */ }
+};
 </script>
 </body>
 </html>

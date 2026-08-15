@@ -15,35 +15,21 @@ automation, which means the agent can look at its own output instead of asking.
 from __future__ import annotations
 
 import argparse
-import functools
-import http.server
 import socketserver
 import urllib.parse
 import webbrowser
 from pathlib import Path
-from typing import ClassVar
+
+from generate_api import Handler
 
 REPO = Path(__file__).resolve().parents[1]
 
 
-class Handler(http.server.SimpleHTTPRequestHandler):
-    """Static files, with the two headers a GLB viewer actually needs."""
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """Allow SSE and static assets while the one generator job runs."""
 
-    extensions_map: ClassVar[dict[str, str]] = {
-        **http.server.SimpleHTTPRequestHandler.extensions_map,
-        ".glb": "model/gltf-binary",
-        ".gltf": "model/gltf+json",
-        ".js": "text/javascript",
-    }
-
-    def end_headers(self) -> None:
-        # Meshes are large and change in place; a cached GLB would silently show the old one.
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
-
-    def log_message(self, fmt, *args) -> None:  # quieter than the default
-        if "404" in (fmt % args):
-            super().log_message(fmt, *args)
+    daemon_threads = True
+    allow_reuse_address = True
 
 
 def compare_url(assets: list[str], port: int, labels: list[str] | None = None) -> str:
@@ -79,9 +65,9 @@ def main() -> int:
         f"http://127.0.0.1:{args.port}/viewer/index.html"
     print(url, flush=True)
 
+    import functools
     handler = functools.partial(Handler, directory=str(REPO))
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", args.port), handler) as httpd:
+    with ThreadingHTTPServer(("127.0.0.1", args.port), handler) as httpd:
         if args.open and not args.no_browser:
             webbrowser.open(url)
         print(f"serving {REPO} — ctrl-c to stop", flush=True)

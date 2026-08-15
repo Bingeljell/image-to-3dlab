@@ -5,9 +5,8 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor/trellis-space-mac"
@@ -31,11 +30,10 @@ def main() -> int:
 
     import torch
     import torch.nn.functional as F
-    from trellis2.modules.sparse import VarLenTensor
+    from trellis2.modules.sparse import VarLenTensor, config
     from trellis2.modules.sparse.attention.full_attn import (
         sparse_scaled_dot_product_attention,
     )
-    from trellis2.modules.sparse import config
 
     if not torch.backends.mps.is_available():
         raise RuntimeError("MPS is unavailable; run this integration gate on Apple Silicon")

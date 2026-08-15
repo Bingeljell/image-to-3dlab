@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 import torch
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "trellis_stage3.py"
 SPEC = importlib.util.spec_from_file_location("trellis_stage3", SCRIPT)
 stage3 = importlib.util.module_from_spec(SPEC)

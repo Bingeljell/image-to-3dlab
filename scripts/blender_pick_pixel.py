@@ -18,7 +18,6 @@ import argparse
 import json
 import socket
 
-
 VIEWS = {
     "front_xneg": "(-distance, 0, target.z)",
     "front_three_quarter": "(-distance * 0.9, -distance * 0.45, target.z)",

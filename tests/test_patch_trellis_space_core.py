@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "patch_trellis_space_core.py"
 SPEC = importlib.util.spec_from_file_location("patch_trellis_space_core", SCRIPT)
 patcher = importlib.util.module_from_spec(SPEC)

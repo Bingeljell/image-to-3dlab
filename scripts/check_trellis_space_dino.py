@@ -7,9 +7,8 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor/trellis-space-mac"
@@ -36,9 +35,9 @@ def main() -> int:
     sys.path.insert(0, str(root / "TRELLIS.2"))
 
     import numpy as np
-    from PIL import Image
     import torch
     import transformers
+    from PIL import Image
     from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 

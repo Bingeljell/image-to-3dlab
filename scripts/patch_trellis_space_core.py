@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "trellis-space-mac" / "TRELLIS.2"
 

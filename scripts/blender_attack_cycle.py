@@ -18,8 +18,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from attack_pose import sample  # noqa: E402
-from blender_joint_markers import send  # noqa: E402
+from attack_pose import sample
+from blender_joint_markers import send
 
 
 def build_code(frames: int, action_name: str, toe: float) -> str:

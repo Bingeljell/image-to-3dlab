@@ -104,8 +104,8 @@ def report(name: str, stats: dict) -> None:
     print(f"  boundary edges      {stats['boundary_edges']:>10,}")
     print(f"  non-manifold edges  {stats['non_manifold_edges']:>10,}")
     print(f"  dangling bnd verts  {stats['dangling_boundary_verts']:>10,}")
-    print(f"  watertight          {str(stats['watertight']):>10}")
-    print(f"  winding consistent  {str(stats['winding_consistent']):>10}")
+    print(f"  watertight          {stats['watertight']!s:>10}")
+    print(f"  winding consistent  {stats['winding_consistent']!s:>10}")
     print(f"  volume              {stats['volume']:>10.5f}")
 
 

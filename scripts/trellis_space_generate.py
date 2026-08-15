@@ -245,8 +245,8 @@ def check_environment(vendor_root: Path, sparse_attn_backend: str) -> int:
               flush=True)
         return 1
 
+    import o_voxel
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
-    import o_voxel  # noqa: F401
 
     missing = [m for m in ("run", "decode_latent", "get_cond", "preprocess_image")
                if not hasattr(Trellis2ImageTo3DPipeline, m)]

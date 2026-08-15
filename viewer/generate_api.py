@@ -9,7 +9,6 @@ the viewer server, running its tests, or serving Compare never imports torch.
 from __future__ import annotations
 
 import json
-import mimetypes
 import os
 import re
 import signal
@@ -538,7 +537,7 @@ class Handler(SimpleHTTPRequestHandler):
                     terminal = job.status in {"done", "error", "cancelled"} and not pending
                 for event in pending:
                     payload = json.dumps(event, separators=(",", ":"))
-                    self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                    self.wfile.write(f"data: {payload}\n\n".encode())
                 if not pending:
                     self.wfile.write(b": keep-alive\n\n")
                 self.wfile.flush()

@@ -31,8 +31,8 @@ def main() -> int:
     parser.add_argument("output_prefix", type=Path)
     args = parser.parse_args()
 
-    import torch
     import cumesh
+    import torch
 
     payload = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     mesh = cumesh.CuMesh()

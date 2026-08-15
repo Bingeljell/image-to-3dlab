@@ -28,7 +28,6 @@ import sys
 import time
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-mac"
 

@@ -105,6 +105,14 @@
   #generate-cancel { display: none; }
   #generate-status { min-height: 20px; margin-top: 10px; color: #ffb8ae; font-size: 12px; white-space: pre-wrap; }
   #generate-right { min-width: 0; display: flex; flex-direction: column; }
+  /* Setup card */
+  #generate-setup { margin-bottom: 14px; }
+  .setup-check { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 3px 0; }
+  .setup-check .ok { color: #6fbf73; }
+  .setup-check .bad { color: #ffb8ae; }
+  .setup-check .warn { color: #f5d742; }
+  .setup-check code { background: #0d0f12; border: 1px solid #303744; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+  .setup-check .hint { opacity: .7; }
   #generate-progress-box { flex: 1; min-height: 450px; }
   #generate-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
   #generate-overall-label { color: #cfe3ff; }
@@ -169,6 +177,11 @@
 </section>
 
 <section id="generate-view" hidden>
+  <div id="generate-setup" class="generate-card">
+    <h2>Setup</h2>
+    <p>Machine readiness for the clean TRELLIS.2 port. Serve with <code>python viewer/serve.py</code> and open <code>http://127.0.0.1:8777/viewer/index.html</code>.</p>
+    <div id="setup-checks" style="min-height:20px">checking…</div>
+  </div>
   <div class="generate-grid">
     <div class="generate-card">
       <h2>Image → 3D</h2>
@@ -829,6 +842,7 @@ const gen = {
   file: null, objectUrl: null, hasAlpha: false, jobId: null, source: null,
   running: false,
 };
+const setupState = { ready: false };
 const g = (id) => document.getElementById(id);
 const formatDuration = (seconds) => {
   if (seconds == null || !Number.isFinite(Number(seconds))) return 'estimating…';
@@ -845,7 +859,7 @@ const resetStageRows = () => {
 };
 const updateGenerateButton = () => {
   const needsRembg = !gen.hasAlpha && !g('generate-rembg').checked;
-  g('generate-submit').disabled = !gen.file || gen.running || needsRembg;
+  g('generate-submit').disabled = !gen.file || gen.running || needsRembg || !setupState.ready;
 };
 const setGenerateMode = (mode) => {
   const generate = mode === 'generate';
@@ -989,6 +1003,32 @@ g('generate-cancel').onclick = async () => {
   try { await fetch(`/api/generate/${gen.jobId}/cancel`, { method: 'POST' }); }
   catch (_) { /* the SSE stream will surface the process outcome */ }
 };
+
+async function refreshSetup() {
+  const el = g('setup-checks');
+  try {
+    const res = await fetch('/api/setup');
+    const s = await res.json();
+    setupState.ready = !!s.ready;
+    const rows = [];
+    if (s.build && s.build.present) {
+      rows.push('<div class="setup-check"><span class="ok">✓</span><span>Clean-port build</span><code>' + s.build.interpreter + '</code></div>');
+    } else {
+      rows.push('<div class="setup-check"><span class="bad">✗</span><span>Clean-port build missing</span></div>');
+      if (s.build && s.build.hint) rows.push('<div class="setup-check"><span class="hint">→</span><span class="hint">' + s.build.hint + '</span></div>');
+    }
+    for (const repo of Object.values(s.weights || {})) {
+      rows.push(repo.present
+        ? '<div class="setup-check"><span class="ok">✓</span><span>' + repo.label + '</span><code>' + repo.human + ' on disk</code></div>'
+        : '<div class="setup-check"><span class="warn">⚠</span><span>' + repo.label + '</span><code>not on disk — first run downloads</code></div>');
+    }
+    el.innerHTML = rows.join('');
+  } catch (e) {
+    el.innerHTML = '<div class="setup-check"><span class="bad">✗</span><span>Setup check failed: ' + e + '</span></div>';
+  }
+  updateGenerateButton();
+}
+refreshSetup();
 </script>
 </body>
 </html>

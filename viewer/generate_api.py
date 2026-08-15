@@ -31,6 +31,88 @@ PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
 OUTPUT_ROOT = REPO / "output" / "space_web"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
 
+# Backend-selection vars the generator must own. A stale value inherited from the server's
+# environment silently selects the wrong backend (the conv_none crash); the subprocess env
+# drops them and the generator's configure_environment/require_flex_gemm pin them fresh.
+BACKEND_ENV_KEYS = (
+    "SPARSE_CONV_BACKEND",
+    "ATTN_BACKEND",
+    "SPARSE_ATTN_BACKEND",
+    "FLEX_GEMM_AUTOTUNE_CACHE_PATH",
+)
+
+HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
+WEIGHT_REPOS = (
+    ("models--microsoft--TRELLIS.2-4B", "TRELLIS.2-4B weights"),
+    ("models--facebook--dinov3-vitl16-pretrain-lvd1689m", "DINOv3 image encoder"),
+)
+
+
+def _job_env() -> dict[str, str]:
+    """Subprocess env for the generator: inherit everything except backend-selection vars.
+
+    The generator pins ATTN_BACKEND/SPARSE_ATTN_BACKEND/SPARSE_CONV_BACKEND itself; a stale
+    value in this server's environment (e.g. SPARSE_CONV_BACKEND=none exported earlier)
+    would otherwise be inherited and silently break the run.
+    """
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    for key in BACKEND_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
+def _human_bytes(size: int) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def weights_on_disk(cache_dir: Path | None = None) -> dict[str, dict[str, Any]]:
+    """Report which model weights are already in the HF cache.
+
+    A first run with missing weights downloads ~14 GB in the background with no progress
+    bar, which reads as a hung 'load'. Surfacing this up front is what the setup card shows.
+    """
+    hub = (cache_dir or HF_HUB_DIR).resolve()
+    out: dict[str, dict[str, Any]] = {}
+    for repo, label in WEIGHT_REPOS:
+        path = hub / repo
+        if path.is_dir():
+            size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+            out[repo] = {"label": label, "present": True, "bytes": size,
+                         "human": _human_bytes(size)}
+        else:
+            out[repo] = {"label": label, "present": False, "bytes": 0, "human": "0 B"}
+    return out
+
+
+def setup_status() -> dict[str, Any]:
+    """Machine readiness for the clean-port generator, for the Generate > Setup card."""
+    build_present = PYTHON.is_file() and WRAPPER.is_file()
+    weights = weights_on_disk()
+    missing = [w["label"] for w in weights.values() if not w["present"]]
+    return {
+        "schema_version": 1,
+        "build": {
+            "present": build_present,
+            "interpreter": str(PYTHON),
+            "wrapper": str(WRAPPER),
+            "hint": (
+                "clean-port build missing — from the repo root run: "
+                "python scripts/bootstrap_trellis_space_macos.py "
+                "(requires uv, Python 3.11 and Xcode command-line tools; ~1h)"
+                if not build_present else None
+            ),
+        },
+        "weights": weights,
+        "missing_weights": missing,
+        "ready": build_present,
+        "warning": "first run will download missing weights" if missing else None,
+    }
+
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "resolution": "1024",
     "seed": 0,
@@ -357,9 +439,18 @@ def _run_job(job: Job) -> None:
     ]
     if job.settings["allow_rembg"]:
         args.append("--allow-rembg")
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    env = _job_env()
     try:
         job.status = "running"
+        weights = weights_on_disk()
+        parts = [
+            f"{w['label']}: {w['human']} on disk" if w["present"]
+            else f"{w['label']}: MISSING (first run downloads it)"
+            for w in weights.values()
+        ]
+        message = "Weights — " + "; ".join(parts)
+        job.append_log(message + "\n")
+        job.emit({"phase": "load", "overall_pct": 0, "message": message})
         job.emit({"phase": "load", "overall_pct": 0, "message": "Starting clean-port job"})
         job.process = subprocess.Popen(
             args,
@@ -442,6 +533,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parts = self._path_parts()
+        if parts == ["api", "setup"]:
+            self._send_json(200, setup_status())
+            return
         if len(parts) == 4 and parts[:2] == ["api", "generate"]:
             job_id, action = parts[2], parts[3]
             if action == "events":

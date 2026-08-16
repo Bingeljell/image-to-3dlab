@@ -119,5 +119,12 @@ it uses.
 
 - Every run emits a `.provenance.json` sidecar; outputs are sorted into license-class folders.
 - `validate_run_policy` gates generation on declared intent — keep it ahead of model work.
-- The TRELLIS backend **refuses to run** unless the BRIA-disable patch is present. This is a
-  license guardrail; never bypass it. BRIA RMBG-2.0 must stay unloaded.
+- **BRIA RMBG-2.0 must never be loaded by this repo's own generation pipeline** (the vendored
+  `trellis-mac`/`trellis-space-mac` backends) — the TRELLIS backend **refuses to run** unless
+  the BRIA-disable patch is present. This is a license guardrail; never bypass it there.
+  It does **not** block unrelated work that happens to touch BRIA-adjacent code: a one-off
+  CUDA control run against the pristine upstream TRELLIS.2 repo (never shipped, never
+  redistributed) is fine as long as BRIA itself is never actually downloaded/loaded/used —
+  stub the eager constructor instead of requesting gated access, as
+  `docs/RUNPOD-CUDA-DIAGNOSTIC-2026-08-16.md` did, rather than treating "BRIA" as a word that
+  halts all work near it.

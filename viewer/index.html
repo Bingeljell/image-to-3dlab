@@ -236,6 +236,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/loaders/GLTFLoader.js';
 import { OrbitControls } from './vendor/controls/OrbitControls.js';
 import { IndexedOBJLoader } from './IndexedOBJLoader.js';
+import { RoomEnvironment } from './vendor/environments/RoomEnvironment.js';
+
+// Built once (pure geometry, no GPU resources) and baked per-renderer below —
+// this is what stands in for Blender's Material Preview studio HDRI.
+const roomEnvironment = new RoomEnvironment();
 
 // What a slot can hold. A model root drives the 3D pipeline; an image becomes a source
 // pane (or, dropped onto a model, an alignment overlay). Adding a model format is one line
@@ -404,13 +409,13 @@ function mountModel(slotIndex, spec) {
   controls.enableDamping = true;
   controls.target.set(0, 0, 0);
 
-  // Three-point rig, matching scripts/blender_stage.py so judgements transfer.
-  scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x30302a, 0.55));
-  for (const [x, y, z, i] of [[-2.8, 4.5, 3.8, 2.4], [3.2, 2.7, 1.8, 1.3], [1.0, 4.0, -3.5, 1.8]]) {
-    const l = new THREE.DirectionalLight(0xffffff, i);
-    l.position.set(x, y, z);
-    scene.add(l);
-  }
+  // Studio HDRI environment, baked once per renderer with PMREMGenerator — this is
+  // what Blender's Material Preview/LookDev viewport actually uses instead of lamps,
+  // and why it reads as evenly lit from every side. See vendor/environments/RoomEnvironment.js.
+  const pmremGenerator = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmremGenerator.fromScene(roomEnvironment, 0.04).texture;
+  pmremGenerator.dispose();
+  scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x30302a, 0.15));
 
   const view = { kind: 'model', spec, slotIndex, pane, renderer, scene, camera, controls,
                  root: null, stats: pane.querySelector('.stats'), materials: [], overlay: null };

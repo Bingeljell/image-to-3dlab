@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two versions stale with the two most output-affecting fixes coupled to it.
 
 ### Changed
+- **`viewer/` model panes now use image-based studio lighting instead of a 3-point rig.**
+  The three directional lights (borrowed from `scripts/blender_stage.py`'s diagnostic rig)
+  gave asymmetric, harshly-shadowed results that didn't match how Blender's Material
+  Preview/LookDev viewport actually lights an object — that viewport uses a studio HDRI
+  environment map, not lamps. Added `vendor/environments/RoomEnvironment.js` (ported from
+  three.js's own example) and bake it per-renderer with `PMREMGenerator` into
+  `scene.environment`, with only a faint hemisphere light left for ambient fill.
 - **`--material-mode` now defaults to `pbr`, not `matte`.** `matte` discarded TRELLIS's
   metallic-roughness map and pinned the factors flat, so every organic asset shipped with no
   specular response under any light. Measuring our maps against the Hugging Face reference

@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Generate page now drives all three backends** (TRELLIS.2 clean port, SF3D, Hunyuan3D-MLX)
+  instead of only TRELLIS. `viewer/generate_api.py` gained a `BackendSpec` registry
+  (interpreter, wrapper, settings validation, progress parsing, and readiness are all
+  per-backend) so the job runner, SSE progress stream, and setup-status check dispatch by
+  backend id instead of being hardcoded to one. New `scripts/hunyuan_mlx_generate.py` chains
+  dgrauet's shape stage, a `fast_simplification` remesh, and ZimengXiong's paint stage
+  (bridging their two separate venvs) into one CLI, mirroring `trellis_space_generate.py`'s
+  shape — the exact recipe (octree_resolution=512, ≤500k-face decimation) validated
+  end-to-end on 2026-08-18. The paint stage's seed is now configurable (`PAINT_SEED` env var)
+  instead of hardcoded. Job output folders are now named `<image>__<backend>__<timestamp>`
+  (or a user-supplied label) instead of an opaque UUID, so a batch of generate-page runs
+  stays legible without manual renaming. The ComfyUI Hunyuan path was evaluated and dropped —
+  all three "Mac ComfyUI" candidates found still ship Tencent's unmodified CUDA-only
+  `custom_rasterizer`, which cannot build on macOS at all.
+- **`scripts/image_gallery.py`** — a thumbnail-grid gallery server that binds to a Tailscale
+  IP so generated images in `output/` can be browsed from a phone. Responsive dark-theme
+  grid with lazy loading, breadcrumbs, folder cards, image cards, and canonical trailing-
+  slash redirects. Pure-function renderer (`render_listing`, `redirect_location`) extracted
+  for unit testing (`tests/test_image_gallery.py`). Served live at
+  `http://REDACTED-TAILSCALE-IP:8000/`.
+- **`docs/IMAGE-GALLERY.md`** — documents the gallery server: purpose, the live instance,
+  run/stop recipe, flags, design notes, and a directory of what it serves.
 - **`scripts/mark_asset.py`** — an append-only register of human verdicts on generated
   assets (`output/verdicts.jsonl`). The provenance sidecar records source art, settings and
   output but never whether the result was any good, so a render that looked right could not

@@ -183,7 +183,7 @@
 <section id="generate-view" hidden>
   <div id="generate-setup" class="generate-card">
     <h2>Setup</h2>
-    <p>Machine readiness for the clean TRELLIS.2 port. Serve with <code>python viewer/serve.py</code> and open <code>http://127.0.0.1:8777/viewer/index.html</code>.</p>
+    <p id="setup-desc">Machine readiness for the selected backend. Serve with <code>python viewer/serve.py</code> and open <code>http://127.0.0.1:8777/viewer/index.html</code>.</p>
     <div id="setup-checks" style="min-height:20px">checking…</div>
     <div id="setup-run" hidden>
       <button id="setup-run-btn">Run setup — bootstrap the clean-port build (~1h)</button>
@@ -193,21 +193,61 @@
   <div class="generate-grid">
     <div class="generate-card">
       <h2>Image → 3D</h2>
-      <p>Clean TRELLIS.2 Mac port · demo defaults are recommended.</p>
+      <div class="field"><label for="generate-backend">Model</label>
+        <select id="generate-backend">
+          <option value="trellis" selected>TRELLIS.2 (clean port)</option>
+          <option value="sf3d">Stable Fast 3D</option>
+          <option value="hunyuan-mlx">Hunyuan3D-MLX</option>
+        </select></div>
       <div id="generate-drop">
         <div id="generate-prompt">Drop a pre-masked PNG here<br>or click to choose an image</div>
         <img id="generate-preview" alt="input preview">
       </div>
       <input id="generate-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
       <div id="generate-alpha" class="alpha-badge" hidden></div>
-      <div class="field"><label for="generate-resolution">Resolution</label>
-        <select id="generate-resolution"><option>512</option><option selected>1024</option><option>1536</option></select></div>
-      <div class="field"><label for="generate-seed">Seed</label><input id="generate-seed" type="number" step="1" value="0"></div>
-      <div class="field"><label for="generate-decimation">Decimation target</label><input id="generate-decimation" type="number" min="1" step="1" value="300000">
-        <small>Advanced: remesh is fixed demo-faithful, so this is a cap rather than a target.</small></div>
-      <div class="field"><label for="generate-texture">Texture size</label>
-        <select id="generate-texture"><option>1024</option><option selected>2048</option><option>3072</option><option>4096</option></select></div>
-      <label class="check"><input id="generate-rembg" type="checkbox"><span>allow rembg</span><small>only for images without alpha</small></label>
+
+      <div class="backend-fields" data-backend="trellis">
+        <div class="field"><label for="generate-resolution">Resolution</label>
+          <select id="generate-resolution"><option>512</option><option selected>1024</option><option>1536</option></select></div>
+        <div class="field"><label for="generate-seed">Seed</label><input id="generate-seed" type="number" step="1" value="0"></div>
+        <div class="field"><label for="generate-decimation">Decimation target</label><input id="generate-decimation" type="number" min="1" step="1" value="300000">
+          <small>Advanced: remesh is fixed demo-faithful, so this is a cap rather than a target.</small></div>
+        <div class="field"><label for="generate-texture">Texture size</label>
+          <select id="generate-texture"><option>1024</option><option selected>2048</option><option>3072</option><option>4096</option></select></div>
+        <label class="check"><input id="generate-rembg" type="checkbox"><span>allow rembg</span><small>only for images without alpha</small></label>
+      </div>
+
+      <div class="backend-fields" data-backend="sf3d" hidden>
+        <div class="field"><label for="sf3d-texture">Texture resolution</label>
+          <select id="sf3d-texture"><option>512</option><option selected>1024</option><option>2048</option></select></div>
+        <div class="field"><label for="sf3d-foreground">Foreground ratio</label>
+          <input id="sf3d-foreground" type="number" min="0.01" max="1" step="0.01" value="0.85"></div>
+        <div class="field"><label for="sf3d-remesh">Remesh</label>
+          <select id="sf3d-remesh"><option selected>none</option><option>triangle</option><option>quad</option></select></div>
+        <div class="field"><label for="sf3d-vertices">Target vertices</label>
+          <input id="sf3d-vertices" type="number" step="1" value="-1">
+          <small>-1 = no target (SF3D's own default density).</small></div>
+      </div>
+
+      <div class="backend-fields" data-backend="hunyuan-mlx" hidden>
+        <div class="field"><label for="hunyuan-octree">Octree resolution</label>
+          <select id="hunyuan-octree"><option>256</option><option>384</option><option selected>512</option><option>1024</option></select>
+          <small>512 is the evidence-backed default (2026-08-18 sweep); 1024 is smooth but very slow to remesh/paint.</small></div>
+        <div class="field"><label for="hunyuan-seed">Shape seed</label><input id="hunyuan-seed" type="number" step="1" value="42"></div>
+        <div class="field"><label for="hunyuan-decimation">Decimation target</label><input id="hunyuan-decimation" type="number" min="1" max="500000" step="1" value="300000">
+          <small>Hard ceiling ~500,000 — the paint stage's xatlas UV-unwrap step has a confirmed wall between 500k-700k faces (700k took 37 min; 1M never finished).</small></div>
+        <div class="field"><label for="hunyuan-paint-seed">Paint seed</label><input id="hunyuan-paint-seed" type="number" step="1" value="0"></div>
+        <div class="field"><label for="hunyuan-paint-res">Paint resolution</label>
+          <select id="hunyuan-paint-res"><option>384</option><option selected>512</option></select></div>
+        <div class="field"><label for="hunyuan-paint-steps">Paint steps</label><input id="hunyuan-paint-steps" type="number" min="1" step="1" value="15"></div>
+        <div class="field"><label for="hunyuan-paint-tex">Paint texture size</label>
+          <select id="hunyuan-paint-tex"><option>1024</option><option>2048</option><option selected>4096</option></select></div>
+      </div>
+
+      <div class="field"><label for="generate-output-name">Output name</label>
+        <input id="generate-output-name" type="text" placeholder="leave blank for auto: image__backend__timestamp">
+        <small>Used as the results folder name under <code>output/space_web/</code> — set this so a batch of runs doesn't blur together.</small></div>
+
       <button id="generate-submit" disabled>Generate</button>
       <button id="generate-cancel">Cancel job</button>
       <div id="generate-status"></div>
@@ -837,25 +877,43 @@ window.__viewerReady = true;
 // its backface-cull acceptance toggle) without changing any of Compare's loading/render code.
 const generateView = document.getElementById('generate-view');
 const compareView = document.getElementById('compare-view');
-const generateStages = [
-  ['load', 'Load'], ['sparse_structure', 'Sparse structure'],
-  ['shape_slat_coarse', 'Shape SLat coarse'], ['shape_slat_fine', 'Shape SLat fine'],
-  ['texture_slat', 'Texture SLat'], ['decode', 'Decode'], ['bake', 'Bake / remesh'],
-];
+// Backend metadata (stages, labels, requires_alpha) is server-owned truth (viewer/generate_api.py
+// BACKENDS registry) -- fetched once so the frontend never hardcodes a second copy that can drift.
+let backendMeta = {
+  trellis: {
+    requires_alpha: true,
+    stages: ['load', 'sparse_structure', 'shape_slat_coarse', 'shape_slat_fine', 'texture_slat', 'decode', 'bake'],
+    stage_labels: { load: 'Load', sparse_structure: 'Sparse structure', shape_slat_coarse: 'Shape SLat coarse',
+      shape_slat_fine: 'Shape SLat fine', texture_slat: 'Texture SLat', decode: 'Decode', bake: 'Bake / remesh' },
+  },
+}; // placeholder until /api/backends resolves; keeps the page usable if that fetch is slow/fails
+let generateStages = [];
 const stageRows = new Map();
 const generateStagesEl = document.getElementById('generate-stages');
-for (const [phase, label] of generateStages) {
-  const row = document.createElement('div');
-  row.className = 'stage-row'; row.dataset.phase = phase;
-  row.innerHTML = `<span class="stage-dot">○</span><span>${label}</span><span class="stage-detail">queued</span>`;
-  generateStagesEl.appendChild(row);
-  stageRows.set(phase, row);
+function buildStageRows(backendId) {
+  const meta = backendMeta[backendId] || { stages: ['running'], stage_labels: { running: 'Running' } };
+  generateStages = meta.stages.map((phase) => [phase, meta.stage_labels[phase] || phase]);
+  stageRows.clear();
+  generateStagesEl.innerHTML = '';
+  for (const [phase, label] of generateStages) {
+    const row = document.createElement('div');
+    row.className = 'stage-row'; row.dataset.phase = phase;
+    row.innerHTML = `<span class="stage-dot">○</span><span>${label}</span><span class="stage-detail">queued</span>`;
+    generateStagesEl.appendChild(row);
+    stageRows.set(phase, row);
+  }
 }
+buildStageRows('trellis');
 const gen = {
   file: null, objectUrl: null, hasAlpha: false, jobId: null, source: null,
   running: false,
 };
 const setupState = { ready: false };
+function currentBackend() { return g('generate-backend').value; }
+function backendRequiresAlpha() {
+  const meta = backendMeta[currentBackend()];
+  return meta ? meta.requires_alpha : true; // fail conservative if metadata hasn't loaded yet
+}
 const g = (id) => document.getElementById(id);
 const formatDuration = (seconds) => {
   if (seconds == null || !Number.isFinite(Number(seconds))) return 'estimating…';
@@ -871,7 +929,7 @@ const resetStageRows = () => {
   }
 };
 const updateGenerateButton = () => {
-  const needsRembg = !gen.hasAlpha && !g('generate-rembg').checked;
+  const needsRembg = backendRequiresAlpha() && !gen.hasAlpha && !g('generate-rembg').checked;
   g('generate-submit').disabled = !gen.file || gen.running || needsRembg || !setupState.ready;
 };
 const setGenerateMode = (mode) => {
@@ -962,9 +1020,15 @@ function applyGenerateProgress(event) {
     g('generate-glb').href = event.result_url;
     g('generate-manifest').href = event.manifest_url;
     fetch(event.manifest_url).then((response) => response.json()).then((manifest) => {
+      // Manifest shape differs per backend (TRELLIS: run_stages_1_3/to_glb; Hunyuan:
+      // shape/remesh/paint; SF3D writes none at all) -- render whatever stage timings exist
+      // generically rather than hardcoding one backend's field names.
       const timings = manifest.timings_seconds || {};
-      g('generate-summary').textContent = `clean-port manifest · total ${formatDuration(timings.total)} · ` +
-        `pipeline ${formatDuration(timings.run_stages_1_3)} · bake ${formatDuration(timings.to_glb)}`;
+      const parts = Object.entries(timings)
+        .filter(([name]) => name !== 'total')
+        .map(([name, value]) => `${name} ${formatDuration(value)}`);
+      g('generate-summary').textContent = `${manifest.backend || currentBackend()} manifest · ` +
+        `total ${formatDuration(timings.total)}` + (parts.length ? ` · ${parts.join(' · ')}` : '');
     }).catch(() => {});
   } else if (phase === 'error') {
     g('generate-status').textContent = event.message || 'Generation failed';
@@ -992,12 +1056,35 @@ g('generate-submit').onclick = async () => {
   g('generate-downloads').style.display = 'none'; g('generate-summary').style.display = 'none';
   g('generate-status').textContent = 'Submitting job…';
   g('generate-cancel').style.display = 'block'; updateGenerateButton();
+  const backendId = currentBackend();
+  const perBackendSettings = {
+    trellis: () => ({
+      resolution: g('generate-resolution').value,
+      seed: Number(g('generate-seed').value),
+      decimation_target: Number(g('generate-decimation').value),
+      texture_size: Number(g('generate-texture').value),
+      allow_rembg: g('generate-rembg').checked,
+    }),
+    sf3d: () => ({
+      texture_resolution: Number(g('sf3d-texture').value),
+      foreground_ratio: Number(g('sf3d-foreground').value),
+      remesh: g('sf3d-remesh').value,
+      target_vertices: Number(g('sf3d-vertices').value),
+    }),
+    'hunyuan-mlx': () => ({
+      octree_resolution: Number(g('hunyuan-octree').value),
+      seed: Number(g('hunyuan-seed').value),
+      decimation_target: Number(g('hunyuan-decimation').value),
+      paint_seed: Number(g('hunyuan-paint-seed').value),
+      paint_res: Number(g('hunyuan-paint-res').value),
+      paint_steps: Number(g('hunyuan-paint-steps').value),
+      paint_tex: Number(g('hunyuan-paint-tex').value),
+    }),
+  };
   const settings = {
-    resolution: g('generate-resolution').value,
-    seed: Number(g('generate-seed').value),
-    decimation_target: Number(g('generate-decimation').value),
-    texture_size: Number(g('generate-texture').value),
-    allow_rembg: g('generate-rembg').checked,
+    backend: backendId,
+    output_name: g('generate-output-name').value.trim() || undefined,
+    ...perBackendSettings[backendId](),
   };
   const body = new FormData(); body.append('image', gen.file); body.append('settings', JSON.stringify(settings));
   try {
@@ -1019,15 +1106,18 @@ g('generate-cancel').onclick = async () => {
 
 async function refreshSetup() {
   const el = g('setup-checks');
+  const backendId = currentBackend();
   try {
-    const res = await fetch('/api/setup');
+    const res = await fetch('/api/setup?backend=' + encodeURIComponent(backendId));
     const s = await res.json();
     setupState.ready = !!s.ready;
     const rows = [];
+    const buildLabel = backendMeta[backendId]?.label || backendId;
     if (s.build && s.build.present) {
-      rows.push('<div class="setup-check"><span class="ok">✓</span><span>Clean-port build</span><code>' + s.build.interpreter + '</code></div>');
+      const interp = s.build.interpreter ? '<code>' + s.build.interpreter + '</code>' : '';
+      rows.push('<div class="setup-check"><span class="ok">✓</span><span>' + buildLabel + ' build</span>' + interp + '</div>');
     } else {
-      rows.push('<div class="setup-check"><span class="bad">✗</span><span>Clean-port build missing</span></div>');
+      rows.push('<div class="setup-check"><span class="bad">✗</span><span>' + buildLabel + ' build missing</span></div>');
       if (s.build && s.build.hint) rows.push('<div class="setup-check"><span class="hint">→</span><span class="hint">' + s.build.hint + '</span></div>');
     }
     for (const repo of Object.values(s.weights || {})) {
@@ -1036,14 +1126,38 @@ async function refreshSetup() {
         : '<div class="setup-check"><span class="warn">⚠</span><span>' + repo.label + '</span><code>not on disk — first run downloads</code></div>');
     }
     el.innerHTML = rows.join('');
+    // Only TRELLIS has an automated bootstrap script (scripts/bootstrap_trellis_space_macos.py);
+    // other backends' setup is manual, so the run-setup button only ever applies there.
     const runBox = g('setup-run');
-    runBox.hidden = !!(s.build && s.build.present);
-    if (runBox.hidden) g('setup-run-btn').disabled = false;
+    runBox.hidden = backendId !== 'trellis' || !!(s.build && s.build.present);
+    if (!runBox.hidden) g('setup-run-btn').disabled = false;
   } catch (e) {
     el.innerHTML = '<div class="setup-check"><span class="bad">✗</span><span>Setup check failed: ' + e + '</span></div>';
   }
   updateGenerateButton();
 }
+async function loadBackendMeta() {
+  try {
+    const res = await fetch('/api/backends');
+    const data = await res.json();
+    const merged = {};
+    for (const b of data.backends) merged[b.id] = b;
+    backendMeta = merged;
+  } catch (e) { /* keep the trellis-only placeholder; page stays usable */ }
+  buildStageRows(currentBackend());
+  refreshSetup();
+}
+g('generate-backend').onchange = () => {
+  const backendId = currentBackend();
+  for (const block of document.querySelectorAll('.backend-fields')) {
+    block.hidden = block.dataset.backend !== backendId;
+  }
+  buildStageRows(backendId);
+  resetStageRows();
+  gen.hasAlpha = false;
+  g('generate-alpha').hidden = true;
+  refreshSetup();
+};
 g('setup-run-btn').onclick = async () => {
   const btn = g('setup-run-btn'), log = g('setup-log');
   btn.disabled = true; log.style.display = 'block'; log.textContent = 'starting bootstrap…\n';
@@ -1059,7 +1173,7 @@ g('setup-run-btn').onclick = async () => {
     };
   } catch (e) { log.textContent += e.message + '\n'; btn.disabled = false; }
 };
-refreshSetup();
+loadBackendMeta();
 </script>
 </body>
 </html>

@@ -146,7 +146,7 @@
 </head>
 <body>
 <div id="mode-switch">
-  <span class="lbl">TRELLIS.2</span>
+  <span class="lbl">image-to-3dlab</span>
   <button id="mode-compare" class="mode on">Compare</button>
   <button id="mode-generate" class="mode">Generate</button>
   <button id="mode-credits" class="mode">Credits &amp; Info</button>
@@ -272,6 +272,7 @@
       </div>
       <div id="generate-viewer"><iframe id="generate-frame" title="generated model viewer"></iframe></div>
       <div id="generate-downloads"><a id="generate-glb" download>Download GLB</a><a id="generate-manifest" download>Download manifest</a></div>
+      <div id="generate-saved-note" style="display:none; margin-top:6px; font-size:11px; opacity:.6;"></div>
       <div id="generate-summary"></div>
     </div>
   </div>
@@ -367,6 +368,11 @@ const state = {
 // compacted list of *model* views — the only ones the 3D render/frame/sync loops touch;
 // image panes are static. Both are kept in sync by rebuildViews().
 const MAX = 3;
+// ?restricted=1 -- set when this page is loaded inside the Generate tab's embedded preview
+// iframe. That panel is sized for one model; a second/third pane crammed into it makes every
+// pane too small to see anything. Full multi-model comparison belongs in the dedicated
+// Compare tab (the whole screen), not this embedded view, so hide the add-pane affordances.
+const RESTRICTED = new URLSearchParams(location.search).get('restricted') === '1';
 const slots = [null, null, null];
 let views = [];
 const rebuildViews = () => { views = slots.filter((s) => s && s.kind === 'model'); updateChrome(); };
@@ -776,9 +782,10 @@ function updateChrome() {
   // Fully empty -> the big centred drop zone. One or two loaded -> a ghost "add pane" in
   // the remaining space so loading side by side is obvious. Full -> neither.
   dropEl.classList.toggle('hidden', n > 0);
-  if (ghostEl) ghostEl.style.display = (n > 0 && n < MAX) ? 'flex' : 'none';
+  if (ghostEl) ghostEl.style.display = (!RESTRICTED && n > 0 && n < MAX) ? 'flex' : 'none';
   document.getElementById('addcount').textContent = `(${n}/${MAX})`;
-  document.getElementById('add').disabled = n >= MAX;
+  document.getElementById('add').disabled = RESTRICTED || n >= MAX;
+  if (RESTRICTED) document.getElementById('add').style.display = 'none';
 }
 
 // --- wiring --------------------------------------------------------------------------
@@ -970,7 +977,7 @@ function buildStageRows(backendId) {
 buildStageRows('trellis');
 const gen = {
   file: null, objectUrl: null, hasAlpha: false, jobId: null, source: null,
-  running: false,
+  running: false, outputDir: null,
 };
 const setupState = { ready: false };
 function currentBackend() { return g('generate-backend').value; }
@@ -1083,20 +1090,34 @@ function applyGenerateProgress(event) {
     g('generate-downloads').style.display = 'flex';
     g('generate-summary').style.display = 'block';
     const src = `${event.result_url}?t=${Date.now()}`;
-    g('generate-frame').src = `/viewer/index.html?a=${encodeURIComponent(src)}&la=Generated`;
+    // No add-pane inside the embedded preview -- a Compare-capable iframe crammed into this
+    // sidebar-sized panel makes every pane too small to see once a second model is added.
+    // Full multi-model comparison belongs in the dedicated Compare tab, which gets the whole
+    // screen.
+    g('generate-frame').src = `/viewer/index.html?a=${encodeURIComponent(src)}&la=Generated&restricted=1`;
     g('generate-glb').href = event.result_url;
-    g('generate-manifest').href = event.manifest_url;
-    fetch(event.manifest_url).then((response) => response.json()).then((manifest) => {
-      // Manifest shape differs per backend (TRELLIS: run_stages_1_3/to_glb; Hunyuan:
-      // shape/remesh/paint; SF3D writes none at all) -- render whatever stage timings exist
-      // generically rather than hardcoding one backend's field names.
-      const timings = manifest.timings_seconds || {};
-      const parts = Object.entries(timings)
-        .filter(([name]) => name !== 'total')
-        .map(([name, value]) => `${name} ${formatDuration(value)}`);
-      g('generate-summary').textContent = `${manifest.backend || currentBackend()} manifest · ` +
-        `total ${formatDuration(timings.total)}` + (parts.length ? ` · ${parts.join(' · ')}` : '');
-    }).catch(() => {});
+    const savedNote = g('generate-saved-note');
+    if (gen.outputDir) {
+      savedNote.style.display = 'block';
+      savedNote.textContent = `Already saved to ${gen.outputDir}/ — these buttons are just an extra browser-download option.`;
+    }
+    g('generate-manifest').hidden = !event.manifest_url;
+    if (event.manifest_url) {
+      g('generate-manifest').href = event.manifest_url;
+      fetch(event.manifest_url).then((response) => response.json()).then((manifest) => {
+        // Manifest shape differs per backend (TRELLIS: run_stages_1_3/to_glb; Hunyuan:
+        // shape/remesh/paint; SF3D writes none at all) -- render whatever stage timings exist
+        // generically rather than hardcoding one backend's field names.
+        const timings = manifest.timings_seconds || {};
+        const parts = Object.entries(timings)
+          .filter(([name]) => name !== 'total')
+          .map(([name, value]) => `${name} ${formatDuration(value)}`);
+        g('generate-summary').textContent = `${manifest.backend || currentBackend()} manifest · ` +
+          `total ${formatDuration(timings.total)}` + (parts.length ? ` · ${parts.join(' · ')}` : '');
+      }).catch(() => {});
+    } else {
+      g('generate-summary').textContent = '';
+    }
   } else if (phase === 'error') {
     g('generate-status').textContent = event.message || 'Generation failed';
   }
@@ -1160,7 +1181,8 @@ g('generate-submit').onclick = async () => {
     const response = await fetch('/api/generate', { method: 'POST', body });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `request failed (${response.status})`);
-    gen.jobId = payload.job_id; g('generate-status').textContent = 'Job started. MPS is serialized; this may take a while.';
+    gen.jobId = payload.job_id; gen.outputDir = payload.output_dir;
+    g('generate-status').textContent = 'Job started. MPS is serialized; this may take a while.';
     startGenerateStream(gen.jobId);
   } catch (error) {
     gen.running = false; g('generate-cancel').style.display = 'none'; updateGenerateButton();

@@ -273,6 +273,7 @@
         <div class="progress-track"><div id="generate-overall-bar"></div></div>
         <div id="generate-stages"></div>
       </div>
+      <div id="generate-duration" style="display:none; font-size:15px; color:#cfe3ff; margin-bottom:8px;"></div>
       <div id="generate-viewer"><iframe id="generate-frame" title="generated model viewer"></iframe></div>
       <div id="generate-downloads"><a id="generate-glb" download>Download GLB</a><a id="generate-manifest" download>Download manifest</a></div>
       <div id="generate-saved-note" style="display:none; margin-top:6px; font-size:11px; opacity:.6;"></div>
@@ -1088,6 +1089,9 @@ function applyGenerateProgress(event) {
     g('generate-overall-label').textContent = 'Generation complete';
     g('generate-overall-eta').textContent = '';
     g('generate-status').textContent = 'Done — the generated GLB is ready below.';
+    const durationEl = g('generate-duration');
+    durationEl.style.display = 'block';
+    durationEl.textContent = `Generated in ${formatDuration(event.elapsed_seconds)}`;
     g('generate-progress-box').style.display = 'none';
     g('generate-viewer').style.display = 'block';
     g('generate-downloads').style.display = 'flex';
@@ -1145,6 +1149,7 @@ g('generate-submit').onclick = async () => {
   gen.running = true; resetStageRows();
   g('generate-progress-box').style.display = 'block'; g('generate-viewer').style.display = 'none';
   g('generate-downloads').style.display = 'none'; g('generate-summary').style.display = 'none';
+  g('generate-duration').style.display = 'none';
   g('generate-status').textContent = 'Submitting job…';
   g('generate-cancel').style.display = 'block'; updateGenerateButton();
   const backendId = currentBackend();

@@ -90,6 +90,11 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
         "PAINT_SEED": str(paint_seed), "PAINT_RES": str(paint_res),
         "PAINT_STEPS": str(paint_steps), "PAINT_TEX": str(paint_tex),
     }
+    # run_paint_pbr.py does bare Image.save("outputs/...") calls with no directory creation --
+    # on a fresh machine (no leftover symlink/dir from earlier manual testing) that crashes
+    # with FileNotFoundError *after* the ~6-minute diffusion has already run. Make this
+    # self-sufficient regardless of what state PAINT_ROOT/outputs happens to be in.
+    (PAINT_ROOT / "outputs").mkdir(parents=True, exist_ok=True)
     print(f"starting paint stage ({time.time() - t0:.0f}s)", flush=True)
     proc = subprocess.run(
         [str(PAINT_PYTHON), "-u", str(PAINT_SCRIPT)], cwd=str(PAINT_ROOT), env=env,

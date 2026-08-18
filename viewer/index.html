@@ -244,9 +244,13 @@
           <select id="hunyuan-paint-tex"><option>1024</option><option>2048</option><option selected>4096</option></select></div>
       </div>
 
+      <div class="field"><label for="generate-output-dir">Output directory</label>
+        <input id="generate-output-dir" type="text" placeholder="leave blank for ./output">
+        <small>Relative to the repo root; must stay inside <code>output/</code>.</small></div>
       <div class="field"><label for="generate-output-name">Output name</label>
         <input id="generate-output-name" type="text" placeholder="leave blank for auto: image__backend__timestamp">
-        <small>Used as the results folder name under <code>output/space_web/</code> — set this so a batch of runs doesn't blur together.</small></div>
+        <small>Folder <em>and</em> file share this name — <code>&lt;name&gt;/&lt;name&gt;.glb</code>.</small></div>
+      <label class="check"><input id="generate-debug" type="checkbox"><span>debug</span><small>keep the manifest, textures, and intermediate files instead of just the .glb</small></label>
 
       <button id="generate-submit" disabled>Generate</button>
       <button id="generate-cancel">Cancel job</button>
@@ -1083,7 +1087,9 @@ g('generate-submit').onclick = async () => {
   };
   const settings = {
     backend: backendId,
+    output_dir: g('generate-output-dir').value.trim() || undefined,
     output_name: g('generate-output-name').value.trim() || undefined,
+    debug: g('generate-debug').checked,
     ...perBackendSettings[backendId](),
   };
   const body = new FormData(); body.append('image', gen.file); body.append('settings', JSON.stringify(settings));

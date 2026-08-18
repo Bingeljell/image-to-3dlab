@@ -284,3 +284,61 @@ def test_job_folder_name_falls_back_to_image_backend_timestamp():
 def test_slugify_strips_unsafe_characters():
     assert api._slugify("../../etc/passwd") == "etc-passwd"
     assert api._slugify("   ") == "job"
+
+
+# --- output directory + debug-file cleanup ------------------------------------------------
+
+def test_resolve_output_base_defaults_to_repo_output():
+    assert api._resolve_output_base(None) == (api.REPO / "output").resolve()
+    assert api._resolve_output_base("  ") == (api.REPO / "output").resolve()
+
+
+def test_resolve_output_base_accepts_subdir_inside_output():
+    resolved = api._resolve_output_base("output/my-runs")
+    assert resolved == (api.REPO / "output" / "my-runs").resolve()
+
+
+@pytest.mark.parametrize("escape", ["../vendor", "/etc", "../../etc/passwd"])
+def test_resolve_output_base_rejects_escape_attempts(escape):
+    with pytest.raises(ValueError):
+        api._resolve_output_base(escape)
+
+
+def test_job_manager_matches_folder_and_file_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "OUTPUT_ROOT", tmp_path)
+    jobs = api.JobManager()
+    job = jobs.create(tmp_path / "in.png", {}, "hunyuan-mlx", "flicker", "my-run", tmp_path)
+    assert job.directory.name == "my-run"
+    assert job.output_path == job.directory / "my-run.glb"
+    assert job.manifest_path == job.directory / "my-run.json"
+
+
+def test_job_manager_disambiguates_colliding_folder_names(tmp_path):
+    jobs = api.JobManager()
+    job1 = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", "dup", tmp_path)
+    jobs.active = None  # simulate job1 finishing so a second job can be created
+    job2 = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", "dup", tmp_path)
+    assert job1.directory != job2.directory
+    assert job2.directory.name == "dup-2"
+    assert job2.output_path.name == "dup-2.glb"
+
+
+def test_cleanup_debug_files_keeps_only_output_glb(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "run.glb", {}, "trellis")
+    job.output_path.write_bytes(b"glb")
+    job.manifest_path.write_text("{}")
+    (tmp_path / "run_latents.pt").write_bytes(b"x")
+    (tmp_path / "run.log").write_text("log")
+    api._cleanup_debug_files(job)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["run.glb"]
+
+
+def test_trellis_build_args_skips_resume_caches_unless_debug(tmp_path):
+    settings = api.validate_settings({})
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "run.glb", settings,
+                   "trellis", debug=False)
+    args = api._trellis_build_args(job)
+    assert "--no-save-latents" in args and "--no-save-decode" in args
+    job.debug = True
+    args = api._trellis_build_args(job)
+    assert "--no-save-latents" not in args and "--no-save-decode" not in args

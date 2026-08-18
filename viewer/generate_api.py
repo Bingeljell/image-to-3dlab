@@ -31,7 +31,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
 PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
-OUTPUT_ROOT = REPO / "output" / "space_web"
+OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
 
 HUNYUAN_WRAPPER = REPO / "scripts" / "hunyuan_mlx_generate.py"
@@ -364,6 +364,19 @@ def _slugify(value: str) -> str:
     return slug[:80] or "job"
 
 
+def _resolve_output_base(output_dir: str | None) -> Path:
+    """Resolve the user-chosen output base dir. Defaults to <repo-root>/output; a client-
+    supplied override is resolved and required to stay inside that same tree (never an
+    arbitrary absolute path -- this is a local server writing files from browser input)."""
+    base = (REPO / "output").resolve()
+    if not output_dir or not output_dir.strip():
+        return base
+    candidate = (REPO / output_dir.strip()).resolve()
+    if candidate != base and base not in candidate.parents:
+        raise ValueError(f"output_dir must be inside {base}")
+    return candidate
+
+
 def _job_folder_name(image_stem: str, backend_id: str, requested: str | None) -> str:
     """Human-readable job folder name — a user-chosen slug, or ``<image>__<backend>__<time>``
     so results never end up in an unlabeled UUID directory (the exact problem hand-run
@@ -400,7 +413,7 @@ def parse_multipart(content_type: str, body: bytes) -> dict[str, dict[str, Any]]
 
 class Job:
     def __init__(self, job_id: str, directory: Path, image_path: Path, output_path: Path,
-                 settings: dict[str, Any], backend_id: str):
+                 settings: dict[str, Any], backend_id: str, debug: bool = False):
         self.id = job_id
         self.directory = directory
         self.image_path = image_path
@@ -408,6 +421,7 @@ class Job:
         self.manifest_path = output_path.with_suffix(".json")
         self.settings = settings
         self.backend_id = backend_id
+        self.debug = debug
         self.status = "queued"
         self.process: subprocess.Popen[bytes] | None = None
         self.started = time.monotonic()
@@ -440,22 +454,25 @@ class JobManager:
         self.active: str | None = None
 
     def create(self, image_path: Path, settings: dict[str, Any], backend_id: str,
-               image_stem: str, output_name: str | None) -> Job:
+               image_stem: str, output_name: str | None, output_base: Path,
+               debug: bool = False) -> Job:
         with self.lock:
             if self.active is not None:
                 active = self.jobs.get(self.active)
                 if active and active.status in {"queued", "running", "cancelling"}:
                     raise RuntimeError("a generation is already running")
             job_id = uuid.uuid4().hex
-            folder = _job_folder_name(image_stem, backend_id, output_name)
-            directory = OUTPUT_ROOT / folder
+            name = _job_folder_name(image_stem, backend_id, output_name)
             suffix = 2
-            while directory.exists():
-                directory = OUTPUT_ROOT / f"{folder}-{suffix}"
+            while (output_base / name).exists():
+                name = f"{_job_folder_name(image_stem, backend_id, output_name)}-{suffix}"
                 suffix += 1
+            directory = output_base / name
             directory.mkdir(parents=True, exist_ok=False)
-            output_path = directory / "model.glb"
-            job = Job(job_id, directory, image_path, output_path, settings, backend_id)
+            # Folder name and primary output filename match (only the extension differs) --
+            # <name>/<name>.glb -- so a run is identifiable from either without cross-checking.
+            output_path = directory / f"{name}.glb"
+            job = Job(job_id, directory, image_path, output_path, settings, backend_id, debug)
             self.jobs[job_id] = job
             self.active = job_id
             return job
@@ -605,6 +622,19 @@ def _trellis_parse_line(job: Job, line: str) -> None:
         _emit_banner(job, line)
 
 
+def _cleanup_debug_files(job: Job) -> None:
+    """Debug mode off (the default): keep only the primary .glb. Deletes the manifest,
+    textures, intermediate meshes, resume caches, and run.log -- everything a run writes
+    that exists purely to diagnose a run, not to use the asset."""
+    for path in job.directory.iterdir():
+        if path == job.output_path:
+            continue
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
+
+
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
@@ -639,11 +669,15 @@ def _run_job(job: Job) -> None:
                 job.status = "done"
                 job.append_log("generation complete")
                 _update_baseline(job)
-                job.emit({
+                if not job.debug:
+                    _cleanup_debug_files(job)
+                event = {
                     "phase": "done", "overall_pct": 100, "message": "Generation complete",
                     "result_url": f"/api/generate/{job.id}/result.glb",
-                    "manifest_url": f"/api/generate/{job.id}/manifest.json",
-                })
+                }
+                if job.manifest_path.is_file():
+                    event["manifest_url"] = f"/api/generate/{job.id}/manifest.json"
+                job.emit(event)
             else:
                 tail = "\n".join(job.log_lines)[-8000:]
                 job.status = "error"
@@ -675,6 +709,9 @@ def _trellis_build_args(job: Job) -> list[str]:
     ]
     if job.settings["allow_rembg"]:
         args.append("--allow-rembg")
+    if not job.debug:
+        # Skip the multi-hundred-MB resume caches entirely rather than write-then-delete.
+        args += ["--no-save-latents", "--no-save-decode"]
     return args
 
 
@@ -1020,6 +1057,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             backend_id = raw_settings.pop("backend", "trellis")
             output_name = raw_settings.pop("output_name", None)
+            debug = bool(raw_settings.pop("debug", False))
+            try:
+                output_base = _resolve_output_base(raw_settings.pop("output_dir", None))
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
             spec = BACKENDS.get(backend_id)
             if spec is None:
                 self._send_json(422, {"error": f"unknown backend {backend_id!r}"})
@@ -1060,7 +1103,8 @@ class Handler(SimpleHTTPRequestHandler):
             # so the id and artifact URLs are stable, without ever accepting a client-provided path.
             provisional_image = image_path
             try:
-                job = JOBS.create(provisional_image, settings, backend_id, image_stem, output_name)
+                job = JOBS.create(provisional_image, settings, backend_id, image_stem,
+                                  output_name, output_base, debug)
             except RuntimeError as exc:
                 provisional_image.unlink(missing_ok=True)
                 provisional.rmdir()

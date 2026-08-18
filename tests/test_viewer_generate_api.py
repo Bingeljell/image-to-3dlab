@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ MODULE_PATH = Path(__file__).resolve().parents[1] / "viewer" / "generate_api.py"
 SPEC = importlib.util.spec_from_file_location("viewer_generate_api", MODULE_PATH)
 api = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
+# Register before exec: dataclasses (BackendSpec) resolve their module via
+# sys.modules[cls.__module__] during class creation, on Python's own attribute lookup path
+# for type introspection -- without this the module isn't findable yet and dataclass()
+# raises AttributeError on 'NoneType' object has no attribute '__dict__'.
+sys.modules["viewer_generate_api"] = api
 SPEC.loader.exec_module(api)
 
 
@@ -23,7 +29,7 @@ def test_parse_tqdm_carriage_return_line():
 
 
 def test_shape_slat_passes_are_disambiguated(tmp_path):
-    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb", {})
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb", {}, "trellis")
     assert api._phase_for_tqdm(job, "Sampling shape SLat", 0) == "shape_slat_coarse"
     assert api._phase_for_tqdm(job, "Sampling shape SLat", 4) == "shape_slat_coarse"
     assert api._phase_for_tqdm(job, "Sampling shape SLat", 0) == "shape_slat_fine"
@@ -161,9 +167,120 @@ def test_parse_tqdm_line_keeps_s_per_it_format():
 
 
 def test_emit_banner_fires_decode_and_bake(tmp_path):
-    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {})
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "trellis")
     api._emit_banner(job, "decode_latent (+face filter) done in 38.3s")
     assert job.events[-1]["phase"] == "decode"
     assert job.events[-1]["overall_pct"] == api._overall_pct("decode", 100)
     api._emit_banner(job, "bake (pre-cap + to_glb + export) done in 442.5s -> /x/out.glb")
     assert job.events[-1]["phase"] == "bake"
+
+
+# --- backend registry ------------------------------------------------------------------
+
+def test_backend_registry_has_all_three():
+    assert set(api.BACKENDS) == {"trellis", "sf3d", "hunyuan-mlx"}
+    for spec in api.BACKENDS.values():
+        assert spec.stages, f"{spec.id} must declare at least one stage"
+
+
+def test_sf3d_build_args_matches_pipeline_cli(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb",
+                   api._sf3d_validate_settings({}), "sf3d")
+    args = api._sf3d_build_args(job)
+    assert args[0] == "--fast"
+    assert "--output-dir" in args and str(tmp_path) in args
+    assert args[-1] == str(tmp_path / "input.png")
+
+
+def test_sf3d_finalize_moves_output_into_place(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb", {}, "sf3d")
+    (tmp_path / "input_sf3d.glb").write_bytes(b"glb-bytes")
+    api._sf3d_finalize(job)
+    assert job.output_path.read_bytes() == b"glb-bytes"
+
+
+@pytest.mark.parametrize("payload", [
+    {"remesh": "invalid"},
+    {"texture_resolution": 0},
+    {"foreground_ratio": 1.5},
+    {"foreground_ratio": 0},
+])
+def test_sf3d_validate_settings_rejects_invalid_values(payload):
+    with pytest.raises(ValueError):
+        api._sf3d_validate_settings(payload)
+
+
+def test_hunyuan_build_args_matches_wrapper_cli(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb",
+                   api._hunyuan_validate_settings({}), "hunyuan-mlx")
+    args = api._hunyuan_build_args(job)
+    assert args[0] == str(tmp_path / "input.png")
+    assert args[1] == str(tmp_path / "model.glb")
+    assert "--octree-resolution" in args and "512" in args
+
+
+@pytest.mark.parametrize("payload", [
+    {"octree_resolution": 128},
+    {"decimation_target": 0},
+    {"decimation_target": 700_000},  # past the confirmed xatlas wall (500k-700k, 2026-08-18)
+])
+def test_hunyuan_validate_settings_rejects_invalid_values(payload):
+    with pytest.raises(ValueError):
+        api._hunyuan_validate_settings(payload)
+
+
+@pytest.mark.parametrize("line,expected_phase,expected_pct", [
+    # Real lines captured from output/hunyuan_mlx_zimeng_test/flicker_octree512/*.log,
+    # 2026-08-18 -- the exact format both hunyuan_mlx_generate.py and run_paint_pbr.py print.
+    ("shape generated (301s): 191099 verts, 382196 faces", "shape", 100),
+    ("simplified to 500,000 faces (0.4s)", "remesh", 100),
+    ("mesh at/under decimation target (382,196 <= 500,000); no remesh needed (0s)",
+     "remesh", 100),
+    ("mesh loaded: 500000 faces (2s)", "paint_setup", None),
+    ("xatlas parametrize done (158s)", "paint_setup", None),
+    ("controls + dino ready (159s)", "paint_setup", None),
+    ("views decoded (370s)", "paint_finish", None),
+    ("super-res x4 (454s, views -> 2048px)", "paint_finish", None),
+    ("DONE 484s -> outputs/textured_mesh_pbr.glb (+ pbr_albedo/mr textures)",
+     "paint_finish", 100),
+])
+def test_hunyuan_parse_line_real_captured_lines(tmp_path, line, expected_phase, expected_pct):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "hunyuan-mlx")
+    api._hunyuan_parse_line(job, line)
+    assert job.events, f"no event emitted for: {line!r}"
+    event = job.events[-1]
+    assert event["phase"] == expected_phase
+    if expected_pct is not None:
+        assert event.get("stage_pct") == expected_pct
+
+
+def test_hunyuan_parse_line_step_progress(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "hunyuan-mlx")
+    api._hunyuan_parse_line(job, "  step 8/15 178s")
+    event = job.events[-1]
+    assert event["phase"] == "paint_diffusion"
+    assert event["step"] == 8 and event["total"] == 15
+    assert event["stage_pct"] == round(8 / 15 * 100)
+
+
+def test_hunyuan_parse_line_ignores_unrecognized_lines(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "hunyuan-mlx")
+    api._hunyuan_parse_line(job, "Fetching 5 files: 100%|##########| 5/5")
+    assert job.events == []
+
+
+# --- job folder naming ------------------------------------------------------------------
+
+def test_job_folder_name_uses_requested_slug_when_given():
+    assert api._job_folder_name("flicker", "trellis", "my run 1!") == "my-run-1"
+
+
+def test_job_folder_name_falls_back_to_image_backend_timestamp():
+    name = api._job_folder_name("3-4th-flicker-alpha", "hunyuan-mlx", None)
+    assert name.startswith("3-4th-flicker-alpha__hunyuan-mlx__")
+    assert "/" not in name and ".." not in name
+
+
+def test_slugify_strips_unsafe_characters():
+    assert api._slugify("../../etc/passwd") == "etc-passwd"
+    assert api._slugify("   ") == "job"

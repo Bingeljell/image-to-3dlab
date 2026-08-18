@@ -19,19 +19,27 @@ import threading
 import time
 import uuid
 from collections import deque
+from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
-from typing import Any, ClassVar
-from urllib.parse import unquote, urlparse
+from typing import Any, Callable, ClassVar
+from urllib.parse import parse_qs, unquote, urlparse
 
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
 PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
 OUTPUT_ROOT = REPO / "output" / "space_web"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
+
+HUNYUAN_WRAPPER = REPO / "scripts" / "hunyuan_mlx_generate.py"
+HUNYUAN_PYTHON = REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python"
+HUNYUAN_PAINT_VENV = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint" / ".venv" / "bin" / "python"
+HUNYUAN_PAINT_WEIGHTS = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint" / "weights" / "hunyuan3d-paintpbr-v2-1"
+
+SF3D_REPO_DEFAULT = REPO / "vendor" / "stable-fast-3d"
 
 # Backend-selection vars the generator must own. A stale value inherited from the server's
 # environment silently selects the wrong backend (the conv_none crash); the subprocess env
@@ -88,6 +96,38 @@ def weights_on_disk(cache_dir: Path | None = None) -> dict[str, dict[str, Any]]:
         else:
             out[repo] = {"label": label, "present": False, "bytes": 0, "human": "0 B"}
     return out
+
+
+@dataclass(frozen=True)
+class BackendSpec:
+    """Everything the job runner needs to drive one generation backend.
+
+    ``parse_line`` is a handler, not a pure parser: it emits SSE events on ``job`` itself
+    (matching the shape of the pre-existing TRELLIS tqdm/banner handling) rather than
+    returning an event for the caller to emit — this keeps the well-tested TRELLIS path
+    untouched, just wrapped, instead of restructured.
+    """
+
+    id: str
+    label: str
+    interpreter: Path
+    wrapper: Path
+    default_settings: dict[str, Any]
+    stages: list[str]
+    stage_labels: dict[str, str]
+    requires_alpha: bool
+    validate_settings: Callable[[Any], dict[str, Any]]
+    build_args: Callable[["Job"], list[str]]
+    parse_line: Callable[["Job", str], None]
+    readiness: Callable[[], dict[str, Any]]
+    baseline_path: Path | None = None
+    finalize: Callable[["Job"], None] | None = None
+    """Runs after the subprocess exits 0, before the output-file existence check — for
+    backends whose wrapper doesn't write directly to job.output_path (SF3D writes
+    ``<stem>_sf3d.glb`` instead)."""
+
+
+BACKENDS: dict[str, BackendSpec] = {}
 
 
 def clean_port_build_present() -> bool:
@@ -319,6 +359,22 @@ def _update_baseline(job: Job) -> None:
     BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip()).strip("-")
+    return slug[:80] or "job"
+
+
+def _job_folder_name(image_stem: str, backend_id: str, requested: str | None) -> str:
+    """Human-readable job folder name — a user-chosen slug, or ``<image>__<backend>__<time>``
+    so results never end up in an unlabeled UUID directory (the exact problem hand-run
+    asset sweeps kept hitting on 2026-08-18 — every result had to be moved by hand
+    afterward to avoid the next run silently clobbering or burying it)."""
+    if requested and requested.strip():
+        return _slugify(requested)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return _slugify(f"{image_stem}__{backend_id}__{stamp}")
+
+
 def _safe_id(value: str) -> bool:
     return bool(JOB_RE.fullmatch(value))
 
@@ -344,13 +400,14 @@ def parse_multipart(content_type: str, body: bytes) -> dict[str, dict[str, Any]]
 
 class Job:
     def __init__(self, job_id: str, directory: Path, image_path: Path, output_path: Path,
-                 settings: dict[str, Any]):
+                 settings: dict[str, Any], backend_id: str):
         self.id = job_id
         self.directory = directory
         self.image_path = image_path
         self.output_path = output_path
         self.manifest_path = output_path.with_suffix(".json")
         self.settings = settings
+        self.backend_id = backend_id
         self.status = "queued"
         self.process: subprocess.Popen[bytes] | None = None
         self.started = time.monotonic()
@@ -382,17 +439,23 @@ class JobManager:
         self.lock = threading.Lock()
         self.active: str | None = None
 
-    def create(self, image_path: Path, settings: dict[str, Any]) -> Job:
+    def create(self, image_path: Path, settings: dict[str, Any], backend_id: str,
+               image_stem: str, output_name: str | None) -> Job:
         with self.lock:
             if self.active is not None:
                 active = self.jobs.get(self.active)
                 if active and active.status in {"queued", "running", "cancelling"}:
-                    raise RuntimeError("a TRELLIS generation is already running")
+                    raise RuntimeError("a generation is already running")
             job_id = uuid.uuid4().hex
-            directory = OUTPUT_ROOT / job_id
+            folder = _job_folder_name(image_stem, backend_id, output_name)
+            directory = OUTPUT_ROOT / folder
+            suffix = 2
+            while directory.exists():
+                directory = OUTPUT_ROOT / f"{folder}-{suffix}"
+                suffix += 1
             directory.mkdir(parents=True, exist_ok=False)
             output_path = directory / "model.glb"
-            job = Job(job_id, directory, image_path, output_path, settings)
+            job = Job(job_id, directory, image_path, output_path, settings, backend_id)
             self.jobs[job_id] = job
             self.active = job_id
             return job
@@ -511,6 +574,7 @@ def _rss_monitor(job: Job) -> None:
 
 def _read_process(job: Job) -> None:
     assert job.process is not None and job.process.stdout is not None
+    spec = BACKENDS[job.backend_id]
     buffer = ""
     while True:
         chunk = job.process.stdout.read(4096)
@@ -526,41 +590,28 @@ def _read_process(job: Job) -> None:
             if not line:
                 continue
             job.append_log(line)
-            parsed = parse_tqdm_line(line)
-            if parsed:
-                job.emit(_event_from_tqdm(job, parsed))
-            else:
-                _emit_banner(job, line)
+            spec.parse_line(job, line)
     if buffer:
         job.append_log(buffer)
-        parsed = parse_tqdm_line(buffer)
-        if parsed:
-            job.emit(_event_from_tqdm(job, parsed))
+        spec.parse_line(job, buffer)
+
+
+def _trellis_parse_line(job: Job, line: str) -> None:
+    """TRELLIS's original tqdm/banner handling, unchanged, just wrapped as a BackendSpec hook."""
+    parsed = parse_tqdm_line(line)
+    if parsed:
+        job.emit(_event_from_tqdm(job, parsed))
+    else:
+        _emit_banner(job, line)
 
 
 def _run_job(job: Job) -> None:
-    args = [
-        str(PYTHON), str(WRAPPER), str(job.image_path), str(job.output_path),
-        "--resolution", job.settings["resolution"],
-        "--seed", str(job.settings["seed"]),
-        "--decimation-target", str(job.settings["decimation_target"]),
-        "--texture-size", str(job.settings["texture_size"]),
-    ]
-    if job.settings["allow_rembg"]:
-        args.append("--allow-rembg")
+    spec = BACKENDS[job.backend_id]
+    args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
     env = _job_env()
     try:
         job.status = "running"
-        weights = weights_on_disk()
-        parts = [
-            f"{w['label']}: {w['human']} on disk" if w["present"]
-            else f"{w['label']}: MISSING (first run downloads it)"
-            for w in weights.values()
-        ]
-        message = "Weights — " + "; ".join(parts)
-        job.append_log(message + "\n")
-        job.emit({"phase": "load", "overall_pct": 0, "message": message})
-        job.emit({"phase": "load", "overall_pct": 0, "message": "Starting clean-port job"})
+        job.emit({"phase": "load", "overall_pct": 0, "message": f"Starting {spec.label} job"})
         job.process = subprocess.Popen(
             args,
             cwd=str(REPO),
@@ -581,15 +632,24 @@ def _run_job(job: Job) -> None:
             job.status = "cancelled"
             job.append_log("generation cancelled")
             job.emit({"phase": "error", "message": "Generation cancelled"})
-        elif return_code == 0 and job.output_path.is_file():
-            job.status = "done"
-            job.append_log("generation complete")
-            _update_baseline(job)
-            job.emit({
-                "phase": "done", "overall_pct": 100, "message": "Generation complete",
-                "result_url": f"/api/generate/{job.id}/result.glb",
-                "manifest_url": f"/api/generate/{job.id}/manifest.json",
-            })
+        elif return_code == 0:
+            if spec.finalize is not None and not job.output_path.is_file():
+                spec.finalize(job)
+            if job.output_path.is_file():
+                job.status = "done"
+                job.append_log("generation complete")
+                _update_baseline(job)
+                job.emit({
+                    "phase": "done", "overall_pct": 100, "message": "Generation complete",
+                    "result_url": f"/api/generate/{job.id}/result.glb",
+                    "manifest_url": f"/api/generate/{job.id}/manifest.json",
+                })
+            else:
+                tail = "\n".join(job.log_lines)[-8000:]
+                job.status = "error"
+                job.emit({"phase": "error",
+                          "message": "generator exited 0 but produced no output file",
+                          "log_tail": tail})
         else:
             tail = "\n".join(job.log_lines)[-8000:]
             job.status = "error"
@@ -600,6 +660,257 @@ def _run_job(job: Job) -> None:
         job.emit({"phase": "error", "message": str(exc)})
     finally:
         JOBS.finish(job)
+
+
+# --- TRELLIS backend spec (wraps the pre-existing, unchanged behavior above) -----------
+
+
+def _trellis_build_args(job: Job) -> list[str]:
+    args = [
+        str(job.image_path), str(job.output_path),
+        "--resolution", job.settings["resolution"],
+        "--seed", str(job.settings["seed"]),
+        "--decimation-target", str(job.settings["decimation_target"]),
+        "--texture-size", str(job.settings["texture_size"]),
+    ]
+    if job.settings["allow_rembg"]:
+        args.append("--allow-rembg")
+    return args
+
+
+# --- SF3D backend spec ------------------------------------------------------------------
+
+SF3D_DEFAULT_SETTINGS: dict[str, Any] = {
+    "texture_resolution": 1024,
+    "foreground_ratio": 0.85,
+    "remesh": "none",
+    "target_vertices": -1,
+}
+SF3D_VALID_REMESH = {"none", "triangle", "quad"}
+SF3D_STAGES = ["running"]
+SF3D_STAGE_LABELS = {"running": "Running SF3D"}
+
+
+def _sf3d_validate_settings(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("settings must be a JSON object")
+    settings = {**SF3D_DEFAULT_SETTINGS, **raw}
+    try:
+        settings["texture_resolution"] = int(settings["texture_resolution"])
+        settings["foreground_ratio"] = float(settings["foreground_ratio"])
+        settings["target_vertices"] = int(settings["target_vertices"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("texture_resolution/target_vertices must be integers, "
+                          "foreground_ratio must be a number") from exc
+    if settings["remesh"] not in SF3D_VALID_REMESH:
+        raise ValueError("remesh must be one of none, triangle, or quad")
+    if settings["texture_resolution"] <= 0:
+        raise ValueError("texture_resolution must be positive")
+    if not (0.0 < settings["foreground_ratio"] <= 1.0):
+        raise ValueError("foreground_ratio must be between 0 and 1")
+    return settings
+
+
+def _sf3d_build_args(job: Job) -> list[str]:
+    return [
+        "--fast",
+        "--output-dir", str(job.directory),
+        "--texture-resolution", str(job.settings["texture_resolution"]),
+        "--foreground-ratio", str(job.settings["foreground_ratio"]),
+        "--remesh", job.settings["remesh"],
+        "--target-vertices", str(job.settings["target_vertices"]),
+        str(job.image_path),
+    ]
+
+
+def _sf3d_finalize(job: Job) -> None:
+    """pipeline.py --fast writes ``<stem>_sf3d.glb`` in the output dir; move it into place."""
+    produced = job.directory / f"{job.image_path.stem}_sf3d.glb"
+    if produced.is_file():
+        produced.replace(job.output_path)
+
+
+def _sf3d_parse_line(job: Job, line: str) -> None:
+    """SF3D has no structured per-step progress; relay raw lines, no false pct signal."""
+    stripped = line.strip()
+    if stripped:
+        job.emit({"phase": "running", "message": stripped[:200]})
+
+
+def _sf3d_readiness() -> dict[str, Any]:
+    present = (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
+    return {
+        "schema_version": 1,
+        "build": {
+            "present": present,
+            "hint": None if present else (
+                f"SF3D checkout not found at {SF3D_REPO_DEFAULT} — "
+                "run scripts/bootstrap_macos.sh first."
+            ),
+        },
+        "weights": {},
+        "missing_weights": [],
+        "ready": present,
+        "warning": None,
+    }
+
+
+# --- Hunyuan3D-MLX backend spec ----------------------------------------------------------
+
+HUNYUAN_DEFAULT_SETTINGS: dict[str, Any] = {
+    "octree_resolution": 512,
+    "seed": 42,
+    "decimation_target": 300_000,
+    "paint_seed": 0,
+    "paint_res": 512,
+    "paint_steps": 15,
+    "paint_tex": 4096,
+}
+HUNYUAN_VALID_OCTREE = {256, 384, 512, 1024}
+HUNYUAN_STAGES = ["shape", "remesh", "paint_setup", "paint_diffusion", "paint_finish"]
+HUNYUAN_STAGE_LABELS = {
+    "shape": "Shape generation",
+    "remesh": "Remesh",
+    "paint_setup": "Paint setup (mesh/UV)",
+    "paint_diffusion": "Paint diffusion",
+    "paint_finish": "Paint finish (super-res/bake)",
+}
+HUNYUAN_STEP_RE = re.compile(r"^\s*step (\d+)/(\d+) (\d+)s")
+
+
+def _hunyuan_validate_settings(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("settings must be a JSON object")
+    settings = {**HUNYUAN_DEFAULT_SETTINGS, **raw}
+    try:
+        for key in ("octree_resolution", "seed", "decimation_target", "paint_seed",
+                    "paint_res", "paint_steps", "paint_tex"):
+            settings[key] = int(settings[key])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("all Hunyuan settings must be integers") from exc
+    if settings["octree_resolution"] not in HUNYUAN_VALID_OCTREE:
+        raise ValueError("octree_resolution must be one of 256, 384, 512, or 1024")
+    if settings["decimation_target"] <= 0:
+        raise ValueError("decimation_target must be positive")
+    if settings["decimation_target"] > 600_000:
+        raise ValueError(
+            "decimation_target above ~500k hits a confirmed xatlas wall (500k-700k faces "
+            "took 37 min in testing on 2026-08-18, 1M never finished) — keep it at or "
+            "under 500,000"
+        )
+    return settings
+
+
+def _hunyuan_build_args(job: Job) -> list[str]:
+    s = job.settings
+    return [
+        str(job.image_path), str(job.output_path),
+        "--octree-resolution", str(s["octree_resolution"]),
+        "--seed", str(s["seed"]),
+        "--decimation-target", str(s["decimation_target"]),
+        "--paint-seed", str(s["paint_seed"]),
+        "--paint-res", str(s["paint_res"]),
+        "--paint-steps", str(s["paint_steps"]),
+        "--paint-tex", str(s["paint_tex"]),
+    ]
+
+
+def _hunyuan_overall_pct(phase: str, stage_pct: int) -> int:
+    try:
+        index = HUNYUAN_STAGES.index(phase)
+    except ValueError:
+        return 0
+    return round((index + max(0, min(stage_pct, 100)) / 100) / len(HUNYUAN_STAGES) * 100)
+
+
+def _hunyuan_parse_line(job: Job, line: str) -> None:
+    stripped = line.strip()
+    step_match = HUNYUAN_STEP_RE.match(line)
+    if step_match:
+        step, total = int(step_match.group(1)), int(step_match.group(2))
+        pct = round(step / total * 100)
+        job.emit({
+            "phase": "paint_diffusion", "step": step, "total": total, "stage_pct": pct,
+            "overall_pct": _hunyuan_overall_pct("paint_diffusion", pct),
+            "message": f"Paint diffusion — step {step}/{total}",
+        })
+        return
+    if stripped.startswith("shape generated"):
+        job.emit({"phase": "shape", "stage_pct": 100,
+                  "overall_pct": _hunyuan_overall_pct("shape", 100), "message": stripped})
+    elif stripped.startswith(("simplified to", "mesh at/under decimation")):
+        job.emit({"phase": "remesh", "stage_pct": 100,
+                  "overall_pct": _hunyuan_overall_pct("remesh", 100), "message": stripped})
+    elif stripped.startswith(("mesh loaded", "xatlas parametrize done", "mesh render loaded",
+                               "control renders done", "controls + dino ready")):
+        job.emit({"phase": "paint_setup", "message": stripped})
+    elif stripped.startswith(("views decoded", "super-res x4")):
+        job.emit({"phase": "paint_finish", "message": stripped})
+    elif stripped.startswith(("DONE", "paint stage done")):
+        job.emit({"phase": "paint_finish", "stage_pct": 100,
+                  "overall_pct": _hunyuan_overall_pct("paint_finish", 100), "message": stripped})
+
+
+def _hunyuan_readiness() -> dict[str, Any]:
+    shape_ok = HUNYUAN_PYTHON.is_file() and HUNYUAN_WRAPPER.is_file()
+    paint_venv_ok = HUNYUAN_PAINT_VENV.is_file()
+    weights_ok = HUNYUAN_PAINT_WEIGHTS.is_dir()
+    ready = shape_ok and paint_venv_ok and weights_ok
+    missing = []
+    if not shape_ok:
+        missing.append("shape venv/wrapper (vendor/hunyuan-mlx, scripts/hunyuan_mlx_generate.py)")
+    if not paint_venv_ok:
+        missing.append("paint venv (vendor/hunyuan-mlx-paint/python/paint/.venv)")
+    if not weights_ok:
+        missing.append("paint weights (.../paint/weights/hunyuan3d-paintpbr-v2-1)")
+    return {
+        "schema_version": 1,
+        "build": {
+            "present": ready,
+            "hint": None if ready else (
+                "Hunyuan3D-MLX setup is incomplete — missing: " + "; ".join(missing) + ". "
+                "No automated bootstrap exists yet; see docs/STATE-OF-REPO-2026-08-17.md "
+                "for the manual setup notes."
+            ),
+        },
+        "weights": {},
+        "missing_weights": missing,
+        "ready": ready,
+        "warning": None,
+    }
+
+
+BACKENDS.update({
+    "trellis": BackendSpec(
+        id="trellis", label="TRELLIS.2 (clean port)",
+        interpreter=PYTHON, wrapper=WRAPPER,
+        default_settings=DEFAULT_SETTINGS, stages=STAGES, stage_labels=PHASE_LABELS,
+        requires_alpha=True,
+        validate_settings=validate_settings, build_args=_trellis_build_args,
+        parse_line=_trellis_parse_line, readiness=setup_status,
+        baseline_path=BASELINE_PATH,
+    ),
+    "sf3d": BackendSpec(
+        id="sf3d", label="Stable Fast 3D",
+        interpreter=Path(sys.executable), wrapper=REPO / "pipeline.py",
+        default_settings=SF3D_DEFAULT_SETTINGS, stages=SF3D_STAGES,
+        stage_labels=SF3D_STAGE_LABELS, requires_alpha=False,
+        validate_settings=_sf3d_validate_settings, build_args=_sf3d_build_args,
+        parse_line=_sf3d_parse_line, readiness=_sf3d_readiness, finalize=_sf3d_finalize,
+    ),
+    "hunyuan-mlx": BackendSpec(
+        id="hunyuan-mlx", label="Hunyuan3D-MLX",
+        interpreter=HUNYUAN_PYTHON, wrapper=HUNYUAN_WRAPPER,
+        default_settings=HUNYUAN_DEFAULT_SETTINGS, stages=HUNYUAN_STAGES,
+        stage_labels=HUNYUAN_STAGE_LABELS, requires_alpha=False,
+        validate_settings=_hunyuan_validate_settings, build_args=_hunyuan_build_args,
+        parse_line=_hunyuan_parse_line, readiness=_hunyuan_readiness,
+    ),
+})
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -651,7 +962,23 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         parts = self._path_parts()
         if parts == ["api", "setup"]:
-            self._send_json(200, setup_status())
+            query = parse_qs(urlparse(self.path).query)
+            backend_id = query.get("backend", ["trellis"])[0]
+            spec = BACKENDS.get(backend_id)
+            if spec is None:
+                self._send_json(422, {"error": f"unknown backend {backend_id!r}"})
+                return
+            self._send_json(200, {**spec.readiness(), "backend": spec.id})
+            return
+        if parts == ["api", "backends"]:
+            self._send_json(200, {
+                "backends": [
+                    {"id": spec.id, "label": spec.label, "requires_alpha": spec.requires_alpha,
+                     "default_settings": spec.default_settings, "stages": spec.stages,
+                     "stage_labels": spec.stage_labels}
+                    for spec in BACKENDS.values()
+                ]
+            })
             return
         if len(parts) == 4 and parts[:3] == ["api", "setup", "run"] and parts[3] == "events":
             run = SETUP_RUNS.get(parts[2]) if _safe_id(parts[2]) else None
@@ -672,12 +999,6 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _create_job(self) -> None:
         try:
-            if not PYTHON.is_file() or not WRAPPER.is_file():
-                self._send_json(503, {"error": "clean-port generator is not installed"})
-                return
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is running; wait for it to finish"})
-                return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 50 * 1024 * 1024:
                 self._send_json(400, {"error": "image upload is missing or larger than 50 MiB"})
@@ -690,21 +1011,43 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             settings_value = form.get("settings", {}).get("value", "{}")
             try:
-                settings = validate_settings(json.loads(settings_value))
-            except (ValueError, json.JSONDecodeError) as exc:
+                raw_settings = json.loads(settings_value)
+            except json.JSONDecodeError as exc:
+                self._send_json(422, {"error": f"invalid settings JSON: {exc}"})
+                return
+            if not isinstance(raw_settings, dict):
+                self._send_json(422, {"error": "settings must be a JSON object"})
+                return
+            backend_id = raw_settings.pop("backend", "trellis")
+            output_name = raw_settings.pop("output_name", None)
+            spec = BACKENDS.get(backend_id)
+            if spec is None:
+                self._send_json(422, {"error": f"unknown backend {backend_id!r}"})
+                return
+            if not spec.readiness()["ready"]:
+                self._send_json(503, {"error": f"{spec.label} is not installed/ready"})
+                return
+            if SETUP_ACTIVE is not None:
+                self._send_json(409, {"error": "setup is running; wait for it to finish"})
+                return
+            try:
+                settings = spec.validate_settings(raw_settings)
+            except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return
             suffix = Path(str(image_field["filename"])).suffix.lower()
             if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
                 self._send_json(422, {"error": "unsupported image type; use PNG, JPG, WebP, or BMP"})
                 return
-            # Reserve the job directory only after validation, then persist the original upload.
+            image_stem = _slugify(Path(str(image_field["filename"])).stem)
+            # Reserve a provisional directory only after validation, then persist the upload.
             provisional = OUTPUT_ROOT / uuid.uuid4().hex
             provisional.mkdir(parents=True, exist_ok=False)
             image_path = provisional / f"input{suffix}"
             with image_path.open("wb") as handle:
                 handle.write(image_field["data"])
-            if not image_has_transparent_alpha(image_path) and not settings["allow_rembg"]:
+            if (spec.requires_alpha and not image_has_transparent_alpha(image_path)
+                    and not settings.get("allow_rembg")):
                 for child in provisional.iterdir():
                     child.unlink()
                 provisional.rmdir()
@@ -713,11 +1056,11 @@ class Handler(SimpleHTTPRequestHandler):
                              "to use BRIA background removal, or upload a pre-masked PNG."
                 })
                 return
-            # JobManager creates its own UUID directory. Move the upload into it so the id and
-            # artifact URLs are stable, without ever accepting a client-provided path.
+            # JobManager builds the real, human-readable job directory. Move the upload into it
+            # so the id and artifact URLs are stable, without ever accepting a client-provided path.
             provisional_image = image_path
             try:
-                job = JOBS.create(provisional_image, settings)
+                job = JOBS.create(provisional_image, settings, backend_id, image_stem, output_name)
             except RuntimeError as exc:
                 provisional_image.unlink(missing_ok=True)
                 provisional.rmdir()
@@ -728,7 +1071,8 @@ class Handler(SimpleHTTPRequestHandler):
             provisional.rmdir()
             job.image_path = final_image
             threading.Thread(target=_run_job, args=(job,), daemon=True).start()
-            self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events"})
+            self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
+                                  "output_dir": str(job.directory.relative_to(REPO))})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 

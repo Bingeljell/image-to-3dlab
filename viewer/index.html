@@ -74,8 +74,15 @@
   body.dragging #drop .zone { border-color: #4d84c0; background: #3b6ea522; }
   #drop button { padding: 8px 16px; font-size: 14px; }
   #compare-view.hidden { display: none; }
-  #generate-view { position: fixed; inset: 42px 0 0 0; overflow: auto; padding: 22px 24px 30px;
+  #generate-view, #credits-view { position: fixed; inset: 42px 0 0 0; overflow: auto; padding: 22px 24px 30px;
                    background: radial-gradient(circle at 75% 20%, #1d2a3a 0, transparent 38%), #14161a; }
+  .credits-col { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .credits-col h2 { margin: 0 0 10px; font-size: 16px; color: #cfe3ff; }
+  .credits-col h3 { margin: 16px 0 6px; font-size: 13px; color: #9bc8ff; }
+  .credits-col p, .credits-col li { font-size: 13px; line-height: 1.55; opacity: .85; }
+  .credits-col ul { margin: 4px 0 0; padding-left: 20px; }
+  .credits-col code { background: #0006; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .credits-col a { color: #9bc8ff; }
   .generate-grid { max-width: 1280px; min-height: calc(100vh - 94px); margin: 0 auto;
                    display: grid; grid-template-columns: minmax(280px, 390px) minmax(0, 1fr); gap: 18px; }
   .generate-card { background: #1b1e24e8; border: 1px solid #303744; border-radius: 10px;
@@ -142,6 +149,7 @@
   <span class="lbl">TRELLIS.2</span>
   <button id="mode-compare" class="mode on">Compare</button>
   <button id="mode-generate" class="mode">Generate</button>
+  <button id="mode-credits" class="mode">Credits &amp; Info</button>
 </div>
 <section id="compare-view">
 <div id="bar">
@@ -265,6 +273,58 @@
       <div id="generate-viewer"><iframe id="generate-frame" title="generated model viewer"></iframe></div>
       <div id="generate-downloads"><a id="generate-glb" download>Download GLB</a><a id="generate-manifest" download>Download manifest</a></div>
       <div id="generate-summary"></div>
+    </div>
+  </div>
+</section>
+
+<section id="credits-view" hidden>
+  <div class="credits-col">
+    <div class="generate-card">
+      <h2>Credits</h2>
+      <p>This repo wraps other people's models and ports. Attribution, by pipeline:</p>
+      <h3>TRELLIS.2 (clean port)</h3>
+      <ul>
+        <li>Mac/Metal port foundation: <a href="https://github.com/pedronaugusto/trellis2-apple">pedronaugusto/trellis2-apple</a>, plus Pedro Naugusto's <code>mtlbvh</code>, <code>mtldiffrast</code>, and <code>mtlgemm</code> Metal kernel libraries.</li>
+        <li>Upstream model: Microsoft <a href="https://huggingface.co/microsoft/TRELLIS.2-4B">TRELLIS.2-4B</a> (MIT license; the DINOv3 image encoder has its own separate license).</li>
+        <li>The original Mac port (<a href="https://github.com/shivampkumar/trellis-mac">shivampkumar/trellis-mac</a>) is retired internally — kept only as the historical source of two bugs documented in <code>CLAUDE.md</code>, not as a build foundation.</li>
+      </ul>
+      <h3>Stable Fast 3D</h3>
+      <ul>
+        <li><a href="https://github.com/Stability-AI/stable-fast-3d">Stability-AI/stable-fast-3d</a> (Stability AI Community License).</li>
+      </ul>
+      <h3>Hunyuan3D-MLX</h3>
+      <ul>
+        <li>Shape stage: <a href="https://github.com/dgrauet">dgrauet</a>'s MLX port (<code>dgrauet/hunyuan3d-2.1-mlx</code>).</li>
+        <li>Paint stage: <a href="https://github.com/ZimengXiong/Hunyuan3D-MLX">ZimengXiong/Hunyuan3D-MLX</a> — a from-scratch MLX rasterizer rewrite, built to fix a CUDA-only rasterizer dependency an earlier version of the same project hit.</li>
+        <li>Underlying model: Tencent Hunyuan3D-2.1 (Tencent Hunyuan Community License — not licensed for use in the EU, UK, or South Korea).</li>
+      </ul>
+      <h3>Evaluated, not shipped</h3>
+      <ul>
+        <li><a href="https://github.com/RobertBeckebans/AI_trellis2cpp">RobertBeckebans/AI_trellis2cpp</a> (C++/ggml Metal port) — a real upstream <code>purego</code> ARM64 bug was found and reported while testing it.</li>
+      </ul>
+    </div>
+
+    <div class="generate-card">
+      <h2>Known shortcomings</h2>
+      <p>As of 2026-08-18 — check <code>docs/</code> for anything more recent.</p>
+      <ul>
+        <li>Hunyuan3D-MLX has two open, documented defects found on real assets: a paint-stage mouth artifact (diffusion-origin) and a shape-stage geometry fusion defect. See <code>docs/HUNYUAN-PAINT-SHAPE-ARTIFACTS-2026-08-18.md</code>.</li>
+        <li>Hunyuan's paint stage has a hard face-count wall: the <code>xatlas</code> UV-unwrap step goes from ~3 min to 37+ min between 500k and 700k faces; 1M faces never completed. Keep <code>decimation_target</code> at or under 500,000.</li>
+        <li>TRELLIS's own texture generation drifts from the reference image (a published, documented weakness). Hunyuan's paint tracks the reference more closely, since it's directly conditioned on it and TRELLIS's isn't.</li>
+        <li>Hunyuan3D-MLX setup is entirely manual right now — two separate repos, two separate Python venvs, hand-downloaded weights. No automated bootstrap exists yet, unlike TRELLIS's one-button setup on this page.</li>
+        <li>The retired TRELLIS Mac port shipped two self-inflicted bugs for a long time before they were caught: a 200,000-face cap that crushed every decode with a crude decimator, and inconsistent mesh winding that left assets hollow under backface culling. Full story in <code>CLAUDE.md</code>.</li>
+      </ul>
+    </div>
+
+    <div class="generate-card">
+      <h2>Power-user notes</h2>
+      <p>Peeking behind the curtain without the browser:</p>
+      <ul>
+        <li>A submitted job's folder appears in <code>output/</code> the instant you hit Generate, before any compute starts — <code>ls -lat output/ | head</code> confirms a job was accepted.</li>
+        <li><code>tail -f output/&lt;folder&gt;/run.log</code> streams the exact same progress lines the browser's live view shows.</li>
+        <li><code>ps aux | grep -E "trellis_space_generate|hunyuan_mlx_generate|pipeline.py"</code> confirms the generation subprocess is alive and shows its exact arguments.</li>
+        <li><code>debug</code> (off by default) keeps only the final <code>.glb</code>. Check it to keep the manifest, textures, and intermediate meshes a run produces along the way.</li>
+      </ul>
     </div>
   </div>
 </section>
@@ -936,15 +996,18 @@ const updateGenerateButton = () => {
   const needsRembg = backendRequiresAlpha() && !gen.hasAlpha && !g('generate-rembg').checked;
   g('generate-submit').disabled = !gen.file || gen.running || needsRembg || !setupState.ready;
 };
+const creditsView = document.getElementById('credits-view');
 const setGenerateMode = (mode) => {
-  const generate = mode === 'generate';
-  compareView.classList.toggle('hidden', generate);
-  generateView.hidden = !generate;
-  g('mode-compare').classList.toggle('on', !generate);
-  g('mode-generate').classList.toggle('on', generate);
+  compareView.classList.toggle('hidden', mode !== 'compare');
+  generateView.hidden = mode !== 'generate';
+  creditsView.hidden = mode !== 'credits';
+  g('mode-compare').classList.toggle('on', mode === 'compare');
+  g('mode-generate').classList.toggle('on', mode === 'generate');
+  g('mode-credits').classList.toggle('on', mode === 'credits');
 };
 g('mode-compare').onclick = () => setGenerateMode('compare');
 g('mode-generate').onclick = () => setGenerateMode('generate');
+g('mode-credits').onclick = () => setGenerateMode('credits');
 
 async function inspectAlpha(file) {
   // JPEG and opaque formats cannot carry a useful foreground alpha. For PNG/WebP, inspect the

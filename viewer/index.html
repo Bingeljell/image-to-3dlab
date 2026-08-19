@@ -672,11 +672,20 @@ function loadModel(view) {
     root.traverse((o) => {
       if (!o.isMesh) return;
       const g = o.geometry;
+      // Some exports (e.g. a bare shape-stage mesh.export() with no baked material) ship
+      // no NORMAL attribute at all. The default material's flatShading:true papers over
+      // that by computing per-face normals from screen-space derivatives (dFdx/dFdy) --
+      // but flat/normals mode swap in materials that read the vertex attribute directly,
+      // and wireframe draws GL_LINES where those derivatives are undefined anyway. Either
+      // way a missing normal reads as a zero vector -> zero lighting -> solid black.
+      // Compute real vertex normals once at load time so every mode has something to read.
+      if (!g.attributes.normal) g.computeVertexNormals();
       verts += g.attributes.position.count;
       faces += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       for (const m of mats) {
-        view.materials.push({ mesh: o, original: m, flat: null, normal: null });
+        view.materials.push({ mesh: o, original: m, flat: null, normal: null,
+                              origFlatShading: !!m.flatShading });
       }
     });
     view.root = pivot;
@@ -768,6 +777,15 @@ function applyState() {
       }
       mat.side = state.cull ? THREE.FrontSide : THREE.DoubleSide;
       mat.wireframe = state.wire;
+      // flatShading computes normals from screen-space derivatives (dFdx/dFdy), which are
+      // undefined for GL_LINES -- so a flatShading material goes solid black in wireframe
+      // mode even with valid vertex normals now guaranteed at load time. Force it off for
+      // wireframe, restored from the material's own original value otherwise (rec.flat/
+      // rec.normal never had flatShading:true to begin with, so this only ever matters for
+      // rec.original).
+      if ('flatShading' in mat) {
+        mat.flatShading = state.wire ? false : (mat === rec.original && rec.origFlatShading);
+      }
       mat.needsUpdate = true;
       rec.mesh.material = mat;
     }

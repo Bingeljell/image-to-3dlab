@@ -297,10 +297,10 @@
       <ul>
         <li><a href="https://github.com/Stability-AI/stable-fast-3d">Stability-AI/stable-fast-3d</a> (Stability AI Community License).</li>
       </ul>
-      <h3>Hunyuan3D-MLX</h3>
+      <h3>Hunyuan3D-MLX — two variants, two different shape stages</h3>
       <ul>
-        <li>Shape stage: <a href="https://github.com/dgrauet">dgrauet</a>'s MLX port (<code>dgrauet/hunyuan3d-2.1-mlx</code>).</li>
-        <li>Paint stage: <a href="https://github.com/ZimengXiong/Hunyuan3D-MLX">ZimengXiong/Hunyuan3D-MLX</a> — a from-scratch MLX rasterizer rewrite, built to fix a CUDA-only rasterizer dependency an earlier version of the same project hit.</li>
+        <li><strong>dgrauet shape + Xiong paint</strong> (the original, more-tested path here): shape from <a href="https://github.com/dgrauet">dgrauet</a>'s MLX port (<code>dgrauet/hunyuan3d-2.1-mlx</code>), paint from <a href="https://github.com/ZimengXiong/Hunyuan3D-MLX">ZimengXiong/Hunyuan3D-MLX</a>'s paint module. dgrauet's own paint stage produces a shattered UV atlas, which is why paint is sourced from a different repo entirely.</li>
+        <li><strong>Xiong, full pipeline</strong>: both shape and paint from <a href="https://github.com/ZimengXiong/Hunyuan3D-MLX">ZimengXiong/Hunyuan3D-MLX</a> — one author, one repo, end to end. Newer to this app and unbenchmarked at speed; see Known shortcomings.</li>
         <li>Underlying model: Tencent Hunyuan3D-2.1 (Tencent Hunyuan Community License — not licensed for use in the EU, UK, or South Korea).</li>
       </ul>
       <h3>Evaluated, not shipped</h3>
@@ -311,12 +311,13 @@
 
     <div class="generate-card">
       <h2>Known shortcomings</h2>
-      <p>As of 2026-08-18 — check <code>docs/</code> for anything more recent.</p>
+      <p>As of 2026-08-18.</p>
       <ul>
-        <li>Hunyuan3D-MLX has two open, documented defects found on real assets: a paint-stage mouth artifact (diffusion-origin) and a shape-stage geometry fusion defect. See <code>docs/HUNYUAN-PAINT-SHAPE-ARTIFACTS-2026-08-18.md</code>.</li>
-        <li>Hunyuan's paint stage has a hard face-count wall: the <code>xatlas</code> UV-unwrap step goes from ~3 min to 37+ min between 500k and 700k faces; 1M faces never completed. Keep <code>decimation_target</code> at or under 500,000.</li>
+        <li>Hunyuan3D-MLX has two open defects found on real assets: a paint-stage mouth artifact (diffusion-origin) and a shape-stage geometry fusion defect. Seen on the dgrauet+Xiong path; not yet checked against the Xiong-full path.</li>
+        <li>Hunyuan's paint stage has a hard face-count wall: the <code>xatlas</code> UV-unwrap step goes from ~3 min to 37+ min between 500k and 700k faces; 1M faces never completed. Keep <code>decimation_target</code> at or under 500,000. Applies to both Hunyuan variants — they share the same paint stage.</li>
         <li>TRELLIS's own texture generation drifts from the reference image (a published, documented weakness). Hunyuan's paint tracks the reference more closely, since it's directly conditioned on it and TRELLIS's isn't.</li>
-        <li>Hunyuan3D-MLX setup is entirely manual right now — two separate repos, two separate Python venvs, hand-downloaded weights. No automated bootstrap exists yet, unlike TRELLIS's one-button setup on this page.</li>
+        <li>Hunyuan3D-MLX setup is entirely manual right now — two/three separate repos, separate Python venvs, hand-downloaded weights. No automated bootstrap exists yet, unlike TRELLIS's one-button setup on this page.</li>
+        <li><strong>Xiong, full pipeline is unbenchmarked.</strong> Its own shape stage defaults to full-precision inference on the 3.3B-parameter MoE model — a real run at those settings took ~48 minutes just for shape, versus ~5 minutes for dgrauet's shape stage. This app defaults <code>quantize=8</code> to claw that back, but no timed run at that setting exists yet; treat your first real run as the actual benchmark, not this note.</li>
         <li>The retired TRELLIS Mac port shipped two self-inflicted bugs for a long time before they were caught: a 200,000-face cap that crushed every decode with a crude decimator, and inconsistent mesh winding that left assets hollow under backface culling. Full story in <code>CLAUDE.md</code>.</li>
       </ul>
     </div>
@@ -327,7 +328,7 @@
       <ul>
         <li>A submitted job's folder appears in <code>output/</code> the instant you hit Generate, before any compute starts — <code>ls -lat output/ | head</code> confirms a job was accepted.</li>
         <li><code>tail -f output/&lt;folder&gt;/run.log</code> streams the exact same progress lines the browser's live view shows.</li>
-        <li><code>ps aux | grep -E "trellis_space_generate|hunyuan_mlx_generate|pipeline.py"</code> confirms the generation subprocess is alive and shows its exact arguments.</li>
+        <li><code>ps aux | grep -E "trellis_space_generate|hunyuan_mlx_generate|hunyuan_mlx_xiong_generate|pipeline.py"</code> confirms the generation subprocess is alive and shows its exact arguments.</li>
         <li><code>debug</code> (off by default) keeps only the final <code>.glb</code>. Check it to keep the manifest, textures, and intermediate meshes a run produces along the way.</li>
       </ul>
     </div>

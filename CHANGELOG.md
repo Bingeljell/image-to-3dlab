@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **New Generate-page backend: Hunyuan3D-MLX (Xiong, full pipeline)**, alongside the existing
+  dgrauet-shape + Xiong-paint hybrid (now labeled explicitly as such in the dropdown so the
+  two aren't confused). New `scripts/hunyuan_mlx_xiong_generate.py` chains ZimengXiong's own
+  shape stage (`vendor/hunyuan-mlx-paint/python/shape`, a separate venv/weights from the
+  hybrid's dgrauet shape stage) into the same paint stage the hybrid already uses — one
+  author, one repo, end to end. Exposes shape-stage quantization (`quantize=8` by default)
+  since ZimengXiong's shape stage runs full-precision by default, which measured ~48 minutes
+  for one shape-only run versus dgrauet's ~5 minutes; the quantized default is unbenchmarked
+  for speed as of this writing. Details and caveats in `docs/info_and_credits.md` and the
+  Generate page's Credits & Info tab.
+- **`docs/info_and_credits.md`** — an elaborated, editable Markdown counterpart to the
+  in-app Credits & Info tab.
+- **`docs/progress/`** — a home for targeted, curated writeups going forward, as opposed to
+  the raw investigation logs (see Changed, below).
 - **Generate page now drives all three backends** (TRELLIS.2 clean port, SF3D, Hunyuan3D-MLX)
   instead of only TRELLIS. `viewer/generate_api.py` gained a `BackendSpec` registry
   (interpreter, wrapper, settings validation, progress parsing, and readiness are all
@@ -22,14 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stays legible without manual renaming. The ComfyUI Hunyuan path was evaluated and dropped —
   all three "Mac ComfyUI" candidates found still ship Tencent's unmodified CUDA-only
   `custom_rasterizer`, which cannot build on macOS at all.
-- **`scripts/image_gallery.py`** — a thumbnail-grid gallery server that binds to a Tailscale
-  IP so generated images in `output/` can be browsed from a phone. Responsive dark-theme
-  grid with lazy loading, breadcrumbs, folder cards, image cards, and canonical trailing-
-  slash redirects. Pure-function renderer (`render_listing`, `redirect_location`) extracted
-  for unit testing (`tests/test_image_gallery.py`). Served live at
-  `http://REDACTED-TAILSCALE-IP:8000/`.
-- **`docs/IMAGE-GALLERY.md`** — documents the gallery server: purpose, the live instance,
-  run/stop recipe, flags, design notes, and a directory of what it serves.
 - **`scripts/mark_asset.py`** — an append-only register of human verdicts on generated
   assets (`output/verdicts.jsonl`). The provenance sidecar records source art, settings and
   output but never whether the result was any good, so a render that looked right could not
@@ -58,6 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   two versions stale with the two most output-affecting fixes coupled to it.
 
 ### Changed
+- **The old `docs/` tree (60 files: `docs/legacy/` plus every dated session-investigation
+  doc) is no longer tracked.** It was our own working notes, not something a user of this
+  repo needs, and it had accumulated broken cross-references as things moved. It now lives
+  in an untracked, gitignored `journal/` folder (still on disk locally, still in git history
+  before this commit — nothing was deleted, only untracked). `docs/` is being rebuilt as a
+  smaller, curated, tracked folder going forward (see Added, above); `CLAUDE.md` and
+  `README.md` had their now-dead `docs/...` links removed or replaced with inline summaries.
 - **`viewer/` model panes now use image-based studio lighting instead of a 3-point rig.**
   The three directional lights (borrowed from `scripts/blender_stage.py`'s diagnostic rig)
   gave asymmetric, harshly-shadowed results that didn't match how Blender's Material

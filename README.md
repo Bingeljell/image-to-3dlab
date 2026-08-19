@@ -94,14 +94,6 @@ glTF is double-sided by default, so a hollow mesh looks fine in preview and fail
 game engine. Measure holes with a **position-only** vertex merge
 (`merge_vertices(merge_tex=True, merge_norm=True)`).
 
-## Docs
-
-| Read | For |
-|---|---|
-| `docs/STATE-OF-REPO-2026-08-16.md` | The two ports, run recipes, timings, open threads |
-| `docs/MPS-BAKE-FIXES-2026-08-15.md` | The full fix chain: bake path, venv relocation, env hygiene, instrumentation |
-| `docs/legacy/` | Everything written before the 2026-08-16 baseline (history, including the old backends' docs) |
-
 ## Legacy backends
 
 The older `pipeline.py` CLI wraps three interchangeable backends — Stable Fast 3D (fast),

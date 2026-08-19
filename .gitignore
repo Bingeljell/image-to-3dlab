@@ -6,6 +6,17 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 output/
+
+# Personal/local-network artifacts — real Tailscale IP baked in, never for the tracked repo.
+/scripts/image_gallery.py
+
+# Our own investigation/session logs — useful to us, not to someone using this repo.
+# Nothing here is a real loss if it only exists in past commit history.
+/journal/
+
+# Reference photos exchanged between collaborators, not test fixtures for the pipeline.
+/images_for_you/
+
 # Anchored to the repo root on purpose. The multi-GB backend checkouts live in /vendor/;
 # an unanchored `vendor/` also swallowed viewer/vendor/ (1.5 MB of MIT three.js), which
 # silently shipped a viewer that renders a blank page on a fresh clone.

@@ -39,6 +39,17 @@ HUNYUAN_PYTHON = REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python"
 HUNYUAN_PAINT_VENV = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint" / ".venv" / "bin" / "python"
 HUNYUAN_PAINT_WEIGHTS = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint" / "weights" / "hunyuan3d-paintpbr-v2-1"
 
+# Single-repo variant: ZimengXiong's own shape stage (not dgrauet's) chained into their own
+# paint stage above — same paint venv/weights, different shape venv/weights entirely.
+HUNYUAN_XIONG_WRAPPER = REPO / "scripts" / "hunyuan_mlx_xiong_generate.py"
+HUNYUAN_XIONG_SHAPE_VENV = (
+    REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "shape" / ".venv" / "bin" / "python"
+)
+HUNYUAN_XIONG_SHAPE_WEIGHTS = (
+    REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "shape" / "weights"
+    / "Hunyuan3D-2.1" / "hunyuan3d-dit-v2-1"
+)
+
 SF3D_REPO_DEFAULT = REPO / "vendor" / "stable-fast-3d"
 
 # Backend-selection vars the generator must own. A stale value inherited from the server's
@@ -910,14 +921,108 @@ def _hunyuan_readiness() -> dict[str, Any]:
             "present": ready,
             "hint": None if ready else (
                 "Hunyuan3D-MLX setup is incomplete — missing: " + "; ".join(missing) + ". "
-                "No automated bootstrap exists yet; see docs/STATE-OF-REPO-2026-08-17.md "
-                "for the manual setup notes."
+                "No automated bootstrap exists yet; set up the venvs and weights manually."
             ),
         },
         "weights": {},
         "missing_weights": missing,
         "ready": ready,
         "warning": None,
+    }
+
+
+# --- Hunyuan3D-MLX (Xiong, full single-repo pipeline) spec --------------------------------
+# Same job protocol as hunyuan-mlx above (identical print-line vocabulary — both wrapper
+# scripts share the same stage prints), so stages/labels/parse_line are reused as-is. Only
+# settings/build_args/readiness differ: this variant exposes shape-stage quantization (the
+# one real lever for a usable interactive speed, since ZimengXiong's own shape stage runs
+# full-precision 3.3B-MoE by default — see the wrapper script's docstring caveat) and points
+# at a completely separate shape venv/weights.
+
+HUNYUAN_XIONG_DEFAULT_SETTINGS: dict[str, Any] = {
+    **HUNYUAN_DEFAULT_SETTINGS,
+    "quantize": 8,
+}
+HUNYUAN_XIONG_VALID_QUANTIZE = {0, 4, 8}
+
+
+def _hunyuan_xiong_validate_settings(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("settings must be a JSON object")
+    settings = {**HUNYUAN_XIONG_DEFAULT_SETTINGS, **raw}
+    try:
+        for key in ("octree_resolution", "seed", "quantize", "decimation_target",
+                    "paint_seed", "paint_res", "paint_steps", "paint_tex"):
+            settings[key] = int(settings[key])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("all Hunyuan settings must be integers") from exc
+    if settings["octree_resolution"] not in HUNYUAN_VALID_OCTREE:
+        raise ValueError("octree_resolution must be one of 256, 384, 512, or 1024")
+    if settings["quantize"] not in HUNYUAN_XIONG_VALID_QUANTIZE:
+        raise ValueError("quantize must be 0 (off), 4, or 8")
+    if settings["decimation_target"] <= 0:
+        raise ValueError("decimation_target must be positive")
+    if settings["decimation_target"] > 600_000:
+        raise ValueError(
+            "decimation_target above ~500k hits a confirmed xatlas wall (500k-700k faces "
+            "took 37 min in testing on 2026-08-18, 1M never finished) — keep it at or "
+            "under 500,000"
+        )
+    return settings
+
+
+def _hunyuan_xiong_build_args(job: Job) -> list[str]:
+    s = job.settings
+    return [
+        str(job.image_path), str(job.output_path),
+        "--octree-resolution", str(s["octree_resolution"]),
+        "--seed", str(s["seed"]),
+        "--quantize", str(s["quantize"]),
+        "--decimation-target", str(s["decimation_target"]),
+        "--paint-seed", str(s["paint_seed"]),
+        "--paint-res", str(s["paint_res"]),
+        "--paint-steps", str(s["paint_steps"]),
+        "--paint-tex", str(s["paint_tex"]),
+    ]
+
+
+def _hunyuan_xiong_readiness() -> dict[str, Any]:
+    shape_ok = HUNYUAN_XIONG_SHAPE_VENV.is_file() and HUNYUAN_XIONG_WRAPPER.is_file()
+    shape_weights_ok = HUNYUAN_XIONG_SHAPE_WEIGHTS.is_dir()
+    paint_venv_ok = HUNYUAN_PAINT_VENV.is_file()
+    paint_weights_ok = HUNYUAN_PAINT_WEIGHTS.is_dir()
+    ready = shape_ok and shape_weights_ok and paint_venv_ok and paint_weights_ok
+    missing = []
+    if not shape_ok:
+        missing.append(
+            "shape venv/wrapper (vendor/hunyuan-mlx-paint/python/shape/.venv, "
+            "scripts/hunyuan_mlx_xiong_generate.py)"
+        )
+    if not shape_weights_ok:
+        missing.append("shape weights (.../python/shape/weights/Hunyuan3D-2.1/hunyuan3d-dit-v2-1)")
+    if not paint_venv_ok:
+        missing.append("paint venv (vendor/hunyuan-mlx-paint/python/paint/.venv)")
+    if not paint_weights_ok:
+        missing.append("paint weights (.../paint/weights/hunyuan3d-paintpbr-v2-1)")
+    return {
+        "schema_version": 1,
+        "build": {
+            "present": ready,
+            "hint": None if ready else (
+                "Hunyuan3D-MLX (Xiong, full) setup is incomplete — missing: "
+                + "; ".join(missing) + ". No automated bootstrap exists yet; "
+                "set up the venvs and weights manually."
+            ),
+        },
+        "weights": {},
+        "missing_weights": missing,
+        "ready": ready,
+        "warning": (
+            "Unbenchmarked at these settings — a full-precision run of this shape stage took "
+            "~48 minutes on this machine; --quantize 8 (default here) is untested for speed."
+        ),
     }
 
 
@@ -940,12 +1045,20 @@ BACKENDS.update({
         parse_line=_sf3d_parse_line, readiness=_sf3d_readiness, finalize=_sf3d_finalize,
     ),
     "hunyuan-mlx": BackendSpec(
-        id="hunyuan-mlx", label="Hunyuan3D-MLX",
+        id="hunyuan-mlx", label="Hunyuan3D-MLX (dgrauet shape + Xiong paint)",
         interpreter=HUNYUAN_PYTHON, wrapper=HUNYUAN_WRAPPER,
         default_settings=HUNYUAN_DEFAULT_SETTINGS, stages=HUNYUAN_STAGES,
         stage_labels=HUNYUAN_STAGE_LABELS, requires_alpha=False,
         validate_settings=_hunyuan_validate_settings, build_args=_hunyuan_build_args,
         parse_line=_hunyuan_parse_line, readiness=_hunyuan_readiness,
+    ),
+    "hunyuan-mlx-xiong": BackendSpec(
+        id="hunyuan-mlx-xiong", label="Hunyuan3D-MLX (Xiong, full pipeline)",
+        interpreter=HUNYUAN_XIONG_SHAPE_VENV, wrapper=HUNYUAN_XIONG_WRAPPER,
+        default_settings=HUNYUAN_XIONG_DEFAULT_SETTINGS, stages=HUNYUAN_STAGES,
+        stage_labels=HUNYUAN_STAGE_LABELS, requires_alpha=False,
+        validate_settings=_hunyuan_xiong_validate_settings, build_args=_hunyuan_xiong_build_args,
+        parse_line=_hunyuan_parse_line, readiness=_hunyuan_xiong_readiness,
     ),
 })
 

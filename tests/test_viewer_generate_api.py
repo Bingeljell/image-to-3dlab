@@ -177,8 +177,8 @@ def test_emit_banner_fires_decode_and_bake(tmp_path):
 
 # --- backend registry ------------------------------------------------------------------
 
-def test_backend_registry_has_all_three():
-    assert set(api.BACKENDS) == {"trellis", "sf3d", "hunyuan-mlx"}
+def test_backend_registry_has_all_four():
+    assert set(api.BACKENDS) == {"trellis", "sf3d", "hunyuan-mlx", "hunyuan-mlx-xiong"}
     for spec in api.BACKENDS.values():
         assert spec.stages, f"{spec.id} must declare at least one stage"
 
@@ -227,6 +227,27 @@ def test_hunyuan_build_args_matches_wrapper_cli(tmp_path):
 def test_hunyuan_validate_settings_rejects_invalid_values(payload):
     with pytest.raises(ValueError):
         api._hunyuan_validate_settings(payload)
+
+
+def test_hunyuan_xiong_build_args_matches_wrapper_cli(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb",
+                   api._hunyuan_xiong_validate_settings({}), "hunyuan-mlx-xiong")
+    args = api._hunyuan_xiong_build_args(job)
+    assert args[0] == str(tmp_path / "input.png")
+    assert args[1] == str(tmp_path / "model.glb")
+    assert "--octree-resolution" in args and "512" in args
+    assert "--quantize" in args and "8" in args  # default, see wrapper script's speed caveat
+
+
+@pytest.mark.parametrize("payload", [
+    {"octree_resolution": 128},
+    {"quantize": 2},  # only 0 (off), 4, or 8 are real quantization levels here
+    {"decimation_target": 0},
+    {"decimation_target": 700_000},  # same shared xatlas wall as the other Hunyuan backend
+])
+def test_hunyuan_xiong_validate_settings_rejects_invalid_values(payload):
+    with pytest.raises(ValueError):
+        api._hunyuan_xiong_validate_settings(payload)
 
 
 @pytest.mark.parametrize("line,expected_phase,expected_pct", [

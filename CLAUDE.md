@@ -3,6 +3,8 @@
 Local Apple Silicon **image → 3D** pipeline wrapping three backends (SF3D, Hunyuan3D
 via ComfyUI, TRELLIS.2) behind one CLI, with license provenance as a first-class concern.
 
+1. Commits and PRs should not include any co-authorshitp - claude, codex, whatever...
+
 ## Read this before diagnosing any mesh-quality problem
 
 On 2026-08-12 we discovered that most of what this repo had blamed on TRELLIS was damage
@@ -27,12 +29,7 @@ Consequences you must know about:
 
 | Read | For |
 |------|-----|
-| [docs/STATE-OF-REPO-2026-08-16.md](docs/STATE-OF-REPO-2026-08-16.md) | **Start here.** The two TRELLIS ports (old `trellis-mac` vs clean `trellis-space-mac`), how to run image→GLB on the clean port, and measured timings |
-| [docs/MPS-BAKE-FIXES-2026-08-15.md](docs/MPS-BAKE-FIXES-2026-08-15.md) | The decode→GLB fixes: five bugs found and the assumptions that were wrong |
-| [docs/legacy/](docs/legacy/) | Everything written before the 2026-08-16 baseline, preserved for history |
-| [docs/self-inflicted-damage.md](docs/self-inflicted-damage.md) | The two defects, exact code, and what they invalidate |
-| [docs/how-it-works-and-where-we-broke-it.md](docs/how-it-works-and-where-we-broke-it.md) | Plain-language walkthrough, no 3D knowledge assumed |
-| [docs/upstream-contributions.md](docs/upstream-contributions.md) | Both bugs drafted for the port maintainers — **unsent**, checklists first |
+| `journal/` (untracked, local only) | Full investigation history — session logs, dead ends, upstream bug writeups. Not shipped with the repo; ask whoever's working the repo locally if you need it |
 
 **Three habits this cost a week to learn.** Get a control group before theorising — run the
 real input through the official demo. Diff our calls against upstream's documented example
@@ -48,7 +45,7 @@ before diagnosing. And judge assets **backface-culled**, by eye, not by a metric
 | `scripts/` | Bootstrap + patch scripts, Blender render helper |
 | `workflows/` | ComfyUI API-format workflow JSON for the Hunyuan `--quality` path |
 | `tests/` | pytest suite (currently `provenance`, `comfyui_backend`) |
-| `docs/` | Current docs — see `docs/README.md`; legacy docs live in `docs/legacy/` |
+| `journal/` | Investigation logs and session history (git-ignored — local only, not part of the shipped repo) |
 | `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts. `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels). Ignored because it is someone else's repo at multi-GB scale; the cost is that our patches there vanish on re-bootstrap, so they live in `scripts/patch_*.py` |
 | `output/` | Generated assets + `.provenance.json` sidecars (git-ignored) |
 
@@ -125,6 +122,5 @@ it uses.
   It does **not** block unrelated work that happens to touch BRIA-adjacent code: a one-off
   CUDA control run against the pristine upstream TRELLIS.2 repo (never shipped, never
   redistributed) is fine as long as BRIA itself is never actually downloaded/loaded/used —
-  stub the eager constructor instead of requesting gated access, as
-  `docs/RUNPOD-CUDA-DIAGNOSTIC-2026-08-16.md` did, rather than treating "BRIA" as a word that
-  halts all work near it.
+  stub the eager constructor instead of requesting gated access, rather than treating "BRIA"
+  as a word that halts all work near it.

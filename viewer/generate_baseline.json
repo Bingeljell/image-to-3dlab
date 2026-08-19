@@ -1,6 +1,12 @@
 {
+  "notes": "Do not treat these as performance claims. Stage timings are written by the first completed job and reused for later ETA estimates.",
   "schema_version": 1,
-  "source": "placeholder until the first clean-port baseline run; the UI will say estimating",
-  "seconds": {},
-  "notes": "Do not treat these as performance claims. Stage timings are written by the first completed job and reused for later ETA estimates."
+  "seconds": {
+    "bake": 127.0,
+    "shape_slat_coarse": 168.0,
+    "shape_slat_fine": 473.0,
+    "sparse_structure": 109.0,
+    "texture_slat": 86.0
+  },
+  "source": "learned from completed clean-port Generate jobs"
 }

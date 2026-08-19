@@ -1,7 +1,8 @@
 # Repository Guide
 
-Local Apple Silicon **image → 3D** pipeline wrapping three backends (SF3D, Hunyuan3D
-via ComfyUI, TRELLIS.2) behind one CLI, with license provenance as a first-class concern.
+Local Apple Silicon **image → 3D** pipeline wrapping four backends (SF3D, TRELLIS.2, and
+two Hunyuan3D-MLX paths — see "Hunyuan model/paint findings" below, not the old ComfyUI
+route) behind one CLI, with license provenance as a first-class concern.
 
 1. Commits and PRs should not include any co-authorshitp - claude, codex, whatever...
 
@@ -35,6 +36,29 @@ Consequences you must know about:
 real input through the official demo. Diff our calls against upstream's documented example
 before diagnosing. And judge assets **backface-culled**, by eye, not by a metric.
 
+## Hunyuan model/paint findings (2026-08-19)
+
+Two things a future session shouldn't have to re-discover — full detail in
+`docs/hunyuan-mlx-recipes.md` and `docs/info_and_credits.md`, this is just the pointer:
+
+1. **Xiong's own shape-stage model choice matters more than any of its speed flags.**
+   2.1 (this app's old default) isn't Xiong's own recommended pick — his README puts 2.0
+   or 2.0-turbo ahead of it, and a same-image benchmark confirmed 2.0 gives the cleanest
+   shape. The app now defaults to 2.0.
+2. **The paint stage's texture tear on concave geometry (inner thigh, armpit, ear folds)
+   is fixed.** It filled camera-occluded texels by grabbing the nearest already-painted
+   texel in flat 2D UV-atlas space — xatlas packs unrelated 3D regions next to each other
+   on that sheet, so occluded creases got an unrelated chart's color. Fixed by filling
+   from the nearest neighbor in 3D surface space instead. Affects *both* Hunyuan backends
+   equally (shared paint code).
+
+**`hunyuan_mlx/` is tracked code, not vendored** — Xiong's shape+paint port is MIT, moved
+out of `vendor/hunyuan-mlx-paint` into the repo root so a clone alone has it; only
+`weights/` (git-ignored) is downloaded separately. dgrauet's shape stage
+(`vendor/hunyuan-mlx`, used by the hybrid backend) stays vendored on purpose — it's
+Tencent-licensed *code*, not just weights, so it isn't part of that simplification, even
+though its shape output is still the cleanest of anything tested (verified 2026-08-19).
+
 ## Layout
 
 | Path | What lives here |
@@ -46,7 +70,8 @@ before diagnosing. And judge assets **backface-culled**, by eye, not by a metric
 | `workflows/` | ComfyUI API-format workflow JSON for the Hunyuan `--quality` path |
 | `tests/` | pytest suite (currently `provenance`, `comfyui_backend`) |
 | `journal/` | Investigation logs and session history (git-ignored — local only, not part of the shipped repo) |
-| `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts. `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels). Ignored because it is someone else's repo at multi-GB scale; the cost is that our patches there vanish on re-bootstrap, so they live in `scripts/patch_*.py` |
+| `hunyuan_mlx/` | Xiong's Hunyuan3D-MLX shape+paint port (MIT) — **tracked in-repo**, moved out of `vendor/` 2026-08-19 so a clone alone has the code. `shape/` and `paint/` each need `uv sync`; `weights/` under each is git-ignored, fetched via `download_weights.py`. No patch-reapply dance needed here — fixes are just part of the tracked source |
+| `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts (or manually, for `hunyuan-mlx`). `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels); `hunyuan-mlx` is dgrauet's shape port, kept vendored on purpose since it's Tencent-licensed code, not just weights (see `docs/info_and_credits.md`). Ignored because these are someone else's repos at multi-GB scale; the cost is that patches vanish on re-bootstrap, so they live in `scripts/patch_*.py` — except `hunyuan-mlx-paint`, retired 2026-08-19 once its code moved to `hunyuan_mlx/` |
 | `output/` | Generated assets + `.provenance.json` sidecars (git-ignored) |
 
 ## Commit conventions

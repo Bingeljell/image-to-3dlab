@@ -28,8 +28,8 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-SHAPE_ROOT = REPO / "vendor" / "hunyuan-mlx"
-PAINT_ROOT = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint"
+SHAPE_ROOT = REPO / "vendor" / "hunyuan-mlx"  # dgrauet's port, Tencent-licensed, stays vendored
+PAINT_ROOT = REPO / "hunyuan_mlx" / "paint"   # Xiong's paint stage, MIT, tracked in-repo
 PAINT_PYTHON = PAINT_ROOT / ".venv" / "bin" / "python"
 PAINT_SCRIPT = PAINT_ROOT / "scripts" / "run_paint_pbr.py"
 

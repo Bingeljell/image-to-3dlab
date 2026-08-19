@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Xiong's Hunyuan3D-MLX shape+paint port moved from `vendor/hunyuan-mlx-paint`
+  (git-ignored) into this repo's tracked tree at `hunyuan_mlx/`.** It's MIT-licensed code,
+  so cloning this repo alone now gets it; only `weights/` (git-ignored) needs a separate
+  download, via the new `hunyuan_mlx/download_weights.py` (Hugging Face). The two patch
+  scripts that used to reapply fixes to the git-ignored vendor copy
+  (`scripts/patch_hunyuan_xiong_shape_deps.py`,
+  `scripts/patch_hunyuan_paint_occlusion_fill.py`) are retired — their fixes are just part
+  of the tracked source now. dgrauet's shape stage (`vendor/hunyuan-mlx`, used by the
+  hybrid backend) stays vendored on purpose: it's Tencent-licensed *code*, not just
+  weights, and a fresh A/B against Xiong's 2.0 shape stage (2026-08-19) confirmed it's
+  still the cleanest shape available, so the hybrid backend is kept.
+- **`hunyuan-mlx-xiong` Generate-page backend now exposes model choice** (2.1 / 2.0 /
+  2.0-turbo, default 2.0) instead of hardcoding 2.1. Benchmarked 2026-08-19: 2.0 is
+  fastest-to-clean-result and Xiong's own recommended pick; 2.1 was never Xiong's
+  recommendation (weaker DINOv2-large conditioner). See `docs/hunyuan-mlx-recipes.md`.
+
+### Fixed
+- **Two "patchy" weight-wiring workarounds in Hunyuan's paint stage, closed properly**
+  now that the code is ours to edit rather than an untouchable vendored blob. (1) The
+  `weights/dinov2-giant` symlink is gone — `run_paint_pbr.py` and
+  `test_pbr_parity.py` now load DINOv2 directly from where it actually ships
+  (`weights/hunyuan3d-paintpbr-v2-1/dinov2/`). (2) RealESRGAN super-res weights
+  (`weights/realesrgan/rrdbnet.npz`) had no documented source or reproducible conversion;
+  `hunyuan_mlx/paint/scripts/convert_realesrgan.py` now fetches the official
+  `xinntao/Real-ESRGAN` release and converts it — verified bit-identical to the
+  previously-undocumented file already in place.
+- **Hunyuan paint-stage texture tear on concave geometry** (inner thigh, armpit, ear
+  folds) — present on both Hunyuan backends since they share the same paint code. The old
+  `MeshRender.inpaint()` filled camera-occluded texels by grabbing the nearest
+  already-painted texel in flat 2D UV-atlas space; xatlas packs unrelated 3D regions next
+  to each other on that flat sheet, so occluded creases got filled with an unrelated
+  chart's color. Root-caused by measuring true camera occlusion directly (7.8% of surface
+  texels invisible from all 6 fixed views, clustered into ~7 localized regions — a real
+  occlusion signature, not rasterizer noise). Fixed via `MeshRender.inpaint_occlusion_aware()`,
+  which fills occluded-but-in-chart texels from their nearest neighbor in 3D surface space
+  instead. Verified end-to-end on a real asset.
+
 ### Added
 - **New Generate-page backend: Hunyuan3D-MLX (Xiong, full pipeline)**, alongside the existing
   dgrauet-shape + Xiong-paint hybrid (now labeled explicitly as such in the dropdown so the
@@ -90,6 +128,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still read duller than their source art.
 
 ### Fixed
+- **`hunyuan-mlx-xiong`'s remesh step crashed on any mesh over the 300k-face decimation
+  target** (`scripts/patch_hunyuan_xiong_shape_deps.py`). `run_remesh()`'s
+  `import fast_simplification` had never actually succeeded — the package isn't in vendor's
+  own `pyproject.toml` (upstream never decimates) and nothing installed it into
+  `vendor/hunyuan-mlx-paint/python/shape/.venv`, the venv the wrapper is invoked with. Went
+  unnoticed because no prior run had crossed the threshold. Re-apply after every bootstrap;
+  `vendor/` is git-ignored.
 - **Clean TRELLIS.2 port now produces GLBs end-to-end on Apple Silicon.** The decode→GLB
   bake was blocked by cumesh Metal simplify crashing on ~20M-face meshes. The clean-port
   wrapper (`vendor/upstream-audit-worktree/scripts/trellis_space_generate.py`) now CPU

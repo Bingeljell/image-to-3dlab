@@ -22,6 +22,12 @@ output/
 # silently shipped a viewer that renders a blank page on a fresh clone.
 /vendor/
 
+# hunyuan_mlx/ is tracked code (Xiong's MIT-licensed shape+paint port, brought in-repo
+# 2026-08-19 so a clone doesn't need vendor/hunyuan-mlx-paint cloned separately) — but
+# weights are multi-GB and downloaded, not committed.
+/hunyuan_mlx/shape/weights/
+/hunyuan_mlx/paint/weights/
+
 
 # Generated HyperFrames video content (caches, thumbnails, snapshots, audio assets)
 videos/image-to-3d-lab/.hyperframes/

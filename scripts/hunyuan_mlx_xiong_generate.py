@@ -1,23 +1,23 @@
 """End-to-end, single-repo Hunyuan3D-MLX generation: image -> textured GLB.
 
 Unlike scripts/hunyuan_mlx_generate.py (dgrauet shape + ZimengXiong paint, two repos), this
-uses ZimengXiong's *own* shape stage (vendor/hunyuan-mlx-paint/python/shape/hy3dmlx) chained
-into their own paint stage (vendor/hunyuan-mlx-paint/python/paint) -- one repo, one author,
-end to end. Otherwise mirrors hunyuan_mlx_generate.py's shape: one CLI, per-stage timed
-prints, a ``<out>.json`` manifest.
+uses ZimengXiong's *own* shape stage (hunyuan_mlx/shape/hy3dmlx) chained into their own paint
+stage (hunyuan_mlx/paint) -- one repo, one author, end to end. Otherwise mirrors
+hunyuan_mlx_generate.py's shape: one CLI, per-stage timed prints, a ``<out>.json`` manifest.
 
 Usage:
-    vendor/hunyuan-mlx-paint/python/shape/.venv/bin/python \
+    hunyuan_mlx/shape/.venv/bin/python \
         scripts/hunyuan_mlx_xiong_generate.py input.png output.glb \
-        [--octree-resolution 512] [--seed 42] [--quantize 8] [--compile-dit] \
-        [--octree-decode] [--decimation-target 300000] [--paint-seed 0] \
-        [--paint-res 512] [--paint-steps 15] [--paint-tex 4096]
+        [--model 2.0] [--octree-resolution 512] [--seed 42] [--quantize 8] \
+        [--compile-dit] [--octree-decode] [--decimation-target 300000] \
+        [--paint-seed 0] [--paint-res 512] [--paint-steps 15] [--paint-tex 4096]
 
-Caveat, unvalidated at speed: a real run of this shape stage (2.1, --quantize 0, no
---compile-dit, no --octree-decode, octree=512) took ~48 minutes just for the shape stage on
-this machine -- dgrauet's equivalent shape stage takes ~5 minutes. --quantize 8
---compile-dit --octree-decode are default-on here specifically to claw that back, but no
-timed run at those settings exists yet; treat the first real run as the actual benchmark.
+Model choice, benchmarked 2026-08-19 (Flicker, octree=512, --octree-decode,
+quantize=8, 30 steps, shape stage only): 2.0 ~167s, cleanest result, Xiong's own
+recommended pick; 2.0-turbo ~60-105s, real distillation-noise dents even at 30 steps
+(its own PCM schedule caps out at 100 steps -- more steps helps but doesn't fully
+clear it); 2.1 ~450s, not Xiong's recommended pick (weaker DINOv2-large conditioner).
+Full writeup: docs/hunyuan-mlx-recipes.md. Default here is 2.0.
 """
 
 from __future__ import annotations
@@ -31,9 +31,13 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-SHAPE_ROOT = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "shape"
-SHAPE_WEIGHTS = SHAPE_ROOT / "weights" / "Hunyuan3D-2.1" / "hunyuan3d-dit-v2-1"
-PAINT_ROOT = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint"
+SHAPE_ROOT = REPO / "hunyuan_mlx" / "shape"
+SHAPE_MODELS = {
+    "2.1": SHAPE_ROOT / "weights" / "Hunyuan3D-2.1" / "hunyuan3d-dit-v2-1",
+    "2.0": SHAPE_ROOT / "weights" / "Hunyuan3D-2" / "hunyuan3d-dit-v2-0",
+    "2.0-turbo": SHAPE_ROOT / "weights" / "Hunyuan3D-2" / "hunyuan3d-dit-v2-0-turbo",
+}
+PAINT_ROOT = REPO / "hunyuan_mlx" / "paint"
 PAINT_PYTHON = PAINT_ROOT / ".venv" / "bin" / "python"
 PAINT_SCRIPT = PAINT_ROOT / "scripts" / "run_paint_pbr.py"
 
@@ -45,6 +49,9 @@ def parse_args() -> argparse.Namespace:
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("image", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--model", choices=sorted(SHAPE_MODELS), default="2.0",
+                         help="shape-stage model; 2.0 is Xiong's own recommended pick "
+                         "and cleanest in our testing (see docs/hunyuan-mlx-recipes.md)")
     parser.add_argument("--octree-resolution", type=int, default=512,
                          choices=[256, 384, 512, 1024])
     parser.add_argument("--seed", type=int, default=42, help="shape-stage seed")
@@ -63,15 +70,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_shape(image: Path, octree_resolution: int, seed: int, quantize: int,
+def run_shape(image: Path, model: str, octree_resolution: int, seed: int, quantize: int,
               compile_dit: bool, octree_decode: bool, t0: float):
     import mlx.core as mx
     from hy3dmlx.pipeline import Hunyuan3DShapePipeline
 
-    print(f"loading shape pipeline (quantize={quantize or 'off'})... "
+    weights = SHAPE_MODELS[model]
+    if not weights.is_dir():
+        raise SystemExit(
+            f"model {model!r} not downloaded: {weights} does not exist. "
+            "See docs/hunyuan-mlx-recipes.md for how to fetch weights."
+        )
+    print(f"loading shape pipeline (model={model}, quantize={quantize or 'off'})... "
           f"({time.time() - t0:.0f}s)", flush=True)
     pipe = Hunyuan3DShapePipeline.from_pretrained(
-        str(SHAPE_WEIGHTS), dtype=mx.float16, quantize=quantize or None)
+        str(weights), dtype=mx.float16, quantize=quantize or None)
     print(f"shape pipeline ready ({time.time() - t0:.0f}s)", flush=True)
     mesh = pipe.generate(
         str(image), num_inference_steps=30, guidance_scale=5.0,
@@ -132,11 +145,11 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
 def main() -> None:
     args = parse_args()
     t0 = time.time()
-    print(f"[hunyuan-mlx-xiong] image={args.image} octree={args.octree_resolution} "
-          f"quantize={args.quantize}", flush=True)
+    print(f"[hunyuan-mlx-xiong] image={args.image} model={args.model} "
+          f"octree={args.octree_resolution} quantize={args.quantize}", flush=True)
 
-    mesh = run_shape(args.image, args.octree_resolution, args.seed, args.quantize,
-                      args.compile_dit, args.octree_decode, t0)
+    mesh = run_shape(args.image, args.model, args.octree_resolution, args.seed,
+                      args.quantize, args.compile_dit, args.octree_decode, t0)
     shape_seconds = time.time() - t0
 
     mesh, remeshed = run_remesh(mesh, args.decimation_target, t0)
@@ -158,6 +171,7 @@ def main() -> None:
         "input": str(args.image),
         "output": str(args.output),
         "parameters": {
+            "model": args.model,
             "octree_resolution": args.octree_resolution,
             "seed": args.seed,
             "quantize": args.quantize,

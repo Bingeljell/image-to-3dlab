@@ -34,21 +34,31 @@ PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
 OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
 
+# dgrauet's shape stage stays vendored (Tencent-licensed code, not just weights — see
+# docs/info_and_credits.md). Its shape quality is genuinely the best we've tested
+# (2026-08-19 A/B against Xiong 2.0: no dents/dimples, 10/10), which is why the hybrid
+# stays around despite not being part of the clone-and-go simplification below.
 HUNYUAN_WRAPPER = REPO / "scripts" / "hunyuan_mlx_generate.py"
 HUNYUAN_PYTHON = REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python"
-HUNYUAN_PAINT_VENV = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint" / ".venv" / "bin" / "python"
-HUNYUAN_PAINT_WEIGHTS = REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "paint" / "weights" / "hunyuan3d-paintpbr-v2-1"
+
+# Xiong's paint+shape code is MIT and tracked in-repo at hunyuan_mlx/ (moved out of
+# vendor/hunyuan-mlx-paint 2026-08-19) — a fresh clone of this repo alone has the code;
+# only weights/ (git-ignored, downloaded) and .venv/ (uv sync) are still local-only.
+HUNYUAN_PAINT_VENV = REPO / "hunyuan_mlx" / "paint" / ".venv" / "bin" / "python"
+HUNYUAN_PAINT_WEIGHTS = REPO / "hunyuan_mlx" / "paint" / "weights" / "hunyuan3d-paintpbr-v2-1"
 
 # Single-repo variant: ZimengXiong's own shape stage (not dgrauet's) chained into their own
 # paint stage above — same paint venv/weights, different shape venv/weights entirely.
+# Model choice benchmarked 2026-08-19 — see docs/hunyuan-mlx-recipes.md; 2.0 is the
+# recommended default (Xiong's own pick too), 2.1 is not.
 HUNYUAN_XIONG_WRAPPER = REPO / "scripts" / "hunyuan_mlx_xiong_generate.py"
-HUNYUAN_XIONG_SHAPE_VENV = (
-    REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "shape" / ".venv" / "bin" / "python"
-)
-HUNYUAN_XIONG_SHAPE_WEIGHTS = (
-    REPO / "vendor" / "hunyuan-mlx-paint" / "python" / "shape" / "weights"
-    / "Hunyuan3D-2.1" / "hunyuan3d-dit-v2-1"
-)
+HUNYUAN_XIONG_SHAPE_VENV = REPO / "hunyuan_mlx" / "shape" / ".venv" / "bin" / "python"
+HUNYUAN_XIONG_SHAPE_ROOT = REPO / "hunyuan_mlx" / "shape" / "weights"
+HUNYUAN_XIONG_SHAPE_MODELS = {
+    "2.1": HUNYUAN_XIONG_SHAPE_ROOT / "Hunyuan3D-2.1" / "hunyuan3d-dit-v2-1",
+    "2.0": HUNYUAN_XIONG_SHAPE_ROOT / "Hunyuan3D-2" / "hunyuan3d-dit-v2-0",
+    "2.0-turbo": HUNYUAN_XIONG_SHAPE_ROOT / "Hunyuan3D-2" / "hunyuan3d-dit-v2-0-turbo",
+}
 
 SF3D_REPO_DEFAULT = REPO / "vendor" / "stable-fast-3d"
 
@@ -912,16 +922,19 @@ def _hunyuan_readiness() -> dict[str, Any]:
     if not shape_ok:
         missing.append("shape venv/wrapper (vendor/hunyuan-mlx, scripts/hunyuan_mlx_generate.py)")
     if not paint_venv_ok:
-        missing.append("paint venv (vendor/hunyuan-mlx-paint/python/paint/.venv)")
+        missing.append("paint venv (hunyuan_mlx/paint/.venv)")
     if not weights_ok:
-        missing.append("paint weights (.../paint/weights/hunyuan3d-paintpbr-v2-1)")
+        missing.append("paint weights (hunyuan_mlx/paint/weights/hunyuan3d-paintpbr-v2-1)")
     return {
         "schema_version": 1,
         "build": {
             "present": ready,
             "hint": None if ready else (
                 "Hunyuan3D-MLX setup is incomplete — missing: " + "; ".join(missing) + ". "
-                "No automated bootstrap exists yet; set up the venvs and weights manually."
+                "dgrauet's shape stage (vendor/hunyuan-mlx) is Tencent-licensed and stays "
+                "manually vendor-cloned. Xiong's paint stage (hunyuan_mlx/paint) is tracked "
+                "in-repo — run `uv sync` there, then download weights per "
+                "docs/hunyuan-mlx-recipes.md."
             ),
         },
         "weights": {},
@@ -941,6 +954,7 @@ def _hunyuan_readiness() -> dict[str, Any]:
 
 HUNYUAN_XIONG_DEFAULT_SETTINGS: dict[str, Any] = {
     **HUNYUAN_DEFAULT_SETTINGS,
+    "model": "2.0",
     "quantize": 8,
 }
 HUNYUAN_XIONG_VALID_QUANTIZE = {0, 4, 8}
@@ -952,6 +966,10 @@ def _hunyuan_xiong_validate_settings(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValueError("settings must be a JSON object")
     settings = {**HUNYUAN_XIONG_DEFAULT_SETTINGS, **raw}
+    if settings["model"] not in HUNYUAN_XIONG_SHAPE_MODELS:
+        raise ValueError(
+            f"model must be one of {sorted(HUNYUAN_XIONG_SHAPE_MODELS)}"
+        )
     try:
         for key in ("octree_resolution", "seed", "quantize", "decimation_target",
                     "paint_seed", "paint_res", "paint_steps", "paint_tex"):
@@ -977,6 +995,7 @@ def _hunyuan_xiong_build_args(job: Job) -> list[str]:
     s = job.settings
     return [
         str(job.image_path), str(job.output_path),
+        "--model", str(s["model"]),
         "--octree-resolution", str(s["octree_resolution"]),
         "--seed", str(s["seed"]),
         "--quantize", str(s["quantize"]),
@@ -990,38 +1009,52 @@ def _hunyuan_xiong_build_args(job: Job) -> list[str]:
 
 def _hunyuan_xiong_readiness() -> dict[str, Any]:
     shape_ok = HUNYUAN_XIONG_SHAPE_VENV.is_file() and HUNYUAN_XIONG_WRAPPER.is_file()
-    shape_weights_ok = HUNYUAN_XIONG_SHAPE_WEIGHTS.is_dir()
+    model_availability = {name: path.is_dir() for name, path in HUNYUAN_XIONG_SHAPE_MODELS.items()}
+    any_model_ok = any(model_availability.values())
+    default_model_ok = model_availability.get(HUNYUAN_XIONG_DEFAULT_SETTINGS["model"], False)
     paint_venv_ok = HUNYUAN_PAINT_VENV.is_file()
     paint_weights_ok = HUNYUAN_PAINT_WEIGHTS.is_dir()
-    ready = shape_ok and shape_weights_ok and paint_venv_ok and paint_weights_ok
+    ready = shape_ok and any_model_ok and paint_venv_ok and paint_weights_ok
     missing = []
     if not shape_ok:
         missing.append(
-            "shape venv/wrapper (vendor/hunyuan-mlx-paint/python/shape/.venv, "
+            "shape venv/wrapper (hunyuan_mlx/shape/.venv, "
             "scripts/hunyuan_mlx_xiong_generate.py)"
         )
-    if not shape_weights_ok:
-        missing.append("shape weights (.../python/shape/weights/Hunyuan3D-2.1/hunyuan3d-dit-v2-1)")
+    if not any_model_ok:
+        missing.append(
+            "shape weights — none of 2.1/2.0/2.0-turbo downloaded "
+            "(hunyuan_mlx/shape/weights/...); see docs/hunyuan-mlx-recipes.md"
+        )
+    elif not default_model_ok:
+        missing.append(
+            f"default model ({HUNYUAN_XIONG_DEFAULT_SETTINGS['model']}) not downloaded — "
+            f"other models are, but requests without an explicit model will fail"
+        )
     if not paint_venv_ok:
-        missing.append("paint venv (vendor/hunyuan-mlx-paint/python/paint/.venv)")
+        missing.append("paint venv (hunyuan_mlx/paint/.venv)")
     if not paint_weights_ok:
-        missing.append("paint weights (.../paint/weights/hunyuan3d-paintpbr-v2-1)")
+        missing.append("paint weights (hunyuan_mlx/paint/weights/hunyuan3d-paintpbr-v2-1)")
     return {
         "schema_version": 1,
         "build": {
             "present": ready,
             "hint": None if ready else (
                 "Hunyuan3D-MLX (Xiong, full) setup is incomplete — missing: "
-                + "; ".join(missing) + ". No automated bootstrap exists yet; "
-                "set up the venvs and weights manually."
+                + "; ".join(missing) + ". Code is tracked in-repo (hunyuan_mlx/); run "
+                "`uv sync` in hunyuan_mlx/shape and hunyuan_mlx/paint, then download "
+                "weights per docs/hunyuan-mlx-recipes.md."
             ),
         },
-        "weights": {},
+        "weights": model_availability,
         "missing_weights": missing,
         "ready": ready,
         "warning": (
-            "Unbenchmarked at these settings — a full-precision run of this shape stage took "
-            "~48 minutes on this machine; --quantize 8 (default here) is untested for speed."
+            "Benchmarked 2026-08-19 on Flicker, octree=512, quantize=8, 30 steps (shape "
+            "stage only): 2.0 ~167s (default, cleanest); 2.0-turbo ~60-105s (real "
+            "distillation-noise dents even at 30 steps); 2.1 ~450s with octree-decode "
+            "(~48min without — not Xiong's recommended pick, weaker DINOv2-large "
+            "conditioner). See docs/hunyuan-mlx-recipes.md."
         ),
     }
 

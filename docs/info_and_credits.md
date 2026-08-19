@@ -30,27 +30,47 @@ itself (yet — see the fine-tuning notes if that's changed).
 
 ### Hunyuan3D-MLX — two variants, two different shape stages
 
-Both variants share the same underlying model (Tencent Hunyuan3D-2.1, Tencent Hunyuan
-Community License — **not licensed for use in the EU, UK, or South Korea**) but combine
-different people's independent MLX ports of it:
+Both variants sit on Tencent's Hunyuan3D-2 model family (Tencent Hunyuan Community
+License — **not licensed for use in the EU, UK, or South Korea**; verify exact terms per
+model before any redistribution-sensitive use) but combine different people's independent
+MLX ports of it. **Since 2026-08-19, they also differ in licensing at the code level, not
+just weights** — see the licensing note below.
 
-**dgrauet shape + Xiong paint** — the original, more-tested path in this app.
+**dgrauet shape + Xiong paint.**
 - Shape stage: [dgrauet](https://github.com/dgrauet)'s MLX port
-  (`dgrauet/hunyuan3d-2.1-mlx`). Evaluated as genuinely excellent — clean, watertight
-  geometry, ~5 minutes.
+  (`dgrauet/hunyuan3d-2.1-mlx`, vendored at `vendor/hunyuan-mlx`). Re-verified 2026-08-19
+  in a direct A/B against Xiong's own 2.0 shape stage: still the cleanest shape we've
+  tested — no dents, no dimples, 10/10 — which is why this path is kept despite the extra
+  manual setup below.
 - Paint stage: [ZimengXiong/Hunyuan3D-MLX](https://github.com/ZimengXiong/Hunyuan3D-MLX)'s
-  paint module. dgrauet's own paint stage produces a shattered, non-coherent UV atlas —
-  that's why paint is sourced from a different repo entirely rather than staying
-  single-author.
+  paint module, now tracked in-repo at `hunyuan_mlx/paint/` (see below). dgrauet's own
+  paint stage produces a shattered, non-coherent UV atlas — that's why paint is sourced
+  from a different repo entirely rather than staying single-author.
+- **Licensing:** dgrauet's shape code carries Tencent's Community License, not a
+  permissive one (all three of its `LICENSE` files are Tencent's own text) — the same
+  territorial/use restriction that applies to the weights applies to the *code*, too.
+  It stays manually vendor-cloned (`vendor/hunyuan-mlx`) rather than brought into this
+  repo's tracked tree.
 - Wired up via `scripts/hunyuan_mlx_generate.py`.
 
 **Xiong, full pipeline** — both shape and paint from the same repo, one author, end to end.
 - [ZimengXiong/Hunyuan3D-MLX](https://github.com/ZimengXiong/Hunyuan3D-MLX) — `hy3d shape`
-  and `hy3d paint` under a shared codebase (`python/shape/hy3dmlx` +
-  `python/paint`), parity-tested against the original PyTorch reference and against a
-  native Swift port in the same repo.
-- Newer to this app. Independently verified clean (Blender Face Orientation overlay, no
-  flipped winding) but **unbenchmarked for speed** — see Known shortcomings below.
+  and `hy3d paint` under a shared codebase, parity-tested against the original PyTorch
+  reference and against a native Swift port in the same repo. **MIT licensed.**
+- **Brought in-repo 2026-08-19**: the code (not weights) moved from
+  `vendor/hunyuan-mlx-paint` into this repo's tracked tree at `hunyuan_mlx/shape/` and
+  `hunyuan_mlx/paint/` (MIT notice preserved at `hunyuan_mlx/LICENSE`). A clone of this
+  repo alone has the code that runs; only `weights/` (multi-GB, git-ignored) needs a
+  separate download — `python hunyuan_mlx/download_weights.py` pulls them from Hugging
+  Face. `uv sync` in each of `hunyuan_mlx/shape` and `hunyuan_mlx/paint` sets up the venvs.
+- **Model choice, benchmarked 2026-08-19** (Flicker, octree=512, quantize=8, 30 steps,
+  shape stage only): **2.0** ~167s, cleanest result, Xiong's own recommended pick and now
+  this app's default; **2.0-turbo** ~60-105s but shows real distillation-noise dents even
+  at 30 steps (its PCM schedule caps out at 100 steps — more steps helps, doesn't fully
+  clear it); **2.1** ~450s with `--octree-decode` (~48min without) and not Xiong's
+  recommended pick regardless (weaker DINOv2-large conditioner vs 2.0/2.0-turbo's
+  DINOv2-giant). Full writeup: `docs/hunyuan-mlx-recipes.md`.
+- Independently verified clean (Blender Face Orientation overlay, no flipped winding).
 - Wired up via `scripts/hunyuan_mlx_xiong_generate.py`.
 
 ### Evaluated, not shipped
@@ -62,12 +82,20 @@ different people's independent MLX ports of it:
 
 ## Known shortcomings
 
-As of 2026-08-18. This list is honest-and-incomplete on purpose — update it as things
+As of 2026-08-19. This list is honest-and-incomplete on purpose — update it as things
 change rather than letting it go stale.
 
-- **Hunyuan3D-MLX has two open defects** found on real assets: a paint-stage mouth
-  artifact (diffusion-origin) and a shape-stage geometry fusion defect. Seen on the
-  dgrauet+Xiong path; not yet checked against the Xiong-full path.
+- **Texture tear on concave geometry (inner thigh, armpit, ear folds) — fixed
+  2026-08-19.** The paint stage filled texels no camera could see (self-occluded creases)
+  by grabbing the nearest already-painted texel in flat 2D UV-atlas space —
+  xatlas can and does pack unrelated 3D regions (an eye chart, a leg chart) next to each
+  other on that flat sheet, so occluded creases got filled with the wrong, unrelated
+  color. Root-caused by measuring true camera occlusion directly: 7.8% of surface texels
+  had zero visibility from all 6 fixed views, clustered into ~7 localized regions (a real
+  occlusion signature, not rasterizer noise). Fixed by filling occluded-but-in-chart
+  texels from their nearest neighbor in actual **3D surface space** instead of 2D atlas
+  space. Applies to *both* Hunyuan variants — they share the same paint stage. The
+  shape-stage geometry fusion defect noted previously is a separate, still-open issue.
 - **Hunyuan's paint stage has a hard face-count wall.** The `xatlas` UV-unwrap step goes
   from ~3 minutes to 37+ minutes between 500k and 700k faces; 1M faces never completed in
   testing. Keep `decimation_target` at or under 500,000. This applies to *both* Hunyuan
@@ -75,15 +103,21 @@ change rather than letting it go stale.
 - **TRELLIS's own texture generation drifts from the reference image** — a published,
   documented weakness of the model itself, not this port. Hunyuan's paint tracks the
   reference image more closely, since it's directly conditioned on it and TRELLIS's isn't.
-- **Hunyuan3D-MLX setup is entirely manual right now** — two or three separate repos,
-  separate Python venvs, hand-downloaded weights (multiple GB each). No automated
-  bootstrap exists yet, unlike TRELLIS's one-button setup on the Generate page.
-- **Xiong, full pipeline is unbenchmarked at speed.** Its own shape stage defaults to
-  full-precision inference on the 3.3B-parameter MoE 2.1 model — a real run at those
-  settings took roughly 48 minutes just for the shape stage on the dev machine, versus
-  ~5 minutes for dgrauet's shape stage. This app defaults `quantize=8` specifically to
-  claw that back, but no timed run at that setting exists yet. Treat your first real run
-  as the actual benchmark, not this note — and update this section once you have one.
+- **dgrauet's shape stage stays manually vendor-cloned** (`vendor/hunyuan-mlx`) — it's
+  Tencent-licensed *code*, not just weights, so it isn't part of the clone-and-go
+  simplification below. Xiong's shape+paint is MIT and tracked in-repo at `hunyuan_mlx/`:
+  `uv sync` in `hunyuan_mlx/shape` and `hunyuan_mlx/paint`, then
+  `python hunyuan_mlx/download_weights.py` (Hugging Face). RealESRGAN super-res weights
+  aren't part of the official HF repos, so they're a separate step:
+  `hunyuan_mlx/paint/scripts/convert_realesrgan.py` (needs torch, dev-time only) fetches
+  the official [xinntao/Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) release and
+  converts it — bit-identical to what this repo had shipped without a documented source
+  before 2026-08-19.
+- **Xiong, full pipeline — benchmarked 2026-08-19** (Flicker, octree=512, quantize=8,
+  30 steps, shape stage only): 2.0 ~167s (default, cleanest); 2.0-turbo ~60-105s (real
+  distillation-noise dents even at 30 steps); 2.1 ~450s with `--octree-decode` (~48min
+  without), not Xiong's recommended pick regardless (weaker DINOv2-large conditioner).
+  Full writeup: `docs/hunyuan-mlx-recipes.md`.
 - **The retired TRELLIS Mac port** shipped two self-inflicted bugs for a long time before
   they were caught: a 200,000-face cap that crushed every decode with a crude decimator,
   and inconsistent mesh winding that left assets hollow under backface culling. Full story

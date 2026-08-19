@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recommendation (weaker DINOv2-large conditioner). See `docs/hunyuan-mlx-recipes.md`.
 
 ### Fixed
+- **Generate page showed no progress at all during Hunyuan's shape stage.**
+  `_hunyuan_parse_line` only recognized paint-stage print lines plus a single
+  `"shape generated"` completion marker for the *entire* shape stage — the shape
+  pipeline's own `[denoise] i/n`, `[vae] grid...`, `[mesh]...` progress lines were logged
+  as raw text but never turned into progress events, so the browser sat at 0% for the
+  whole shape stage (seconds to tens of minutes depending on model/settings) before
+  jumping straight to 100%. Found via a real web-UI test run. Now maps shape-stage denoise
+  steps, VAE decode, and mesh extraction to incremental `phase: "shape"` progress.
 - **Two "patchy" weight-wiring workarounds in Hunyuan's paint stage, closed properly**
   now that the code is ours to edit rather than an untouchable vendored blob. (1) The
   `weights/dinov2-giant` symlink is gone — `run_paint_pbr.py` and

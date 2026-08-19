@@ -254,6 +254,13 @@ def test_hunyuan_xiong_validate_settings_rejects_invalid_values(payload):
     # Real lines captured from output/hunyuan_mlx_zimeng_test/flicker_octree512/*.log,
     # 2026-08-18 -- the exact format both hunyuan_mlx_generate.py and run_paint_pbr.py print.
     ("shape generated (301s): 191099 verts, 382196 faces", "shape", 100),
+    # Real lines captured 2026-08-19 from the shape stage itself (hunyuan_mlx_xiong_generate.py
+    # / hy3dmlx pipeline.py) -- these were silently unrecognized before that date, so the
+    # shape stage showed no progress in the browser for its whole (often multi-minute) run.
+    ("loaded Hunyuan3DDiT [8-bit DiT+DINO]: dino 727 (+0), dit 656 (+0), vae 266 (+0)",
+     "shape", 5),
+    ("[vae] grid (513, 513, 513) (range -1.047..1.063, active 1.7%) in 34.5s", "shape", 80),
+    ("[mesh] 395339 verts, 790626 faces, total 105.4s", "shape", 95),
     ("simplified to 500,000 faces (0.4s)", "remesh", 100),
     ("mesh at/under decimation target (382,196 <= 500,000); no remesh needed (0s)",
      "remesh", 100),
@@ -282,6 +289,23 @@ def test_hunyuan_parse_line_step_progress(tmp_path):
     assert event["phase"] == "paint_diffusion"
     assert event["step"] == 8 and event["total"] == 15
     assert event["stage_pct"] == round(8 / 15 * 100)
+
+
+def test_hunyuan_parse_line_shape_denoise_progress(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "hunyuan-mlx-xiong")
+    api._hunyuan_parse_line(job, "[denoise] 15/30")
+    event = job.events[-1]
+    assert event["phase"] == "shape"
+    assert event["step"] == 15 and event["total"] == 30
+    assert event["stage_pct"] == round(15 / 30 * 60)
+
+
+def test_hunyuan_parse_line_shape_denoise_summary_is_not_mistaken_for_a_step(tmp_path):
+    """The final `[denoise] N steps (...) in Xs` summary must not match the per-step regex --
+    it has non-digit trailing content, but a careless prefix check could still catch it."""
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "hunyuan-mlx-xiong")
+    api._hunyuan_parse_line(job, "[denoise] 30 steps (CFG) in 57.3s")
+    assert job.events == []
 
 
 def test_hunyuan_parse_line_ignores_unrecognized_lines(tmp_path):

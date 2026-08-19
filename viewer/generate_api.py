@@ -836,6 +836,10 @@ HUNYUAN_STAGE_LABELS = {
     "paint_finish": "Paint finish (super-res/bake)",
 }
 HUNYUAN_STEP_RE = re.compile(r"^\s*step (\d+)/(\d+) (\d+)s")
+# The shape stage's own denoise loop prints `\r[denoise] i/n` (no trailing text) per step,
+# distinct from the final `[denoise] N steps (...) in Xs` summary line the regex below
+# doesn't match (it has non-digit trailing content).
+HUNYUAN_SHAPE_DENOISE_RE = re.compile(r"^\[denoise\] (\d+)/(\d+)$")
 
 
 def _hunyuan_validate_settings(raw: Any) -> dict[str, Any]:
@@ -897,7 +901,29 @@ def _hunyuan_parse_line(job: Job, line: str) -> None:
             "message": f"Paint diffusion — step {step}/{total}",
         })
         return
-    if stripped.startswith("shape generated"):
+    shape_denoise_match = HUNYUAN_SHAPE_DENOISE_RE.match(stripped)
+    if shape_denoise_match:
+        step, total = int(shape_denoise_match.group(1)), int(shape_denoise_match.group(2))
+        # Denoise is roughly the first 60% of the shape stage's own progress; VAE grid
+        # decode + mesh extraction take the rest. Approximate — the exact split varies by
+        # model/quantize/octree-decode, but "roughly right and moving" beats frozen at 0%.
+        pct = round(step / total * 60)
+        job.emit({
+            "phase": "shape", "step": step, "total": total, "stage_pct": pct,
+            "overall_pct": _hunyuan_overall_pct("shape", pct),
+            "message": f"Shape denoise — step {step}/{total}",
+        })
+        return
+    if stripped.startswith("loaded "):
+        job.emit({"phase": "shape", "stage_pct": 5,
+                  "overall_pct": _hunyuan_overall_pct("shape", 5), "message": stripped})
+    elif stripped.startswith("[vae] grid"):
+        job.emit({"phase": "shape", "stage_pct": 80,
+                  "overall_pct": _hunyuan_overall_pct("shape", 80), "message": stripped})
+    elif stripped.startswith("[mesh]"):
+        job.emit({"phase": "shape", "stage_pct": 95,
+                  "overall_pct": _hunyuan_overall_pct("shape", 95), "message": stripped})
+    elif stripped.startswith("shape generated"):
         job.emit({"phase": "shape", "stage_pct": 100,
                   "overall_pct": _hunyuan_overall_pct("shape", 100), "message": stripped})
     elif stripped.startswith(("simplified to", "mesh at/under decimation")):

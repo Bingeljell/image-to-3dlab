@@ -1,13 +1,18 @@
 # Image to 3D Lab
 
+
+
 **Turn a single image into a textured 3D model — locally on Apple Silicon, with a
 license-provenance record for every result.**
 
+Apple Silicon deserves more love in the 3D and Imagen community. So this is an attempt at that. 
+
+
 Drop in a picture of a character or object; get back a `.glb` (with PBR texture) plus a
-`.provenance.json` sidecar recording exactly how it was made and under which licenses.
+`.provenance.json` sidecar recording exactly how it was made and under which licenses. This should make your game-dev or whatever else you're up to easier to manage.
 Everything runs on your Mac — nothing is uploaded to a cloud service.
 
-Four backends, one Generate page — pick the tradeoff you want:
+Four backends, one Generate page. Sadly life is full of trade-offs, so pick the tradeoff you want (lol):
 
 | Backend | Best for | Setup | License |
 |---|---|---|---|
@@ -18,7 +23,8 @@ Four backends, one Generate page — pick the tradeoff you want:
 
 ⭐ Start with Hunyuan3D-MLX (Xiong, full pipeline) — it's the quickest to get running from a
 fresh clone and gives strong results (~9 min shape+paint end to end at its default model).
-Reach for TRELLIS.2 when fidelity matters more than speed.
+Reach for TRELLIS.2 when fidelity matters more than speed. But be warned, Trellis texture has minor drift (a Metal port artifact). 
+Working to see how we can be more colour accurate. 
 
 ---
 
@@ -97,9 +103,8 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
   comparison.
 - **TRELLIS.2:** sampling is attention-bound and scales with the subject's sparse
   structure — a simple subject (~8k tokens) takes ~14 min end-to-end; a complex one
-  (~22k tokens, e.g. a fluffy creature) ~78 min. The HF demo is faster only because CUDA
-  flash attention beats MPS SDPA at large token counts. Decode + bake adds a few minutes;
-  the decode is cached, so re-bakes are ~1 min of setup. Known gaps vs the HF demo: slight
+  (~22k tokens, e.g. a fluffy creature) ~78 min on my m5 w/ 32 gigs of unified memory. This is infinitely faster on CUDA / Nvidia. 
+  Decode + bake adds a few minutes; the decode is cached, so re-bakes are ~1 min of setup. Known gaps vs the HF demo: slight
   texture drift and mostly-pinhole holes.
 
 ## Licensing & provenance (non-negotiable)
@@ -131,8 +136,7 @@ PYTHONPATH=. pytest -q        # 551 tests; backends that load real models stay m
 ruff check .
 ```
 
-Conventions: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), test-first (a unit
-test is minutes; a generation run is minutes to over an hour). Judge assets
+Conventions: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), test-first. Judge assets
 **backface-culled, by eye** — glTF is double-sided by default, so a hollow mesh looks fine
 in preview and fails only in a game engine. Measure holes with a **position-only** vertex
 merge (`merge_vertices(merge_tex=True, merge_norm=True)`).

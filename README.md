@@ -37,14 +37,7 @@ python3 -m venv .venv && .venv/bin/pip install Pillow
 # opens http://127.0.0.1:8777/viewer/index.html
 ```
 
-The server itself (`viewer/serve.py`) is otherwise standard-library-only — **Compare**
-mode needs nothing beyond a working Python 3. **Generate** mode is the one exception: it
-needs Pillow importable in that same interpreter for the pre-upload alpha-transparency
-check, or every image fails that check regardless of whether it actually has a transparent
-background. On Homebrew's Python a bare `pip install Pillow` outside a venv refuses to run
-at all (`externally-managed-environment`), which is why the venv above isn't optional. Each
-backend's own much heavier dependencies (PyTorch, etc.) live in their own separate venvs,
-set up per-backend below — none of that is needed just to open the viewer.
+That's it — no other deps needed until you pick a backend below.
 
 Go to **Generate**, pick a backend from the dropdown. Each one has its own **Setup**
 status telling you exactly what's missing:

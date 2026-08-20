@@ -40,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recommendation (weaker DINOv2-large conditioner). See `docs/hunyuan-mlx-recipes.md`.
 
 ### Fixed
+- **Generate mode's alpha-transparency check silently blamed the image when Pillow wasn't
+  installed.** `image_has_transparent_alpha()`'s bare `except Exception` caught a missing
+  Pillow import the same as a genuinely opaque image, so on any interpreter without Pillow
+  every upload failed the check — "no transparent alpha foreground" — regardless of
+  whether the image had real transparency. Confirmed on `leather_satchel.png`: alpha range
+  0–255, but the server's own interpreter had no PIL at all. Now raises a clear,
+  actionable error instead of a wrong 422. Quick start updated to set up a small venv with
+  Pillow for exactly this reason — a bare `pip install Pillow` outside a venv refuses to
+  run at all on Homebrew Python.
 - **Generate page showed no progress at all during Hunyuan's shape stage.**
   `_hunyuan_parse_line` only recognized paint-stage print lines plus a single
   `"shape generated"` completion marker for the *entire* shape stage — the shape

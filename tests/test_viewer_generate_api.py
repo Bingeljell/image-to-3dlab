@@ -107,6 +107,39 @@ def test_setup_available_reports_missing_bootstrap(monkeypatch, tmp_path):
     assert ok is False and "bootstrap" in reason
 
 
+# --- hunyuan-mlx-xiong shape-weights status: must match the {label, present, human}
+# shape every backend's Setup-panel `weights` field uses (see weights_on_disk) --
+# 2026-08-20: this used to be a flat {name: bool} dict, and the frontend's
+# `Object.values(s.weights).map(repo => repo.present / repo.label)` silently rendered
+# "undefined ... not on disk" for all three models regardless of what was actually
+# downloaded, because a JS boolean has no .present/.label property ---
+def test_hunyuan_xiong_shape_weights_status_reports_present_and_missing(monkeypatch, tmp_path):
+    present_dir = tmp_path / "2.0"
+    present_dir.mkdir()
+    (present_dir / "model.safetensors").write_bytes(b"\x00" * 2048)
+    missing_dir = tmp_path / "2.1"  # never created
+    monkeypatch.setattr(api, "HUNYUAN_XIONG_SHAPE_MODELS", {"2.0": present_dir, "2.1": missing_dir})
+
+    status = api._hunyuan_xiong_shape_weights_status()
+
+    assert status["2.0"]["present"] is True
+    assert status["2.0"]["bytes"] == 2048
+    assert status["2.0"]["human"] == "2.0 KB"
+    assert isinstance(status["2.0"]["label"], str) and status["2.0"]["label"]
+    assert status["2.1"]["present"] is False
+    assert status["2.1"]["bytes"] == 0
+    assert isinstance(status["2.1"]["label"], str) and status["2.1"]["label"]
+
+
+def test_hunyuan_xiong_readiness_weights_field_has_label_and_present(monkeypatch, tmp_path):
+    """The exact shape the frontend indexes into -- a regression test for the undefined-row bug."""
+    monkeypatch.setattr(api, "HUNYUAN_XIONG_SHAPE_MODELS", {"2.0": tmp_path / "nope"})
+    result = api._hunyuan_xiong_readiness()
+    entry = result["weights"]["2.0"]
+    assert set(entry) >= {"label", "present", "human"}
+    assert entry["present"] is False
+
+
 def test_setup_run_exposes_the_job_sse_contract():
     run = api.SetupRun("0" * 32)
     run.status = "running"

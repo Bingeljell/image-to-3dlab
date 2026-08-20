@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recommendation (weaker DINOv2-large conditioner). See `docs/hunyuan-mlx-recipes.md`.
 
 ### Fixed
+- **Setup panel showed all Hunyuan3D-MLX (Xiong, full pipeline) shape weights as missing,
+  even when downloaded.** `_hunyuan_xiong_readiness()`'s `weights` field was a flat
+  `{name: bool}` dict; the frontend indexes into it expecting `{label, present, human}`
+  objects (the shape every other backend uses). A JS boolean has no `.present`/`.label`
+  property, so the panel always took the "missing" branch and rendered the model name as
+  the literal string `"undefined"`. Confirmed on this repo's real weights: all three
+  models (2.1, 2.0, 2.0-turbo — 13.7 GB / 4.6 GB / 4.6 GB) were actually on disk the whole
+  time.
 - **Generate mode's alpha-transparency check silently blamed the image when Pillow wasn't
   installed.** `image_has_transparent_alpha()`'s bare `except Exception` caught a missing
   Pillow import the same as a genuinely opaque image, so on any interpreter without Pillow

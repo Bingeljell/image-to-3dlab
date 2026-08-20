@@ -391,6 +391,71 @@ def test_remove_pid_file_is_a_noop_when_missing(tmp_path):
     api._remove_pid_file(tmp_path)  # must not raise
 
 
+# --- startup reconciliation of pid files a dead server left behind ---------------------
+
+def test_reconcile_annotates_and_clears_a_dead_orphan(tmp_path, monkeypatch):
+    job_dir = tmp_path / "some-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    (job_dir / "run.log").write_text("views decoded (100s)\n")
+    monkeypatch.setattr(api.os, "killpg", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()))
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == ["some-job"]
+    assert not (job_dir / "pid").exists()
+    assert "died mid-run" in (job_dir / "run.log").read_text()
+
+
+def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
+    job_dir = tmp_path / "live-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    (job_dir / "run.log").write_text("step 3/15\n")
+    killed = []
+
+    def fake_killpg(pid, sig):
+        if sig == api.signal.SIGTERM:
+            killed.append((pid, sig))
+        # sig == 0 (the liveness probe) raises nothing -- simulates a live process group
+
+    monkeypatch.setattr(api.os, "killpg", fake_killpg)
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == ["live-job"]
+    assert killed == [(4242, api.signal.SIGTERM)]
+    assert "orphaned generation" in (job_dir / "run.log").read_text()
+    assert not (job_dir / "pid").exists()
+
+
+def test_reconcile_survives_a_missing_run_log(tmp_path, monkeypatch):
+    job_dir = tmp_path / "no-log-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    monkeypatch.setattr(api.os, "killpg", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()))
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == ["no-log-job"]
+    assert not (job_dir / "pid").exists()
+
+
+def test_reconcile_discards_an_unparseable_pid_file(tmp_path):
+    job_dir = tmp_path / "bad-pid-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("not-a-pid")
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == []
+    assert not (job_dir / "pid").exists()
+
+
+def test_reconcile_is_a_noop_with_no_leftover_jobs(tmp_path):
+    assert api._reconcile_orphaned_jobs(tmp_path) == []
+
+
 def test_trellis_build_args_skips_resume_caches_unless_debug(tmp_path):
     settings = api.validate_settings({})
     job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "run.glb", settings,

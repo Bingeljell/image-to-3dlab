@@ -25,7 +25,7 @@ from pathlib import Path
 # and when loaded by the test suite via importlib (script dir not on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from generate_api import Handler
+from generate_api import OUTPUT_ROOT, Handler, _reconcile_orphaned_jobs
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -69,6 +69,15 @@ def main() -> int:
     url = compare_url(args.open, args.port, args.labels) if args.open else \
         f"http://127.0.0.1:{args.port}/viewer/index.html"
     print(url, flush=True)
+
+    # A prior server life may have died mid-generation (crash, closed terminal) without
+    # ever recording how that job ended, and its detached child can still be running with
+    # nobody tracking it -- resolve those before accepting new jobs.
+    if OUTPUT_ROOT.is_dir():
+        orphaned = _reconcile_orphaned_jobs(OUTPUT_ROOT)
+        if orphaned:
+            print(f"reconciled {len(orphaned)} orphaned job(s) from a previous session: "
+                  f"{', '.join(orphaned)}", flush=True)
 
     import functools
     handler = functools.partial(Handler, directory=str(REPO))

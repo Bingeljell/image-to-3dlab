@@ -674,6 +674,59 @@ def _remove_pid_file(directory: Path) -> None:
     _pid_file_path(directory).unlink(missing_ok=True)
 
 
+def _killpg_if_alive(pid: int) -> None:
+    """Best-effort SIGTERM to a process group; a pid that's already gone is not an error."""
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
+def _process_group_alive(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)  # signal 0: existence check only, sends nothing
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, just not ours to signal -- still alive for reporting purposes
+
+
+def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
+    """Resolve pid files left behind by a previous server life -- this server process died
+    mid-run (crash, closed terminal, etc.) before it could record a terminal outcome, same
+    failure shape as the leather_satchel/jesus_chibi incidents on 2026-08-20. Call once at
+    server startup, before serving.
+
+    For each leftover <job-dir>/pid: if that process group is still running, it's an actual
+    ghost (nobody has been tracking it since the old server died) -- kill it. Either way,
+    annotate that job's run.log so it stops trailing off silently, and remove the pid file
+    since this server now owns (or has just closed out) that job's fate.
+
+    Returns the touched job-folder names, for a one-line startup banner."""
+    touched = []
+    for pid_file in sorted(output_root.rglob("pid")):
+        directory = pid_file.parent
+        try:
+            pid = int(pid_file.read_text().strip())
+        except (OSError, ValueError):
+            pid_file.unlink(missing_ok=True)
+            continue
+        alive = _process_group_alive(pid)
+        if alive:
+            _killpg_if_alive(pid)
+            note = "orphaned generation from a previous server session, terminated on restart"
+        else:
+            note = "server died mid-run (previous session) -- job status unknown, treat as failed"
+        log_path = directory / "run.log"
+        if log_path.is_file():
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(note + "\n")
+        pid_file.unlink(missing_ok=True)
+        touched.append(directory.name)
+    return touched
+
+
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
@@ -1404,9 +1457,6 @@ class Handler(SimpleHTTPRequestHandler):
         job.status = "cancelling"
         process = job.process
         if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            _killpg_if_alive(process.pid)
         job.emit({"phase": "error", "message": "Cancellation requested"})
         self._send_json(202, {"job_id": job.id, "status": "cancelling"})

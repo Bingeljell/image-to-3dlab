@@ -1135,9 +1135,28 @@ def _hunyuan_xiong_build_args(job: Job) -> list[str]:
     ]
 
 
+def _hunyuan_xiong_shape_weights_status() -> dict[str, dict[str, Any]]:
+    """Per-model shape-weights presence, in the {label, present, human} shape the Setup
+    panel's frontend expects for every backend's `weights` field (see weights_on_disk).
+
+    Previously this was a flat {name: bool} dict. Object.values(...) on that yields plain
+    JS booleans, and `repo.present` / `repo.label` on a boolean are just undefined -- so the
+    panel rendered all three models as "undefined ... not on disk" regardless of what was
+    actually downloaded (found 2026-08-20 via a real screenshot: three "undefined" rows on
+    a machine that in fact had weights present)."""
+    out: dict[str, dict[str, Any]] = {}
+    for name, path in HUNYUAN_XIONG_SHAPE_MODELS.items():
+        present = path.is_dir()
+        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) if present else 0
+        out[name] = {"label": f"Hunyuan3D-MLX shape weights ({name})", "present": present,
+                     "bytes": size, "human": _human_bytes(size)}
+    return out
+
+
 def _hunyuan_xiong_readiness() -> dict[str, Any]:
     shape_ok = HUNYUAN_XIONG_SHAPE_VENV.is_file() and HUNYUAN_XIONG_WRAPPER.is_file()
-    model_availability = {name: path.is_dir() for name, path in HUNYUAN_XIONG_SHAPE_MODELS.items()}
+    weights_status = _hunyuan_xiong_shape_weights_status()
+    model_availability = {name: info["present"] for name, info in weights_status.items()}
     any_model_ok = any(model_availability.values())
     default_model_ok = model_availability.get(HUNYUAN_XIONG_DEFAULT_SETTINGS["model"], False)
     paint_venv_ok = HUNYUAN_PAINT_VENV.is_file()
@@ -1174,7 +1193,7 @@ def _hunyuan_xiong_readiness() -> dict[str, Any]:
                 "weights per docs/hunyuan-mlx-recipes.md."
             ),
         },
-        "weights": model_availability,
+        "weights": weights_status,
         "missing_weights": missing,
         "ready": ready,
         "warning": (

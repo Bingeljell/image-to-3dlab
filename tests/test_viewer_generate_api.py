@@ -391,6 +391,54 @@ def test_remove_pid_file_is_a_noop_when_missing(tmp_path):
     api._remove_pid_file(tmp_path)  # must not raise
 
 
+# --- graceful-shutdown counterpart to orphan reconciliation ----------------------------
+
+class _FakeProcess:
+    def __init__(self, pid, alive=True):
+        self.pid = pid
+        self._alive = alive
+
+    def poll(self):
+        return None if self._alive else 0
+
+
+def test_terminate_active_job_kills_the_running_process_group(tmp_path, monkeypatch):
+    jobs = api.JobManager()
+    monkeypatch.setattr(api, "JOBS", jobs)
+    job = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", None, tmp_path)
+    job.process = _FakeProcess(4242)
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == [4242]
+
+
+def test_terminate_active_job_is_a_noop_with_no_active_job(monkeypatch):
+    jobs = api.JobManager()
+    monkeypatch.setattr(api, "JOBS", jobs)
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()  # must not raise
+
+    assert killed == []
+
+
+def test_terminate_active_job_is_a_noop_when_process_already_exited(tmp_path, monkeypatch):
+    jobs = api.JobManager()
+    monkeypatch.setattr(api, "JOBS", jobs)
+    job = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", None, tmp_path)
+    job.process = _FakeProcess(4242, alive=False)
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == []
+
+
 # --- startup reconciliation of pid files a dead server left behind ---------------------
 
 def test_reconcile_annotates_and_clears_a_dead_orphan(tmp_path, monkeypatch):

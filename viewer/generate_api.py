@@ -692,6 +692,21 @@ def _process_group_alive(pid: int) -> bool:
         return True  # exists, just not ours to signal -- still alive for reporting purposes
 
 
+def _terminate_active_job() -> None:
+    """Kill the active job's process group, if one is running. Called on a clean server
+    shutdown (SIGTERM/SIGINT) so a deliberate stop doesn't leave the same kind of orphan
+    _reconcile_orphaned_jobs cleans up after a crash -- this is the graceful-exit half of
+    that same problem: a signal caught here means the pid file gets left behind (the job's
+    own finally block, in a background thread, may not get to run before the process
+    exits), but the next startup's reconciliation finds it, sees the process is already
+    dead, and annotates it correctly."""
+    job = JOBS.jobs.get(JOBS.active) if JOBS.active else None
+    if job is None or job.process is None:
+        return
+    if job.process.poll() is None:
+        _killpg_if_alive(job.process.pid)
+
+
 def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
     """Resolve pid files left behind by a previous server life -- this server process died
     mid-run (crash, closed terminal, etc.) before it could record a terminal outcome, same

@@ -886,10 +886,24 @@ def _sf3d_build_args(job: Job) -> list[str]:
 
 
 def _sf3d_finalize(job: Job) -> None:
-    """pipeline.py --fast writes ``<stem>_sf3d.glb`` in the output dir; move it into place."""
-    produced = job.directory / f"{job.image_path.stem}_sf3d.glb"
-    if produced.is_file():
-        produced.replace(job.output_path)
+    """pipeline.py's provenance system (image_to_3dlab.provenance.finalize_output) sorts
+    the real output into a license-class subfolder with a randomized run id --
+    <job-dir>/<license-folder>/<image-stem>__sf3d__<classification>__<run-id>.glb -- not
+    the flat <stem>_sf3d.glb this used to assume. That wrong assumption meant every SF3D
+    run through the web UI reported "generator exited 0 but produced no output file" even
+    on a full, successful generation (confirmed 2026-08-20 with a real run: a genuine .glb
+    existed on disk the whole time, the web UI just never found it -- the bug the user
+    reported as "the web view never updated" was this, not a dropped connection).
+
+    The exact filename can't be predicted (random run id), so glob for it instead."""
+    matches = sorted(job.directory.glob(f"*/{job.image_path.stem}__sf3d__*.glb"))
+    if not matches:
+        return
+    produced = matches[-1]
+    produced.replace(job.output_path)
+    sidecar = produced.with_suffix(".provenance.json")
+    if sidecar.is_file():
+        sidecar.replace(job.manifest_path)
 
 
 def _sf3d_parse_line(job: Job, line: str) -> None:

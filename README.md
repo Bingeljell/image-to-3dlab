@@ -32,9 +32,12 @@ Working to see how we can be more colour accurate.
 
 ```bash
 git clone <repo> && cd image-to-3dlab
-python viewer/serve.py
+python3 -m venv .venv && .venv/bin/pip install Pillow
+.venv/bin/python viewer/serve.py
 # opens http://127.0.0.1:8777/viewer/index.html
 ```
+
+That's it — no other deps needed until you pick a backend below.
 
 Go to **Generate**, pick a backend from the dropdown. Each one has its own **Setup**
 status telling you exactly what's missing:

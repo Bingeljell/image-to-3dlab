@@ -343,10 +343,24 @@ def validate_settings(raw: Any) -> dict[str, Any]:
 
 
 def image_has_transparent_alpha(path: Path) -> bool:
-    """Return whether an image has an actual (not merely opaque) alpha channel."""
+    """Return whether an image has an actual (not merely opaque) alpha channel.
+
+    Raises RuntimeError if Pillow itself isn't importable in this interpreter -- that's a
+    broken server environment, not a fact about the image, and must not be reported as one.
+    (2026-08-20: a bare `except Exception` here caught a missing Pillow install the same as
+    a genuinely opaque image, so every upload silently failed the alpha check on a
+    Pillow-less interpreter and users were told to enable rembg for images that already had
+    real transparency.)"""
     try:
         from PIL import Image
-
+    except ImportError as exc:
+        raise RuntimeError(
+            "Pillow is not installed in the interpreter running viewer/serve.py, so the "
+            "alpha-transparency check cannot run. Install it (`pip install Pillow`, or "
+            "`pip install -r requirements.txt`) into that same interpreter and restart "
+            "the server."
+        ) from exc
+    try:
         with Image.open(path) as image:
             if image.mode != "RGBA":
                 return False
@@ -656,6 +670,92 @@ def _cleanup_debug_files(job: Job) -> None:
             path.unlink(missing_ok=True)
 
 
+def _pid_file_path(directory: Path) -> Path:
+    return directory / "pid"
+
+
+def _write_pid_file(directory: Path, pid: int) -> None:
+    """Record the generator subprocess's pid on disk the moment it starts.
+
+    This is the only trace of a running job that survives the server process itself
+    dying (memory-only Job/JobManager state does not) -- see _reconcile_orphaned_jobs,
+    which reads this file back on the next server startup to find and clean up jobs
+    whose tracker died mid-run."""
+    _pid_file_path(directory).write_text(str(pid))
+
+
+def _remove_pid_file(directory: Path) -> None:
+    _pid_file_path(directory).unlink(missing_ok=True)
+
+
+def _killpg_if_alive(pid: int) -> None:
+    """Best-effort SIGTERM to a process group; a pid that's already gone is not an error."""
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+
+
+def _process_group_alive(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)  # signal 0: existence check only, sends nothing
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, just not ours to signal -- still alive for reporting purposes
+
+
+def _terminate_active_job() -> None:
+    """Kill the active job's process group, if one is running. Called on a clean server
+    shutdown (SIGTERM/SIGINT) so a deliberate stop doesn't leave the same kind of orphan
+    _reconcile_orphaned_jobs cleans up after a crash -- this is the graceful-exit half of
+    that same problem: a signal caught here means the pid file gets left behind (the job's
+    own finally block, in a background thread, may not get to run before the process
+    exits), but the next startup's reconciliation finds it, sees the process is already
+    dead, and annotates it correctly."""
+    job = JOBS.jobs.get(JOBS.active) if JOBS.active else None
+    if job is None or job.process is None:
+        return
+    if job.process.poll() is None:
+        _killpg_if_alive(job.process.pid)
+
+
+def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
+    """Resolve pid files left behind by a previous server life -- this server process died
+    mid-run (crash, closed terminal, etc.) before it could record a terminal outcome, same
+    failure shape as the leather_satchel/jesus_chibi incidents on 2026-08-20. Call once at
+    server startup, before serving.
+
+    For each leftover <job-dir>/pid: if that process group is still running, it's an actual
+    ghost (nobody has been tracking it since the old server died) -- kill it. Either way,
+    annotate that job's run.log so it stops trailing off silently, and remove the pid file
+    since this server now owns (or has just closed out) that job's fate.
+
+    Returns the touched job-folder names, for a one-line startup banner."""
+    touched = []
+    for pid_file in sorted(output_root.rglob("pid")):
+        directory = pid_file.parent
+        try:
+            pid = int(pid_file.read_text().strip())
+        except (OSError, ValueError):
+            pid_file.unlink(missing_ok=True)
+            continue
+        alive = _process_group_alive(pid)
+        if alive:
+            _killpg_if_alive(pid)
+            note = "orphaned generation from a previous server session, terminated on restart"
+        else:
+            note = "server died mid-run (previous session) -- job status unknown, treat as failed"
+        log_path = directory / "run.log"
+        if log_path.is_file():
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(note + "\n")
+        pid_file.unlink(missing_ok=True)
+        touched.append(directory.name)
+    return touched
+
+
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
@@ -672,6 +772,7 @@ def _run_job(job: Job) -> None:
             bufsize=0,
             start_new_session=True,
         )
+        _write_pid_file(job.directory, job.process.pid)
         reader = threading.Thread(target=_read_process, args=(job,), daemon=True)
         reader.start()
         threading.Thread(target=_rss_monitor, args=(job,), daemon=True,
@@ -714,6 +815,7 @@ def _run_job(job: Job) -> None:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
     finally:
+        _remove_pid_file(job.directory)
         JOBS.finish(job)
 
 
@@ -1261,8 +1363,15 @@ class Handler(SimpleHTTPRequestHandler):
             image_path = provisional / f"input{suffix}"
             with image_path.open("wb") as handle:
                 handle.write(image_field["data"])
-            if (spec.requires_alpha and not image_has_transparent_alpha(image_path)
-                    and not settings.get("allow_rembg")):
+            try:
+                lacks_alpha = spec.requires_alpha and not image_has_transparent_alpha(image_path)
+            except RuntimeError as exc:
+                for child in provisional.iterdir():
+                    child.unlink()
+                provisional.rmdir()
+                self._send_json(500, {"error": str(exc)})
+                return
+            if lacks_alpha and not settings.get("allow_rembg"):
                 for child in provisional.iterdir():
                     child.unlink()
                 provisional.rmdir()
@@ -1384,9 +1493,6 @@ class Handler(SimpleHTTPRequestHandler):
         job.status = "cancelling"
         process = job.process
         if process is not None and process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            _killpg_if_alive(process.pid)
         job.emit({"phase": "error", "message": "Cancellation requested"})
         self._send_json(202, {"job_id": job.id, "status": "cancelling"})

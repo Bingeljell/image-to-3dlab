@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Generate-page jobs now survive the server dying.** All job state (subprocess handle,
+  event log) lived only in the web server's process memory, so if `viewer/serve.py` itself
+  crashed or was closed mid-run — which happened twice on 2026-08-20, once as a silent
+  death and once as a false "stuck" alarm that turned out to be a slow-but-healthy run —
+  there was nothing on disk to say a job was in flight, and its detached subprocess
+  (`start_new_session=True`, so Cancel can `killpg` it independently) could be left running
+  as an untracked ghost. Each job now writes `<job-dir>/pid` the moment its subprocess
+  starts; on the next server startup, `_reconcile_orphaned_jobs` finds any leftover pid
+  files, kills whichever processes are still alive, and annotates that job's `run.log`
+  either way so it stops trailing off silently. A clean shutdown (Ctrl-C, `kill`) now also
+  kills the active job's process group before exiting, via new `SIGTERM`/`SIGINT` handlers
+  in `serve.py` — previously only `SIGINT` was even caught, and neither one touched the
+  child.
+
 ### Changed
 - **Xiong's Hunyuan3D-MLX shape+paint port moved from `vendor/hunyuan-mlx-paint`
   (git-ignored) into this repo's tracked tree at `hunyuan_mlx/`.** It's MIT-licensed code,
@@ -25,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recommendation (weaker DINOv2-large conditioner). See `docs/hunyuan-mlx-recipes.md`.
 
 ### Fixed
+- **Generate mode's alpha-transparency check silently blamed the image when Pillow wasn't
+  installed.** `image_has_transparent_alpha()`'s bare `except Exception` caught a missing
+  Pillow import the same as a genuinely opaque image, so on any interpreter without Pillow
+  every upload failed the check — "no transparent alpha foreground" — regardless of
+  whether the image had real transparency. Confirmed on `leather_satchel.png`: alpha range
+  0–255, but the server's own interpreter had no PIL at all. Now raises a clear,
+  actionable error instead of a wrong 422. Quick start updated to set up a small venv with
+  Pillow for exactly this reason — a bare `pip install Pillow` outside a venv refuses to
+  run at all on Homebrew Python.
 - **Generate page showed no progress at all during Hunyuan's shape stage.**
   `_hunyuan_parse_line` only recognized paint-stage print lines plus a single
   `"shape generated"` completion marker for the *entire* shape stage — the shape

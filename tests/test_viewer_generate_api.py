@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import sys
 from pathlib import Path
@@ -376,6 +377,175 @@ def test_cleanup_debug_files_keeps_only_output_glb(tmp_path):
     (tmp_path / "run.log").write_text("log")
     api._cleanup_debug_files(job)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["run.glb"]
+
+
+# --- alpha-transparency check: a missing Pillow install is a broken environment, not a
+# fact about the image (2026-08-20: this silently reported "no alpha" for every image) ---
+
+def test_image_has_transparent_alpha_raises_when_pillow_missing(tmp_path, monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "PIL" or name.startswith("PIL."):
+            raise ImportError("No module named 'PIL'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(RuntimeError, match="Pillow is not installed"):
+        api.image_has_transparent_alpha(tmp_path / "whatever.png")
+
+
+def test_image_has_transparent_alpha_true_for_real_transparency(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "transparent.png"
+    img = Image.new("RGBA", (4, 4), (255, 0, 0, 0))
+    img.save(path)
+    assert api.image_has_transparent_alpha(path) is True
+
+
+def test_image_has_transparent_alpha_false_for_fully_opaque_rgba(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "opaque.png"
+    img = Image.new("RGBA", (4, 4), (255, 0, 0, 255))
+    img.save(path)
+    assert api.image_has_transparent_alpha(path) is False
+
+
+def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "rgb.png"
+    img = Image.new("RGB", (4, 4), (255, 0, 0))
+    img.save(path)
+    assert api.image_has_transparent_alpha(path) is False
+
+
+# --- pid-file lifecycle (the anchor for orphan reconciliation on server restart) -------
+
+def test_pid_file_write_and_remove_roundtrip(tmp_path):
+    api._write_pid_file(tmp_path, 4242)
+    assert api._pid_file_path(tmp_path).read_text() == "4242"
+    api._remove_pid_file(tmp_path)
+    assert not api._pid_file_path(tmp_path).exists()
+
+
+def test_remove_pid_file_is_a_noop_when_missing(tmp_path):
+    api._remove_pid_file(tmp_path)  # must not raise
+
+
+# --- graceful-shutdown counterpart to orphan reconciliation ----------------------------
+
+class _FakeProcess:
+    def __init__(self, pid, alive=True):
+        self.pid = pid
+        self._alive = alive
+
+    def poll(self):
+        return None if self._alive else 0
+
+
+def test_terminate_active_job_kills_the_running_process_group(tmp_path, monkeypatch):
+    jobs = api.JobManager()
+    monkeypatch.setattr(api, "JOBS", jobs)
+    job = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", None, tmp_path)
+    job.process = _FakeProcess(4242)
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == [4242]
+
+
+def test_terminate_active_job_is_a_noop_with_no_active_job(monkeypatch):
+    jobs = api.JobManager()
+    monkeypatch.setattr(api, "JOBS", jobs)
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()  # must not raise
+
+    assert killed == []
+
+
+def test_terminate_active_job_is_a_noop_when_process_already_exited(tmp_path, monkeypatch):
+    jobs = api.JobManager()
+    monkeypatch.setattr(api, "JOBS", jobs)
+    job = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", None, tmp_path)
+    job.process = _FakeProcess(4242, alive=False)
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == []
+
+
+# --- startup reconciliation of pid files a dead server left behind ---------------------
+
+def test_reconcile_annotates_and_clears_a_dead_orphan(tmp_path, monkeypatch):
+    job_dir = tmp_path / "some-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    (job_dir / "run.log").write_text("views decoded (100s)\n")
+    monkeypatch.setattr(api.os, "killpg", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()))
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == ["some-job"]
+    assert not (job_dir / "pid").exists()
+    assert "died mid-run" in (job_dir / "run.log").read_text()
+
+
+def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
+    job_dir = tmp_path / "live-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    (job_dir / "run.log").write_text("step 3/15\n")
+    killed = []
+
+    def fake_killpg(pid, sig):
+        if sig == api.signal.SIGTERM:
+            killed.append((pid, sig))
+        # sig == 0 (the liveness probe) raises nothing -- simulates a live process group
+
+    monkeypatch.setattr(api.os, "killpg", fake_killpg)
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == ["live-job"]
+    assert killed == [(4242, api.signal.SIGTERM)]
+    assert "orphaned generation" in (job_dir / "run.log").read_text()
+    assert not (job_dir / "pid").exists()
+
+
+def test_reconcile_survives_a_missing_run_log(tmp_path, monkeypatch):
+    job_dir = tmp_path / "no-log-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    monkeypatch.setattr(api.os, "killpg", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()))
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == ["no-log-job"]
+    assert not (job_dir / "pid").exists()
+
+
+def test_reconcile_discards_an_unparseable_pid_file(tmp_path):
+    job_dir = tmp_path / "bad-pid-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("not-a-pid")
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == []
+    assert not (job_dir / "pid").exists()
+
+
+def test_reconcile_is_a_noop_with_no_leftover_jobs(tmp_path):
+    assert api._reconcile_orphaned_jobs(tmp_path) == []
 
 
 def test_trellis_build_args_skips_resume_caches_unless_debug(tmp_path):

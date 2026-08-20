@@ -15,6 +15,7 @@ automation, which means the agent can look at its own output instead of asking.
 from __future__ import annotations
 
 import argparse
+import signal
 import socketserver
 import sys
 import urllib.parse
@@ -25,7 +26,7 @@ from pathlib import Path
 # and when loaded by the test suite via importlib (script dir not on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from generate_api import Handler
+from generate_api import OUTPUT_ROOT, Handler, _reconcile_orphaned_jobs, _terminate_active_job
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -70,6 +71,25 @@ def main() -> int:
         f"http://127.0.0.1:{args.port}/viewer/index.html"
     print(url, flush=True)
 
+    # A prior server life may have died mid-generation (crash, closed terminal) without
+    # ever recording how that job ended, and its detached child can still be running with
+    # nobody tracking it -- resolve those before accepting new jobs.
+    if OUTPUT_ROOT.is_dir():
+        orphaned = _reconcile_orphaned_jobs(OUTPUT_ROOT)
+        if orphaned:
+            print(f"reconciled {len(orphaned)} orphaned job(s) from a previous session: "
+                  f"{', '.join(orphaned)}", flush=True)
+
+    # A deliberate stop (Ctrl-C, `kill`) must not orphan an in-flight job the way an
+    # uncaught crash does -- SIGTERM has no default Python handler (it would just kill this
+    # process outright, mid-job, with no chance to clean up), so both signals get one here.
+    def _handle_shutdown_signal(signum, frame):
+        _terminate_active_job()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
+
     import functools
     handler = functools.partial(Handler, directory=str(REPO))
     with ThreadingHTTPServer(("127.0.0.1", args.port), handler) as httpd:
@@ -78,7 +98,7 @@ def main() -> int:
         print(f"serving {REPO} — ctrl-c to stop", flush=True)
         try:
             httpd.serve_forever()
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
             print("\nstopped")
     return 0
 

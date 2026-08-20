@@ -1024,7 +1024,7 @@ function buildStageRows(backendId) {
 buildStageRows('trellis');
 const gen = {
   file: null, objectUrl: null, hasAlpha: false, jobId: null, source: null,
-  running: false, outputDir: null,
+  running: false, outputDir: null, pollTimer: null,
 };
 const setupState = { ready: false };
 function currentBackend() { return g('generate-backend').value; }
@@ -1172,7 +1172,32 @@ function applyGenerateProgress(event) {
     g('generate-status').textContent = event.message || 'Generation failed';
   }
 }
-function stopGenerateStream() { if (gen.source) { gen.source.close(); gen.source = null; } }
+function stopStatusPoll() { if (gen.pollTimer) { clearInterval(gen.pollTimer); gen.pollTimer = null; } }
+// Fallback for when the SSE stream (source.onerror, below) drops and EventSource's own
+// auto-reconnect doesn't recover in time -- e.g. a sub-minute SF3D run that finished
+// server-side while the browser's connection was down, with no other way to find out.
+// Polls the same single-shot snapshot the stream itself is built from, so a job that
+// already finished is discovered on the very next tick instead of leaving the progress
+// bar stuck indefinitely.
+function startStatusPoll(jobId) {
+  if (gen.pollTimer) return; // already polling
+  gen.pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/generate/${jobId}/status`);
+      if (!res.ok) return; // server restarted and lost this job; keep waiting/reconnecting
+      const data = await res.json();
+      if (data.last_event) applyGenerateProgress(data.last_event);
+      if (data.status === 'done' || data.status === 'error' || data.status === 'cancelled') {
+        gen.running = false; g('generate-cancel').style.display = 'none'; updateGenerateButton();
+        stopGenerateStream();
+      }
+    } catch (e) { /* still offline; next tick will retry */ }
+  }, 4000);
+}
+function stopGenerateStream() {
+  if (gen.source) { gen.source.close(); gen.source = null; }
+  stopStatusPoll();
+}
 function startGenerateStream(jobId) {
   stopGenerateStream();
   const source = new EventSource(`/api/generate/${jobId}/events`); gen.source = source;
@@ -1183,8 +1208,15 @@ function startGenerateStream(jobId) {
       source.close();
     }
   };
+  source.onopen = () => {
+    stopStatusPoll();
+    if (gen.running) g('generate-status').textContent = 'Generating…';
+  };
   source.onerror = () => {
-    if (gen.running) g('generate-status').textContent = 'Progress connection lost; reconnecting…';
+    if (gen.running) {
+      g('generate-status').textContent = 'Progress connection lost; reconnecting…';
+      startStatusPoll(jobId);
+    }
   };
 }
 g('generate-submit').onclick = async () => {

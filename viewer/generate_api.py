@@ -343,10 +343,24 @@ def validate_settings(raw: Any) -> dict[str, Any]:
 
 
 def image_has_transparent_alpha(path: Path) -> bool:
-    """Return whether an image has an actual (not merely opaque) alpha channel."""
+    """Return whether an image has an actual (not merely opaque) alpha channel.
+
+    Raises RuntimeError if Pillow itself isn't importable in this interpreter -- that's a
+    broken server environment, not a fact about the image, and must not be reported as one.
+    (2026-08-20: a bare `except Exception` here caught a missing Pillow install the same as
+    a genuinely opaque image, so every upload silently failed the alpha check on a
+    Pillow-less interpreter and users were told to enable rembg for images that already had
+    real transparency.)"""
     try:
         from PIL import Image
-
+    except ImportError as exc:
+        raise RuntimeError(
+            "Pillow is not installed in the interpreter running viewer/serve.py, so the "
+            "alpha-transparency check cannot run. Install it (`pip install Pillow`, or "
+            "`pip install -r requirements.txt`) into that same interpreter and restart "
+            "the server."
+        ) from exc
+    try:
         with Image.open(path) as image:
             if image.mode != "RGBA":
                 return False
@@ -1349,8 +1363,15 @@ class Handler(SimpleHTTPRequestHandler):
             image_path = provisional / f"input{suffix}"
             with image_path.open("wb") as handle:
                 handle.write(image_field["data"])
-            if (spec.requires_alpha and not image_has_transparent_alpha(image_path)
-                    and not settings.get("allow_rembg")):
+            try:
+                lacks_alpha = spec.requires_alpha and not image_has_transparent_alpha(image_path)
+            except RuntimeError as exc:
+                for child in provisional.iterdir():
+                    child.unlink()
+                provisional.rmdir()
+                self._send_json(500, {"error": str(exc)})
+                return
+            if lacks_alpha and not settings.get("allow_rembg"):
                 for child in provisional.iterdir():
                     child.unlink()
                 provisional.rmdir()

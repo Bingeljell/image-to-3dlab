@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import sys
 from pathlib import Path
@@ -376,6 +377,49 @@ def test_cleanup_debug_files_keeps_only_output_glb(tmp_path):
     (tmp_path / "run.log").write_text("log")
     api._cleanup_debug_files(job)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["run.glb"]
+
+
+# --- alpha-transparency check: a missing Pillow install is a broken environment, not a
+# fact about the image (2026-08-20: this silently reported "no alpha" for every image) ---
+
+def test_image_has_transparent_alpha_raises_when_pillow_missing(tmp_path, monkeypatch):
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "PIL" or name.startswith("PIL."):
+            raise ImportError("No module named 'PIL'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(RuntimeError, match="Pillow is not installed"):
+        api.image_has_transparent_alpha(tmp_path / "whatever.png")
+
+
+def test_image_has_transparent_alpha_true_for_real_transparency(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "transparent.png"
+    img = Image.new("RGBA", (4, 4), (255, 0, 0, 0))
+    img.save(path)
+    assert api.image_has_transparent_alpha(path) is True
+
+
+def test_image_has_transparent_alpha_false_for_fully_opaque_rgba(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "opaque.png"
+    img = Image.new("RGBA", (4, 4), (255, 0, 0, 255))
+    img.save(path)
+    assert api.image_has_transparent_alpha(path) is False
+
+
+def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "rgb.png"
+    img = Image.new("RGB", (4, 4), (255, 0, 0))
+    img.save(path)
+    assert api.image_has_transparent_alpha(path) is False
 
 
 # --- pid-file lifecycle (the anchor for orphan reconciliation on server restart) -------

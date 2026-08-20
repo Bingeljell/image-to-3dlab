@@ -656,6 +656,24 @@ def _cleanup_debug_files(job: Job) -> None:
             path.unlink(missing_ok=True)
 
 
+def _pid_file_path(directory: Path) -> Path:
+    return directory / "pid"
+
+
+def _write_pid_file(directory: Path, pid: int) -> None:
+    """Record the generator subprocess's pid on disk the moment it starts.
+
+    This is the only trace of a running job that survives the server process itself
+    dying (memory-only Job/JobManager state does not) -- see _reconcile_orphaned_jobs,
+    which reads this file back on the next server startup to find and clean up jobs
+    whose tracker died mid-run."""
+    _pid_file_path(directory).write_text(str(pid))
+
+
+def _remove_pid_file(directory: Path) -> None:
+    _pid_file_path(directory).unlink(missing_ok=True)
+
+
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
@@ -672,6 +690,7 @@ def _run_job(job: Job) -> None:
             bufsize=0,
             start_new_session=True,
         )
+        _write_pid_file(job.directory, job.process.pid)
         reader = threading.Thread(target=_read_process, args=(job,), daemon=True)
         reader.start()
         threading.Thread(target=_rss_monitor, args=(job,), daemon=True,
@@ -714,6 +733,7 @@ def _run_job(job: Job) -> None:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
     finally:
+        _remove_pid_file(job.directory)
         JOBS.finish(job)
 
 

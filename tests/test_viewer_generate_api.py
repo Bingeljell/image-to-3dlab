@@ -378,6 +378,19 @@ def test_cleanup_debug_files_keeps_only_output_glb(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["run.glb"]
 
 
+# --- pid-file lifecycle (the anchor for orphan reconciliation on server restart) -------
+
+def test_pid_file_write_and_remove_roundtrip(tmp_path):
+    api._write_pid_file(tmp_path, 4242)
+    assert api._pid_file_path(tmp_path).read_text() == "4242"
+    api._remove_pid_file(tmp_path)
+    assert not api._pid_file_path(tmp_path).exists()
+
+
+def test_remove_pid_file_is_a_noop_when_missing(tmp_path):
+    api._remove_pid_file(tmp_path)  # must not raise
+
+
 def test_trellis_build_args_skips_resume_caches_unless_debug(tmp_path):
     settings = api.validate_settings({})
     job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "run.glb", settings,

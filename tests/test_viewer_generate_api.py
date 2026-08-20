@@ -176,6 +176,29 @@ def test_emit_banner_fires_decode_and_bake(tmp_path):
     assert job.events[-1]["phase"] == "bake"
 
 
+# --- job-status polling fallback: same payload shape as the SSE stream's own events, so
+# a dropped/never-reconnected EventSource has something to recover from (2026-08-20: a
+# fast SF3D run finished server-side with the browser never finding out) ---
+def test_job_status_payload_reports_last_event(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "trellis")
+    job.emit({"phase": "load", "overall_pct": 0, "message": "Starting"})
+    job.emit({"phase": "done", "overall_pct": 100, "message": "Generation complete",
+              "result_url": "/api/generate/x/result.glb"})
+    job.status = "done"
+
+    payload = api._job_status_payload(job)
+
+    assert payload["status"] == "done"
+    assert payload["last_event"]["phase"] == "done"
+    assert payload["last_event"]["result_url"] == "/api/generate/x/result.glb"
+
+
+def test_job_status_payload_handles_no_events_yet(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "trellis")
+    payload = api._job_status_payload(job)
+    assert payload == {"status": "queued", "last_event": None}
+
+
 # --- backend registry ------------------------------------------------------------------
 
 def test_backend_registry_has_all_four():

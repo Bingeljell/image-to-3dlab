@@ -1228,6 +1228,18 @@ def _json_bytes(value: Any) -> bytes:
     return (json.dumps(value, separators=(",", ":")) + "\n").encode("utf-8")
 
 
+def _job_status_payload(job: Job) -> dict[str, Any]:
+    """A single-shot snapshot of a job's current state -- the polling fallback for when
+    the SSE stream (_stream_events) drops and doesn't reconnect (found 2026-08-20: a fast
+    SF3D run finished server-side but the browser never learned it had, because nothing
+    covers a dead/never-recovered EventSource connection).
+
+    Deliberately the same event shape _run_job's "done"/"error" events already carry, so
+    the frontend can feed this straight into its existing applyGenerateProgress() renderer
+    instead of a separate code path."""
+    return {"status": job.status, "last_event": job.events[-1] if job.events else None}
+
+
 class Handler(SimpleHTTPRequestHandler):
     """Static repository server plus the local Generate job endpoints."""
 
@@ -1302,6 +1314,9 @@ class Handler(SimpleHTTPRequestHandler):
             job_id, action = parts[2], parts[3]
             if action == "events":
                 self._events(job_id)
+                return
+            if action == "status":
+                self._status(job_id)
                 return
             if action in {"result.glb", "manifest.json"}:
                 self._artifact(job_id, action)
@@ -1462,6 +1477,20 @@ class Handler(SimpleHTTPRequestHandler):
             "setup_run_id": setup_id,
             "events_url": f"/api/setup/run/{setup_id}/events",
         })
+
+    def _status(self, job_id: str) -> None:
+        job = self._find_job(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(200, _job_status_payload(job))
+
+    def _status(self, job_id: str) -> None:
+        job = self._find_job(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(200, _job_status_payload(job))
 
     def _artifact(self, job_id: str, action: str) -> None:
         job = self._find_job(job_id)

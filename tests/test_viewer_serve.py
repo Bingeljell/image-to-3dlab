@@ -76,3 +76,12 @@ def test_viewer_styles_are_split_by_responsibility():
     for name in expected:
         assert f'href="./styles/{name}"' in html
         assert (REPO / "viewer" / "styles" / name).is_file()
+
+
+def test_viewer_javascript_has_an_external_entry_point():
+    """Keep the HTML as an app shell so modes can be composed from ES modules."""
+    html = (REPO / "viewer" / "index.html").read_text()
+
+    assert '<script type="module" src="./app.js"></script>' in html
+    assert '<script type="module">' not in html
+    assert (REPO / "viewer" / "app.js").is_file()

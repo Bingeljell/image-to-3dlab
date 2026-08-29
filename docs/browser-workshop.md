@@ -124,6 +124,46 @@ direction, not a requirement to create empty abstractions.
 
 ## Animation contract
 
+### Decisions recorded 2026-08-29
+
+- Browser animation is a real authoring and export path, not merely a read-only preview.
+- A Blender/Rigify rebake remains available as the high-fidelity path; the two paths share
+  timing and semantic control data rather than sharing an implementation.
+- The first supported runtime rig profile is one canonical quadruped profile derived from
+  the existing Rigify quadruped workflow.
+- Human manipulation and LLM animation operate the same versioned semantic controls.
+- Incorrect bind-joint placement is corrected through browser markers followed by a
+  Blender rebind. It is not silently treated as a pose edit.
+
+### Joint placement correction
+
+A bound skeleton has two distinct states that the UI must not conflate:
+
+- **rest state** — joint placement, bone length/orientation, inverse bind matrices, and the
+  basis against which vertex weights were authored;
+- **pose state** — temporary transforms evaluated relative to that rest state.
+
+Dragging a pose bone cannot safely correct a misplaced bind joint. Moving a rest joint
+after binding also changes inverse bind matrices, IK chain lengths, Rigify relationships,
+and the deformation expected by nearby weights. Updating matrices alone would preserve
+the old, potentially wrong weight field.
+
+The supported correction loop is therefore:
+
+```text
+Blender bind
+  -> browser Rig Review
+  -> edit semantic correction markers
+  -> Blender rebind and weight transfer
+  -> replacement rigged GLB
+```
+
+Rig Review shows the skeleton through the mesh and exposes only meaningful markers such as
+shoulders, hips, knees, paws, neck, head, and tail root. It may mirror adjustments, compare
+original/corrected locations, and preview limb reach, but `Rebind` is the operation that
+makes a correction authoritative. Weight painting or local weight repair is a separate
+future tool.
+
 ### Rigify and glTF
 
 Rigify's authoring controls, drivers, and Blender constraints do not become an equivalent
@@ -149,6 +189,41 @@ clips. The workshop therefore supports two animation paths.
 
 The preview and baked output must share timing and intent, but they need not use the same
 solver internally.
+
+### Runtime control rig
+
+The GLB carries the skinned mesh, deform skeleton, and baked clips. A versioned rig-profile
+sidecar reconstructs the smaller browser control rig that glTF cannot carry:
+
+```text
+creature.glb
+  mesh + materials + deform bones + baked clips
+
+rigify.quadruped.v1.json
+  semantic bone map
+  rest transforms and symmetry
+  joint limits and preferred bend directions
+  IK chains and pole-vector definitions
+  browser-control -> Rigify-control mapping
+```
+
+The initial quadruped control surface consists of:
+
+- master/root, pelvis, chest, and head-look controls;
+- four paw targets and four knee/elbow pole targets;
+- FK rotations for limbs, spine, neck, and tail;
+- per-limb IK/FK blend;
+- foot rotation and, later, ground locking.
+
+FK writes constrained local bone rotations. IK solves a configured limb chain from its
+target and pole vector. An IK/FK blend evaluates both solutions and blends their local
+position/quaternion/scale transforms before skinning. The first limb solver should be a
+predictable analytical two-bone solver; generic whole-body IK is not required for v1.
+
+The timeline records semantic control tracks where possible, then evaluates and bakes them
+to deform-bone glTF tracks for portable browser export. The production path maps those same
+tracks to Rigify controls in Blender, evaluates constraints and drivers, and bakes the
+deform bones there.
 
 ### Semantic recipes
 
@@ -190,6 +265,11 @@ The recipe schema should support progressive levels of control:
 
 Raw bone tracks are an export detail produced after validation and mapping.
 
+The control system is required even when animation is LLM-powered. The model selects and
+sequences validated controls; it does not replace the solver, invent bone names, or emit
+runtime JavaScript. Manual gizmos, timeline editing, procedural motions, and the LLM all
+read and write the same recipe representation.
+
 ## Workshop file contract
 
 The portable result is a GLB plus a versioned sidecar during authoring:
@@ -197,6 +277,7 @@ The portable result is a GLB plus a versioned sidecar during authoring:
 ```text
 creature.glb
 creature.workshop.json
+rigify.quadruped.v1.json
 textures/
   albedo.png
   roughness.png
@@ -223,20 +304,17 @@ data into a single GLB, but the authoring format remains explicit and diffable.
 7. Add Look material controls, mask painting, and non-destructive sculpt layers.
 8. Consolidate export and workshop project persistence.
 
-## Animation questions to resolve
+## Remaining animation questions
 
-These are product decisions for the animation discussion, not blockers for the viewer
-refactor:
+These decisions can be resolved while iterating on the first canonical quadruped profile:
 
-- Is browser-authored FK motion expected to be final, or primarily a fast previs that is
-  always eligible for Blender rebaking?
-- Which first rig profile is canonical: the existing Rigify Basic Quadruped setup, a
-  project-specific quadruped derivative, or a smaller exported runtime skeleton?
+- Is the canonical profile the unmodified Rigify Basic Quadruped setup or the existing
+  project-specific derivative?
 - Should the first LLM surface generate whole clips, edit selected time ranges, or choose
   and parameterize trusted procedural motions?
 - Which motions prove the product: idle, walk/trot, headbutt/attack, look-at, or a custom
   prompt?
-- Does v1 need foot locking and terrain contact, or is FK posing plus baked clips enough?
+- At which iteration do foot locking and terrain contact become required?
 - Should animation recipes be reusable across differently proportioned creatures of the
   same rig profile?
 

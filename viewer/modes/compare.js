@@ -1,12 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
-import { OrbitControls } from '../vendor/controls/OrbitControls.js';
-import { IndexedOBJLoader } from '../IndexedOBJLoader.js';
-import { RoomEnvironment } from '../vendor/environments/RoomEnvironment.js';
-
-// Built once (pure geometry, no GPU resources) and baked per-renderer below —
-// this is what stands in for Blender's Material Preview studio HDRI.
-const roomEnvironment = new RoomEnvironment();
+import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 
 // What a slot can hold. A model root drives the 3D pipeline; an image becomes a source
 // pane (or, dropped onto a model, an alignment overlay). Adding a model format is one line
@@ -166,41 +159,20 @@ function mountModel(slotIndex, spec) {
     `<button class="ovl" title="overlay a source image ON TOP of this model, to align it">⧉ overlay</button>` +
     `<button class="clear" title="remove">✕</button>`);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  pane.appendChild(renderer.domElement);
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x14161a);
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
-  camera.position.set(0, 0.3, 3);
-
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.target.set(0, 0, 0);
-
-  // Studio HDRI environment, baked once per renderer with PMREMGenerator — this is
-  // what Blender's Material Preview/LookDev viewport actually uses instead of lamps,
-  // and why it reads as evenly lit from every side. See vendor/environments/RoomEnvironment.js.
-  const pmremGenerator = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmremGenerator.fromScene(roomEnvironment, 0.04).texture;
-  pmremGenerator.dispose();
-  scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x30302a, 0.15));
-
-  const view = { kind: 'model', spec, slotIndex, pane, renderer, scene, camera, controls,
-                 root: null, stats: pane.querySelector('.stats'), materials: [], overlay: null };
-
-  // Render on demand: a moving camera is the only reason to repaint. See renderFrame()'s
-  // note on the GPU watchdog for why this viewer never runs a free-running 60fps loop.
-  controls.addEventListener('change', invalidate);
+  const view = createModelViewport({
+    pane,
+    spec,
+    slotIndex,
+    onChange: invalidate,
+    onLoaded: () => { applyState(); frame(); },
+    onError: (error) => setErr(`${spec.label}: ${error.message || error}`),
+  });
   view.ovlBtn = pane.querySelector('.ovl');
   view.ovlBtn.onclick = () => { pendingOverlay = view; ovlInput.click(); };
 
   slots[slotIndex] = view;
   rebuildViews();
   resize();
-  loadModel(view);
 }
 
 function mountImage(slotIndex, spec) {
@@ -265,9 +237,7 @@ function clearSlot(slotIndex) {
   if (!view) return;
   if (view.kind === 'model') {
     removeOverlay(view);
-    view.controls.dispose();
-    view.renderer.dispose();
-    view.renderer.forceContextLoss();
+    disposeModelViewport(view);
   }
   view.pane.remove();
   for (const u of (view.spec.revoke || [])) {
@@ -278,76 +248,6 @@ function clearSlot(slotIndex) {
   slots[slotIndex] = null;
   rebuildViews();
   invalidate();
-}
-
-function loadModel(view) {
-  const spec = view.spec;
-  const onLoad = (root) => {
-    // Normalise to a unit box centred on the origin, so a size difference cannot
-    // masquerade as a quality difference between panes.
-    //
-    // Wrapped in a group rather than transforming `root` directly: Box3.setFromObject
-    // reads world matrices, so measuring and then mutating the same object needs a
-    // matrix flush between each step and silently mis-frames if you forget one.
-    const pivot = new THREE.Group();
-    root.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(root);
-    const size = box.getSize(new THREE.Vector3());
-    const centre = box.getCenter(new THREE.Vector3());
-    const s = 1 / Math.max(size.x, size.y, size.z);
-    root.position.sub(centre);          // centre in local space, before scaling
-    pivot.scale.setScalar(s);
-    pivot.add(root);
-    pivot.updateMatrixWorld(true);
-
-    let faces = 0, verts = 0;
-    root.traverse((o) => {
-      if (!o.isMesh) return;
-      const g = o.geometry;
-      // Some exports (e.g. a bare shape-stage mesh.export() with no baked material) ship
-      // no NORMAL attribute at all. The default material's flatShading:true papers over
-      // that by computing per-face normals from screen-space derivatives (dFdx/dFdy) --
-      // but flat/normals mode swap in materials that read the vertex attribute directly,
-      // and wireframe draws GL_LINES where those derivatives are undefined anyway. Either
-      // way a missing normal reads as a zero vector -> zero lighting -> solid black.
-      // Compute real vertex normals once at load time so every mode has something to read.
-      if (!g.attributes.normal) g.computeVertexNormals();
-      verts += g.attributes.position.count;
-      faces += g.index ? g.index.count / 3 : g.attributes.position.count / 3;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      for (const m of mats) {
-        view.materials.push({ mesh: o, original: m, flat: null, normal: null,
-                              origFlatShading: !!m.flatShading });
-      }
-    });
-    view.root = pivot;
-    view.scene.add(pivot);
-    view.stats.textContent =
-      `${faces.toLocaleString()} faces\n${verts.toLocaleString()} verts (as stored)`;
-    applyState();
-    frame();
-  };
-  const onProgress = (e) => {
-    if (!e.lengthComputable) return;
-    view.stats.textContent = `loading… ${Math.round(e.loaded / e.total * 100)}%`;
-  };
-  const onError = (e) => {
-    view.stats.textContent = 'FAILED';
-    setErr(`${spec.label}: ${e.message || e}`);
-  };
-
-  if (spec.ext === 'obj') {
-    new IndexedOBJLoader().load(spec.url, (root) => {
-      // o_voxel's GLB exporter maps native TRELLIS coordinates as
-      // (x, y, z) -> (x, z, -y). Apply the identical view-only transform so a raw OBJ
-      // and its processed GLB share an up axis and camera angle.
-      root.rotation.x = -Math.PI / 2;
-      onLoad(root);
-    }, onProgress, onError);
-  } else {
-    const loader = spec.manager ? new GLTFLoader(spec.manager) : new GLTFLoader();
-    loader.load(spec.url, (gltf) => onLoad(gltf.scene), onProgress, onError);
-  }
 }
 
 // --- alignment overlay (onion-skin) --------------------------------------------------
@@ -621,4 +521,3 @@ function renderFrame() {
 }
 window.__viewerInvalidate = invalidate;   // so automation can force a repaint
 window.__viewerReady = true;
-

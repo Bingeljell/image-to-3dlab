@@ -103,3 +103,14 @@ def test_generate_mode_is_an_es_module():
     assert "import './modes/generate.js';" in app
     assert generate.is_file()
     assert "function startGenerateStream" in generate.read_text()
+
+
+def test_compare_uses_the_shared_model_viewport():
+    compare = (REPO / "viewer" / "modes" / "compare.js").read_text()
+    viewport = REPO / "viewer" / "components" / "model-viewport.js"
+
+    assert "createModelViewport" in compare
+    assert viewport.is_file()
+    source = viewport.read_text()
+    assert "export function createModelViewport" in source
+    assert "export function disposeModelViewport" in source

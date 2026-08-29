@@ -3,6 +3,7 @@ import { GLTFLoader } from '../vendor/loaders/GLTFLoader.js';
 import { OrbitControls } from '../vendor/controls/OrbitControls.js';
 import { IndexedOBJLoader } from '../IndexedOBJLoader.js';
 import { RoomEnvironment } from '../vendor/environments/RoomEnvironment.js';
+import { inspectRig, resetRigPose } from '../animation/rig-inspection.js';
 
 // Pure geometry shared by every viewport. Each renderer still creates its own PMREM
 // texture because GPU resources cannot be shared across WebGL contexts.
@@ -39,8 +40,10 @@ export function createModelViewport({ pane, spec, slotIndex = null, onChange, on
 
   const view = {
     kind: 'model', spec, slotIndex, pane, renderer, scene, camera, controls,
-    root: null, stats: pane.querySelector('.stats'), materials: [], overlay: null,
+    root: null, modelRoot: null, stats: pane.querySelector('.stats'), materials: [],
+    overlay: null, rig: inspectRig(null),
   };
+  view.resetPose = () => resetRigPose(view.rig);
   loadModel(view, onLoaded, onError);
   return view;
 }
@@ -53,7 +56,7 @@ export function disposeModelViewport(view) {
 
 function loadModel(view, onLoaded, onError) {
   const { spec } = view;
-  const loaded = (root) => {
+  const loaded = (root, animations = []) => {
     // Normalize to a unit box centered on the origin so differently scaled exports remain
     // directly comparable and every room can use the same camera framing contract.
     const pivot = new THREE.Group();
@@ -90,6 +93,8 @@ function loadModel(view, onLoaded, onError) {
     });
 
     view.root = pivot;
+    view.modelRoot = root;
+    view.rig = inspectRig(root, animations);
     view.scene.add(pivot);
     view.stats.textContent = `${faces.toLocaleString()} faces\n${verts.toLocaleString()} verts (as stored)`;
     if (onLoaded) onLoaded(view);
@@ -113,6 +118,5 @@ function loadModel(view, onLoaded, onError) {
   }
 
   const loader = spec.manager ? new GLTFLoader(spec.manager) : new GLTFLoader();
-  loader.load(spec.url, (gltf) => loaded(gltf.scene), progress, failed);
+  loader.load(spec.url, (gltf) => loaded(gltf.scene, gltf.animations || []), progress, failed);
 }
-

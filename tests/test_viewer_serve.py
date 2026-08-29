@@ -94,3 +94,12 @@ def test_compare_mode_is_an_es_module():
     assert "import './modes/compare.js';" in app
     assert compare.is_file()
     assert "function mountModel" in compare.read_text()
+
+
+def test_generate_mode_is_an_es_module():
+    app = (REPO / "viewer" / "app.js").read_text()
+    generate = REPO / "viewer" / "modes" / "generate.js"
+
+    assert "import './modes/generate.js';" in app
+    assert generate.is_file()
+    assert "function startGenerateStream" in generate.read_text()

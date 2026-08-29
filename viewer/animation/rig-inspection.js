@@ -24,15 +24,46 @@ export function inspectRig(root, animations = []) {
     }
   });
 
+  const bindPose = new Map(bones.map((bone) => [bone, snapshotTransform(bone)]));
+
   return {
     animations: [...animations],
     bones,
     skeletons,
     skinnedMeshes,
+    bindPose,
   };
 }
 
 /** Restore every unique skeleton to the bind pose recorded in the GLB. */
 export function resetRigPose(rig) {
   for (const skeleton of rig.skeletons) skeleton.pose();
+}
+
+/** Return stable hierarchy data plus immutable bind and current local transforms. */
+export function describeBone(bone, rig) {
+  if (!bone) return null;
+  return {
+    name: bone.name || '(unnamed bone)',
+    parent: bone.parent?.isBone ? (bone.parent.name || '(unnamed bone)') : null,
+    children: (bone.children || [])
+      .filter((child) => child.isBone)
+      .map((child) => child.name || '(unnamed bone)'),
+    bind: rig.bindPose.get(bone) || snapshotTransform(bone),
+    pose: snapshotTransform(bone),
+  };
+}
+
+function snapshotTransform(object) {
+  return {
+    position: readComponents(object.position, ['x', 'y', 'z'], [0, 0, 0]),
+    quaternion: readComponents(object.quaternion, ['x', 'y', 'z', 'w'], [0, 0, 0, 1]),
+    scale: readComponents(object.scale, ['x', 'y', 'z'], [1, 1, 1]),
+  };
+}
+
+function readComponents(value, keys, fallback) {
+  if (!value) return [...fallback];
+  if (typeof value.toArray === 'function') return value.toArray().slice(0, keys.length);
+  return keys.map((key, index) => Number(value[key] ?? fallback[index]));
 }

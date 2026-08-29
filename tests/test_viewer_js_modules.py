@@ -37,12 +37,21 @@ def test_job_progress_formats_durations_from_the_shipped_module():
 def test_rig_inspection_deduplicates_bones_and_resets_each_skeleton():
     module_url = (REPO / "viewer" / "animation" / "rig-inspection.js").as_uri()
     program = f"""
-      import {{ inspectRig, resetRigPose }} from {json.dumps(module_url)};
-      const bone = {{ isBone: true, name: 'hip' }};
+      import {{ describeBone, inspectRig, resetRigPose }} from {json.dumps(module_url)};
+      const parent = {{ isBone: true, name: 'root' }};
+      const child = {{ isBone: true, name: 'knee' }};
+      const bone = {{
+        isBone: true, name: 'hip', parent, children: [child],
+        position: {{ x: 1, y: 2, z: 3 }},
+        quaternion: {{ x: 0, y: 0, z: 0, w: 1 }},
+        scale: {{ x: 1, y: 1, z: 1 }},
+      }};
       const skeleton = {{ bones: [bone], resets: 0, pose() {{ this.resets += 1; }} }};
       const mesh = {{ isSkinnedMesh: true, skeleton }};
       const root = {{ traverse(callback) {{ callback(bone); callback(mesh); callback(mesh); }} }};
       const rig = inspectRig(root, [{{ name: 'idle' }}]);
+      bone.position.x = 4;
+      const description = describeBone(bone, rig);
       resetRigPose(rig);
       console.log(JSON.stringify({{
         bones: rig.bones.map((item) => item.name),
@@ -50,6 +59,7 @@ def test_rig_inspection_deduplicates_bones_and_resets_each_skeleton():
         meshes: rig.skinnedMeshes.length,
         clips: rig.animations.map((item) => item.name),
         resets: skeleton.resets,
+        description,
       }}));
     """
 
@@ -66,6 +76,21 @@ def test_rig_inspection_deduplicates_bones_and_resets_each_skeleton():
         "meshes": 2,
         "clips": ["idle"],
         "resets": 1,
+        "description": {
+            "name": "hip",
+            "parent": "root",
+            "children": ["knee"],
+            "bind": {
+                "position": [1, 2, 3],
+                "quaternion": [0, 0, 0, 1],
+                "scale": [1, 1, 1],
+            },
+            "pose": {
+                "position": [4, 2, 3],
+                "quaternion": [0, 0, 0, 1],
+                "scale": [1, 1, 1],
+            },
+        },
     }
 
 

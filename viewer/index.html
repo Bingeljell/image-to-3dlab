@@ -9,12 +9,14 @@
 <link rel="stylesheet" href="./styles/base.css">
 <link rel="stylesheet" href="./styles/compare.css">
 <link rel="stylesheet" href="./styles/generate.css">
+<link rel="stylesheet" href="./styles/animate.css">
 </head>
 <body>
 <div id="mode-switch">
   <span class="lbl">image-to-3dlab</span>
   <button id="mode-compare" class="mode on">Compare</button>
   <button id="mode-generate" class="mode">Generate</button>
+  <button id="mode-animate" class="mode">Animate</button>
   <button id="mode-credits" class="mode">Credits &amp; Info</button>
 </div>
 <section id="compare-view">
@@ -165,6 +167,47 @@
       <div id="generate-downloads"><a id="generate-glb" download>Download GLB</a><a id="generate-manifest" download>Download manifest</a></div>
       <div id="generate-saved-note" style="display:none; margin-top:6px; font-size:11px; opacity:.6;"></div>
       <div id="generate-summary"></div>
+    </div>
+  </div>
+</section>
+
+<section id="animate-view" hidden>
+  <div class="animate-shell">
+    <aside class="animate-sidebar">
+      <h2>Animate</h2>
+      <p>Inspect a rigged GLB, preview its clips, and verify the bind pose.</p>
+      <div id="animate-drop" class="animate-drop" role="button" tabindex="0">
+        Drop a rigged GLB or GLTF here<br>or click to browse
+      </div>
+      <input id="animate-file" type="file" multiple
+             accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp,.ktx2" hidden>
+      <div id="animate-status" role="status"></div>
+
+      <div class="animate-section">
+        <h3>Rig inspection</h3>
+        <div id="animate-rig-summary">No model loaded.</div>
+        <label for="animate-clip"><span>Clip</span>
+          <select id="animate-clip" disabled><option>Bind pose</option></select>
+        </label>
+        <label for="animate-skeleton"><span>Show skeleton</span>
+          <input id="animate-skeleton" type="checkbox" checked disabled>
+        </label>
+        <button id="animate-reset" disabled>Reset to bind pose</button>
+      </div>
+    </aside>
+
+    <div class="animate-stage">
+      <div id="animate-viewport">
+        <div id="animate-empty" class="animate-empty">Load a rigged model to inspect its skeleton and clips.</div>
+        <div class="stats animate-stats">no model</div>
+      </div>
+      <div class="animate-transport">
+        <button id="animate-play" disabled>Play</button>
+        <span id="animate-time">0:00.00 / 0:00.00</span>
+        <input id="animate-timeline" type="range" min="0" max="0" value="0" disabled
+               aria-label="Animation time">
+        <label class="animate-loop"><input id="animate-loop" type="checkbox" checked> Loop</label>
+      </div>
     </div>
   </div>
 </section>

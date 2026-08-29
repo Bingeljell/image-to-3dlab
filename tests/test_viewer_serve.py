@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import re
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -70,7 +71,7 @@ def test_glb_is_served_as_a_binary_model_type():
 def test_viewer_styles_are_split_by_responsibility():
     """The app shell must not grow back into a single inline implementation file."""
     html = (REPO / "viewer" / "index.html").read_text()
-    expected = ("base.css", "compare.css", "generate.css")
+    expected = ("base.css", "compare.css", "generate.css", "animate.css")
 
     assert "<style>" not in html
     for name in expected:
@@ -103,6 +104,31 @@ def test_generate_mode_is_an_es_module():
     assert "import './modes/generate.js';" in app
     assert generate.is_file()
     assert "function startGenerateStream" in generate.read_text()
+
+
+def test_animate_mode_is_a_workshop_room():
+    html = (REPO / "viewer" / "index.html").read_text()
+    app = (REPO / "viewer" / "app.js").read_text()
+    animate = REPO / "viewer" / "modes" / "animate.js"
+
+    assert 'id="mode-animate"' in html
+    assert 'id="animate-view"' in html
+    assert "import './modes/animate.js';" in app
+    assert "animate: byId('animate-view')" in app
+    assert animate.is_file()
+    source = animate.read_text()
+    assert "new AnimationPlayer" in source
+    assert "new THREE.SkeletonHelper" in source
+
+
+def test_animate_mode_only_references_existing_controls():
+    html = (REPO / "viewer" / "index.html").read_text()
+    source = (REPO / "viewer" / "modes" / "animate.js").read_text()
+    html_ids = set(re.findall(r'id="([^"]+)"', html))
+    referenced_ids = set(re.findall(r"element\('([^']+)'\)", source))
+
+    assert referenced_ids
+    assert referenced_ids <= html_ids
 
 
 def test_compare_uses_the_shared_model_viewport():

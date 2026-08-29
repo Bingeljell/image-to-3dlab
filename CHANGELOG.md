@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Animate room for rigged GLB/GLTF inspection.** Load a bound character, inspect its
+  bone/skinned-mesh/clip inventory, toggle the skeleton, play or scrub embedded animation
+  clips, switch back to the bind pose, and control loop playback in the browser.
 - **Generate-page jobs now survive the server dying.** All job state (subprocess handle,
   event log) lived only in the web server's process memory, so if `viewer/serve.py` itself
   crashed or was closed mid-run — which happened twice on 2026-08-20, once as a silent

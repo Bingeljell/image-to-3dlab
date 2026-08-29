@@ -65,3 +65,14 @@ def test_port_is_honoured():
 def test_glb_is_served_as_a_binary_model_type():
     """A wrong MIME type makes GLTFLoader fail in a way that looks like a corrupt file."""
     assert serve.Handler.extensions_map[".glb"] == "model/gltf-binary"
+
+
+def test_viewer_styles_are_split_by_responsibility():
+    """The app shell must not grow back into a single inline implementation file."""
+    html = (REPO / "viewer" / "index.html").read_text()
+    expected = ("base.css", "compare.css", "generate.css")
+
+    assert "<style>" not in html
+    for name in expected:
+        assert f'href="./styles/{name}"' in html
+        assert (REPO / "viewer" / "styles" / name).is_file()

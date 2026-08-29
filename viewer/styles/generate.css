@@ -1,0 +1,62 @@
+.generate-grid { max-width: 1280px; min-height: calc(100vh - 94px); margin: 0 auto;
+                 display: grid; grid-template-columns: minmax(280px, 390px) minmax(0, 1fr); gap: 18px; }
+.generate-card { background: #1b1e24e8; border: 1px solid #303744; border-radius: 10px;
+                 padding: 16px; box-shadow: 0 14px 45px #0004; }
+.generate-card h2 { margin: 0 0 4px; font-size: 16px; color: #cfe3ff; }
+.generate-card p { margin: 0 0 14px; opacity: .68; font-size: 12px; }
+#generate-drop { border: 2px dashed #39404b; border-radius: 9px; min-height: 180px; padding: 14px;
+                 display: flex; align-items: center; justify-content: center; text-align: center;
+                 cursor: pointer; transition: .12s; }
+#generate-drop.drag { border-color: #4d84c0; background: #3b6ea522; }
+#generate-preview { max-width: 100%; max-height: 220px; display: none; object-fit: contain; border-radius: 6px; }
+#generate-drop.has-image #generate-preview { display: block; }
+#generate-drop.has-image #generate-prompt { display: none; }
+#generate-prompt { opacity: .75; }
+.alpha-badge { display: inline-block; margin-top: 8px; padding: 3px 7px; border-radius: 4px; font-size: 11px; }
+.alpha-good { background: #254f32; color: #a8e6b7; }
+.alpha-bad { background: #5a322e; color: #ffc2b8; }
+.field { margin-top: 12px; display: grid; grid-template-columns: 1fr 150px; gap: 8px; align-items: center; }
+.field small { grid-column: 1 / -1; opacity: .52; font-size: 10px; }
+.field input, .field select { width: 100%; background: #12151a; color: #d8dee9; border: 1px solid #39404b;
+                              border-radius: 4px; padding: 6px; font: inherit; }
+.check { display: flex; gap: 7px; align-items: center; margin-top: 14px; }
+.check small { opacity: .58; }
+#generate-submit, #generate-cancel { margin-top: 16px; width: 100%; padding: 9px; }
+#generate-submit { background: #2f5233; border-color: #3f6d45; }
+#generate-submit:hover:not(:disabled) { background: #396b40; }
+#generate-cancel { display: none; }
+#generate-status { min-height: 20px; margin-top: 10px; color: #ffb8ae; font-size: 12px; white-space: pre-wrap; }
+#generate-right { min-width: 0; display: flex; flex-direction: column; }
+/* Setup card */
+#generate-setup { margin-bottom: 14px; }
+.setup-check { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 3px 0; }
+.setup-check .ok { color: #6fbf73; }
+.setup-check .bad { color: #ffb8ae; }
+.setup-check .warn { color: #f5d742; }
+.setup-check code { background: #0d0f12; border: 1px solid #303744; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+.setup-check .hint { opacity: .7; }
+#setup-run { margin-top: 10px; }
+#setup-run-btn { background: #2f5233; border-color: #3f6d45; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+#setup-run-btn:disabled { opacity: .6; cursor: default; }
+#setup-log { display: none; margin: 8px 0 0; padding: 8px; max-height: 220px; overflow: auto; background: #0d0f12; border: 1px solid #303744; border-radius: 6px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #cfe3ff; }
+#generate-progress-box { flex: 1; min-height: 450px; }
+#generate-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+#generate-overall-label { color: #cfe3ff; }
+#generate-overall-eta { opacity: .75; white-space: nowrap; }
+.progress-track { height: 9px; margin: 12px 0 16px; background: #0d0f12; border-radius: 99px; overflow: hidden; }
+#generate-overall-bar { height: 100%; width: 0; background: linear-gradient(90deg, #4d84c0, #7eb4ef); transition: width .2s; }
+#generate-stages { display: grid; gap: 8px; }
+.stage-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 7px; align-items: center; padding: 7px 8px;
+             border-radius: 5px; background: #14161a; color: #8993a2; }
+.stage-row.active { color: #d8dee9; background: #243247; }
+.stage-row.done { color: #a8e6b7; }
+.stage-row .stage-detail { text-align: right; font-size: 11px; opacity: .8; }
+#generate-viewer { display: none; flex: 1; min-height: 450px; position: relative; }
+#generate-viewer iframe { width: 100%; height: 100%; min-height: 450px; border: 1px solid #303744; border-radius: 8px; background: #14161a; }
+#generate-downloads { display: none; gap: 10px; margin-top: 10px; font-size: 12px; }
+#generate-downloads a { color: #9bc8ff; }
+#generate-summary { display: none; margin-top: 8px; opacity: .7; font-size: 11px; white-space: pre-wrap; }
+@media (max-width: 760px) {
+  .generate-grid { grid-template-columns: 1fr; }
+  #generate-progress-box { min-height: 420px; }
+}

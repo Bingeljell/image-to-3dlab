@@ -67,3 +67,61 @@ def test_rig_inspection_deduplicates_bones_and_resets_each_skeleton():
         "clips": ["idle"],
         "resets": 1,
     }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_animation_player_owns_transport_without_owning_threejs():
+    module_url = (REPO / "viewer" / "animation" / "player.js").as_uri()
+    program = f"""
+      import {{ AnimationPlayer }} from {json.dumps(module_url)};
+      let queued = null;
+      const action = {{
+        time: 0, paused: false,
+        reset() {{ this.time = 0; return this; }},
+        play() {{ return this; }}
+      }};
+      const mixer = {{
+        clipAction() {{ return action; }},
+        stopAllAction() {{}},
+        update(delta) {{ action.time += delta; }},
+        addEventListener() {{}},
+        getRoot() {{ return {{}}; }},
+        uncacheRoot() {{}},
+      }};
+      const frames = [];
+      const states = [];
+      const player = new AnimationPlayer(mixer, {{
+        requestFrame(callback) {{ queued = callback; return 7; }},
+        cancelFrame() {{ queued = null; }},
+        onFrame(time, duration) {{ frames.push([time, duration]); }},
+        onStateChange(playing) {{ states.push(playing); }},
+      }});
+      player.select({{ name: 'walk', duration: 2 }});
+      player.play();
+      queued(1000);
+      queued(1500);
+      player.pause();
+      player.seek(9);
+      console.log(JSON.stringify({{
+        time: player.time,
+        duration: player.duration,
+        paused: action.paused,
+        states,
+        lastFrame: frames.at(-1),
+      }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "time": 2,
+        "duration": 2,
+        "paused": True,
+        "states": [False, False, True, False],
+        "lastFrame": [2, 2],
+    }

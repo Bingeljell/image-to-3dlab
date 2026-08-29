@@ -150,3 +150,59 @@ def test_animation_player_owns_transport_without_owning_threejs():
         "states": [False, False, True, False],
         "lastFrame": [2, 2],
     }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_bone_picker_maps_a_viewport_hit_back_to_the_bone():
+    picker_url = (REPO / "viewer" / "animation" / "bone-picker.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    program = f"""
+      import * as THREE from {json.dumps(three_url)};
+      import {{ BonePicker }} from {json.dumps(picker_url)};
+      const listeners = new Map();
+      const canvas = {{
+        addEventListener(name, callback) {{ listeners.set(name, callback); }},
+        removeEventListener(name) {{ listeners.delete(name); }},
+        getBoundingClientRect() {{ return {{ left: 0, top: 0, width: 100, height: 100 }}; }},
+      }};
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+      camera.position.set(0, 0, 3);
+      camera.updateMatrixWorld(true);
+      const bone = new THREE.Bone();
+      bone.name = 'DEF-hip';
+      scene.add(bone);
+      scene.updateMatrixWorld(true);
+      let selected = null;
+      const picker = new BonePicker({{
+        scene, camera, canvas, bones: [bone],
+        onSelect(value) {{ selected = value?.name || null; }},
+      }});
+      scene.updateMatrixWorld(true);
+      picker.update();
+      const hit = picker.pick(50, 50);
+      const beforeDispose = scene.children.includes(picker.markers);
+      picker.dispose();
+      console.log(JSON.stringify({{
+        hit: hit?.name,
+        selected,
+        beforeDispose,
+        afterDispose: scene.children.includes(picker.markers),
+        listeners: listeners.size,
+      }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "hit": "DEF-hip",
+        "selected": "DEF-hip",
+        "beforeDispose": True,
+        "afterDispose": False,
+        "listeners": 0,
+    }

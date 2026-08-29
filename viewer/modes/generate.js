@@ -1,8 +1,4 @@
 // --- Generate mode -------------------------------------------------------------------
-// Kept in this same shell so the generated result can open the exact Compare viewer (including
-// its backface-cull acceptance toggle) without changing any of Compare's loading/render code.
-const generateView = document.getElementById('generate-view');
-const compareView = document.getElementById('compare-view');
 // Backend metadata (stages, labels, requires_alpha) is server-owned truth (viewer/generate_api.py
 // BACKENDS registry) -- fetched once so the frontend never hardcodes a second copy that can drift.
 let backendMeta = {
@@ -58,19 +54,6 @@ const updateGenerateButton = () => {
   const needsRembg = backendRequiresAlpha() && !gen.hasAlpha && !g('generate-rembg').checked;
   g('generate-submit').disabled = !gen.file || gen.running || needsRembg || !setupState.ready;
 };
-const creditsView = document.getElementById('credits-view');
-const setGenerateMode = (mode) => {
-  compareView.classList.toggle('hidden', mode !== 'compare');
-  generateView.hidden = mode !== 'generate';
-  creditsView.hidden = mode !== 'credits';
-  g('mode-compare').classList.toggle('on', mode === 'compare');
-  g('mode-generate').classList.toggle('on', mode === 'generate');
-  g('mode-credits').classList.toggle('on', mode === 'credits');
-};
-g('mode-compare').onclick = () => setGenerateMode('compare');
-g('mode-generate').onclick = () => setGenerateMode('generate');
-g('mode-credits').onclick = () => setGenerateMode('credits');
-
 async function inspectAlpha(file) {
   // JPEG and opaque formats cannot carry a useful foreground alpha. For PNG/WebP, inspect the
   // decoded pixels in-browser so the guardrail is visible before a long job is submitted.

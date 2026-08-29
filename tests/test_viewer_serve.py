@@ -123,3 +123,12 @@ def test_compare_uses_shared_asset_file_specs():
     assert "from '../core/asset-files.js'" in compare
     assert asset_files.is_file()
     assert "export function specsFromFiles" in asset_files.read_text()
+
+
+def test_app_shell_owns_mode_navigation():
+    app = (REPO / "viewer" / "app.js").read_text()
+    generate = (REPO / "viewer" / "modes" / "generate.js").read_text()
+
+    assert "function setMode" in app
+    assert "mode-${mode}" in app
+    assert "setGenerateMode" not in generate

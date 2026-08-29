@@ -1,4 +1,6 @@
 // --- Generate mode -------------------------------------------------------------------
+import { JobProgressPanel, formatDuration } from '../components/job-progress.js';
+
 // Backend metadata (stages, labels, requires_alpha) is server-owned truth (viewer/generate_api.py
 // BACKENDS registry) -- fetched once so the frontend never hardcodes a second copy that can drift.
 let backendMeta = {
@@ -9,21 +11,15 @@ let backendMeta = {
       shape_slat_fine: 'Shape SLat fine', texture_slat: 'Texture SLat', decode: 'Decode', bake: 'Bake / remesh' },
   },
 }; // placeholder until /api/backends resolves; keeps the page usable if that fetch is slow/fails
-let generateStages = [];
-const stageRows = new Map();
-const generateStagesEl = document.getElementById('generate-stages');
+const jobProgress = new JobProgressPanel({
+  stages: document.getElementById('generate-stages'),
+  bar: document.getElementById('generate-overall-bar'),
+  label: document.getElementById('generate-overall-label'),
+  eta: document.getElementById('generate-overall-eta'),
+});
 function buildStageRows(backendId) {
   const meta = backendMeta[backendId] || { stages: ['running'], stage_labels: { running: 'Running' } };
-  generateStages = meta.stages.map((phase) => [phase, meta.stage_labels[phase] || phase]);
-  stageRows.clear();
-  generateStagesEl.innerHTML = '';
-  for (const [phase, label] of generateStages) {
-    const row = document.createElement('div');
-    row.className = 'stage-row'; row.dataset.phase = phase;
-    row.innerHTML = `<span class="stage-dot">○</span><span>${label}</span><span class="stage-detail">queued</span>`;
-    generateStagesEl.appendChild(row);
-    stageRows.set(phase, row);
-  }
+  jobProgress.configure(meta);
 }
 buildStageRows('trellis');
 const gen = {
@@ -37,19 +33,6 @@ function backendRequiresAlpha() {
   return meta ? meta.requires_alpha : true; // fail conservative if metadata hasn't loaded yet
 }
 const g = (id) => document.getElementById(id);
-const formatDuration = (seconds) => {
-  if (seconds == null || !Number.isFinite(Number(seconds))) return 'estimating…';
-  const n = Math.max(0, Math.round(Number(seconds)));
-  if (n < 60) return `${n}s`;
-  const m = Math.round(n / 60);
-  return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
-};
-const resetStageRows = () => {
-  for (const row of stageRows.values()) {
-    row.className = 'stage-row'; row.querySelector('.stage-dot').textContent = '○';
-    row.querySelector('.stage-detail').textContent = 'queued';
-  }
-};
 const updateGenerateButton = () => {
   const needsRembg = backendRequiresAlpha() && !gen.hasAlpha && !g('generate-rembg').checked;
   g('generate-submit').disabled = !gen.file || gen.running || needsRembg || !setupState.ready;
@@ -99,25 +82,7 @@ g('generate-rembg').onchange = updateGenerateButton;
 
 function applyGenerateProgress(event) {
   const phase = event.phase;
-  if (stageRows.has(phase)) {
-    const current = generateStages.findIndex(([name]) => name === phase);
-    for (let i = 0; i < current; i++) {
-      const row = stageRows.get(generateStages[i][0]);
-      row.className = 'stage-row done'; row.querySelector('.stage-dot').textContent = '✓';
-      row.querySelector('.stage-detail').textContent = 'done';
-    }
-    const row = stageRows.get(phase);
-    const pct = event.stage_pct == null ? '' : `${event.stage_pct}%`;
-    const steps = event.step != null ? `${event.step}/${event.total}` : pct;
-    row.className = event.stage_pct === 100 ? 'stage-row done' : 'stage-row active';
-    row.querySelector('.stage-dot').textContent = event.stage_pct === 100 ? '✓' : '●';
-    row.querySelector('.stage-detail').textContent = event.stage_pct === 100
-      ? 'done' : `${steps} · ~${formatDuration(event.stage_eta_seconds)}`;
-    g('generate-overall-bar').style.width = `${Math.max(0, Math.min(100, event.overall_pct || 0))}%`;
-    g('generate-overall-label').textContent = event.message || phase;
-    g('generate-overall-eta').textContent = event.total_eta_seconds == null
-      ? 'Total still estimating' : `Total ~${formatDuration(event.total_eta_seconds)}`;
-  }
+  jobProgress.apply(event);
   if (phase === 'done') {
     g('generate-overall-bar').style.width = '100%';
     g('generate-overall-label').textContent = 'Generation complete';
@@ -212,7 +177,7 @@ function startGenerateStream(jobId) {
 }
 g('generate-submit').onclick = async () => {
   if (!gen.file || gen.running) return;
-  gen.running = true; resetStageRows();
+  gen.running = true; jobProgress.reset();
   g('generate-progress-box').style.display = 'block'; g('generate-viewer').style.display = 'none';
   g('generate-downloads').style.display = 'none'; g('generate-summary').style.display = 'none';
   g('generate-duration').style.display = 'none';
@@ -329,7 +294,7 @@ g('generate-backend').onchange = () => {
     block.hidden = block.dataset.backend !== backendId;
   }
   buildStageRows(backendId);
-  resetStageRows();
+  jobProgress.reset();
   gen.hasAlpha = false;
   g('generate-alpha').hidden = true;
   refreshSetup();

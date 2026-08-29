@@ -132,3 +132,11 @@ def test_app_shell_owns_mode_navigation():
     assert "function setMode" in app
     assert "mode-${mode}" in app
     assert "setGenerateMode" not in generate
+
+
+def test_generate_uses_shared_job_progress():
+    generate = (REPO / "viewer" / "modes" / "generate.js").read_text()
+    progress = REPO / "viewer" / "components" / "job-progress.js"
+
+    assert "new JobProgressPanel" in generate
+    assert progress.is_file()

@@ -1,14 +1,12 @@
 import * as THREE from 'three';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
-
-// What a slot can hold. A model root drives the 3D pipeline; an image becomes a source
-// pane (or, dropped onto a model, an alignment overlay). Adding a model format is one line
-// here plus a vendored loader import; anything unlisted is rejected in the UI.
-const MODEL_EXTS = new Set(['glb', 'gltf', 'obj']);
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif']);
-const extOf = (name) => name.split('.').pop().toLowerCase();
-const isModelFile = (f) => MODEL_EXTS.has(extOf(f.name));
-const isImageFile = (f) => IMAGE_EXTS.has(extOf(f.name));
+import {
+  IMAGE_EXTS,
+  extOf,
+  isImageFile,
+  isModelFile,
+  specsFromFiles,
+} from '../core/asset-files.js';
 
 const state = {
   cull: true,          // default ON: a double-sided preview cannot show a hollow mesh
@@ -55,49 +53,6 @@ const invalidate = requestRender;
 
 function firstEmpty() { return slots.findIndex((s) => s === null); }
 function occupied() { return slots.filter(Boolean).length; }
-
-// A "bundle" is one root file plus any sibling resources it references (a .gltf's .bin and
-// textures). Local files carry no server path, so we hand the loader blob URLs and a
-// LoadingManager that resolves each referenced resource by basename.
-function makeManager(blobByName) {
-  const m = new THREE.LoadingManager();
-  m.setURLModifier((url) => {
-    if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-    const base = decodeURIComponent(url.split('/').pop().split('?')[0]);
-    return blobByName.get(base) || url;
-  });
-  return m;
-}
-
-// A drop that contains a model file loads the model (images ride along as its textures).
-// A drop with no model file treats each image as its own source-image pane. This is the
-// rule that keeps "gltf + textures" and "a bare reference photo" from colliding.
-function specsFromFiles(fileList) {
-  const files = [...fileList];
-  const models = files.filter(isModelFile);
-  if (models.length) {
-    const blobByName = new Map();
-    const urls = [];
-    for (const f of files) {
-      const u = URL.createObjectURL(f);
-      urls.push(u);
-      blobByName.set(f.name, u);
-    }
-    const manager = makeManager(blobByName);
-    return models.map((f) => ({
-      kind: 'model', url: blobByName.get(f.name), label: f.name,
-      ext: extOf(f.name), manager, revoke: urls,
-    }));
-  }
-  const images = files.filter(isImageFile);
-  if (images.length) {
-    return images.map((f) => {
-      const u = URL.createObjectURL(f);
-      return { kind: 'image', url: u, label: f.name, revoke: [u] };
-    });
-  }
-  throw new Error('nothing loadable — expected a .glb/.gltf/.obj model or a PNG/JPG image');
-}
 
 // Load specs into slots. `targetSlot` (or null) forces the first spec to replace a
 // specific pane; the rest fill empty slots in order, up to MAX.

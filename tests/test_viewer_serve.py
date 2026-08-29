@@ -114,3 +114,12 @@ def test_compare_uses_the_shared_model_viewport():
     source = viewport.read_text()
     assert "export function createModelViewport" in source
     assert "export function disposeModelViewport" in source
+
+
+def test_compare_uses_shared_asset_file_specs():
+    compare = (REPO / "viewer" / "modes" / "compare.js").read_text()
+    asset_files = REPO / "viewer" / "core" / "asset-files.js"
+
+    assert "from '../core/asset-files.js'" in compare
+    assert asset_files.is_file()
+    assert "export function specsFromFiles" in asset_files.read_text()

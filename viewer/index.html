@@ -194,6 +194,31 @@
         </label>
         <button id="animate-reset" disabled>Reset to bind pose</button>
       </div>
+
+      <div class="animate-section">
+        <h3>Selected bone</h3>
+        <div id="animate-bone-empty">Click a joint marker in the viewport.</div>
+        <div id="animate-bone-inspector" hidden>
+          <strong id="animate-bone-name"></strong>
+          <dl class="bone-hierarchy">
+            <dt>Parent</dt><dd id="animate-bone-parent"></dd>
+            <dt>Children</dt><dd id="animate-bone-children"></dd>
+          </dl>
+          <div class="bone-transform-title">Bind transform · local</div>
+          <dl class="bone-transform">
+            <dt>P</dt><dd id="animate-bind-position"></dd>
+            <dt>R</dt><dd id="animate-bind-rotation"></dd>
+            <dt>S</dt><dd id="animate-bind-scale"></dd>
+          </dl>
+          <div class="bone-transform-title">Pose transform · local</div>
+          <dl class="bone-transform">
+            <dt>P</dt><dd id="animate-pose-position"></dd>
+            <dt>R</dt><dd id="animate-pose-rotation"></dd>
+            <dt>S</dt><dd id="animate-pose-scale"></dd>
+          </dl>
+        </div>
+        <button id="animate-clear-bone" disabled>Clear selection</button>
+      </div>
     </aside>
 
     <div class="animate-stage">

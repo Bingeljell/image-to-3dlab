@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { BonePicker } from '../animation/bone-picker.js';
 import { AnimationPlayer } from '../animation/player.js';
+import { describeBone } from '../animation/rig-inspection.js';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 import { specsFromFiles } from '../core/asset-files.js';
 
@@ -17,10 +19,24 @@ const skeletonToggle = element('animate-skeleton');
 const resetButton = element('animate-reset');
 const rigSummary = element('animate-rig-summary');
 const status = element('animate-status');
+const boneEmpty = element('animate-bone-empty');
+const boneInspector = element('animate-bone-inspector');
+const boneName = element('animate-bone-name');
+const boneParent = element('animate-bone-parent');
+const boneChildren = element('animate-bone-children');
+const bindPosition = element('animate-bind-position');
+const bindRotation = element('animate-bind-rotation');
+const bindScale = element('animate-bind-scale');
+const posePosition = element('animate-pose-position');
+const poseRotation = element('animate-pose-rotation');
+const poseScale = element('animate-pose-scale');
+const clearBoneButton = element('animate-clear-bone');
 
 let view = null;
 let player = null;
 let skeletonHelper = null;
+let bonePicker = null;
+let selectedBone = null;
 let renderPending = false;
 
 const formatTime = (seconds) => {
@@ -40,8 +56,43 @@ function renderFrame() {
   renderPending = false;
   if (!view) return;
   const moving = view.controls.update();
+  bonePicker?.update();
+  updateBoneInspector();
   view.renderer.render(view.scene, view.camera);
   if (moving) requestRender();
+}
+
+const formatVector = (values) => values.map((value) => Number(value).toFixed(3)).join(', ');
+
+function formatRotation(quaternionValues) {
+  const quaternion = new THREE.Quaternion(...quaternionValues);
+  const rotation = new THREE.Euler().setFromQuaternion(quaternion, 'XYZ');
+  return [rotation.x, rotation.y, rotation.z]
+    .map((value) => THREE.MathUtils.radToDeg(value).toFixed(1))
+    .join('°, ') + '°';
+}
+
+function updateBoneInspector() {
+  if (!selectedBone || !view) return;
+  const description = describeBone(selectedBone, view.rig);
+  boneName.textContent = description.name;
+  boneParent.textContent = description.parent || 'armature root';
+  boneChildren.textContent = description.children.length ? description.children.join(', ') : '—';
+  bindPosition.textContent = formatVector(description.bind.position);
+  bindRotation.textContent = formatRotation(description.bind.quaternion);
+  bindScale.textContent = formatVector(description.bind.scale);
+  posePosition.textContent = formatVector(description.pose.position);
+  poseRotation.textContent = formatRotation(description.pose.quaternion);
+  poseScale.textContent = formatVector(description.pose.scale);
+}
+
+function selectBone(bone) {
+  selectedBone = bone;
+  boneEmpty.hidden = !!bone;
+  boneInspector.hidden = !bone;
+  clearBoneButton.disabled = !bone;
+  updateBoneInspector();
+  requestRender();
 }
 
 function resizeViewport() {
@@ -116,6 +167,9 @@ function buildClipMenu() {
 function disposeCurrent() {
   player?.dispose();
   player = null;
+  bonePicker?.dispose();
+  bonePicker = null;
+  selectBone(null);
   if (skeletonHelper) {
     skeletonHelper.removeFromParent();
     skeletonHelper.geometry?.dispose();
@@ -145,8 +199,20 @@ function loaded(loadedView) {
 
   if (view.rig.bones.length) {
     skeletonHelper = new THREE.SkeletonHelper(view.modelRoot);
+    skeletonHelper.material.depthTest = false;
+    skeletonHelper.material.transparent = true;
+    skeletonHelper.material.opacity = 0.68;
+    skeletonHelper.renderOrder = 19;
     skeletonHelper.visible = skeletonToggle.checked;
     view.scene.add(skeletonHelper);
+    bonePicker = new BonePicker({
+      scene: view.scene,
+      camera: view.camera,
+      canvas: view.renderer.domElement,
+      bones: view.rig.bones,
+      onSelect: selectBone,
+    });
+    bonePicker.setVisible(skeletonToggle.checked);
   }
 
   buildClipMenu();
@@ -240,6 +306,7 @@ timeline.oninput = () => {
 loopToggle.onchange = configureLoop;
 skeletonToggle.onchange = () => {
   if (skeletonHelper) skeletonHelper.visible = skeletonToggle.checked;
+  bonePicker?.setVisible(skeletonToggle.checked);
   requestRender();
 };
 resetButton.onclick = () => {
@@ -247,6 +314,7 @@ resetButton.onclick = () => {
   selectClip(-1);
   status.textContent = 'Restored the GLB bind pose.';
 };
+clearBoneButton.onclick = () => bonePicker?.clear();
 
 addEventListener('resize', resizeViewport);
 document.addEventListener('viewer:modechange', (event) => {

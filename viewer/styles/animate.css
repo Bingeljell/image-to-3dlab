@@ -17,6 +17,15 @@
   color: #d8dee9; border: 1px solid #39404b; border-radius: 4px; padding: 6px; font: inherit; }
 .animate-section button { width: 100%; margin-top: 10px; }
 #animate-rig-summary { min-height: 38px; color: #aeb8c6; font-size: 11px; white-space: pre-wrap; }
+#animate-bone-empty { color: #7f8a98; font-size: 11px; }
+#animate-bone-name { display: block; margin-bottom: 8px; color: #ffc857; overflow-wrap: anywhere; }
+.bone-hierarchy, .bone-transform { display: grid; grid-template-columns: 58px minmax(0, 1fr);
+  gap: 4px 8px; margin: 0; font-size: 11px; }
+.bone-hierarchy dt, .bone-transform dt { color: #778393; }
+.bone-hierarchy dd, .bone-transform dd { min-width: 0; margin: 0; color: #c7d2df; overflow-wrap: anywhere; }
+.bone-transform-title { margin: 11px 0 5px; color: #778393; font-size: 10px;
+  letter-spacing: .04em; text-transform: uppercase; }
+.bone-transform dd { font-variant-numeric: tabular-nums; }
 #animate-status { min-height: 36px; margin-top: 12px; color: #ffb8ae; font-size: 11px; white-space: pre-wrap; }
 .animate-stage { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
 #animate-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
@@ -37,4 +46,3 @@
   .animate-sidebar { overflow: visible; border-right: 0; border-bottom: 1px solid #303744; }
   .animate-stage { min-height: 520px; }
 }
-

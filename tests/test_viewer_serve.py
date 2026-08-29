@@ -85,3 +85,12 @@ def test_viewer_javascript_has_an_external_entry_point():
     assert '<script type="module" src="./app.js"></script>' in html
     assert '<script type="module">' not in html
     assert (REPO / "viewer" / "app.js").is_file()
+
+
+def test_compare_mode_is_an_es_module():
+    app = (REPO / "viewer" / "app.js").read_text()
+    compare = REPO / "viewer" / "modes" / "compare.js"
+
+    assert "import './modes/compare.js';" in app
+    assert compare.is_file()
+    assert "function mountModel" in compare.read_text()

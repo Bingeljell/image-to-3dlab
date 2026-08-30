@@ -35,6 +35,7 @@ export class BonePicker {
       depthWrite: false,
       transparent: true,
       opacity: 0.92,
+      toneMapped: false,
     });
     this.markers = new THREE.InstancedMesh(this.geometry, this.material, this.bones.length);
     this.markers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -53,6 +54,7 @@ export class BonePicker {
       depthWrite: false,
       transparent: true,
       opacity: 0.72,
+      toneMapped: false,
     });
     this.bodies = new THREE.InstancedMesh(
       this.bodyGeometry,

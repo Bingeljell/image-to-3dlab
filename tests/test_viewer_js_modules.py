@@ -495,3 +495,80 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
         "gizmoPosition": [1.3, 1.1, 0],
         "gizmoVisible": True,
     }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_fit_skeleton_overlay_selects_bones_and_drags_joint_in_camera_plane():
+    overlay_url = (REPO / "viewer" / "rig" / "fit-skeleton-overlay.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    program = f"""
+      import * as THREE from {json.dumps(three_url)};
+      import {{ FitSkeletonOverlay }} from {json.dumps(overlay_url)};
+      const canvas = {{
+        style: {{}}, addEventListener() {{}}, removeEventListener() {{}},
+        setPointerCapture() {{}}, releasePointerCapture() {{}},
+        getBoundingClientRect() {{ return {{ left: 0, top: 0, width: 200, height: 200 }}; }},
+      }};
+      const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+      camera.position.set(0, 0, 3);
+      camera.updateMatrixWorld(true);
+      const scene = new THREE.Scene();
+      const armature = new THREE.Group();
+      const bone = new THREE.Bone();
+      bone.name = 'DEF-limb';
+      armature.add(bone);
+      scene.add(armature);
+      scene.updateMatrixWorld(true);
+      let overlay;
+      let finished = null;
+      overlay = new FitSkeletonOverlay({{
+        scene,
+        sidecar: {{
+          joints: {{
+            root: {{ position: [0, 0, 0], sourceBone: 'DEF-limb', parent: null }},
+            tip: {{ position: [0.4, 0, 0], sourceBone: 'DEF-limb', parent: 'root' }},
+          }},
+          corrections: {{}},
+        }},
+        bones: [bone], camera, canvas,
+        onSelect(id) {{ overlay.selectJoint(id); }},
+        onMove(id, position, done) {{ if (done) finished = {{ id, position }}; }},
+      }});
+      scene.updateMatrixWorld(true);
+      const toScreen = (position) => {{
+        const projected = position.clone().project(camera);
+        return {{ x: (projected.x + 1) * 100, y: (1 - projected.y) * 100 }};
+      }};
+      const midpoint = toScreen(new THREE.Vector3(0.2, 0, 0));
+      const boneJoint = overlay.pickBone(midpoint.x, midpoint.y);
+      const start = toScreen(overlay.positions.get('tip'));
+      const event = (x, y) => ({{
+        button: 0, pointerId: 1, clientX: x, clientY: y,
+        preventDefault() {{}}, stopImmediatePropagation() {{}},
+      }});
+      overlay.handlePointerDown(event(start.x, start.y));
+      overlay.handlePointerMove(event(start.x + 20, start.y));
+      overlay.handlePointerUp(event(start.x + 20, start.y));
+      console.log(JSON.stringify({{
+        boneJoint, selected: overlay.selectedId, finished,
+        moved: overlay.positions.get('tip').x > 0.4,
+        boneToneMapped: overlay.boneMaterial.toneMapped,
+        markerToneMapped: overlay.markerMaterial.toneMapped,
+      }}));
+      overlay.dispose();
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["boneJoint"] == "tip"
+    assert payload["selected"] == "tip"
+    assert payload["finished"]["id"] == "tip"
+    assert payload["moved"] is True
+    assert payload["boneToneMapped"] is False
+    assert payload["markerToneMapped"] is False

@@ -6,6 +6,8 @@ const SELECTED = new THREE.Color(0x35e7ff);
 const MATRIX = new THREE.Matrix4();
 const ORIENTATION = new THREE.Quaternion();
 const SCALE = new THREE.Vector3();
+const MIDPOINT = new THREE.Vector3();
+const DIRECTION = new THREE.Vector3();
 const AXIS_UP = new THREE.Vector3(0, 1, 0);
 const AXIS_VECTORS = {
   x: new THREE.Vector3(1, 0, 0),
@@ -51,10 +53,16 @@ export class FitSkeletonOverlay {
         return;
       }
       const id = this.pick(event.clientX, event.clientY);
-      if (!id) return;
+      if (id) {
+        this.consume(event);
+        this.onSelect?.(id);
+        this.beginDrag(event, id, null);
+        return;
+      }
+      const boneJointId = this.pickBone(event.clientX, event.clientY);
+      if (!boneJointId) return;
       this.consume(event);
-      this.onSelect?.(id);
-      this.beginDrag(event, id, null);
+      this.onSelect?.(boneJointId);
     };
     this.handlePointerMove = (event) => {
       if (!this.dragJointId) return;
@@ -106,6 +114,7 @@ export class FitSkeletonOverlay {
       depthWrite: false,
       transparent: true,
       opacity: 0.95,
+      toneMapped: false,
     });
     this.markers = new THREE.InstancedMesh(
       this.markerGeometry,
@@ -122,27 +131,31 @@ export class FitSkeletonOverlay {
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
     this.scene.add(this.markers);
 
-    const linePositions = [];
+    this.segments = [];
     for (const id of this.jointIds) {
       const parentId = sidecar.joints[id].parent;
       if (!parentId || !this.positions.has(parentId)) continue;
-      linePositions.push(...this.positions.get(parentId).toArray(), ...this.positions.get(id).toArray());
+      this.segments.push({ parentId, childId: id });
     }
-    this.lineGeometry = new THREE.BufferGeometry();
-    this.lineGeometry.setAttribute(
-      'position',
-      new THREE.Float32BufferAttribute(linePositions, 3),
-    );
-    this.lineMaterial = new THREE.LineBasicMaterial({
-      color: BONE_COLOR,
+    this.boneGeometry = new THREE.ConeGeometry(markerRadius * 0.7, 1, 7, 1);
+    this.boneMaterial = new THREE.MeshBasicMaterial({
+      vertexColors: true,
       depthTest: false,
       depthWrite: false,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.86,
+      toneMapped: false,
     });
-    this.lines = new THREE.LineSegments(this.lineGeometry, this.lineMaterial);
-    this.lines.renderOrder = 29;
-    this.scene.add(this.lines);
+    this.boneBodies = new THREE.InstancedMesh(
+      this.boneGeometry,
+      this.boneMaterial,
+      this.segments.length,
+    );
+    this.boneBodies.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.boneBodies.frustumCulled = false;
+    this.boneBodies.renderOrder = 29;
+    this.updateBoneBodies();
+    this.scene.add(this.boneBodies);
 
     this.gizmo = new THREE.Group();
     this.gizmo.name = 'Fit joint translation gizmo';
@@ -153,7 +166,7 @@ export class FitSkeletonOverlay {
     for (const [axis, direction] of Object.entries(AXIS_VECTORS)) {
       const material = new THREE.MeshBasicMaterial({
         color: AXIS_COLORS[axis], depthTest: false, depthWrite: false,
-        transparent: true, opacity: 0.96,
+        transparent: true, opacity: 0.96, toneMapped: false,
       });
       this.gizmoMaterials.push(material);
       const orientation = new THREE.Quaternion().setFromUnitVectors(AXIS_UP, direction);
@@ -188,6 +201,13 @@ export class FitSkeletonOverlay {
     this.setRay(clientX, clientY);
     return this.raycaster.intersectObjects(this.gizmo.children, false)[0]?.object?.userData?.fitAxis
       || null;
+  }
+
+  pickBone(clientX, clientY) {
+    if (!this.camera || !this.canvas || !this.boneBodies.visible) return null;
+    this.setRay(clientX, clientY);
+    const hit = this.raycaster.intersectObject(this.boneBodies, false)[0];
+    return Number.isInteger(hit?.instanceId) ? this.segments[hit.instanceId].childId : null;
   }
 
   beginDrag(event, id, axis) {
@@ -242,6 +262,7 @@ export class FitSkeletonOverlay {
       this.updateMarkerMatrix(this.selectedId);
     }
     this.updateGizmo();
+    this.updateBoneColors();
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
     this.markers.instanceMatrix.needsUpdate = true;
   }
@@ -259,23 +280,34 @@ export class FitSkeletonOverlay {
     this.updateMarkerMatrix(id);
     if (id === this.selectedId) this.updateGizmo();
     this.markers.instanceMatrix.needsUpdate = true;
-    this.updateLines();
+    this.updateBoneBodies();
   }
 
-  updateLines() {
-    const values = this.lineGeometry.attributes.position.array;
-    let offset = 0;
-    for (const id of this.jointIds) {
-      const parentId = this.sidecar.joints[id].parent;
-      if (!parentId || !this.positions.has(parentId)) continue;
-      for (const position of [this.positions.get(parentId), this.positions.get(id)]) {
-        values[offset++] = position.x;
-        values[offset++] = position.y;
-        values[offset++] = position.z;
-      }
+  updateBoneBodies() {
+    this.segments.forEach(({ parentId, childId }, index) => {
+      const parent = this.positions.get(parentId);
+      const child = this.positions.get(childId);
+      DIRECTION.subVectors(child, parent);
+      const length = DIRECTION.length();
+      MIDPOINT.addVectors(parent, child).multiplyScalar(0.5);
+      if (length > 1e-8) ORIENTATION.setFromUnitVectors(AXIS_UP, DIRECTION.normalize());
+      else ORIENTATION.identity();
+      const selected = childId === this.selectedId;
+      SCALE.set(selected ? 1.45 : 1, length, selected ? 1.45 : 1);
+      MATRIX.compose(MIDPOINT, ORIENTATION, SCALE);
+      this.boneBodies.setMatrixAt(index, MATRIX);
+    });
+    this.boneBodies.instanceMatrix.needsUpdate = true;
+    this.updateBoneColors();
+  }
+
+  updateBoneColors() {
+    this.segments.forEach(({ childId }, index) => {
+      this.boneBodies.setColorAt(index, childId === this.selectedId ? SELECTED : BONE_COLOR);
+    });
+    if (this.boneBodies.instanceColor) {
+      this.boneBodies.instanceColor.needsUpdate = true;
     }
-    this.lineGeometry.attributes.position.needsUpdate = true;
-    this.lineGeometry.computeBoundingSphere();
   }
 
   setVisible(visible) {
@@ -290,7 +322,7 @@ export class FitSkeletonOverlay {
   }
 
   setBonesVisible(visible) {
-    this.lines.visible = visible;
+    this.boneBodies.visible = visible;
   }
 
   updateMarkerMatrix(id) {
@@ -309,8 +341,8 @@ export class FitSkeletonOverlay {
   setXray(xray) {
     this.markerMaterial.depthTest = !xray;
     this.markerMaterial.needsUpdate = true;
-    this.lineMaterial.depthTest = !xray;
-    this.lineMaterial.needsUpdate = true;
+    this.boneMaterial.depthTest = !xray;
+    this.boneMaterial.needsUpdate = true;
     for (const material of this.gizmoMaterials) {
       material.depthTest = !xray;
       material.needsUpdate = true;
@@ -323,12 +355,12 @@ export class FitSkeletonOverlay {
     this.canvas?.removeEventListener('pointerup', this.handlePointerUp, true);
     this.canvas?.removeEventListener('pointercancel', this.handlePointerUp, true);
     this.markers.removeFromParent();
-    this.lines.removeFromParent();
+    this.boneBodies.removeFromParent();
     this.gizmo.removeFromParent();
     this.markerGeometry.dispose();
     this.markerMaterial.dispose();
-    this.lineGeometry.dispose();
-    this.lineMaterial.dispose();
+    this.boneGeometry.dispose();
+    this.boneMaterial.dispose();
     this.gizmoGeometry.dispose();
     this.gizmoTipGeometry.dispose();
     this.gizmoMaterials.forEach((material) => material.dispose());

@@ -190,10 +190,14 @@ def main() -> int:
         raise RuntimeError("sidecar contains no fit-joint corrections to rebind")
 
     metarig = _find_metarig(bpy, sidecar["binding"]["metarigObjectId"])
+    print("I2L_STAGE::apply::Applying fit-joint corrections", flush=True)
     applied = apply_corrections(bpy, metarig, corrections)
+    print("I2L_STAGE::rigify::Regenerating Rigify controls", flush=True)
     rig = regenerate_rigify(bpy, metarig)
     meshes = _bound_meshes(bpy, rig)
+    print("I2L_STAGE::weights::Building voxel proxy and transferring weights", flush=True)
     weight_reports = [transfer_weights(bpy, mesh, rig) for mesh in meshes]
+    print("I2L_STAGE::export::Saving scene and exporting GLB", flush=True)
     output_blend.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(output_blend), check_existing=False)
     export_glb(bpy, rig, meshes, output_glb)

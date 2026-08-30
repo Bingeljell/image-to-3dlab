@@ -191,14 +191,22 @@
           <span><input id="rig-opacity" type="range" min="15" max="100" value="65">
             <span id="rig-opacity-value">65%</span></span>
         </label>
-        <label class="rig-control" for="rig-xray"><span>X-ray bones</span>
+        <label class="rig-control" for="rig-xray"><span>X-ray skeleton</span>
           <input id="rig-xray" type="checkbox" checked>
         </label>
-        <label class="rig-control" for="rig-show-deform"><span>Deform skeleton</span>
-          <input id="rig-show-deform" type="checkbox" checked disabled>
+        <div class="rig-layer-label">Current rig</div>
+        <label class="rig-control" for="rig-show-deform-bones"><span>Bones</span>
+          <input id="rig-show-deform-bones" type="checkbox" disabled>
         </label>
-        <label class="rig-control" for="rig-show-fit"><span>Fit skeleton</span>
-          <input id="rig-show-fit" type="checkbox" checked disabled>
+        <label class="rig-control" for="rig-show-deform-joints"><span>Joints</span>
+          <input id="rig-show-deform-joints" type="checkbox" disabled>
+        </label>
+        <div class="rig-layer-label">Fit controls</div>
+        <label class="rig-control" for="rig-show-fit-bones"><span>Bones</span>
+          <input id="rig-show-fit-bones" type="checkbox" checked disabled>
+        </label>
+        <label class="rig-control" for="rig-show-fit-joints"><span>Joints</span>
+          <input id="rig-show-fit-joints" type="checkbox" checked disabled>
         </label>
       </div>
 
@@ -218,7 +226,7 @@
 
     <aside class="rig-inspector">
       <h2>Selection</h2>
-      <p>Blue is the deform skeleton. Orange is the editable fit skeleton.</p>
+      <p>Orange joints edit the fit skeleton. Grey bones show structure. Cyan is selected.</p>
       <div id="rig-selection-empty">Select a bone or joint marker.</div>
       <div id="rig-selection" hidden>
         <strong id="rig-bone-name"></strong>

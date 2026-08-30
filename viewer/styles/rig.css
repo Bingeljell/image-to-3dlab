@@ -17,6 +17,8 @@
 .rig-control { display: grid; grid-template-columns: 1fr auto; align-items: center;
   gap: 8px; margin-top: 9px; }
 .rig-control input[type=range] { width: 128px; accent-color: #e19a4c; }
+.rig-layer-label { margin-top: 13px; color: #d4d9e1; font-size: 10px;
+  font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
 #rig-opacity-value { min-width: 34px; text-align: right; color: #aeb8c6; }
 #rig-status { min-height: 34px; margin-top: 10px; color: #ffb8ae; font-size: 11px; white-space: pre-wrap; }
 #rig-summary, #rig-sidecar-summary { color: #aeb8c6; font-size: 11px; white-space: pre-wrap; }

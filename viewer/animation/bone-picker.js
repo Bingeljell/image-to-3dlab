@@ -1,7 +1,8 @@
 import * as THREE from '../vendor/three.module.js';
 
-const DEFAULT_COLOR = new THREE.Color(0x65b7e8);
-const SELECTED_COLOR = new THREE.Color(0xffc857);
+const JOINT_COLOR = new THREE.Color(0x78b9d6);
+const BONE_COLOR = new THREE.Color(0xa6afbb);
+const SELECTED_COLOR = new THREE.Color(0x35e7ff);
 const INSTANCE_MATRIX = new THREE.Matrix4();
 const WORLD_POSITION = new THREE.Vector3();
 const PARENT_POSITION = new THREE.Vector3();
@@ -10,6 +11,7 @@ const DIRECTION = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const ORIENTATION = new THREE.Quaternion();
 const BODY_SCALE = new THREE.Vector3();
+const MARKER_SCALE = new THREE.Vector3();
 
 /** Selectable joint markers layered over a deform skeleton. */
 export class BonePicker {
@@ -39,7 +41,7 @@ export class BonePicker {
     this.markers.frustumCulled = false;
     this.markers.renderOrder = 20;
     for (let index = 0; index < this.bones.length; index++) {
-      this.markers.setColorAt(index, DEFAULT_COLOR);
+      this.markers.setColorAt(index, JOINT_COLOR);
     }
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
     this.scene.add(this.markers);
@@ -61,7 +63,7 @@ export class BonePicker {
     this.bodies.frustumCulled = false;
     this.bodies.renderOrder = 19;
     for (let index = 0; index < this.bodyBones.length; index++) {
-      this.bodies.setColorAt(index, DEFAULT_COLOR);
+      this.bodies.setColorAt(index, BONE_COLOR);
     }
     if (this.bodies.instanceColor) this.bodies.instanceColor.needsUpdate = true;
     this.scene.add(this.bodies);
@@ -76,7 +78,8 @@ export class BonePicker {
   update() {
     for (let index = 0; index < this.bones.length; index++) {
       this.bones[index].getWorldPosition(WORLD_POSITION);
-      INSTANCE_MATRIX.makeTranslation(WORLD_POSITION.x, WORLD_POSITION.y, WORLD_POSITION.z);
+      MARKER_SCALE.setScalar(index === this.selectedIndex ? 1.45 : 1);
+      INSTANCE_MATRIX.compose(WORLD_POSITION, ORIENTATION.identity(), MARKER_SCALE);
       this.markers.setMatrixAt(index, INSTANCE_MATRIX);
     }
     this.markers.instanceMatrix.needsUpdate = true;
@@ -90,7 +93,8 @@ export class BonePicker {
       MIDPOINT.addVectors(PARENT_POSITION, WORLD_POSITION).multiplyScalar(0.5);
       if (length > 1e-8) ORIENTATION.setFromUnitVectors(UP, DIRECTION.normalize());
       else ORIENTATION.identity();
-      BODY_SCALE.set(1, length, 1);
+      const selected = this.bones.indexOf(bone) === this.selectedIndex;
+      BODY_SCALE.set(selected ? 1.65 : 1, length, selected ? 1.65 : 1);
       INSTANCE_MATRIX.compose(MIDPOINT, ORIENTATION, BODY_SCALE);
       this.bodies.setMatrixAt(index, INSTANCE_MATRIX);
     }
@@ -98,7 +102,7 @@ export class BonePicker {
   }
 
   pick(clientX, clientY) {
-    if (!this.markers.visible || !this.bones.length) return null;
+    if ((!this.markers.visible && !this.bodies.visible) || !this.bones.length) return null;
     const bounds = this.canvas.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return null;
     this.pointer.set(
@@ -107,9 +111,9 @@ export class BonePicker {
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hits = [
-      ...this.raycaster.intersectObject(this.markers, false)
+      ...(this.markers.visible ? this.raycaster.intersectObject(this.markers, false) : [])
         .map((hit) => ({ ...hit, boneIndex: hit.instanceId })),
-      ...this.raycaster.intersectObject(this.bodies, false)
+      ...(this.bodies.visible ? this.raycaster.intersectObject(this.bodies, false) : [])
         .map((hit) => ({
           ...hit,
           boneIndex: this.bones.indexOf(this.bodyBones[hit.instanceId]),
@@ -124,9 +128,10 @@ export class BonePicker {
 
   select(index) {
     if (index < 0 || index >= this.bones.length) return null;
-    if (this.selectedIndex >= 0) this.setBoneColor(this.selectedIndex, DEFAULT_COLOR);
+    if (this.selectedIndex >= 0) this.setBoneColor(this.selectedIndex, false);
     this.selectedIndex = index;
-    this.setBoneColor(index, SELECTED_COLOR);
+    this.setBoneColor(index, true);
+    this.update();
     const bone = this.bones[index];
     this.onSelect(bone, index);
     return bone;
@@ -134,14 +139,23 @@ export class BonePicker {
 
   clear() {
     if (this.selectedIndex >= 0) {
-      this.setBoneColor(this.selectedIndex, DEFAULT_COLOR);
+      this.setBoneColor(this.selectedIndex, false);
     }
     this.selectedIndex = -1;
+    this.update();
     this.onSelect(null, -1);
   }
 
   setVisible(visible) {
+    this.setJointsVisible(visible);
+    this.setBonesVisible(visible);
+  }
+
+  setJointsVisible(visible) {
     this.markers.visible = visible;
+  }
+
+  setBonesVisible(visible) {
     this.bodies.visible = visible;
   }
 
@@ -152,12 +166,12 @@ export class BonePicker {
     this.bodyMaterial.needsUpdate = true;
   }
 
-  setBoneColor(index, color) {
-    this.markers.setColorAt(index, color);
+  setBoneColor(index, selected) {
+    this.markers.setColorAt(index, selected ? SELECTED_COLOR : JOINT_COLOR);
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
     const bodyIndex = this.bodyIndexByBone.get(this.bones[index]);
     if (bodyIndex == null) return;
-    this.bodies.setColorAt(bodyIndex, color);
+    this.bodies.setColorAt(bodyIndex, selected ? SELECTED_COLOR : BONE_COLOR);
     if (this.bodies.instanceColor) this.bodies.instanceColor.needsUpdate = true;
   }
 

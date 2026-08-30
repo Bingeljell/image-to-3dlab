@@ -21,8 +21,10 @@ const sidecarSummary = element('rig-sidecar-summary');
 const opacity = element('rig-opacity');
 const opacityValue = element('rig-opacity-value');
 const xray = element('rig-xray');
-const showDeform = element('rig-show-deform');
-const showFit = element('rig-show-fit');
+const showDeformBones = element('rig-show-deform-bones');
+const showDeformJoints = element('rig-show-deform-joints');
+const showFitBones = element('rig-show-fit-bones');
+const showFitJoints = element('rig-show-fit-joints');
 const hierarchySearch = element('rig-hierarchy-search');
 const hierarchy = element('rig-hierarchy');
 const selectionEmpty = element('rig-selection-empty');
@@ -291,7 +293,8 @@ function loaded(loadedView, sidecarMessage) {
     onSelect: selectBone,
   });
   bonePicker.setXray(xray.checked);
-  bonePicker.setVisible(showDeform.checked);
+  bonePicker.setBonesVisible(showDeformBones.checked);
+  bonePicker.setJointsVisible(showDeformJoints.checked);
 
   if (sidecar) {
     try {
@@ -307,7 +310,8 @@ function loaded(loadedView, sidecarMessage) {
         onDragChange: (dragging) => { view.controls.enabled = !dragging; },
       });
       fitOverlay.setXray(xray.checked);
-      fitOverlay.setVisible(showFit.checked);
+      fitOverlay.setBonesVisible(showFitBones.checked);
+      fitOverlay.setJointsVisible(showFitJoints.checked);
     } catch (error) {
       sidecarMessage = `Sidecar verified, but cannot map to this skeleton: ${error.message}`;
       sidecar = null;
@@ -317,8 +321,10 @@ function loaded(loadedView, sidecarMessage) {
 
   captureMaterials();
   buildHierarchy();
-  showDeform.disabled = view.rig.bones.length === 0;
-  showFit.disabled = !fitOverlay;
+  showDeformBones.disabled = view.rig.bones.length === 0;
+  showDeformJoints.disabled = view.rig.bones.length === 0;
+  showFitBones.disabled = !fitOverlay;
+  showFitJoints.disabled = !fitOverlay;
   hierarchySearch.disabled = view.rig.bones.length === 0;
   correctionActions.hidden = !correctionSession;
   summary.textContent = `${view.rig.bones.length} deform bones · ` +
@@ -399,8 +405,10 @@ async function loadFiles(fileList) {
   summary.textContent = 'Inspecting deform skeleton…';
   sidecarSummary.textContent = prepared.message;
   hierarchySearch.disabled = true;
-  showDeform.disabled = true;
-  showFit.disabled = true;
+  showDeformBones.disabled = true;
+  showDeformJoints.disabled = true;
+  showFitBones.disabled = true;
+  showFitJoints.disabled = true;
 
   view = createModelViewport({
     pane: viewport,
@@ -536,8 +544,18 @@ xray.onchange = () => {
   fitOverlay?.setXray(xray.checked);
   requestRender();
 };
-showDeform.onchange = () => { bonePicker?.setVisible(showDeform.checked); requestRender(); };
-showFit.onchange = () => { fitOverlay?.setVisible(showFit.checked); requestRender(); };
+showDeformBones.onchange = () => {
+  bonePicker?.setBonesVisible(showDeformBones.checked); requestRender();
+};
+showDeformJoints.onchange = () => {
+  bonePicker?.setJointsVisible(showDeformJoints.checked); requestRender();
+};
+showFitBones.onchange = () => {
+  fitOverlay?.setBonesVisible(showFitBones.checked); requestRender();
+};
+showFitJoints.onchange = () => {
+  fitOverlay?.setJointsVisible(showFitJoints.checked); requestRender();
+};
 hierarchySearch.oninput = filterHierarchy;
 clearBone.onclick = () => bonePicker?.clear();
 jointInputs.forEach((input) => input.addEventListener('change', applyJointInputs));

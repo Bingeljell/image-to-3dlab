@@ -1,8 +1,11 @@
 import * as THREE from '../vendor/three.module.js';
 
-const NORMAL = new THREE.Color(0xf0a95b);
-const SELECTED = new THREE.Color(0xffe08a);
+const JOINT_COLOR = new THREE.Color(0xf0a95b);
+const BONE_COLOR = new THREE.Color(0xa6afbb);
+const SELECTED = new THREE.Color(0x35e7ff);
 const MATRIX = new THREE.Matrix4();
+const ORIENTATION = new THREE.Quaternion();
+const SCALE = new THREE.Vector3();
 
 /** Render a validated armature-local fit skeleton over the normalized workshop model. */
 export class FitSkeletonOverlay {
@@ -97,9 +100,8 @@ export class FitSkeletonOverlay {
     this.markers.frustumCulled = false;
     this.markers.renderOrder = 30;
     this.jointIds.forEach((id, index) => {
-      MATRIX.makeTranslation(...this.positions.get(id).toArray());
-      this.markers.setMatrixAt(index, MATRIX);
-      this.markers.setColorAt(index, NORMAL);
+      this.updateMarkerMatrix(id);
+      this.markers.setColorAt(index, JOINT_COLOR);
     });
     this.markers.instanceMatrix.needsUpdate = true;
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
@@ -117,7 +119,7 @@ export class FitSkeletonOverlay {
       new THREE.Float32BufferAttribute(linePositions, 3),
     );
     this.lineMaterial = new THREE.LineBasicMaterial({
-      color: NORMAL,
+      color: BONE_COLOR,
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -154,12 +156,18 @@ export class FitSkeletonOverlay {
   }
 
   selectJoint(id) {
-    if (this.selectedId && this.jointIndex.has(this.selectedId)) {
-      this.markers.setColorAt(this.jointIndex.get(this.selectedId), NORMAL);
-    }
+    const previousId = this.selectedId;
     this.selectedId = this.jointIndex.has(id) ? id : null;
-    if (this.selectedId) this.markers.setColorAt(this.jointIndex.get(this.selectedId), SELECTED);
+    if (previousId && this.jointIndex.has(previousId)) {
+      this.markers.setColorAt(this.jointIndex.get(previousId), JOINT_COLOR);
+      this.updateMarkerMatrix(previousId);
+    }
+    if (this.selectedId) {
+      this.markers.setColorAt(this.jointIndex.get(this.selectedId), SELECTED);
+      this.updateMarkerMatrix(this.selectedId);
+    }
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
+    this.markers.instanceMatrix.needsUpdate = true;
   }
 
   jointsForBone(boneName) {
@@ -172,8 +180,7 @@ export class FitSkeletonOverlay {
     const position = new THREE.Vector3(...values);
     this.armatureNode.localToWorld(position);
     this.positions.set(id, position);
-    MATRIX.makeTranslation(...position.toArray());
-    this.markers.setMatrixAt(index, MATRIX);
+    this.updateMarkerMatrix(id);
     this.markers.instanceMatrix.needsUpdate = true;
     this.updateLines();
   }
@@ -195,8 +202,24 @@ export class FitSkeletonOverlay {
   }
 
   setVisible(visible) {
+    this.setJointsVisible(visible);
+    this.setBonesVisible(visible);
+  }
+
+  setJointsVisible(visible) {
     this.markers.visible = visible;
+  }
+
+  setBonesVisible(visible) {
     this.lines.visible = visible;
+  }
+
+  updateMarkerMatrix(id) {
+    const index = this.jointIndex.get(id);
+    const scale = id === this.selectedId ? 1.45 : 1;
+    SCALE.setScalar(scale);
+    MATRIX.compose(this.positions.get(id), ORIENTATION.identity(), SCALE);
+    this.markers.setMatrixAt(index, MATRIX);
   }
 
   setXray(xray) {

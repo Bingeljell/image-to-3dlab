@@ -76,3 +76,10 @@ def test_stage_lines_become_stable_progress_events():
         "phase": "weights", "overall_pct": 55, "message": "Transferring",
     }
     assert rig_api._stage_event("ordinary Blender output") is None
+
+
+def test_runner_records_a_pid_for_server_restart_reconciliation():
+    source = Path(rig_api.__file__).read_text()
+
+    assert 'joinpath("pid").write_text' in source
+    assert 'joinpath("pid").unlink(missing_ok=True)' in source

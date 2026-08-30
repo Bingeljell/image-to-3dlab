@@ -149,6 +149,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
             start_new_session=True,
         )
+        job.directory.joinpath("pid").write_text(str(job.process.pid))
         assert job.process.stdout is not None
         for raw in job.process.stdout:
             line = raw.rstrip("\n")
@@ -187,6 +188,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
     finally:
+        job.directory.joinpath("pid").unlink(missing_ok=True)
         manager.finish(job)
 
 

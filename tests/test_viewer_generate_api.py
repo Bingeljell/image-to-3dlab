@@ -518,6 +518,60 @@ def test_terminate_active_job_is_a_noop_with_no_active_job(monkeypatch):
     assert killed == []
 
 
+def _valid_rig_sidecar(asset: bytes, scene: bytes) -> bytes:
+    import hashlib
+
+    return json.dumps({
+        "schemaVersion": 1,
+        "rigProfile": "test",
+        "assetFingerprint": "sha256:" + hashlib.sha256(asset).hexdigest(),
+        "coordinateSpace": "armature-local",
+        "mirror": {"axis": "X", "origin": 0},
+        "joints": {"joint": {
+            "label": "Joint", "position": [0, 0, 0], "sourceBone": "DEF-joint",
+            "parent": None, "mirrorOf": None,
+        }},
+        "corrections": {"joint": {
+            "sourcePosition": [0, 0, 0], "targetPosition": [0, 1, 0],
+            "delta": [0, 1, 0], "mirrored": False,
+        }},
+        "binding": {
+            "adapter": "test",
+            "sceneFingerprint": "sha256:" + hashlib.sha256(scene).hexdigest(),
+            "metarigObjectId": "object",
+            "joints": {"joint": {"targets": [
+                {"boneId": "bone", "boneName": "bone", "endpoint": "head"}
+            ]}},
+        },
+    }).encode()
+
+
+def test_terminate_active_job_also_kills_a_running_rebind(tmp_path, monkeypatch):
+    rig_jobs = api.RIG_JOBS.__class__(tmp_path)
+    job = rig_jobs.create(
+        "asset.glb", b"glb", b"blend", _valid_rig_sidecar(b"glb", b"blend")
+    )
+    job.process = _FakeProcess(5252)
+    killed = []
+    monkeypatch.setattr(api, "RIG_JOBS", rig_jobs)
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == [5252]
+
+
+def test_handler_exposes_typed_rig_rebind_routes():
+    source = MODULE_PATH.read_text()
+
+    assert '["api", "rig", "rebind"]' in source
+    assert "_create_rig_job" in source
+    assert "_rig_events" in source
+    assert "_rig_status" in source
+    assert "_rig_artifact" in source
+    assert "_cancel_rig_job" in source
+
+
 def test_terminate_active_job_is_a_noop_when_process_already_exited(tmp_path, monkeypatch):
     jobs = api.JobManager()
     monkeypatch.setattr(api, "JOBS", jobs)

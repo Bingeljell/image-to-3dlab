@@ -164,6 +164,90 @@ original/corrected locations, and preview limb reach, but `Rebind` is the operat
 makes a correction authoritative. Weight painting or local weight repair is a separate
 future tool.
 
+### Rig Review contract
+
+Rig Review deliberately presents two related skeletons:
+
+- the **deform skeleton** embedded in the GLB, which is authoritative for runtime skinning
+  and animation playback;
+- the **fit skeleton** in a versioned sidecar, which is authoritative for editable Rigify
+  metarig placement and Blender rebinding.
+
+The browser may map selection between them, but it never writes a joint-placement
+correction directly into a `DEF-*` bone and calls the bind fixed. A deform bone can be
+derived, segmented, or constrained differently from the metarig bone that produced it.
+
+The Blender bind result therefore becomes:
+
+```text
+creature.glb
+creature.rig.json
+```
+
+The minimum rig-sidecar shape is:
+
+```json
+{
+  "schemaVersion": 1,
+  "rigProfile": "rigify.quadruped.v1",
+  "assetFingerprint": "sha256:...",
+  "coordinateSpace": "armature-local",
+  "mirror": { "axis": "X", "origin": 0 },
+  "joints": {
+    "front_left.shoulder": {
+      "label": "Front left shoulder",
+      "position": [0.18, 0.42, 0.11],
+      "sourceBone": "DEF-upper_arm.L",
+      "parent": "spine.chest",
+      "mirrorOf": "front_right.shoulder"
+    }
+  },
+  "corrections": {}
+}
+```
+
+Coordinates are always armature-local, never viewer-normalized or camera/world space. The
+viewport currently centers and scales assets for display; edit gizmos must invert that
+display transform before serializing a correction.
+
+Each correction records the source rest position as well as the target and delta:
+
+```json
+{
+  "front_left.shoulder": {
+    "sourcePosition": [0.18, 0.42, 0.11],
+    "targetPosition": [0.20, 0.45, 0.09],
+    "delta": [0.02, 0.03, -0.02],
+    "mirrored": false
+  }
+}
+```
+
+The source position plus asset fingerprint prevents a correction from being silently
+applied to a different bind or rig revision. A stale mismatch is an error requiring user
+review, not an automatic best-effort import.
+
+Selection has two levels:
+
+- selecting a rendered bone body identifies the deform bone and highlights its mapped fit
+  joints;
+- selecting a joint marker chooses the connected endpoint that Rig Review can move.
+
+Moving a joint preserves chain connectivity: a knee is both the upper leg's endpoint and
+the lower leg's origin. Leaf endpoints that cannot be recovered from glTF must be explicit
+in the sidecar.
+
+Rig Review controls are introduced in this order:
+
+1. tapered deform-bone rendering, joint markers, names, hierarchy, x-ray, and mesh opacity;
+2. fit-skeleton sidecar validation and overlay;
+3. original/corrected ghosting and translation gizmos;
+4. profile-defined mirroring, reset, undo, and correction export;
+5. Blender rebind and fixed deformation-review poses.
+
+Animation playback is disabled while editing fit joints. The browser may preview alignment
+and reach, but only the returned rebind is authoritative for deformation quality.
+
 ### Rigify and glTF
 
 Rigify's authoring controls, drivers, and Blender constraints do not become an equivalent

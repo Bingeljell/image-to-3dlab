@@ -46,6 +46,15 @@
 .rig-notice { margin-top: 14px; padding: 10px; border: 1px solid #594525;
   border-radius: 6px; background: #59452522; color: #d8bd91; font-size: 11px; }
 #rig-clear-bone { width: 100%; margin-top: 12px; }
+#rig-joint-name { display: block; margin-bottom: 8px; color: #f0a95b; overflow-wrap: anywhere; }
+#rig-joint-editor > p { margin: 7px 0; color: #7f8a98; font-size: 10px; }
+.rig-position-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.rig-position-grid label { color: #778393; font-size: 10px; }
+.rig-position-grid input { width: 100%; box-sizing: border-box; margin-top: 3px; padding: 5px;
+  color: #d8dee9; background: #12151a; border: 1px solid #39404b; border-radius: 4px; }
+.rig-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#rig-joint-editor button, #rig-correction-actions > button { width: 100%; margin-top: 7px; }
+#rig-correction-summary { margin-top: 8px; color: #aeb8c6; font-size: 10px; }
 @media (max-width: 980px) {
   .rig-shell { grid-template-columns: 280px minmax(0, 1fr); }
   .rig-inspector { position: absolute; right: 0; top: 0; bottom: 0; width: 260px;

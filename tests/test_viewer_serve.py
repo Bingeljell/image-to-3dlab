@@ -135,7 +135,9 @@ def test_rig_review_is_a_sidecar_aware_workshop_room():
     source = rig_review.read_text()
     assert "new BonePicker" in source
     assert "new FitSkeletonOverlay" in source
+    assert "new RigCorrectionSession" in source
     assert "fingerprintAsset" in source
+    assert "rig-export" in html
 
 
 def test_rig_review_only_references_existing_controls():

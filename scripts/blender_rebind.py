@@ -18,6 +18,7 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from image_to_3dlab.rig_sidecar import (
     JointCorrection,
@@ -27,6 +28,7 @@ from image_to_3dlab.rig_sidecar import (
     verify_asset,
     verify_scene,
 )
+from blender_rebind_weights import transfer_weights
 
 OBJECT_ID = "i2l_metarig_id"
 BONE_ID = "i2l_bone_id"
@@ -191,6 +193,7 @@ def main() -> int:
     applied = apply_corrections(bpy, metarig, corrections)
     rig = regenerate_rigify(bpy, metarig)
     meshes = _bound_meshes(bpy, rig)
+    weight_reports = [transfer_weights(bpy, mesh, rig) for mesh in meshes]
     output_blend.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(output_blend), check_existing=False)
     export_glb(bpy, rig, meshes, output_glb)
@@ -205,7 +208,8 @@ def main() -> int:
         "targetsApplied": applied,
         "rig": rig.name,
         "meshes": [mesh.name for mesh in meshes],
-        "weightStrategy": "preserved-existing-groups",
+        "weightStrategy": "voxel-proxy-transfer",
+        "weights": weight_reports,
         "artifacts": {
             "glb": output_glb.name,
             "blend": output_blend.name,

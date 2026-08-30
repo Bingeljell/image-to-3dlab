@@ -67,4 +67,5 @@ def test_worker_resolves_persistent_ids_before_diagnostic_names():
 
     assert "bones_by_id.get(target.bone_id)" in source
     assert "expectedBoneName" in source
-    assert 'weightStrategy": "preserved-existing-groups"' in source
+    assert 'weightStrategy": "voxel-proxy-transfer"' in source
+    assert "transfer_weights(bpy, mesh, rig)" in source

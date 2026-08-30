@@ -150,6 +150,10 @@ def test_rig_review_is_a_sidecar_aware_workshop_room():
     assert "fingerprintAsset" in source
     assert "rig-export" in html
     assert "onDragChange" in source
+    assert "submitRebind" in source
+    assert "loadRebindResult" in source
+    assert 'id="rig-rebind"' in html
+    assert 'id="rig-result-blend"' in html
 
 
 def test_rig_review_only_references_existing_controls():

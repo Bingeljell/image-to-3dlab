@@ -43,6 +43,18 @@ const redo = element('rig-redo');
 const resetAll = element('rig-reset-all');
 const exportCorrections = element('rig-export');
 const correctionSummary = element('rig-correction-summary');
+const rebind = element('rig-rebind');
+const cancelRebind = element('rig-cancel-rebind');
+const rigJob = element('rig-job');
+const rigJobBar = element('rig-job-bar');
+const rigJobLabel = element('rig-job-label');
+const rigArtifacts = element('rig-artifacts');
+const artifactLinks = {
+  result_url: element('rig-result-glb'),
+  scene_url: element('rig-result-blend'),
+  sidecar_url: element('rig-result-sidecar'),
+  report_url: element('rig-result-report'),
+};
 
 let view = null;
 let bonePicker = null;
@@ -56,6 +68,11 @@ let materialStates = new Map();
 let hierarchyRows = [];
 let renderPending = false;
 let loadToken = 0;
+let selectedModelFile = null;
+let selectedSceneFile = null;
+let rebindRunning = false;
+let rebindSource = null;
+let rebindPoll = null;
 
 function requestRender() {
   if (!view || renderPending) return;
@@ -143,8 +160,16 @@ function refreshCorrections() {
   redo.disabled = correctionSession.redoStack.length === 0;
   resetAll.disabled = count === 0;
   exportCorrections.disabled = false;
+  updateRebindAvailability();
   updateJointEditor();
   requestRender();
+}
+
+function updateRebindAvailability() {
+  const count = correctionSession ? Object.keys(correctionSession.corrections).length : 0;
+  rebind.disabled = rebindRunning || !count || !selectedModelFile ||
+    !selectedModelFile.name.toLowerCase().endsWith('.glb') || !selectedSceneFile ||
+    !sidecar?.binding;
 }
 
 function applyJointInputs() {
@@ -245,6 +270,9 @@ function disposeCurrent() {
   selectedJointId = null;
   jointEditor.hidden = true;
   correctionActions.hidden = true;
+  selectedModelFile = null;
+  selectedSceneFile = null;
+  rebind.disabled = true;
   renderPending = false;
 }
 
@@ -306,7 +334,8 @@ function loaded(loadedView, sidecarMessage) {
 async function prepareSidecar(files, modelFile) {
   const sidecarFile = findRigSidecarFile(files);
   if (!sidecarFile) return {
-    data: null, filename: null, message: 'No .rig.json sidecar · deform inspection only',
+    data: null, filename: null, file: null, sceneFile: null,
+    message: 'No .rig.json sidecar · deform inspection only',
   };
   try {
     const data = parseRigSidecar(await sidecarFile.text());
@@ -314,13 +343,30 @@ async function prepareSidecar(files, modelFile) {
     if (fingerprint !== data.assetFingerprint) {
       throw new Error('asset fingerprint does not match the selected model');
     }
+    const sceneFiles = files.filter((file) => file.name.toLowerCase().endsWith('.blend'));
+    if (sceneFiles.length > 1) throw new Error('choose only one prepared .blend scene');
+    const sceneFile = sceneFiles[0] || null;
+    if (sceneFile && !data.binding) throw new Error('sidecar has no Blender binding manifest');
+    if (sceneFile) {
+      const sceneFingerprint = await fingerprintAsset(sceneFile);
+      if (sceneFingerprint !== data.binding.sceneFingerprint) {
+        throw new Error('scene fingerprint does not match the selected .blend');
+      }
+    }
     return {
       data,
       filename: sidecarFile.name,
-      message: `Verified ${sidecarFile.name}\n${data.rigProfile} · ${Object.keys(data.joints).length} fit joints`,
+      file: sidecarFile,
+      sceneFile,
+      message: `Verified ${sidecarFile.name}\n${data.rigProfile} · ` +
+        `${Object.keys(data.joints).length} fit joints\n` +
+        (sceneFile ? `Verified ${sceneFile.name} · Rebind ready` : 'No prepared .blend · export only'),
     };
   } catch (error) {
-    return { data: null, filename: null, message: `Sidecar rejected: ${error.message}` };
+    return {
+      data: null, filename: null, file: null, sceneFile: null,
+      message: `Sidecar rejected: ${error.message}`,
+    };
   }
 }
 
@@ -345,6 +391,8 @@ async function loadFiles(fileList) {
 
   disposeCurrent();
   sidecar = prepared.data;
+  selectedModelFile = modelFile;
+  selectedSceneFile = prepared.sceneFile;
   sidecarFilename = prepared.filename || `${spec.label.replace(/\.[^.]+$/, '')}.rig.json`;
   empty.hidden = false;
   empty.textContent = `Loading ${spec.label}…`;
@@ -365,6 +413,99 @@ async function loadFiles(fileList) {
     },
   });
   resizeViewport();
+}
+
+function setRebindRunning(running) {
+  rebindRunning = running;
+  cancelRebind.hidden = !running;
+  updateRebindAvailability();
+}
+
+function stopRebindStreams() {
+  rebindSource?.close();
+  rebindSource = null;
+  if (rebindPoll) clearInterval(rebindPoll);
+  rebindPoll = null;
+}
+
+function applyRebindEvent(event) {
+  rigJob.hidden = false;
+  rigJobBar.style.width = `${Math.max(0, Math.min(100, event.overall_pct || 0))}%`;
+  rigJobLabel.textContent = event.message || event.phase;
+  if (event.phase === 'done') {
+    stopRebindStreams();
+    setRebindRunning(false);
+    loadRebindResult(event).catch((error) => {
+      status.textContent = `Rebind finished, but result loading failed: ${error.message}`;
+    });
+  } else if (event.phase === 'error') {
+    stopRebindStreams();
+    setRebindRunning(false);
+    status.textContent = event.message || 'Rebind failed';
+  }
+}
+
+function startRebindPolling(jobId) {
+  if (rebindPoll) return;
+  rebindPoll = setInterval(async () => {
+    try {
+      const response = await fetch(`/api/rig/rebind/${jobId}/status`);
+      if (!response.ok) return;
+      const payload = await response.json();
+      if (payload.last_event) applyRebindEvent(payload.last_event);
+    } catch (_) { /* the next poll or SSE reconnect can recover */ }
+  }, 2000);
+}
+
+async function submitRebind() {
+  if (rebind.disabled || !correctionSession) return;
+  const form = new FormData();
+  form.append('asset', selectedModelFile, selectedModelFile.name);
+  form.append('scene', selectedSceneFile, selectedSceneFile.name);
+  form.append('sidecar', new Blob([
+    JSON.stringify(correctionSession.toSidecar(), null, 2) + '\n',
+  ], { type: 'application/json' }), sidecarFilename);
+  setRebindRunning(true);
+  rigArtifacts.hidden = true;
+  rigJob.hidden = false;
+  rigJobBar.style.width = '2%';
+  rigJobLabel.textContent = 'Uploading verified rig bundle…';
+  try {
+    const response = await fetch('/api/rig/rebind', { method: 'POST', body: form });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    rebindSource = new EventSource(payload.events_url);
+    rebindSource.onmessage = (message) => applyRebindEvent(JSON.parse(message.data));
+    rebindSource.onerror = () => startRebindPolling(payload.job_id);
+    cancelRebind.onclick = async () => {
+      await fetch(`/api/rig/rebind/${payload.job_id}/cancel`, { method: 'POST' });
+    };
+  } catch (error) {
+    setRebindRunning(false);
+    rigJobLabel.textContent = `Rebind failed: ${error.message}`;
+    status.textContent = rigJobLabel.textContent;
+  }
+}
+
+async function loadRebindResult(event) {
+  for (const [field, link] of Object.entries(artifactLinks)) link.href = event[field];
+  rigArtifacts.hidden = false;
+  const [assetResponse, sceneResponse, sidecarResponse] = await Promise.all([
+    fetch(event.result_url), fetch(event.scene_url), fetch(event.sidecar_url),
+  ]);
+  if (![assetResponse, sceneResponse, sidecarResponse].every((response) => response.ok)) {
+    throw new Error('one or more result artifacts could not be downloaded');
+  }
+  const base = selectedModelFile.name.replace(/\.[^.]+$/, '');
+  const files = [
+    new File([await assetResponse.blob()], `${base}-rebound.glb`, { type: 'model/gltf-binary' }),
+    new File([await sceneResponse.blob()], `${base}-rebound.blend`),
+    new File([await sidecarResponse.blob()], `${base}-rebound.rig.json`, {
+      type: 'application/json',
+    }),
+  ];
+  await loadFiles(files);
+  status.textContent = 'Rebind complete. Inspect the replacement rig or download its artifacts.';
 }
 
 drop.onclick = () => fileInput.click();
@@ -420,6 +561,7 @@ exportCorrections.onclick = () => {
   link.click();
   URL.revokeObjectURL(url);
 };
+rebind.onclick = submitRebind;
 addEventListener('resize', resizeViewport);
 document.addEventListener('viewer:modechange', (event) => {
   if (event.detail.mode === 'rig') requestAnimationFrame(resizeViewport);

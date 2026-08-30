@@ -12,7 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   search their hierarchy, lower mesh opacity, toggle x-ray rendering, and optionally load a
   fingerprint-verified `.rig.json` fit skeleton mapped in armature-local coordinates. Select
   and drag fit joints in the viewport, edit precise positions, mirror paired changes,
-  undo/reset corrections, and download the revised sidecar for Blender rebind.
+  undo/reset corrections, and download the revised sidecar for Blender rebind. A matching
+  prepared `.blend` can be submitted directly to a queued headless Blender rebind; progress
+  covers Rigify regeneration, voxel weight transfer, and export, then the replacement GLB
+  is loaded automatically with downloadable artifacts.
 - **Animate room for rigged GLB/GLTF inspection.** Load a bound character, inspect its
   bone/skinned-mesh/clip inventory, toggle the skeleton, play or scrub embedded animation
   clips, switch back to the bind pose, and control loop playback in the browser.

@@ -179,10 +179,10 @@
       <h2>Rig Review</h2>
       <p>Inspect the deform skeleton and its editable fit-skeleton mapping.</p>
       <div id="rig-drop" class="rig-drop" role="button" tabindex="0">
-        Drop a GLB/GLTF<br>with optional .rig.json<br>or click to browse
+        Drop a GLB/GLTF<br>with optional .rig.json + .blend<br>or click to browse
       </div>
       <input id="rig-file" type="file" multiple
-             accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.json" hidden>
+             accept=".glb,.gltf,.blend,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.json" hidden>
       <div id="rig-status" role="status"></div>
 
       <div class="rig-section">
@@ -254,6 +254,18 @@
         <button id="rig-reset-all" disabled>Reset all</button>
         <button id="rig-export" disabled>Download .rig.json</button>
         <div id="rig-correction-summary">No corrections.</div>
+        <button id="rig-rebind" disabled>Rebind in Blender</button>
+        <button id="rig-cancel-rebind" hidden>Cancel rebind</button>
+        <div id="rig-job" hidden>
+          <div class="rig-job-track"><div id="rig-job-bar"></div></div>
+          <div id="rig-job-label">Waiting…</div>
+        </div>
+        <div id="rig-artifacts" hidden>
+          <a id="rig-result-glb" download>GLB</a>
+          <a id="rig-result-blend" download>Blender scene</a>
+          <a id="rig-result-sidecar" download>Rig sidecar</a>
+          <a id="rig-result-report" download>Report</a>
+        </div>
       </div>
 
       <div class="rig-section">

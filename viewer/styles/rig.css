@@ -55,6 +55,14 @@
 .rig-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 #rig-joint-editor button, #rig-correction-actions > button { width: 100%; margin-top: 7px; }
 #rig-correction-summary { margin-top: 8px; color: #aeb8c6; font-size: 10px; }
+#rig-rebind, #rig-cancel-rebind { width: 100%; margin-top: 8px; }
+#rig-rebind { border-color: #b87532; background: #6b461f; color: #fff0d9; }
+#rig-job { margin-top: 10px; }
+.rig-job-track { height: 5px; overflow: hidden; border-radius: 4px; background: #272c34; }
+#rig-job-bar { width: 0; height: 100%; background: #e19a4c; transition: width .2s ease; }
+#rig-job-label { margin-top: 5px; color: #d8bd91; font-size: 10px; }
+#rig-artifacts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; font-size: 10px; }
+#rig-artifacts a { color: #8cc8ff; }
 @media (max-width: 980px) {
   .rig-shell { grid-template-columns: 280px minmax(0, 1fr); }
   .rig-inspector { position: absolute; right: 0; top: 0; bottom: 0; width: 260px;

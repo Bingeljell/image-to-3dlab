@@ -30,7 +30,6 @@ export class BonePicker {
 
     this.geometry = new THREE.SphereGeometry(markerRadius, 12, 8);
     this.material = new THREE.MeshBasicMaterial({
-      vertexColors: true,
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -49,7 +48,6 @@ export class BonePicker {
 
     this.bodyGeometry = new THREE.ConeGeometry(markerRadius * 0.72, 1, 6, 1);
     this.bodyMaterial = new THREE.MeshBasicMaterial({
-      vertexColors: true,
       depthTest: false,
       depthWrite: false,
       transparent: true,

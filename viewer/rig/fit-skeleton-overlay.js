@@ -109,7 +109,6 @@ export class FitSkeletonOverlay {
 
     this.markerGeometry = new THREE.SphereGeometry(markerRadius, 12, 8);
     this.markerMaterial = new THREE.MeshBasicMaterial({
-      vertexColors: true,
       depthTest: false,
       depthWrite: false,
       transparent: true,
@@ -139,7 +138,6 @@ export class FitSkeletonOverlay {
     }
     this.boneGeometry = new THREE.ConeGeometry(markerRadius * 0.7, 1, 7, 1);
     this.boneMaterial = new THREE.MeshBasicMaterial({
-      vertexColors: true,
       depthTest: false,
       depthWrite: false,
       transparent: true,

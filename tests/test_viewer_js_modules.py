@@ -258,6 +258,35 @@ def test_camera_view_controls_snap_and_reset_without_touching_model_state():
 
 
 @pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_rig_edit_status_shares_pending_metadata_without_sharing_corrections():
+    state_url = (REPO / "viewer" / "core" / "rig-edit-state.js").as_uri()
+    program = f"""
+      import {{ getRigEditState, setRigEditState, subscribeRigEditState }} from {json.dumps(state_url)};
+      const observed = [];
+      const unsubscribe = subscribeRigEditState((state) => observed.push(state));
+      setRigEditState({{ pendingCount: 2.8, assetLabel: 'fox.glb', corrections: {{ secret: true }} }});
+      unsubscribe();
+      setRigEditState({{ pendingCount: 9, assetLabel: 'ignored.glb' }});
+      console.log(JSON.stringify({{ observed, current: getRigEditState() }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "observed": [
+            {"pendingCount": 0, "assetLabel": None},
+            {"pendingCount": 2, "assetLabel": "fox.glb"},
+        ],
+        "current": {"pendingCount": 9, "assetLabel": "ignored.glb"},
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
 def test_rig_sidecar_parser_validates_references_corrections_and_asset_hash():
     module_url = (REPO / "viewer" / "rig" / "rig-sidecar.js").as_uri()
     program = f"""

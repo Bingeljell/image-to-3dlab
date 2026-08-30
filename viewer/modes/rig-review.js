@@ -3,6 +3,7 @@ import { describeBone } from '../animation/rig-inspection.js';
 import { createCameraViewControls } from '../components/camera-view-controls.js';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 import { specsFromFiles } from '../core/asset-files.js';
+import { setRigEditState } from '../core/rig-edit-state.js';
 import { FitSkeletonOverlay } from '../rig/fit-skeleton-overlay.js';
 import { RigCorrectionSession } from '../rig/correction-session.js';
 import {
@@ -161,6 +162,7 @@ function refreshCorrections() {
     fitOverlay.setJointLocalPosition(id, correctionSession.target(id));
   }
   const count = Object.keys(correctionSession.corrections).length;
+  setRigEditState({ pendingCount: count, assetLabel: selectedModelFile?.name || null });
   correctionSummary.textContent = count
     ? `${count} corrected joint${count === 1 ? '' : 's'} · rebind required`
     : 'No corrections.';
@@ -259,6 +261,7 @@ function captureMaterials() {
 }
 
 function disposeCurrent() {
+  setRigEditState();
   cameraViews.setEnabled(false);
   bonePicker?.dispose();
   fitOverlay?.dispose();
@@ -574,7 +577,12 @@ resetJoint.onclick = () => {
 };
 undo.onclick = () => { if (correctionSession?.undo()) refreshCorrections(); };
 redo.onclick = () => { if (correctionSession?.redo()) refreshCorrections(); };
-resetAll.onclick = () => { correctionSession?.resetAll(); refreshCorrections(); };
+resetAll.onclick = () => {
+  if (!correctionSession) return;
+  correctionSession.resetAll();
+  refreshCorrections();
+  status.textContent = 'Pending rig edits reset. Use Undo to restore them.';
+};
 exportCorrections.onclick = () => {
   if (!correctionSession) return;
   const blob = new Blob([JSON.stringify(correctionSession.toSidecar(), null, 2) + '\n'], {

@@ -4,6 +4,7 @@ import { AnimationPlayer } from '../animation/player.js';
 import { describeBone } from '../animation/rig-inspection.js';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 import { specsFromFiles } from '../core/asset-files.js';
+import { subscribeRigEditState } from '../core/rig-edit-state.js';
 
 const element = (id) => document.getElementById(id);
 const viewport = element('animate-viewport');
@@ -31,6 +32,7 @@ const posePosition = element('animate-pose-position');
 const poseRotation = element('animate-pose-rotation');
 const poseScale = element('animate-pose-scale');
 const clearBoneButton = element('animate-clear-bone');
+const rigEditNotice = element('animate-rig-edit-notice');
 
 let view = null;
 let player = null;
@@ -38,6 +40,18 @@ let skeletonHelper = null;
 let bonePicker = null;
 let selectedBone = null;
 let renderPending = false;
+
+subscribeRigEditState(({ pendingCount, assetLabel }) => {
+  rigEditNotice.hidden = pendingCount === 0;
+  if (!pendingCount) {
+    rigEditNotice.textContent = '';
+    return;
+  }
+  const subject = assetLabel ? ` for ${assetLabel}` : '';
+  rigEditNotice.textContent = `${pendingCount} pending Rig Edit ` +
+    `${pendingCount === 1 ? 'change is' : 'changes are'} awaiting rebind${subject}. ` +
+    'Pose continues to use the last successfully bound rig.';
+});
 
 const formatTime = (seconds) => {
   const value = Math.max(0, Number(seconds) || 0);

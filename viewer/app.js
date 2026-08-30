@@ -3,6 +3,7 @@ import './modes/compare.js';
 import './modes/generate.js';
 import './modes/rig-review.js';
 import './modes/animate.js';
+import { subscribeRigEditState } from './core/rig-edit-state.js';
 
 const byId = (id) => document.getElementById(id);
 const modes = {
@@ -28,5 +29,13 @@ function setMode(activeMode) {
 for (const mode of Object.keys(modes)) {
   byId(`mode-${mode}`).onclick = () => setMode(mode);
 }
+
+subscribeRigEditState(({ pendingCount }) => {
+  const button = byId('mode-rig');
+  button.classList.toggle('has-pending', pendingCount > 0);
+  button.title = pendingCount
+    ? `${pendingCount} rig edit${pendingCount === 1 ? '' : 's'} awaiting Blender rebind`
+    : 'Correct the rest skeleton';
+});
 
 setMode('compare');

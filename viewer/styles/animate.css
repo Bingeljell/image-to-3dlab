@@ -5,6 +5,8 @@
   border-right: 1px solid #303744; }
 .animate-sidebar h2 { margin: 0 0 4px; color: #cfe3ff; font-size: 16px; }
 .animate-sidebar > p { margin: 0 0 16px; opacity: .68; font-size: 12px; }
+.animate-notice { margin: 0 0 12px; padding: 9px; border: 1px solid #74532d;
+  border-radius: 6px; background: #74532d22; color: #e5c89b; font-size: 10px; }
 .animate-drop { min-height: 132px; padding: 18px; display: flex; align-items: center;
   justify-content: center; text-align: center; border: 2px dashed #39404b;
   border-radius: 9px; color: #aeb8c6; cursor: pointer; }

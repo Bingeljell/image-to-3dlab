@@ -1,0 +1,416 @@
+{
+  "schemaVersion": 1,
+  "id": "rigify.basic-quadruped.blender-5.2.v1",
+  "semanticProfile": "rigify.quadruped.v1",
+  "blenderVersion": "5.2",
+  "blenderMetarigNames": [
+    "metarig",
+    "basic_quadruped"
+  ],
+  "joints": {
+    "spine.pelvis": {
+      "label": "Pelvis",
+      "sourceBone": "DEF-spine.004",
+      "parent": null,
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine.004",
+          "endpoint": "head"
+        },
+        {
+          "bone": "spine.003",
+          "endpoint": "head"
+        },
+        {
+          "bone": "spine.005",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "spine.mid": {
+      "label": "Spine mid",
+      "sourceBone": "DEF-spine.006",
+      "parent": "spine.pelvis",
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine.005",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "spine.006",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "spine.chest": {
+      "label": "Chest",
+      "sourceBone": "DEF-spine.008",
+      "parent": "spine.mid",
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine.007",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "spine.008",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "neck.base": {
+      "label": "Neck base",
+      "sourceBone": "DEF-spine.009",
+      "parent": "spine.chest",
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine.008",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "spine.009",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "head": {
+      "label": "Head",
+      "sourceBone": "DEF-spine.011",
+      "parent": "neck.base",
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine.011",
+          "endpoint": "tail"
+        }
+      ]
+    },
+    "tail.mid": {
+      "label": "Tail mid",
+      "sourceBone": "DEF-spine.002",
+      "parent": "spine.pelvis",
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine.003",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "spine.002",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "tail.tip": {
+      "label": "Tail tip",
+      "sourceBone": "DEF-spine",
+      "parent": "tail.mid",
+      "mirrorOf": null,
+      "targets": [
+        {
+          "bone": "spine",
+          "endpoint": "tail"
+        }
+      ]
+    },
+    "front.left.shoulder": {
+      "label": "Front left shoulder",
+      "sourceBone": "DEF-front_thigh.L",
+      "parent": "spine.chest",
+      "mirrorOf": "front.right.shoulder",
+      "targets": [
+        {
+          "bone": "shoulder.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_thigh.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.left.elbow": {
+      "label": "Front left elbow",
+      "sourceBone": "DEF-front_thigh.L",
+      "parent": "front.left.shoulder",
+      "mirrorOf": "front.right.elbow",
+      "targets": [
+        {
+          "bone": "front_thigh.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_shin.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.left.wrist": {
+      "label": "Front left wrist",
+      "sourceBone": "DEF-front_shin.L",
+      "parent": "front.left.elbow",
+      "mirrorOf": "front.right.wrist",
+      "targets": [
+        {
+          "bone": "front_shin.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_foot.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.left.paw": {
+      "label": "Front left paw",
+      "sourceBone": "DEF-front_foot.L",
+      "parent": "front.left.wrist",
+      "mirrorOf": "front.right.paw",
+      "targets": [
+        {
+          "bone": "front_foot.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_toe.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.left.toe": {
+      "label": "Front left toe",
+      "sourceBone": "DEF-front_toe.L",
+      "parent": "front.left.paw",
+      "mirrorOf": "front.right.toe",
+      "targets": [
+        {
+          "bone": "front_toe.L",
+          "endpoint": "tail"
+        }
+      ]
+    },
+    "back.left.hip": {
+      "label": "Back left hip",
+      "sourceBone": "DEF-thigh.L",
+      "parent": "spine.pelvis",
+      "mirrorOf": "back.right.hip",
+      "targets": [
+        {
+          "bone": "thigh.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.left.knee": {
+      "label": "Back left knee",
+      "sourceBone": "DEF-thigh.L",
+      "parent": "back.left.hip",
+      "mirrorOf": "back.right.knee",
+      "targets": [
+        {
+          "bone": "thigh.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "shin.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.left.ankle": {
+      "label": "Back left ankle",
+      "sourceBone": "DEF-shin.L",
+      "parent": "back.left.knee",
+      "mirrorOf": "back.right.ankle",
+      "targets": [
+        {
+          "bone": "shin.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "foot.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.left.paw": {
+      "label": "Back left paw",
+      "sourceBone": "DEF-foot.L",
+      "parent": "back.left.ankle",
+      "mirrorOf": "back.right.paw",
+      "targets": [
+        {
+          "bone": "foot.L",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "toe.L",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.left.toe": {
+      "label": "Back left toe",
+      "sourceBone": "DEF-toe.L",
+      "parent": "back.left.paw",
+      "mirrorOf": "back.right.toe",
+      "targets": [
+        {
+          "bone": "toe.L",
+          "endpoint": "tail"
+        }
+      ]
+    },
+    "front.right.shoulder": {
+      "label": "Front right shoulder",
+      "sourceBone": "DEF-front_thigh.R",
+      "parent": "spine.chest",
+      "mirrorOf": "front.left.shoulder",
+      "targets": [
+        {
+          "bone": "shoulder.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_thigh.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.right.elbow": {
+      "label": "Front right elbow",
+      "sourceBone": "DEF-front_thigh.R",
+      "parent": "front.right.shoulder",
+      "mirrorOf": "front.left.elbow",
+      "targets": [
+        {
+          "bone": "front_thigh.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_shin.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.right.wrist": {
+      "label": "Front right wrist",
+      "sourceBone": "DEF-front_shin.R",
+      "parent": "front.right.elbow",
+      "mirrorOf": "front.left.wrist",
+      "targets": [
+        {
+          "bone": "front_shin.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_foot.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.right.paw": {
+      "label": "Front right paw",
+      "sourceBone": "DEF-front_foot.R",
+      "parent": "front.right.wrist",
+      "mirrorOf": "front.left.paw",
+      "targets": [
+        {
+          "bone": "front_foot.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "front_toe.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "front.right.toe": {
+      "label": "Front right toe",
+      "sourceBone": "DEF-front_toe.R",
+      "parent": "front.right.paw",
+      "mirrorOf": "front.left.toe",
+      "targets": [
+        {
+          "bone": "front_toe.R",
+          "endpoint": "tail"
+        }
+      ]
+    },
+    "back.right.hip": {
+      "label": "Back right hip",
+      "sourceBone": "DEF-thigh.R",
+      "parent": "spine.pelvis",
+      "mirrorOf": "back.left.hip",
+      "targets": [
+        {
+          "bone": "thigh.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.right.knee": {
+      "label": "Back right knee",
+      "sourceBone": "DEF-thigh.R",
+      "parent": "back.right.hip",
+      "mirrorOf": "back.left.knee",
+      "targets": [
+        {
+          "bone": "thigh.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "shin.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.right.ankle": {
+      "label": "Back right ankle",
+      "sourceBone": "DEF-shin.R",
+      "parent": "back.right.knee",
+      "mirrorOf": "back.left.ankle",
+      "targets": [
+        {
+          "bone": "shin.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "foot.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.right.paw": {
+      "label": "Back right paw",
+      "sourceBone": "DEF-foot.R",
+      "parent": "back.right.ankle",
+      "mirrorOf": "back.left.paw",
+      "targets": [
+        {
+          "bone": "foot.R",
+          "endpoint": "tail"
+        },
+        {
+          "bone": "toe.R",
+          "endpoint": "head"
+        }
+      ]
+    },
+    "back.right.toe": {
+      "label": "Back right toe",
+      "sourceBone": "DEF-toe.R",
+      "parent": "back.right.paw",
+      "mirrorOf": "back.left.toe",
+      "targets": [
+        {
+          "bone": "toe.R",
+          "endpoint": "tail"
+        }
+      ]
+    }
+  }
+}

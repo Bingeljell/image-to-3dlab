@@ -57,6 +57,43 @@
         },
         "additionalProperties": false
       }
+    },
+    "binding": {
+      "type": "object",
+      "required": ["adapter", "sceneFingerprint", "metarigObjectId", "joints"],
+      "properties": {
+        "adapter": { "type": "string", "minLength": 1 },
+        "sceneFingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "metarigObjectId": { "type": "string", "minLength": 1 },
+        "joints": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["targets"],
+            "properties": {
+              "targets": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["boneId", "boneName", "endpoint"],
+                  "properties": {
+                    "boneId": { "type": "string", "minLength": 1 },
+                    "boneName": { "type": "string", "minLength": 1 },
+                    "endpoint": { "enum": ["head", "tail"] }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "$defs": {
@@ -73,4 +110,3 @@
   },
   "additionalProperties": false
 }
-

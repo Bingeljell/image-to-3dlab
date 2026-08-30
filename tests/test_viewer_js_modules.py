@@ -241,6 +241,16 @@ def test_rig_sidecar_parser_validates_references_corrections_and_asset_hash():
             sourcePosition: [0.2, 1, 0], targetPosition: [0.25, 1.1, 0],
             delta: [0.05, 0.1, 0], mirrored: false
           }}
+        }},
+        binding: {{
+          adapter: 'rigify.basic-quadruped.blender-5.2.v1',
+          sceneFingerprint: hash,
+          metarigObjectId: 'metarig-uuid',
+          joints: {{
+            shoulder: {{
+              targets: [{{ boneId: 'bone-uuid', boneName: 'front_thigh.L', endpoint: 'head' }}]
+            }}
+          }}
         }}
       }});
       let rejected = '';
@@ -251,6 +261,7 @@ def test_rig_sidecar_parser_validates_references_corrections_and_asset_hash():
         hash,
         profile: sidecar.rigProfile,
         target: sidecar.corrections.shoulder.targetPosition,
+        adapter: sidecar.binding.adapter,
         rejected,
       }}));
     """
@@ -267,6 +278,7 @@ def test_rig_sidecar_parser_validates_references_corrections_and_asset_hash():
         "hash": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         "profile": "rigify.quadruped.v1",
         "target": [0.25, 1.1, 0],
+        "adapter": "rigify.basic-quadruped.blender-5.2.v1",
         "rejected": "Rig sidecar: joints.shoulder.parent references unknown joint",
     }
 
@@ -276,6 +288,7 @@ def test_rig_sidecar_schema_is_valid_json_and_versioned():
 
     assert schema["properties"]["schemaVersion"]["const"] == 1
     assert schema["properties"]["coordinateSpace"]["const"] == "armature-local"
+    assert "binding" in schema["properties"]
 
 
 @pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")

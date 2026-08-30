@@ -242,6 +242,44 @@ The source position plus asset fingerprint prevents a correction from being sile
 applied to a different bind or rig revision. A stale mismatch is an error requiring user
 review, not an automatic best-effort import.
 
+Bone names are not a portable API. Rigify templates, Blender versions, custom rigs, and
+studio naming conventions may all differ. Generality therefore comes from separating:
+
+- a stable semantic profile (`front.left.elbow`, `spine.chest`, `head`);
+- a versioned adapter that knows how to seed a particular known rig template;
+- an asset-specific binding manifest exported from the actual Blender scene.
+
+The exporter stamps the metarig object and relevant metarig bones with persistent IDs, then
+embeds the resolved endpoint mapping in the sidecar:
+
+```json
+{
+  "binding": {
+    "adapter": "rigify.basic-quadruped.blender-5.2.v1",
+    "sceneFingerprint": "sha256:...",
+    "metarigObjectId": "c995...",
+    "joints": {
+      "front.left.elbow": {
+        "targets": [
+          {
+            "boneId": "8fb1...",
+            "boneName": "front_thigh.L",
+            "endpoint": "tail"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+`boneName` is a diagnostic fallback; `boneId` is authoritative. The `.blend` fingerprint
+prevents that mapping from being used against a different source scene. Built-in adapters
+make common Rigify human and animal templates automatic. An arbitrary custom rig requires
+a one-time mapping wizard in which the user assigns semantic joints to bone endpoints; that
+mapping then travels with every asset and animation. Anatomy cannot be reliably inferred
+from arbitrary names alone.
+
 Selection has two levels:
 
 - selecting a rendered bone body identifies the deform bone and highlights its mapped fit
@@ -281,6 +319,10 @@ The `.blend` is required in v1 because glTF exports deform bones and baked clips
 complete Rigify metarig, control rig, constraints, drivers, or generation parameters. A
 later deterministic rig profile may reconstruct that authoring state from semantic joints,
 but a GLB alone is not treated as sufficient evidence.
+
+Both the GLB and `.blend` fingerprints are validated before Blender starts. The source scene
+fingerprint and persistent bone IDs come from the asset-specific binding manifest, so the
+worker does not assume that every Blender installation uses the same bone names.
 
 The worker performs this transaction:
 

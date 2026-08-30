@@ -10,7 +10,7 @@ export function parseRigSidecar(input) {
   requireObject(source, 'root');
   allowKeys(source, [
     'schemaVersion', 'rigProfile', 'assetFingerprint', 'coordinateSpace',
-    'mirror', 'joints', 'corrections',
+    'mirror', 'joints', 'corrections', 'binding',
   ], 'root');
   if (source.schemaVersion !== 1) fail('schemaVersion must be 1');
   if (!nonEmptyString(source.rigProfile)) fail('rigProfile must be a non-empty string');
@@ -74,6 +74,52 @@ export function parseRigSidecar(input) {
     }
   }
 
+  let binding = null;
+  if (source.binding != null) {
+    requireObject(source.binding, 'binding');
+    allowKeys(
+      source.binding,
+      ['adapter', 'sceneFingerprint', 'metarigObjectId', 'joints'],
+      'binding',
+    );
+    if (!nonEmptyString(source.binding.adapter)) fail('binding.adapter must be non-empty');
+    if (!FINGERPRINT.test(source.binding.sceneFingerprint || '')) {
+      fail('binding.sceneFingerprint must be sha256 followed by 64 lowercase hexadecimal characters');
+    }
+    if (!nonEmptyString(source.binding.metarigObjectId)) {
+      fail('binding.metarigObjectId must be non-empty');
+    }
+    requireObject(source.binding.joints, 'binding.joints');
+    const bindingJoints = {};
+    for (const [id, value] of Object.entries(source.binding.joints)) {
+      if (!joints[id]) fail(`binding.joints.${id} references unknown joint`);
+      requireObject(value, `binding.joints.${id}`);
+      allowKeys(value, ['targets'], `binding.joints.${id}`);
+      if (!Array.isArray(value.targets) || !value.targets.length) {
+        fail(`binding.joints.${id}.targets must contain at least one target`);
+      }
+      bindingJoints[id] = {
+        targets: value.targets.map((target, index) => {
+          const path = `binding.joints.${id}.targets.${index}`;
+          requireObject(target, path);
+          allowKeys(target, ['boneId', 'boneName', 'endpoint'], path);
+          if (!nonEmptyString(target.boneId)) fail(`${path}.boneId must be non-empty`);
+          if (!nonEmptyString(target.boneName)) fail(`${path}.boneName must be non-empty`);
+          if (target.endpoint !== 'head' && target.endpoint !== 'tail') {
+            fail(`${path}.endpoint must be head or tail`);
+          }
+          return { boneId: target.boneId, boneName: target.boneName, endpoint: target.endpoint };
+        }),
+      };
+    }
+    binding = {
+      adapter: source.binding.adapter,
+      sceneFingerprint: source.binding.sceneFingerprint,
+      metarigObjectId: source.binding.metarigObjectId,
+      joints: bindingJoints,
+    };
+  }
+
   return {
     schemaVersion: 1,
     rigProfile: source.rigProfile,
@@ -82,6 +128,7 @@ export function parseRigSidecar(input) {
     mirror: { axis: source.mirror.axis, origin: Number(source.mirror.origin) },
     joints,
     corrections,
+    binding,
   };
 }
 

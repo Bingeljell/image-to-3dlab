@@ -11,7 +11,7 @@ from typing import Any, Mapping
 FINGERPRINT_PREFIX = "sha256:"
 ROOT_KEYS = {
     "schemaVersion", "rigProfile", "assetFingerprint", "coordinateSpace",
-    "mirror", "joints", "corrections",
+    "mirror", "joints", "corrections", "binding",
 }
 JOINT_KEYS = {"label", "position", "sourceBone", "parent", "mirrorOf"}
 CORRECTION_KEYS = {"sourcePosition", "targetPosition", "delta", "mirrored"}
@@ -30,6 +30,14 @@ class JointCorrection:
     target_position: tuple[float, float, float]
     delta: tuple[float, float, float]
     mirrored: bool
+    targets: tuple["BoneTarget", ...] = ()
+
+
+@dataclass(frozen=True)
+class BoneTarget:
+    bone_id: str
+    bone_name: str
+    endpoint: str
 
 
 def asset_fingerprint(path: Path) -> str:
@@ -115,6 +123,8 @@ def validate_sidecar(source: Any) -> dict[str, Any]:
             "mirrored": mirrored,
         }
 
+    binding = _validate_binding(root.get("binding"), joints)
+
     return {
         "schemaVersion": 1,
         "rigProfile": rig_profile,
@@ -123,6 +133,7 @@ def validate_sidecar(source: Any) -> dict[str, Any]:
         "mirror": {"axis": axis, "origin": origin},
         "joints": joints,
         "corrections": corrections,
+        "binding": binding,
     }
 
 
@@ -136,6 +147,19 @@ def verify_asset(sidecar: Mapping[str, Any], asset_path: Path) -> str:
     return actual
 
 
+def verify_scene(sidecar: Mapping[str, Any], scene_path: Path) -> str:
+    binding = sidecar.get("binding")
+    if not binding:
+        raise RigSidecarError("Rig sidecar: binding manifest is required for Blender rebind")
+    actual = asset_fingerprint(scene_path)
+    expected = binding["sceneFingerprint"]
+    if actual != expected:
+        raise RigSidecarError(
+            f"scene fingerprint mismatch: sidecar expects {expected}, uploaded BLEND is {actual}"
+        )
+    return actual
+
+
 def plan_corrections(sidecar: Mapping[str, Any]) -> list[JointCorrection]:
     return [
         JointCorrection(
@@ -145,9 +169,58 @@ def plan_corrections(sidecar: Mapping[str, Any]) -> list[JointCorrection]:
             target_position=tuple(correction["targetPosition"]),
             delta=tuple(correction["delta"]),
             mirrored=correction["mirrored"],
+            targets=tuple(
+                BoneTarget(
+                    bone_id=target["boneId"],
+                    bone_name=target["boneName"],
+                    endpoint=target["endpoint"],
+                )
+                for target in (sidecar.get("binding") or {}).get("joints", {})
+                .get(joint_id, {}).get("targets", [])
+            ),
         )
         for joint_id, correction in sidecar["corrections"].items()
     ]
+
+
+def _validate_binding(value: Any, joints: Mapping[str, Any]) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    binding = _mapping(value, "binding")
+    required = {"adapter", "sceneFingerprint", "metarigObjectId", "joints"}
+    if set(binding) != required:
+        _fail("binding fields do not match schema v1")
+    raw_joints = _mapping(binding["joints"], "binding.joints")
+    normalized_joints = {}
+    for joint_id, value in raw_joints.items():
+        if joint_id not in joints:
+            _fail(f"binding.joints.{joint_id} references unknown joint")
+        target_group = _mapping(value, f"binding.joints.{joint_id}")
+        if set(target_group) != {"targets"}:
+            _fail(f"binding.joints.{joint_id} fields do not match schema v1")
+        raw_targets = target_group["targets"]
+        if not isinstance(raw_targets, list) or not raw_targets:
+            _fail(f"binding.joints.{joint_id}.targets must contain at least one target")
+        targets = []
+        for index, value in enumerate(raw_targets):
+            path = f"binding.joints.{joint_id}.targets.{index}"
+            target = _mapping(value, path)
+            if set(target) != {"boneId", "boneName", "endpoint"}:
+                _fail(f"{path} fields do not match schema v1")
+            if target["endpoint"] not in {"head", "tail"}:
+                _fail(f"{path}.endpoint must be head or tail")
+            targets.append({
+                "boneId": _string(target["boneId"], f"{path}.boneId"),
+                "boneName": _string(target["boneName"], f"{path}.boneName"),
+                "endpoint": target["endpoint"],
+            })
+        normalized_joints[joint_id] = {"targets": targets}
+    return {
+        "adapter": _string(binding["adapter"], "binding.adapter"),
+        "sceneFingerprint": _fingerprint(binding["sceneFingerprint"]),
+        "metarigObjectId": _string(binding["metarigObjectId"], "binding.metarigObjectId"),
+        "joints": normalized_joints,
+    }
 
 
 def _mapping(value: Any, path: str) -> Mapping[str, Any]:

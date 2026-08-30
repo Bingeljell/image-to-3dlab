@@ -12,6 +12,7 @@ from image_to_3dlab.rig_sidecar import (
     plan_corrections,
     validate_sidecar,
     verify_asset,
+    verify_scene,
 )
 
 
@@ -45,6 +46,26 @@ def sidecar_for(payload: bytes) -> dict:
     }
 
 
+def with_binding(sidecar: dict, scene_payload: bytes) -> dict:
+    sidecar["binding"] = {
+        "adapter": "rigify.basic-quadruped.blender-5.2.v1",
+        "sceneFingerprint": f"sha256:{hashlib.sha256(scene_payload).hexdigest()}",
+        "metarigObjectId": "metarig-uuid",
+        "joints": {
+            "shoulder.L": {
+                "targets": [
+                    {
+                        "boneId": "bone-uuid",
+                        "boneName": "front_thigh.L",
+                        "endpoint": "head",
+                    }
+                ]
+            }
+        },
+    }
+    return sidecar
+
+
 def test_validate_and_plan_browser_sidecar():
     validated = validate_sidecar(sidecar_for(b"glb"))
     plan = plan_corrections(validated)
@@ -65,6 +86,30 @@ def test_fingerprint_verification_is_exact(tmp_path):
     asset.write_bytes(b"different")
     with pytest.raises(RigSidecarError, match="fingerprint mismatch"):
         verify_asset(sidecar, asset)
+
+
+def test_scene_binding_is_asset_specific_and_supplies_stable_bone_targets(tmp_path):
+    scene = tmp_path / "source.blend"
+    scene.write_bytes(b"blend")
+    sidecar = validate_sidecar(with_binding(sidecar_for(b"glb"), b"blend"))
+
+    assert verify_scene(sidecar, scene) == sidecar["binding"]["sceneFingerprint"]
+    correction = plan_corrections(sidecar)[0]
+    assert correction.targets[0].bone_id == "bone-uuid"
+    assert correction.targets[0].bone_name == "front_thigh.L"
+    assert correction.targets[0].endpoint == "head"
+
+    scene.write_bytes(b"different scene")
+    with pytest.raises(RigSidecarError, match="scene fingerprint mismatch"):
+        verify_scene(sidecar, scene)
+
+
+def test_rebind_requires_a_binding_manifest(tmp_path):
+    scene = tmp_path / "source.blend"
+    scene.write_bytes(b"blend")
+
+    with pytest.raises(RigSidecarError, match="binding manifest is required"):
+        verify_scene(validate_sidecar(sidecar_for(b"glb")), scene)
 
 
 def test_load_sidecar_normalizes_optional_joint_references(tmp_path):

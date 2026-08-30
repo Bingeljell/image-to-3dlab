@@ -27,6 +27,21 @@ def _load():
 serve = _load()
 
 
+def test_server_script_imports_from_outside_the_repo_root(tmp_path):
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, str(REPO / "viewer" / "serve.py"), "--help"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--static-only" in result.stdout
+
+
 def _params(url: str) -> dict:
     return {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
 

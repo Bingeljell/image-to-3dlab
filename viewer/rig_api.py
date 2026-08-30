@@ -10,14 +10,17 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
 from typing import Any
 
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
 from image_to_3dlab.rig_sidecar import load_sidecar, plan_corrections, verify_asset, verify_scene
 
-REPO = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = REPO / "output" / "rig-rebind"
 WORKER = REPO / "scripts" / "blender_rebind.py"
 DEFAULT_BLENDER = Path("/Applications/Blender.app/Contents/MacOS/Blender")

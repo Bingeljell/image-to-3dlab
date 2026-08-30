@@ -278,6 +278,65 @@ def test_rig_sidecar_schema_is_valid_json_and_versioned():
 
 
 @pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_rig_correction_session_mirrors_undoes_and_exports_atomic_edits():
+    module_url = (REPO / "viewer" / "rig" / "correction-session.js").as_uri()
+    program = f"""
+      import {{ RigCorrectionSession }} from {json.dumps(module_url)};
+      const sidecar = {{
+        schemaVersion: 1, rigProfile: 'quadruped', assetFingerprint: 'sha256:test',
+        coordinateSpace: 'armature-local', mirror: {{ axis: 'X', origin: 0 }},
+        joints: {{
+          left: {{ label: 'Left', position: [1, 2, 3], sourceBone: 'left', mirrorOf: 'right' }},
+          right: {{ label: 'Right', position: [-1, 2, 3], sourceBone: 'right', mirrorOf: null }},
+        }}, corrections: {{}},
+      }};
+      const session = new RigCorrectionSession(sidecar);
+      const partner = session.setTarget('left', [1.25, 2.5, 3], {{ mirror: true }});
+      const edited = session.toSidecar();
+      const undoWorked = session.undo();
+      const afterUndo = session.toSidecar();
+      const redoWorked = session.redo();
+      session.reset('left', {{ mirror: true }});
+      console.log(JSON.stringify({{
+        partner,
+        left: edited.corrections.left,
+        right: edited.corrections.right,
+        undoWorked, undoCount: Object.keys(afterUndo.corrections).length,
+        redoWorked, resetCount: Object.keys(session.toSidecar().corrections).length,
+        sourceUntouched: sidecar.corrections,
+      }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "partner": "right",
+        "left": {
+            "sourcePosition": [1, 2, 3],
+            "targetPosition": [1.25, 2.5, 3],
+            "delta": [0.25, 0.5, 0],
+            "mirrored": False,
+        },
+        "right": {
+            "sourcePosition": [-1, 2, 3],
+            "targetPosition": [-1.25, 2.5, 3],
+            "delta": [-0.25, 0.5, 0],
+            "mirrored": True,
+        },
+        "undoWorked": True,
+        "undoCount": 0,
+        "redoWorked": True,
+        "resetCount": 0,
+        "sourceUntouched": {},
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
 def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
     overlay_url = (REPO / "viewer" / "rig" / "fit-skeleton-overlay.js").as_uri()
     three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()

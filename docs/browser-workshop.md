@@ -53,7 +53,7 @@ Compare remains a cross-cutting inspection tool rather than a stage of the workf
 
 ## Current implementation status
 
-As of 2026-08-30, the dependency-light browser application has reusable Compare,
+As of 2026-08-31, the dependency-light browser application has reusable Compare,
 Generate, Rig Review, and Animate rooms. Rig Review currently supports:
 
 - GLB/GLTF deform-skeleton inspection with selectable tapered bone bodies and joints;
@@ -64,6 +64,10 @@ Generate, Rig Review, and Animate rooms. Rig Review currently supports:
 - corrected sidecar download without mutating the source GLB or its bind pose;
 - a queued **Rebind in Blender** action with staged progress and cancellation;
 - automatic replacement-GLB inspection plus `.blend`, sidecar, and report downloads.
+
+The current implementation handoff, verified pangolin bundle, manual acceptance checks, and
+next-session queue are recorded in
+[rig-edit-handoff-2026-08-31.md](rig-edit-handoff-2026-08-31.md).
 
 The rebind worker now validates both fingerprints, applies persistent-ID endpoint mappings,
 regenerates Rigify, builds a voxel weight proxy, transfers weights to the textured mesh,

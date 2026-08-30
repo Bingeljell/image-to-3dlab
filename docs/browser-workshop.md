@@ -61,10 +61,29 @@ Generate, Rig Review, and Animate rooms. Rig Review currently supports:
 - strict, fingerprint-verified `.rig.json` fit-skeleton loading;
 - direct fit-joint selection and camera-plane dragging;
 - precise armature-local XYZ edits, profile-defined mirroring, undo, redo, and reset;
-- corrected sidecar download without mutating the source GLB or its bind pose.
+- corrected sidecar download without mutating the source GLB or its bind pose;
+- a queued **Rebind in Blender** action with staged progress and cancellation;
+- automatic replacement-GLB inspection plus `.blend`, sidecar, and report downloads.
 
-This completes the browser half of joint correction. It does not yet make the corrected
-placement authoritative: that requires the Blender rebind worker described below.
+The rebind worker now validates both fingerprints, applies persistent-ID endpoint mappings,
+regenerates Rigify, builds a voxel weight proxy, transfers weights to the textured mesh,
+exports a replacement GLB, saves a new scene, and refreshes the sidecar. The source scene
+and source GLB are never overwritten.
+
+The first built-in adapter targets Rigify Basic Quadruped in Blender 5.2. Prepare an initial
+authoring bundle from an existing clean bind scene with:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender \
+  --background source.blend \
+  --python scripts/blender_export_rig_binding.py -- \
+  source.glb prepared.blend creature.rig.json \
+  rigify.basic-quadruped.blender-5.2.v1
+```
+
+Load `source.glb`, `prepared.blend`, and `creature.rig.json` together in Rig Review. After
+editing at least one fit joint, **Rebind in Blender** submits the complete verified bundle;
+there is no manual JSON handoff during normal iteration.
 
 ## Architecture direction
 
@@ -365,13 +384,22 @@ The returned scene is optional for ordinary review. A local **Open in Blender** 
 be added later, but the portable contract is a downloadable `.blend`; remote browsers must
 not be allowed to launch arbitrary desktop files.
 
-Implementation proceeds in independently testable slices:
+Implemented slices:
 
 1. pure-Python sidecar validation, fingerprint verification, and correction planning;
-2. Blender-side application of that plan to a preserved scene, with report and copy output;
-3. profile-specific Rigify regeneration, voxel weight transfer, GLB export, and fixed poses;
-4. queued backend endpoints, cancellation, progress, and artifact serving;
-5. browser submission, progress, automatic result loading, and before/after review.
+2. versioned adapters plus asset-specific persistent-ID binding manifests;
+3. Blender-side correction, Rigify regeneration, voxel weight transfer, GLB export, scene
+   copy, refreshed sidecar, and diagnostic report;
+4. queued backend endpoints, cancellation, SSE/polling progress, and artifact serving;
+5. browser submission, progress, automatic result loading, and artifact downloads.
+
+Next iterations:
+
+1. fixed deformation-review poses and explicit before/after switching;
+2. a guided Blender mapping/export surface for custom rigs and more built-in adapters;
+3. streaming multipart uploads so very large `.blend` files are not buffered in memory;
+4. job history and restart recovery in the browser;
+5. deformation metrics and focused weight-repair tools after a rebind.
 
 ### Rigify and glTF
 
@@ -507,7 +535,7 @@ data into a single GLB, but the authoring format remains explicit and diffable.
 2. ~~Build Animate inspection: clip playback, scrubbing, skeleton overlay, bone selection,
    and pose reset.~~
 3. ~~Build Rig Review inspection and editable, versioned fit-joint corrections.~~
-4. Add the preserved-scene Blender rebind worker and browser-launched job.
+4. ~~Add the preserved-scene Blender rebind worker and browser-launched job.~~
 5. Add fixed deformation-review poses and before/after acceptance.
 6. Add browser keyframes and versioned animation recipes.
 7. Add prompted animation against the validated recipe schema.

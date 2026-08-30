@@ -309,13 +309,76 @@ Moving a joint preserves chain connectivity: a knee is both the upper leg's endp
 the lower leg's origin. Leaf endpoints that cannot be recovered from glTF must be explicit
 in the sidecar.
 
+#### Rig Review interaction contract
+
+Selection must be visually unambiguous and synchronized across the viewport, hierarchy,
+and inspector. A selected joint enlarges slightly and receives the high-contrast selection
+colour; a selected bone becomes brighter and thicker. Hover uses a weaker version of the
+same treatment. The matching hierarchy row is selected, and the inspector shows the
+semantic label, coordinates, and editability. An editable selection also displays its
+translation control. Colour alone is not sufficient selection feedback.
+
+Rig Review edits the **fit joints**, not the final deform skeleton. The primary correction
+interaction is:
+
+```text
+select fit joint
+  -> translate with an XYZ gizmo or enter armature-local coordinates
+  -> update connected fit-bone lines
+  -> record a semantic joint correction
+  -> Rebind in Blender
+```
+
+Camera-plane dragging may remain as a quick gesture, but the XYZ gizmo is the precise,
+discoverable control. The browser converts the displayed position back into armature-local
+coordinates before updating `corrections`.
+
+A bone is derived from its head and tail joints and is not serialized as an independently
+translated object. Selecting a fit bone reveals and highlights its endpoint handles; the
+user then moves the relevant joint. A later limb-translation tool may move several joints
+as one operation, but it must still produce ordinary joint corrections. Moving or aligning
+the entire fit armature is a distinct, explicit operation so a local correction cannot
+accidentally offset the whole character.
+
+Visibility is layered even though the structures are connected. The primary layers are:
+
+- **Current rig** — the GLB deform skeleton, with separate Bones and Joints visibility;
+- **Fit controls** — the editable sidecar skeleton, with separate Bones and Joints
+  visibility;
+- **Mesh** — independent visibility and opacity.
+
+The correction-oriented default is Fit joints visible, Fit bones visible but subdued,
+Current rig hidden, and the mesh partially transparent. This avoids presenting two
+overlapping skeletons as one dense set of controls.
+
+The viewport includes Front, Back, Left, Right, Top, and Bottom view controls, plus Frame
+model, Frame selection, and Reset perspective. Axis-aligned views use an orthographic
+camera; orbiting may return to perspective. Because arbitrary GLBs do not reliably encode
+which way a creature faces, the rig sidecar or profile records the character's up and
+forward axes. View labels are resolved through that orientation metadata rather than
+assuming every asset uses the same generator coordinates.
+
+The viewport palette encodes structure first and selection second:
+
+- bones use a visible light slate grey rather than black;
+- fit joints use warm orange;
+- the final deform rig uses a cooler blue-grey when shown;
+- selection uses bright cyan or yellow, with increased size or thickness;
+- hover uses a paler, lower-intensity selection treatment;
+- the background remains charcoal for material inspection.
+
+The correction JSON records changed semantic joint positions only. Bone segments are
+reconstructed from their joint endpoints, which keeps the format independent of rendered
+bone geometry and avoids treating arbitrary Rigify or custom-rig bone names as the public
+editing API.
+
 Rig Review controls are introduced in this order:
 
-1. tapered deform-bone rendering, joint markers, names, hierarchy, x-ray, and mesh opacity;
-2. fit-skeleton sidecar validation and overlay;
-3. original/corrected ghosting and translation gizmos;
-4. profile-defined mirroring, reset, undo, and correction export;
-5. Blender rebind and fixed deformation-review poses.
+1. unmistakable synchronized selection feedback and a legible semantic palette;
+2. independent Current rig, Fit controls, Bones, Joints, and Mesh visibility;
+3. precise fit-joint translation with an XYZ gizmo and numeric coordinates;
+4. standard camera orientations, framing, and perspective reset;
+5. original/corrected ghosting and fixed deformation-review poses.
 
 Animation playback is disabled while editing fit joints. The browser may preview alignment
 and reach, but only the returned rebind is authoritative for deformation quality.

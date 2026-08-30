@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-to-3dlab.local/schemas/rig-sidecar-v1.json",
+  "title": "image-to-3dlab rig sidecar",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "rigProfile",
+    "assetFingerprint",
+    "coordinateSpace",
+    "mirror",
+    "joints"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "rigProfile": { "type": "string", "minLength": 1 },
+    "assetFingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "coordinateSpace": { "const": "armature-local" },
+    "mirror": {
+      "type": "object",
+      "required": ["axis", "origin"],
+      "properties": {
+        "axis": { "enum": ["X", "Y", "Z"] },
+        "origin": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "joints": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label", "position", "sourceBone"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "position": { "$ref": "#/$defs/vec3" },
+          "sourceBone": { "type": "string", "minLength": 1 },
+          "parent": { "type": ["string", "null"] },
+          "mirrorOf": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "corrections": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["sourcePosition", "targetPosition", "delta", "mirrored"],
+        "properties": {
+          "sourcePosition": { "$ref": "#/$defs/vec3" },
+          "targetPosition": { "$ref": "#/$defs/vec3" },
+          "delta": { "$ref": "#/$defs/vec3" },
+          "mirrored": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" },
+        { "type": "number" }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    }
+  },
+  "additionalProperties": false
+}
+

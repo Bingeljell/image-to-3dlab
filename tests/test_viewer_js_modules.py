@@ -213,3 +213,65 @@ def test_bone_picker_maps_a_viewport_hit_back_to_the_bone():
         "afterDispose": False,
         "listeners": 0,
     }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_rig_sidecar_parser_validates_references_corrections_and_asset_hash():
+    module_url = (REPO / "viewer" / "rig" / "rig-sidecar.js").as_uri()
+    program = f"""
+      import {{ fingerprintAsset, parseRigSidecar }} from {json.dumps(module_url)};
+      import {{ webcrypto }} from 'node:crypto';
+      const hash = await fingerprintAsset(new TextEncoder().encode('abc'), webcrypto);
+      const sidecar = parseRigSidecar({{
+        schemaVersion: 1,
+        rigProfile: 'rigify.quadruped.v1',
+        assetFingerprint: hash,
+        coordinateSpace: 'armature-local',
+        mirror: {{ axis: 'X', origin: 0 }},
+        joints: {{
+          chest: {{ label: 'Chest', position: [0, 1, 0], sourceBone: 'DEF-spine' }},
+          shoulder: {{
+            label: 'Left shoulder', position: [0.2, 1, 0], sourceBone: 'DEF-upper_arm.L',
+            parent: 'chest'
+          }},
+        }},
+        corrections: {{
+          shoulder: {{
+            sourcePosition: [0.2, 1, 0], targetPosition: [0.25, 1.1, 0],
+            delta: [0.05, 0.1, 0], mirrored: false
+          }}
+        }}
+      }});
+      let rejected = '';
+      try {{
+        parseRigSidecar({{ ...sidecar, joints: {{ shoulder: sidecar.joints.shoulder }} }});
+      }} catch (error) {{ rejected = error.message; }}
+      console.log(JSON.stringify({{
+        hash,
+        profile: sidecar.rigProfile,
+        target: sidecar.corrections.shoulder.targetPosition,
+        rejected,
+      }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload == {
+        "hash": "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "profile": "rigify.quadruped.v1",
+        "target": [0.25, 1.1, 0],
+        "rejected": "Rig sidecar: joints.shoulder.parent references unknown joint",
+    }
+
+
+def test_rig_sidecar_schema_is_valid_json_and_versioned():
+    schema = json.loads((REPO / "rigs" / "rig-sidecar.schema.json").read_text())
+
+    assert schema["properties"]["schemaVersion"]["const"] == 1
+    assert schema["properties"]["coordinateSpace"]["const"] == "armature-local"

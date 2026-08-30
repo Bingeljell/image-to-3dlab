@@ -17,8 +17,8 @@
   <span class="lbl">image-to-3dlab</span>
   <button id="mode-compare" class="mode on">Compare</button>
   <button id="mode-generate" class="mode">Generate</button>
-  <button id="mode-rig" class="mode">Rig Review</button>
-  <button id="mode-animate" class="mode">Animate</button>
+  <button id="mode-rig" class="mode" title="Correct the rest skeleton">Rig Edit</button>
+  <button id="mode-animate" class="mode" title="Pose and animate the bound skeleton">Pose</button>
   <button id="mode-credits" class="mode">Credits &amp; Info</button>
 </div>
 <section id="compare-view">
@@ -176,8 +176,8 @@
 <section id="rig-view" hidden>
   <div class="rig-shell">
     <aside class="rig-sidebar">
-      <h2>Rig Review</h2>
-      <p>Inspect the deform skeleton and its editable fit-skeleton mapping.</p>
+      <h2>Rig Edit</h2>
+      <p>Correct the fit skeleton, then ask Blender to rebuild the bound rig.</p>
       <div id="rig-drop" class="rig-drop" role="button" tabindex="0">
         Drop a GLB/GLTF<br>with optional .rig.json + .blend<br>or click to browse
       </div>
@@ -211,7 +211,7 @@
 
     <main class="rig-stage">
       <div id="rig-viewport">
-        <div id="rig-empty" class="rig-empty">Load a bound model to begin Rig Review.</div>
+        <div id="rig-empty" class="rig-empty">Load a bound model to begin Rig Edit.</div>
         <div class="stats rig-stats">no model</div>
       </div>
     </main>
@@ -251,7 +251,7 @@
           <button id="rig-undo" disabled>Undo</button>
           <button id="rig-redo" disabled>Redo</button>
         </div>
-        <button id="rig-reset-all" disabled>Reset all</button>
+        <button id="rig-reset-all" disabled>Reset Rig Edits</button>
         <button id="rig-export" disabled>Download .rig.json</button>
         <div id="rig-correction-summary">No corrections.</div>
         <button id="rig-rebind" disabled>Rebind in Blender</button>
@@ -287,8 +287,8 @@
 <section id="animate-view" hidden>
   <div class="animate-shell">
     <aside class="animate-sidebar">
-      <h2>Animate</h2>
-      <p>Inspect a rigged GLB, preview its clips, and verify the bind pose.</p>
+      <h2>Pose</h2>
+      <p>Inspect the last bound rig, preview its clips, and reset its pose.</p>
       <div id="animate-drop" class="animate-drop" role="button" tabindex="0">
         Drop a rigged GLB or GLTF here<br>or click to browse
       </div>
@@ -305,7 +305,7 @@
         <label for="animate-skeleton"><span>Show skeleton</span>
           <input id="animate-skeleton" type="checkbox" checked disabled>
         </label>
-        <button id="animate-reset" disabled>Reset to bind pose</button>
+        <button id="animate-reset" disabled>Reset Pose</button>
       </div>
 
       <div class="animate-section">

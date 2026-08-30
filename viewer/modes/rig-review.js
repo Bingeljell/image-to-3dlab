@@ -373,7 +373,7 @@ async function prepareSidecar(files, modelFile) {
 async function loadFiles(fileList) {
   const token = ++loadToken;
   const files = [...fileList];
-  status.textContent = 'Preparing rig review…';
+  status.textContent = 'Preparing Rig Edit…';
   let spec;
   try {
     spec = specsFromFiles(files).find((candidate) => candidate.kind === 'model');

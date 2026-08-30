@@ -63,6 +63,12 @@ def test_port_is_honoured():
     assert ":9001/" in serve.compare_url(["a.glb"], 9001)
 
 
+def test_explicit_private_host_is_reflected_in_url():
+    url = serve.compare_url(["a.glb"], 8777, host="100.71.116.27")
+
+    assert url.startswith("http://100.71.116.27:8777/")
+
+
 def test_glb_is_served_as_a_binary_model_type():
     """A wrong MIME type makes GLTFLoader fail in a way that looks like a corrupt file."""
     assert serve.Handler.extensions_map[".glb"] == "model/gltf-binary"

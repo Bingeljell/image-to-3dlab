@@ -144,8 +144,10 @@ def test_animate_mode_is_a_workshop_room():
     assert animate.is_file()
     source = animate.read_text()
     assert "new AnimationPlayer" in source
-    assert "new THREE.SkeletonHelper" in source
     assert "new BonePicker" in source
+    assert "setBonesVisible" in source
+    assert "setJointsVisible" in source
+    assert "createCameraViewControls" in source
     assert "describeBone" in source
 
 

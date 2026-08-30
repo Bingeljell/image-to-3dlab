@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BonePicker } from '../animation/bone-picker.js';
 import { AnimationPlayer } from '../animation/player.js';
 import { describeBone } from '../animation/rig-inspection.js';
+import { createCameraViewControls } from '../components/camera-view-controls.js';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 import { specsFromFiles } from '../core/asset-files.js';
 import { subscribeRigEditState } from '../core/rig-edit-state.js';
@@ -16,7 +17,8 @@ const playButton = element('animate-play');
 const timeline = element('animate-timeline');
 const timeLabel = element('animate-time');
 const loopToggle = element('animate-loop');
-const skeletonToggle = element('animate-skeleton');
+const bonesToggle = element('animate-bones');
+const jointsToggle = element('animate-joints');
 const resetButton = element('animate-reset');
 const rigSummary = element('animate-rig-summary');
 const status = element('animate-status');
@@ -36,10 +38,14 @@ const rigEditNotice = element('animate-rig-edit-notice');
 
 let view = null;
 let player = null;
-let skeletonHelper = null;
 let bonePicker = null;
 let selectedBone = null;
 let renderPending = false;
+const cameraViews = createCameraViewControls({
+  container: viewport,
+  getView: () => view,
+  onChange: requestRender,
+});
 
 subscribeRigEditState(({ pendingCount, assetLabel }) => {
   rigEditNotice.hidden = pendingCount === 0;
@@ -179,17 +185,12 @@ function buildClipMenu() {
 }
 
 function disposeCurrent() {
+  cameraViews.setEnabled(false);
   player?.dispose();
   player = null;
   bonePicker?.dispose();
   bonePicker = null;
   selectBone(null);
-  if (skeletonHelper) {
-    skeletonHelper.removeFromParent();
-    skeletonHelper.geometry?.dispose();
-    skeletonHelper.material?.dispose();
-    skeletonHelper = null;
-  }
   if (view) {
     disposeModelViewport(view);
     view.renderer.domElement.remove();
@@ -205,6 +206,7 @@ function loaded(loadedView) {
   view.camera.position.set(1.45, 0.6, 2.45);
   view.controls.target.set(0, 0, 0);
   view.controls.update();
+  cameraViews.setEnabled(true);
 
   player = new AnimationPlayer(new THREE.AnimationMixer(view.modelRoot), {
     onFrame: (time, duration) => { updateTransport(time, duration); requestRender(); },
@@ -212,13 +214,6 @@ function loaded(loadedView) {
   });
 
   if (view.rig.bones.length) {
-    skeletonHelper = new THREE.SkeletonHelper(view.modelRoot);
-    skeletonHelper.material.depthTest = false;
-    skeletonHelper.material.transparent = true;
-    skeletonHelper.material.opacity = 0.68;
-    skeletonHelper.renderOrder = 19;
-    skeletonHelper.visible = skeletonToggle.checked;
-    view.scene.add(skeletonHelper);
     bonePicker = new BonePicker({
       scene: view.scene,
       camera: view.camera,
@@ -226,11 +221,13 @@ function loaded(loadedView) {
       bones: view.rig.bones,
       onSelect: selectBone,
     });
-    bonePicker.setVisible(skeletonToggle.checked);
+    bonePicker.setBonesVisible(bonesToggle.checked);
+    bonePicker.setJointsVisible(jointsToggle.checked);
   }
 
   buildClipMenu();
-  skeletonToggle.disabled = view.rig.bones.length === 0;
+  bonesToggle.disabled = view.rig.bones.length === 0;
+  jointsToggle.disabled = view.rig.bones.length === 0;
   resetButton.disabled = view.rig.skeletons.length === 0;
   rigSummary.textContent = `${view.rig.bones.length} bones · ` +
     `${view.rig.skinnedMeshes.length} skinned mesh${view.rig.skinnedMeshes.length === 1 ? '' : 'es'} · ` +
@@ -265,7 +262,8 @@ function loadFiles(fileList) {
   clipSelect.disabled = true;
   playButton.disabled = true;
   timeline.disabled = true;
-  skeletonToggle.disabled = true;
+  bonesToggle.disabled = true;
+  jointsToggle.disabled = true;
   resetButton.disabled = true;
   updateTransport();
 
@@ -318,9 +316,12 @@ timeline.oninput = () => {
   player?.seek(Number(timeline.value));
 };
 loopToggle.onchange = configureLoop;
-skeletonToggle.onchange = () => {
-  if (skeletonHelper) skeletonHelper.visible = skeletonToggle.checked;
-  bonePicker?.setVisible(skeletonToggle.checked);
+bonesToggle.onchange = () => {
+  bonePicker?.setBonesVisible(bonesToggle.checked);
+  requestRender();
+};
+jointsToggle.onchange = () => {
+  bonePicker?.setJointsVisible(jointsToggle.checked);
   requestRender();
 };
 resetButton.onclick = () => {

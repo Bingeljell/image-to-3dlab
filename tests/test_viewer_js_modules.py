@@ -275,3 +275,56 @@ def test_rig_sidecar_schema_is_valid_json_and_versioned():
 
     assert schema["properties"]["schemaVersion"]["const"] == 1
     assert schema["properties"]["coordinateSpace"]["const"] == "armature-local"
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
+    overlay_url = (REPO / "viewer" / "rig" / "fit-skeleton-overlay.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    program = f"""
+      import * as THREE from {json.dumps(three_url)};
+      import {{ FitSkeletonOverlay }} from {json.dumps(overlay_url)};
+      const scene = new THREE.Scene();
+      const armature = new THREE.Group();
+      armature.position.set(1, 0, 0);
+      const bone = new THREE.Bone();
+      bone.name = 'DEF-shoulder.L';
+      armature.add(bone);
+      scene.add(armature);
+      scene.updateMatrixWorld(true);
+      const sidecar = {{
+        joints: {{
+          chest: {{ position: [0, 1, 0], sourceBone: 'DEF-shoulder.L', parent: null }},
+          shoulder: {{ position: [0.2, 1, 0], sourceBone: 'DEF-shoulder.L', parent: 'chest' }},
+        }},
+        corrections: {{}},
+      }};
+      const overlay = new FitSkeletonOverlay({{ scene, sidecar, bones: [bone] }});
+      overlay.selectJoint('shoulder');
+      overlay.setXray(false);
+      const position = overlay.positions.get('shoulder').toArray();
+      const mapped = overlay.jointsForBone('DEF-shoulder.L');
+      const sceneCount = scene.children.length;
+      overlay.dispose();
+      console.log(JSON.stringify({{
+        position, mapped, selected: overlay.selectedId, sceneCount,
+        remaining: scene.children.length,
+        depthTest: overlay.markerMaterial.depthTest,
+      }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "position": [1.2, 1, 0],
+        "mapped": ["chest", "shoulder"],
+        "selected": "shoulder",
+        "sceneCount": 3,
+        "remaining": 1,
+        "depthTest": True,
+    }

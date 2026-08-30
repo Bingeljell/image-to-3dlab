@@ -145,6 +145,13 @@ export class BonePicker {
     this.bodies.visible = visible;
   }
 
+  setXray(xray) {
+    this.material.depthTest = !xray;
+    this.material.needsUpdate = true;
+    this.bodyMaterial.depthTest = !xray;
+    this.bodyMaterial.needsUpdate = true;
+  }
+
   setBoneColor(index, color) {
     this.markers.setColorAt(index, color);
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;

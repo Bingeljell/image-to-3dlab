@@ -74,6 +74,11 @@ def test_glb_is_served_as_a_binary_model_type():
     assert serve.Handler.extensions_map[".glb"] == "model/gltf-binary"
 
 
+def test_static_remote_handler_has_no_generation_post_endpoint():
+    assert serve.StaticViewerHandler.do_POST is not serve.Handler.do_POST
+    assert serve.StaticViewerHandler.extensions_map[".glb"] == "model/gltf-binary"
+
+
 def test_viewer_styles_are_split_by_responsibility():
     """The app shell must not grow back into a single inline implementation file."""
     html = (REPO / "viewer" / "index.html").read_text()

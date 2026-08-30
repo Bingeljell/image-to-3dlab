@@ -16,6 +16,7 @@ automation, which means the agent can look at its own output instead of asking.
 from __future__ import annotations
 
 import argparse
+import http.server
 import signal
 import socketserver
 import sys
@@ -37,6 +38,15 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
     daemon_threads = True
     allow_reuse_address = True
+
+
+class StaticViewerHandler(http.server.SimpleHTTPRequestHandler):
+    """Serve viewer assets only; no repository files or generation endpoints."""
+
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, **Handler.extensions_map}
+
+    def do_POST(self) -> None:
+        self.send_error(405, "Static viewer mode does not accept jobs")
 
 
 def compare_url(
@@ -73,10 +83,19 @@ def main() -> int:
     parser.add_argument("--open", nargs="*", metavar="GLB", help="assets to compare")
     parser.add_argument("--labels", nargs="*", help="captions, one per asset")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--static-only",
+        action="store_true",
+        help="serve only viewer assets and disable generation endpoints",
+    )
     args = parser.parse_args()
 
-    url = compare_url(args.open, args.port, args.labels, host=args.host) if args.open else \
-        f"http://{args.host}:{args.port}/viewer/index.html"
+    if args.static_only and args.open:
+        parser.error("--static-only cannot serve repository paths passed with --open")
+    url = compare_url(args.open, args.port, args.labels, host=args.host) if args.open else (
+        f"http://{args.host}:{args.port}/index.html" if args.static_only
+        else f"http://{args.host}:{args.port}/viewer/index.html"
+    )
     print(url, flush=True)
 
     # A prior server life may have died mid-generation (crash, closed terminal) without
@@ -99,7 +118,9 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
 
     import functools
-    handler = functools.partial(Handler, directory=str(REPO))
+    handler_class = StaticViewerHandler if args.static_only else Handler
+    directory = REPO / "viewer" if args.static_only else REPO
+    handler = functools.partial(handler_class, directory=str(directory))
     with ThreadingHTTPServer((args.host, args.port), handler) as httpd:
         if args.open and not args.no_browser:
             webbrowser.open(url)

@@ -311,6 +311,26 @@ in the sidecar.
 
 #### Rig Review interaction contract
 
+The workshop presents skeleton work as two mutually exclusive user modes. Their state is
+never interchangeable:
+
+- **Rig Edit** changes what the rest skeleton *is*. It edits semantic fit-joint positions,
+  produces pending corrections, and requires a Blender rebind before deformation is
+  authoritative.
+- **Pose** changes what the last successfully bound skeleton *is doing*. It owns FK/IK
+  controls, transient transforms, keyframes, clips, and later LLM animation recipes. It
+  never changes the fit-joint correction sidecar.
+
+These correspond conceptually to Blender Edit Mode and Pose Mode without claiming to expose
+Blender's complete toolset. The existing Rig Review room becomes Rig Edit; the existing
+Animate room becomes Pose. Internal route and DOM names may remain stable while the UI uses
+the clearer user terminology.
+
+Switching modes does not reinterpret or silently apply state. If Rig Edit has pending
+corrections, Pose continues to use the last successful bind and says that the pending edits
+are awaiting rebind. After a successful rebind, the replacement GLB becomes authoritative
+and transient pose transforms reset because the rest skeleton may have changed.
+
 Selection must be visually unambiguous and synchronized across the viewport, hierarchy,
 and inspector. A selected joint enlarges slightly and receives the high-contrast selection
 colour; a selected bone becomes brighter and thicker. Hover uses a weaker version of the
@@ -371,6 +391,16 @@ The correction JSON records changed semantic joint positions only. Bone segments
 reconstructed from their joint endpoints, which keeps the format independent of rendered
 bone geometry and avoids treating arbitrary Rigify or custom-rig bone names as the public
 editing API.
+
+Reset actions are scoped and named for the state they affect:
+
+- **Reset View** changes only the camera;
+- **Reset Pose** restores the current bound skeleton without discarding rig corrections or
+  saved clips;
+- **Reset Rig Edits** discards pending semantic joint corrections without changing the
+  camera or pose data.
+
+There is no generic Reset action whose effects depend on hidden state.
 
 Rig Review controls are introduced in this order:
 

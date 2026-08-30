@@ -432,14 +432,16 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
       overlay.setXray(false);
       overlay.setJointLocalPosition('shoulder', [0.3, 1.1, 0]);
       const position = overlay.positions.get('shoulder').toArray();
-      const mapped = overlay.jointsForBone('DEF-shoulder.L');
+          const mapped = overlay.jointsForBone('DEF-shoulder.L');
+          const gizmoPosition = overlay.gizmo.position.toArray();
+          const gizmoVisible = overlay.gizmo.visible;
       const listenerCount = listeners.size;
       const sceneCount = scene.children.length;
       overlay.dispose();
       console.log(JSON.stringify({{
         position, mapped, selected: overlay.selectedId, sceneCount,
         remaining: scene.children.length,
-        depthTest: overlay.markerMaterial.depthTest, listenerCount,
+            depthTest: overlay.markerMaterial.depthTest, listenerCount, gizmoPosition, gizmoVisible,
         listenersAfterDispose: listeners.size, picked,
       }}));
     """
@@ -455,10 +457,12 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
         "position": [1.3, 1.1, 0],
         "mapped": ["chest", "shoulder"],
         "selected": "shoulder",
-        "sceneCount": 3,
+        "sceneCount": 4,
         "remaining": 1,
         "depthTest": True,
         "listenerCount": 4,
         "listenersAfterDispose": 0,
         "picked": None,
+        "gizmoPosition": [1.3, 1.1, 0],
+        "gizmoVisible": True,
     }

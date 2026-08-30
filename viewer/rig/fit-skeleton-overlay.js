@@ -6,6 +6,13 @@ const SELECTED = new THREE.Color(0x35e7ff);
 const MATRIX = new THREE.Matrix4();
 const ORIENTATION = new THREE.Quaternion();
 const SCALE = new THREE.Vector3();
+const AXIS_UP = new THREE.Vector3(0, 1, 0);
+const AXIS_VECTORS = {
+  x: new THREE.Vector3(1, 0, 0),
+  y: new THREE.Vector3(0, 1, 0),
+  z: new THREE.Vector3(0, 0, 1),
+};
+const AXIS_COLORS = { x: 0xf05d5e, y: 0x63c174, z: 0x579dff };
 
 /** Render a validated armature-local fit skeleton over the normalized workshop model. */
 export class FitSkeletonOverlay {
@@ -29,30 +36,37 @@ export class FitSkeletonOverlay {
     this.dragPoint = new THREE.Vector3();
     this.dragOffset = new THREE.Vector3();
     this.dragTarget = new THREE.Vector3();
+    this.dragStartPoint = new THREE.Vector3();
+    this.dragStartPosition = new THREE.Vector3();
+    this.dragAxisWorld = new THREE.Vector3();
     this.dragJointId = null;
+    this.dragAxis = null;
+    this.jointsVisible = true;
     this.handlePointerDown = (event) => {
       if (event.button !== 0) return;
+      const axis = this.pickAxis(event.clientX, event.clientY);
+      if (axis && this.selectedId) {
+        this.consume(event);
+        this.beginDrag(event, this.selectedId, axis);
+        return;
+      }
       const id = this.pick(event.clientX, event.clientY);
       if (!id) return;
       this.consume(event);
       this.onSelect?.(id);
-      this.dragJointId = id;
-      const position = this.positions.get(id);
-      this.camera.getWorldDirection(this.dragTarget);
-      this.dragPlane.setFromNormalAndCoplanarPoint(this.dragTarget, position);
-      this.setRay(event.clientX, event.clientY);
-      this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint);
-      this.dragOffset.subVectors(position, this.dragPoint);
-      this.canvas.setPointerCapture?.(event.pointerId);
-      this.canvas.style.cursor = 'grabbing';
-      this.onDragChange?.(true);
+      this.beginDrag(event, id, null);
     };
     this.handlePointerMove = (event) => {
       if (!this.dragJointId) return;
       this.consume(event);
       this.setRay(event.clientX, event.clientY);
       if (!this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint)) return;
-      this.dragTarget.copy(this.dragPoint).add(this.dragOffset);
+      if (this.dragAxis) {
+        const distance = this.dragPoint.clone().sub(this.dragStartPoint).dot(this.dragAxisWorld);
+        this.dragTarget.copy(this.dragStartPosition).addScaledVector(this.dragAxisWorld, distance);
+      } else {
+        this.dragTarget.copy(this.dragPoint).add(this.dragOffset);
+      }
       const local = this.armatureNode.worldToLocal(this.dragTarget.clone()).toArray();
       this.setJointLocalPosition(this.dragJointId, local);
       this.onMove?.(this.dragJointId, local, false);
@@ -63,6 +77,7 @@ export class FitSkeletonOverlay {
       const id = this.dragJointId;
       const local = this.armatureNode.worldToLocal(this.positions.get(id).clone()).toArray();
       this.dragJointId = null;
+      this.dragAxis = null;
       this.canvas.releasePointerCapture?.(event.pointerId);
       this.canvas.style.cursor = '';
       this.onMove?.(id, local, true);
@@ -128,6 +143,33 @@ export class FitSkeletonOverlay {
     this.lines = new THREE.LineSegments(this.lineGeometry, this.lineMaterial);
     this.lines.renderOrder = 29;
     this.scene.add(this.lines);
+
+    this.gizmo = new THREE.Group();
+    this.gizmo.name = 'Fit joint translation gizmo';
+    this.gizmo.visible = false;
+    this.gizmoGeometry = new THREE.CylinderGeometry(0.007, 0.007, 0.14, 8);
+    this.gizmoTipGeometry = new THREE.ConeGeometry(0.016, 0.04, 10);
+    this.gizmoMaterials = [];
+    for (const [axis, direction] of Object.entries(AXIS_VECTORS)) {
+      const material = new THREE.MeshBasicMaterial({
+        color: AXIS_COLORS[axis], depthTest: false, depthWrite: false,
+        transparent: true, opacity: 0.96,
+      });
+      this.gizmoMaterials.push(material);
+      const orientation = new THREE.Quaternion().setFromUnitVectors(AXIS_UP, direction);
+      const shaft = new THREE.Mesh(this.gizmoGeometry, material);
+      shaft.position.copy(direction).multiplyScalar(0.07);
+      shaft.quaternion.copy(orientation);
+      shaft.userData.fitAxis = axis;
+      shaft.renderOrder = 34;
+      const tip = new THREE.Mesh(this.gizmoTipGeometry, material);
+      tip.position.copy(direction).multiplyScalar(0.16);
+      tip.quaternion.copy(orientation);
+      tip.userData.fitAxis = axis;
+      tip.renderOrder = 34;
+      this.gizmo.add(shaft, tip);
+    }
+    this.scene.add(this.gizmo);
     this.canvas?.addEventListener('pointerdown', this.handlePointerDown, true);
     this.canvas?.addEventListener('pointermove', this.handlePointerMove, true);
     this.canvas?.addEventListener('pointerup', this.handlePointerUp, true);
@@ -139,6 +181,39 @@ export class FitSkeletonOverlay {
     this.setRay(clientX, clientY);
     const hit = this.raycaster.intersectObject(this.markers, false)[0];
     return Number.isInteger(hit?.instanceId) ? this.jointIds[hit.instanceId] : null;
+  }
+
+  pickAxis(clientX, clientY) {
+    if (!this.camera || !this.canvas || !this.gizmo.visible) return null;
+    this.setRay(clientX, clientY);
+    return this.raycaster.intersectObjects(this.gizmo.children, false)[0]?.object?.userData?.fitAxis
+      || null;
+  }
+
+  beginDrag(event, id, axis) {
+    this.dragJointId = id;
+    this.dragAxis = axis;
+    const position = this.positions.get(id);
+    this.setRay(event.clientX, event.clientY);
+    if (axis) {
+      this.dragStartPosition.copy(position);
+      this.dragAxisWorld.copy(AXIS_VECTORS[axis]).transformDirection(this.armatureNode.matrixWorld);
+      this.camera.getWorldDirection(this.dragTarget);
+      const normal = this.dragAxisWorld.clone().cross(this.dragTarget).cross(this.dragAxisWorld);
+      if (normal.lengthSq() < 1e-8) normal.copy(this.camera.up);
+      this.dragPlane.setFromNormalAndCoplanarPoint(normal.normalize(), position);
+      if (!this.raycaster.ray.intersectPlane(this.dragPlane, this.dragStartPoint)) {
+        this.dragStartPoint.copy(position);
+      }
+    } else {
+      this.camera.getWorldDirection(this.dragTarget);
+      this.dragPlane.setFromNormalAndCoplanarPoint(this.dragTarget, position);
+      this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint);
+      this.dragOffset.subVectors(position, this.dragPoint);
+    }
+    this.canvas.setPointerCapture?.(event.pointerId);
+    this.canvas.style.cursor = 'grabbing';
+    this.onDragChange?.(true);
   }
 
   setRay(clientX, clientY) {
@@ -166,6 +241,7 @@ export class FitSkeletonOverlay {
       this.markers.setColorAt(this.jointIndex.get(this.selectedId), SELECTED);
       this.updateMarkerMatrix(this.selectedId);
     }
+    this.updateGizmo();
     if (this.markers.instanceColor) this.markers.instanceColor.needsUpdate = true;
     this.markers.instanceMatrix.needsUpdate = true;
   }
@@ -181,6 +257,7 @@ export class FitSkeletonOverlay {
     this.armatureNode.localToWorld(position);
     this.positions.set(id, position);
     this.updateMarkerMatrix(id);
+    if (id === this.selectedId) this.updateGizmo();
     this.markers.instanceMatrix.needsUpdate = true;
     this.updateLines();
   }
@@ -207,7 +284,9 @@ export class FitSkeletonOverlay {
   }
 
   setJointsVisible(visible) {
+    this.jointsVisible = visible;
     this.markers.visible = visible;
+    this.updateGizmo();
   }
 
   setBonesVisible(visible) {
@@ -222,11 +301,20 @@ export class FitSkeletonOverlay {
     this.markers.setMatrixAt(index, MATRIX);
   }
 
+  updateGizmo() {
+    this.gizmo.visible = !!this.selectedId && this.jointsVisible;
+    if (this.gizmo.visible) this.gizmo.position.copy(this.positions.get(this.selectedId));
+  }
+
   setXray(xray) {
     this.markerMaterial.depthTest = !xray;
     this.markerMaterial.needsUpdate = true;
     this.lineMaterial.depthTest = !xray;
     this.lineMaterial.needsUpdate = true;
+    for (const material of this.gizmoMaterials) {
+      material.depthTest = !xray;
+      material.needsUpdate = true;
+    }
   }
 
   dispose() {
@@ -236,10 +324,14 @@ export class FitSkeletonOverlay {
     this.canvas?.removeEventListener('pointercancel', this.handlePointerUp, true);
     this.markers.removeFromParent();
     this.lines.removeFromParent();
+    this.gizmo.removeFromParent();
     this.markerGeometry.dispose();
     this.markerMaterial.dispose();
     this.lineGeometry.dispose();
     this.lineMaterial.dispose();
+    this.gizmoGeometry.dispose();
+    this.gizmoTipGeometry.dispose();
+    this.gizmoMaterials.forEach((material) => material.dispose());
   }
 }
 

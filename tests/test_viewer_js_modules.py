@@ -161,6 +161,7 @@ def test_bone_picker_maps_a_viewport_hit_back_to_the_bone():
       import {{ BonePicker }} from {json.dumps(picker_url)};
       const listeners = new Map();
       const canvas = {{
+        style: {{}},
         addEventListener(name, callback) {{ listeners.set(name, callback); }},
         removeEventListener(name) {{ listeners.delete(name); }},
         getBoundingClientRect() {{ return {{ left: 0, top: 0, width: 100, height: 100 }}; }},
@@ -346,6 +347,7 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
       const scene = new THREE.Scene();
       const listeners = new Map();
       const canvas = {{
+        style: {{}},
         addEventListener(name, callback) {{ listeners.set(name, callback); }},
         removeEventListener(name) {{ listeners.delete(name); }},
         getBoundingClientRect() {{ return {{ left: 0, top: 0, width: 100, height: 100 }}; }},
@@ -402,7 +404,7 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
         "sceneCount": 3,
         "remaining": 1,
         "depthTest": True,
-        "listenerCount": 1,
+        "listenerCount": 4,
         "listenersAfterDispose": 0,
         "picked": None,
     }

@@ -159,6 +159,18 @@ function applyJointInputs() {
   refreshCorrections();
 }
 
+function previewJointMove(id, target, finished) {
+  selectedJointId = id;
+  target.forEach((value, axis) => { jointInputs[axis].value = Number(value.toFixed(6)); });
+  if (finished) {
+    correctionSession.setTarget(id, target, { mirror: mirrorEdit.checked });
+    status.textContent = 'Fit correction recorded. Download the sidecar before rebinding.';
+    refreshCorrections();
+  } else {
+    requestRender();
+  }
+}
+
 function boneDepth(bone) {
   let depth = 0;
   let parent = bone.parent;
@@ -263,6 +275,8 @@ function loaded(loadedView, sidecarMessage) {
         camera: view.camera,
         canvas: view.renderer.domElement,
         onSelect: selectFitJoint,
+        onMove: previewJointMove,
+        onDragChange: (dragging) => { view.controls.enabled = !dragging; },
       });
       fitOverlay.setXray(xray.checked);
       fitOverlay.setVisible(showFit.checked);

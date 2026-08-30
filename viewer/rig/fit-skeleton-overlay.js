@@ -7,7 +7,7 @@ const MATRIX = new THREE.Matrix4();
 /** Render a validated armature-local fit skeleton over the normalized workshop model. */
 export class FitSkeletonOverlay {
   constructor({ scene, sidecar, bones, camera = null, canvas = null, onSelect = null,
-    markerRadius = 0.018 }) {
+    onMove = null, onDragChange = null, markerRadius = 0.018 }) {
     this.scene = scene;
     this.sidecar = sidecar;
     this.bonesByName = new Map(bones.map((bone) => [bone.name, bone]));
@@ -18,11 +18,52 @@ export class FitSkeletonOverlay {
     this.camera = camera;
     this.canvas = canvas;
     this.onSelect = onSelect;
+    this.onMove = onMove;
+    this.onDragChange = onDragChange;
     this.raycaster = new THREE.Raycaster();
     this.pointer = new THREE.Vector2();
-    this.handleClick = (event) => {
+    this.dragPlane = new THREE.Plane();
+    this.dragPoint = new THREE.Vector3();
+    this.dragOffset = new THREE.Vector3();
+    this.dragTarget = new THREE.Vector3();
+    this.dragJointId = null;
+    this.handlePointerDown = (event) => {
+      if (event.button !== 0) return;
       const id = this.pick(event.clientX, event.clientY);
-      if (id) this.onSelect?.(id);
+      if (!id) return;
+      this.consume(event);
+      this.onSelect?.(id);
+      this.dragJointId = id;
+      const position = this.positions.get(id);
+      this.camera.getWorldDirection(this.dragTarget);
+      this.dragPlane.setFromNormalAndCoplanarPoint(this.dragTarget, position);
+      this.setRay(event.clientX, event.clientY);
+      this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint);
+      this.dragOffset.subVectors(position, this.dragPoint);
+      this.canvas.setPointerCapture?.(event.pointerId);
+      this.canvas.style.cursor = 'grabbing';
+      this.onDragChange?.(true);
+    };
+    this.handlePointerMove = (event) => {
+      if (!this.dragJointId) return;
+      this.consume(event);
+      this.setRay(event.clientX, event.clientY);
+      if (!this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint)) return;
+      this.dragTarget.copy(this.dragPoint).add(this.dragOffset);
+      const local = this.armatureNode.worldToLocal(this.dragTarget.clone()).toArray();
+      this.setJointLocalPosition(this.dragJointId, local);
+      this.onMove?.(this.dragJointId, local, false);
+    };
+    this.handlePointerUp = (event) => {
+      if (!this.dragJointId) return;
+      this.consume(event);
+      const id = this.dragJointId;
+      const local = this.armatureNode.worldToLocal(this.positions.get(id).clone()).toArray();
+      this.dragJointId = null;
+      this.canvas.releasePointerCapture?.(event.pointerId);
+      this.canvas.style.cursor = '';
+      this.onMove?.(id, local, true);
+      this.onDragChange?.(false);
     };
 
     const mappedBone = this.jointIds
@@ -85,19 +126,31 @@ export class FitSkeletonOverlay {
     this.lines = new THREE.LineSegments(this.lineGeometry, this.lineMaterial);
     this.lines.renderOrder = 29;
     this.scene.add(this.lines);
-    this.canvas?.addEventListener('click', this.handleClick);
+    this.canvas?.addEventListener('pointerdown', this.handlePointerDown, true);
+    this.canvas?.addEventListener('pointermove', this.handlePointerMove, true);
+    this.canvas?.addEventListener('pointerup', this.handlePointerUp, true);
+    this.canvas?.addEventListener('pointercancel', this.handlePointerUp, true);
   }
 
   pick(clientX, clientY) {
     if (!this.camera || !this.canvas || !this.markers.visible) return null;
+    this.setRay(clientX, clientY);
+    const hit = this.raycaster.intersectObject(this.markers, false)[0];
+    return Number.isInteger(hit?.instanceId) ? this.jointIds[hit.instanceId] : null;
+  }
+
+  setRay(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
     this.pointer.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObject(this.markers, false)[0];
-    return Number.isInteger(hit?.instanceId) ? this.jointIds[hit.instanceId] : null;
+  }
+
+  consume(event) {
+    event.preventDefault?.();
+    event.stopImmediatePropagation?.();
   }
 
   selectJoint(id) {
@@ -154,7 +207,10 @@ export class FitSkeletonOverlay {
   }
 
   dispose() {
-    this.canvas?.removeEventListener('click', this.handleClick);
+    this.canvas?.removeEventListener('pointerdown', this.handlePointerDown, true);
+    this.canvas?.removeEventListener('pointermove', this.handlePointerMove, true);
+    this.canvas?.removeEventListener('pointerup', this.handlePointerUp, true);
+    this.canvas?.removeEventListener('pointercancel', this.handlePointerUp, true);
     this.markers.removeFromParent();
     this.lines.removeFromParent();
     this.markerGeometry.dispose();

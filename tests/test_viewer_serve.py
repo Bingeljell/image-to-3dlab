@@ -138,6 +138,7 @@ def test_rig_review_is_a_sidecar_aware_workshop_room():
     assert "new RigCorrectionSession" in source
     assert "fingerprintAsset" in source
     assert "rig-export" in html
+    assert "onDragChange" in source
 
 
 def test_rig_review_only_references_existing_controls():

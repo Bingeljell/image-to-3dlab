@@ -10,12 +10,14 @@
 <link rel="stylesheet" href="./styles/compare.css">
 <link rel="stylesheet" href="./styles/generate.css">
 <link rel="stylesheet" href="./styles/animate.css">
+<link rel="stylesheet" href="./styles/rig.css">
 </head>
 <body>
 <div id="mode-switch">
   <span class="lbl">image-to-3dlab</span>
   <button id="mode-compare" class="mode on">Compare</button>
   <button id="mode-generate" class="mode">Generate</button>
+  <button id="mode-rig" class="mode">Rig Review</button>
   <button id="mode-animate" class="mode">Animate</button>
   <button id="mode-credits" class="mode">Credits &amp; Info</button>
 </div>
@@ -168,6 +170,79 @@
       <div id="generate-saved-note" style="display:none; margin-top:6px; font-size:11px; opacity:.6;"></div>
       <div id="generate-summary"></div>
     </div>
+  </div>
+</section>
+
+<section id="rig-view" hidden>
+  <div class="rig-shell">
+    <aside class="rig-sidebar">
+      <h2>Rig Review</h2>
+      <p>Inspect the deform skeleton and its editable fit-skeleton mapping.</p>
+      <div id="rig-drop" class="rig-drop" role="button" tabindex="0">
+        Drop a GLB/GLTF<br>with optional .rig.json<br>or click to browse
+      </div>
+      <input id="rig-file" type="file" multiple
+             accept=".glb,.gltf,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.json" hidden>
+      <div id="rig-status" role="status"></div>
+
+      <div class="rig-section">
+        <h3>View</h3>
+        <label class="rig-control" for="rig-opacity"><span>Mesh opacity</span>
+          <span><input id="rig-opacity" type="range" min="15" max="100" value="65">
+            <span id="rig-opacity-value">65%</span></span>
+        </label>
+        <label class="rig-control" for="rig-xray"><span>X-ray bones</span>
+          <input id="rig-xray" type="checkbox" checked>
+        </label>
+        <label class="rig-control" for="rig-show-deform"><span>Deform skeleton</span>
+          <input id="rig-show-deform" type="checkbox" checked disabled>
+        </label>
+        <label class="rig-control" for="rig-show-fit"><span>Fit skeleton</span>
+          <input id="rig-show-fit" type="checkbox" checked disabled>
+        </label>
+      </div>
+
+      <div class="rig-section">
+        <h3>Deform hierarchy</h3>
+        <input id="rig-hierarchy-search" type="search" placeholder="Filter bones…" disabled>
+        <div id="rig-hierarchy"></div>
+      </div>
+    </aside>
+
+    <main class="rig-stage">
+      <div id="rig-viewport">
+        <div id="rig-empty" class="rig-empty">Load a bound model to begin Rig Review.</div>
+        <div class="stats rig-stats">no model</div>
+      </div>
+    </main>
+
+    <aside class="rig-inspector">
+      <h2>Selection</h2>
+      <p>Blue is the deform skeleton. Orange is the editable fit skeleton.</p>
+      <div id="rig-selection-empty">Select a bone or joint marker.</div>
+      <div id="rig-selection" hidden>
+        <strong id="rig-bone-name"></strong>
+        <dl class="rig-detail">
+          <dt>Parent</dt><dd id="rig-bone-parent"></dd>
+          <dt>Children</dt><dd id="rig-bone-children"></dd>
+          <dt>Fit joints</dt><dd id="rig-mapped-joints"></dd>
+        </dl>
+      </div>
+      <button id="rig-clear-bone" disabled>Clear selection</button>
+
+      <div class="rig-section">
+        <h3>Asset</h3>
+        <div id="rig-summary">No model loaded.</div>
+      </div>
+      <div class="rig-section">
+        <h3>Fit sidecar</h3>
+        <div id="rig-sidecar-summary">No .rig.json sidecar loaded.</div>
+      </div>
+      <div class="rig-notice">
+        This slice is inspection-only. Joint translation, mirroring, correction export,
+        and Blender rebind arrive after the visual mapping is verified.
+      </div>
+    </aside>
   </div>
 </section>
 

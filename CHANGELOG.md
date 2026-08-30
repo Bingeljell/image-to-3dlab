@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Rig Review room with deform/fit skeleton separation.** Inspect tapered deform bones,
+  search their hierarchy, lower mesh opacity, toggle x-ray rendering, and optionally load a
+  fingerprint-verified `.rig.json` fit skeleton mapped in armature-local coordinates.
 - **Animate room for rigged GLB/GLTF inspection.** Load a bound character, inspect its
   bone/skinned-mesh/clip inventory, toggle the skeleton, play or scrub embedded animation
   clips, switch back to the bind pose, and control loop playback in the browser.

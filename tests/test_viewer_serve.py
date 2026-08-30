@@ -171,6 +171,9 @@ def test_rig_review_is_a_sidecar_aware_workshop_room():
     assert "loadRebindResult" in source
     assert 'id="rig-rebind"' in html
     assert 'id="rig-result-blend"' in html
+    assert 'id="rig-edit-banner"' in html
+    assert "selectedSidecarFile" in source
+    assert "Inspection only" in source
 
 
 def test_rig_review_only_references_existing_controls():

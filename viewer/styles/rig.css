@@ -36,6 +36,10 @@
 #rig-viewport canvas { position: absolute; inset: 0; }
 .rig-empty { position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; padding: 30px; color: #6f7b8a; text-align: center; pointer-events: none; }
+.rig-edit-banner { position: absolute; z-index: 4; top: 118px; left: 50%; width: min(520px, 72%);
+  padding: 10px 13px; transform: translateX(-50%); border: 1px solid #8b6332;
+  border-radius: 7px; background: #241b12e8; color: #e6c18e; text-align: center;
+  font-size: 11px; box-shadow: 0 5px 18px #0007; pointer-events: none; }
 .rig-stats { position: absolute; left: 10px; bottom: 10px; z-index: 3;
   padding: 4px 7px; border-radius: 4px; background: #14161acc; opacity: .8;
   font-size: 11px; white-space: pre; }

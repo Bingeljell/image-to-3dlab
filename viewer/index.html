@@ -179,7 +179,7 @@
       <h2>Rig Edit</h2>
       <p>Correct the fit skeleton, then ask Blender to rebuild the bound rig.</p>
       <div id="rig-drop" class="rig-drop" role="button" tabindex="0">
-        Drop a GLB/GLTF<br>with optional .rig.json + .blend<br>or click to browse
+        Drop a GLB/GLTF<br>then attach .rig.json + .blend,<br>or load the bundle together
       </div>
       <input id="rig-file" type="file" multiple
              accept=".glb,.gltf,.blend,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.json" hidden>
@@ -220,6 +220,7 @@
     <main class="rig-stage">
       <div id="rig-viewport">
         <div id="rig-empty" class="rig-empty">Load a bound model to begin Rig Edit.</div>
+        <div id="rig-edit-banner" class="rig-edit-banner" role="status" hidden></div>
         <div class="stats rig-stats">no model</div>
       </div>
     </main>

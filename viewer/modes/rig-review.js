@@ -15,6 +15,7 @@ import {
 const element = (id) => document.getElementById(id);
 const viewport = element('rig-viewport');
 const empty = element('rig-empty');
+const editBanner = element('rig-edit-banner');
 const drop = element('rig-drop');
 const fileInput = element('rig-file');
 const status = element('rig-status');
@@ -73,6 +74,7 @@ let hierarchyRows = [];
 let renderPending = false;
 let loadToken = 0;
 let selectedModelFile = null;
+let selectedSidecarFile = null;
 let selectedSceneFile = null;
 let rebindRunning = false;
 let rebindSource = null;
@@ -278,6 +280,7 @@ function captureMaterials() {
 function disposeCurrent() {
   setRigEditState();
   cameraViews.setEnabled(false);
+  editBanner.hidden = true;
   bonePicker?.dispose();
   fitOverlay?.dispose();
   bonePicker = null;
@@ -298,6 +301,7 @@ function disposeCurrent() {
   jointEditor.hidden = true;
   correctionActions.hidden = true;
   selectedModelFile = null;
+  selectedSidecarFile = null;
   selectedSceneFile = null;
   rebind.disabled = true;
   renderPending = false;
@@ -319,8 +323,6 @@ function loaded(loadedView, sidecarMessage) {
     onSelect: selectBone,
   });
   bonePicker.setXray(xray.checked);
-  bonePicker.setBonesVisible(showDeformBones.checked);
-  bonePicker.setJointsVisible(showDeformJoints.checked);
 
   if (sidecar) {
     try {
@@ -336,8 +338,6 @@ function loaded(loadedView, sidecarMessage) {
         onDragChange: (dragging) => { view.controls.enabled = !dragging; },
       });
       fitOverlay.setXray(xray.checked);
-      fitOverlay.setBonesVisible(showFitBones.checked);
-      fitOverlay.setJointsVisible(showFitJoints.checked);
     } catch (error) {
       sidecarMessage = `Sidecar verified, but cannot map to this skeleton: ${error.message}`;
       sidecar = null;
@@ -347,10 +347,24 @@ function loaded(loadedView, sidecarMessage) {
 
   captureMaterials();
   buildHierarchy();
-  showDeformBones.disabled = view.rig.bones.length === 0;
-  showDeformJoints.disabled = view.rig.bones.length === 0;
-  showFitBones.disabled = !fitOverlay;
-  showFitJoints.disabled = !fitOverlay;
+  const editable = !!fitOverlay;
+  const hasDeformRig = view.rig.bones.length > 0;
+  showDeformBones.checked = hasDeformRig && !editable;
+  showDeformJoints.checked = hasDeformRig && !editable;
+  showFitBones.checked = editable;
+  showFitJoints.checked = editable;
+  showDeformBones.disabled = !hasDeformRig;
+  showDeformJoints.disabled = !hasDeformRig;
+  showFitBones.disabled = !editable;
+  showFitJoints.disabled = !editable;
+  bonePicker.setBonesVisible(showDeformBones.checked);
+  bonePicker.setJointsVisible(showDeformJoints.checked);
+  fitOverlay?.setBonesVisible(showFitBones.checked);
+  fitOverlay?.setJointsVisible(showFitJoints.checked);
+  editBanner.hidden = editable;
+  editBanner.textContent = editable ? '' :
+    'Inspection only — current-rig bones can be selected but not moved. ' +
+    'Load this GLB with its matching .rig.json sidecar to enable editable fit controls.';
   hierarchySearch.disabled = view.rig.bones.length === 0;
   correctionActions.hidden = !correctionSession;
   summary.textContent = `${view.rig.bones.length} deform bones · ` +
@@ -358,7 +372,9 @@ function loaded(loadedView, sidecarMessage) {
   sidecarSummary.textContent = sidecarMessage;
   refreshCorrections();
   status.textContent = view.rig.bones.length
-    ? 'Rig loaded. Select a bone body, joint marker, or hierarchy row.'
+    ? (editable
+      ? 'Rig Edit ready. Drag an orange fit joint or select a grey fit bone.'
+      : 'Inspection only. No verified fit sidecar is loaded, so dragging orbits the view.')
     : 'Model loaded without a skinned deform skeleton.';
   resizeViewport();
 }
@@ -404,7 +420,18 @@ async function prepareSidecar(files, modelFile) {
 
 async function loadFiles(fileList) {
   const token = ++loadToken;
-  const files = [...fileList];
+  const incoming = [...fileList];
+  const includesModel = incoming.some((file) => /\.(glb|gltf|obj)$/i.test(file.name));
+  const files = includesModel || !selectedModelFile
+    ? incoming
+    : [
+      selectedModelFile,
+      ...incoming,
+      ...(!incoming.some((file) => file.name.toLowerCase().endsWith('.rig.json')) &&
+        selectedSidecarFile ? [selectedSidecarFile] : []),
+      ...(!incoming.some((file) => file.name.toLowerCase().endsWith('.blend')) &&
+        selectedSceneFile ? [selectedSceneFile] : []),
+    ];
   status.textContent = 'Preparing Rig Edit…';
   let spec;
   try {
@@ -424,6 +451,7 @@ async function loadFiles(fileList) {
   disposeCurrent();
   sidecar = prepared.data;
   selectedModelFile = modelFile;
+  selectedSidecarFile = prepared.file;
   selectedSceneFile = prepared.sceneFile;
   sidecarFilename = prepared.filename || `${spec.label.replace(/\.[^.]+$/, '')}.rig.json`;
   empty.hidden = false;

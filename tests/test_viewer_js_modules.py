@@ -217,6 +217,47 @@ def test_bone_picker_maps_a_viewport_hit_back_to_the_bone():
 
 
 @pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_camera_view_controls_snap_and_reset_without_touching_model_state():
+    controls_url = (REPO / "viewer" / "components" / "camera-view-controls.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    program = f"""
+      import * as THREE from {json.dumps(three_url)};
+      import {{ setCameraView }} from {json.dumps(controls_url)};
+      const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+      camera.position.set(0, 0, 4);
+      const controls = {{ target: new THREE.Vector3(), updates: 0, update() {{ this.updates++; }} }};
+      const untouched = {{ rigEdits: 3, pose: 'idle' }};
+      setCameraView({{ camera, controls }}, 'left');
+      const left = camera.position.toArray();
+      setCameraView({{ camera, controls }}, 'top');
+      const top = camera.position.toArray();
+      const topUp = camera.up.toArray();
+      setCameraView({{ camera, controls }}, 'reset');
+      console.log(JSON.stringify({{
+        left, top, topUp, reset: camera.position.toArray(), target: controls.target.toArray(),
+        updates: controls.updates, untouched,
+      }}));
+    """
+
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout) == {
+        "left": [-4, 0, 0],
+        "top": [0, 4, 0],
+        "topUp": [0, 0, -1],
+        "reset": [1.45, 0.6, 2.45],
+        "target": [0, 0, 0],
+        "updates": 3,
+        "untouched": {"rigEdits": 3, "pose": "idle"},
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
 def test_rig_sidecar_parser_validates_references_corrections_and_asset_hash():
     module_url = (REPO / "viewer" / "rig" / "rig-sidecar.js").as_uri()
     program = f"""

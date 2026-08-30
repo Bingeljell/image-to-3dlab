@@ -1,5 +1,6 @@
 import { BonePicker } from '../animation/bone-picker.js';
 import { describeBone } from '../animation/rig-inspection.js';
+import { createCameraViewControls } from '../components/camera-view-controls.js';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 import { specsFromFiles } from '../core/asset-files.js';
 import { FitSkeletonOverlay } from '../rig/fit-skeleton-overlay.js';
@@ -75,6 +76,11 @@ let selectedSceneFile = null;
 let rebindRunning = false;
 let rebindSource = null;
 let rebindPoll = null;
+const cameraViews = createCameraViewControls({
+  container: viewport,
+  getView: () => view,
+  onChange: requestRender,
+});
 
 function requestRender() {
   if (!view || renderPending) return;
@@ -253,6 +259,7 @@ function captureMaterials() {
 }
 
 function disposeCurrent() {
+  cameraViews.setEnabled(false);
   bonePicker?.dispose();
   fitOverlay?.dispose();
   bonePicker = null;
@@ -284,6 +291,7 @@ function loaded(loadedView, sidecarMessage) {
   view.camera.position.set(1.45, 0.6, 2.45);
   view.controls.target.set(0, 0, 0);
   view.controls.update();
+  cameraViews.setEnabled(true);
 
   bonePicker = new BonePicker({
     scene: view.scene,

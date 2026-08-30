@@ -34,6 +34,16 @@
 .rig-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 #rig-viewport { position: absolute; inset: 0; overflow: hidden; }
 #rig-viewport canvas { position: absolute; inset: 0; }
+.viewport-camera-controls { position: absolute; z-index: 4; top: 12px; left: 50%;
+  display: flex; gap: 3px; padding: 4px; transform: translateX(-50%);
+  border: 1px solid #3a424f; border-radius: 7px; background: #14161add;
+  box-shadow: 0 4px 16px #0005; }
+.viewport-camera-controls button { min-width: 30px; margin: 0; padding: 5px 7px;
+  border-color: transparent; background: transparent; color: #bdc6d2; font-size: 10px; }
+.viewport-camera-controls button:hover:not(:disabled) { border-color: #596779;
+  background: #2a313b; color: #fff; }
+.viewport-camera-controls button[data-camera-view=reset] { min-width: 48px;
+  border-left-color: #3a424f; }
 .rig-empty { position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; padding: 30px; color: #6f7b8a; text-align: center; pointer-events: none; }
 .rig-stats { position: absolute; left: 10px; bottom: 10px; z-index: 3;

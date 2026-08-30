@@ -461,6 +461,7 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
       overlay.setXray(false);
       overlay.setJointLocalPosition('shoulder', [0.3, 1.1, 0]);
       const position = overlay.positions.get('shoulder').toArray();
+      const roundTrip = overlay.worldToSidecar(overlay.positions.get('shoulder'));
           const mapped = overlay.jointsForBone('DEF-shoulder.L');
           const gizmoPosition = overlay.gizmo.position.toArray();
           const gizmoVisible = overlay.gizmo.visible;
@@ -468,7 +469,7 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
       const sceneCount = scene.children.length;
       overlay.dispose();
       console.log(JSON.stringify({{
-        position, mapped, selected: overlay.selectedId, sceneCount,
+        position, roundTrip, mapped, selected: overlay.selectedId, sceneCount,
         remaining: scene.children.length,
             depthTest: overlay.markerMaterial.depthTest, listenerCount, gizmoPosition, gizmoVisible,
         listenersAfterDispose: listeners.size, picked,
@@ -482,8 +483,11 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
         text=True,
     )
 
-    assert json.loads(result.stdout) == {
-        "position": [1.3, 1.1, 0],
+    payload = json.loads(result.stdout)
+    assert payload.pop("position") == pytest.approx([1.3, 0, -1.1])
+    assert payload.pop("roundTrip") == pytest.approx([0.3, 1.1, 0])
+    assert payload.pop("gizmoPosition") == pytest.approx([1.3, 0, -1.1])
+    assert payload == {
         "mapped": ["chest", "shoulder"],
         "selected": "shoulder",
         "sceneCount": 4,
@@ -492,7 +496,6 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
         "listenerCount": 4,
         "listenersAfterDispose": 0,
         "picked": None,
-        "gizmoPosition": [1.3, 1.1, 0],
         "gizmoVisible": True,
     }
 

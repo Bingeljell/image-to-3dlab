@@ -9,6 +9,11 @@ const SCALE = new THREE.Vector3();
 const MIDPOINT = new THREE.Vector3();
 const DIRECTION = new THREE.Vector3();
 const AXIS_UP = new THREE.Vector3(0, 1, 0);
+// Rig sidecars are authored in Blender armature-local space (Z-up). Blender's glTF
+// exporter inserts this basis change above the exported bones, so positions placed
+// directly under the armature object must apply it explicitly.
+const BLENDER_TO_GLTF = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+const GLTF_TO_BLENDER = BLENDER_TO_GLTF.clone().invert();
 const AXIS_VECTORS = {
   x: new THREE.Vector3(1, 0, 0),
   y: new THREE.Vector3(0, 1, 0),
@@ -41,6 +46,7 @@ export class FitSkeletonOverlay {
     this.dragStartPoint = new THREE.Vector3();
     this.dragStartPosition = new THREE.Vector3();
     this.dragAxisWorld = new THREE.Vector3();
+    this.gizmoBasis = new THREE.Matrix4();
     this.dragJointId = null;
     this.dragAxis = null;
     this.jointsVisible = true;
@@ -75,7 +81,7 @@ export class FitSkeletonOverlay {
       } else {
         this.dragTarget.copy(this.dragPoint).add(this.dragOffset);
       }
-      const local = this.armatureNode.worldToLocal(this.dragTarget.clone()).toArray();
+      const local = this.worldToSidecar(this.dragTarget);
       this.setJointLocalPosition(this.dragJointId, local);
       this.onMove?.(this.dragJointId, local, false);
     };
@@ -83,7 +89,7 @@ export class FitSkeletonOverlay {
       if (!this.dragJointId) return;
       this.consume(event);
       const id = this.dragJointId;
-      const local = this.armatureNode.worldToLocal(this.positions.get(id).clone()).toArray();
+      const local = this.worldToSidecar(this.positions.get(id));
       this.dragJointId = null;
       this.dragAxis = null;
       this.canvas.releasePointerCapture?.(event.pointerId);
@@ -102,9 +108,7 @@ export class FitSkeletonOverlay {
     for (const id of this.jointIds) {
       const joint = sidecar.joints[id];
       const values = sidecar.corrections[id]?.targetPosition || joint.position;
-      const position = new THREE.Vector3(...values);
-      this.armatureNode.localToWorld(position);
-      this.positions.set(id, position);
+      this.positions.set(id, this.sidecarToWorld(values));
     }
 
     this.markerGeometry = new THREE.SphereGeometry(markerRadius, 12, 8);
@@ -215,7 +219,9 @@ export class FitSkeletonOverlay {
     this.setRay(event.clientX, event.clientY);
     if (axis) {
       this.dragStartPosition.copy(position);
-      this.dragAxisWorld.copy(AXIS_VECTORS[axis]).transformDirection(this.armatureNode.matrixWorld);
+      this.dragAxisWorld.copy(AXIS_VECTORS[axis])
+        .transformDirection(BLENDER_TO_GLTF)
+        .transformDirection(this.armatureNode.matrixWorld);
       this.camera.getWorldDirection(this.dragTarget);
       const normal = this.dragAxisWorld.clone().cross(this.dragTarget).cross(this.dragAxisWorld);
       if (normal.lengthSq() < 1e-8) normal.copy(this.camera.up);
@@ -272,9 +278,7 @@ export class FitSkeletonOverlay {
   setJointLocalPosition(id, values) {
     const index = this.jointIndex.get(id);
     if (index == null) throw new Error(`Unknown fit joint: ${id}`);
-    const position = new THREE.Vector3(...values);
-    this.armatureNode.localToWorld(position);
-    this.positions.set(id, position);
+    this.positions.set(id, this.sidecarToWorld(values));
     this.updateMarkerMatrix(id);
     if (id === this.selectedId) this.updateGizmo();
     this.markers.instanceMatrix.needsUpdate = true;
@@ -333,7 +337,22 @@ export class FitSkeletonOverlay {
 
   updateGizmo() {
     this.gizmo.visible = !!this.selectedId && this.jointsVisible;
-    if (this.gizmo.visible) this.gizmo.position.copy(this.positions.get(this.selectedId));
+    if (this.gizmo.visible) {
+      this.gizmo.position.copy(this.positions.get(this.selectedId));
+      this.gizmoBasis.extractRotation(this.armatureNode.matrixWorld).multiply(BLENDER_TO_GLTF);
+      this.gizmo.quaternion.setFromRotationMatrix(this.gizmoBasis);
+    }
+  }
+
+  sidecarToWorld(values) {
+    const position = new THREE.Vector3(...values).applyMatrix4(BLENDER_TO_GLTF);
+    return this.armatureNode.localToWorld(position);
+  }
+
+  worldToSidecar(position) {
+    return this.armatureNode.worldToLocal(position.clone())
+      .applyMatrix4(GLTF_TO_BLENDER)
+      .toArray();
   }
 
   setXray(xray) {

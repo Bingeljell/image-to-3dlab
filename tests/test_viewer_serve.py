@@ -174,6 +174,7 @@ def test_rig_review_is_a_sidecar_aware_workshop_room():
     assert 'id="rig-edit-banner"' in html
     assert "selectedSidecarFile" in source
     assert "Inspection only" in source
+    assert "view.resetPose()" in source
 
 
 def test_rig_review_only_references_existing_controls():

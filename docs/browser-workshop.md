@@ -244,6 +244,13 @@ Coordinates are always armature-local, never viewer-normalized or camera/world s
 viewport currently centers and scales assets for display; edit gizmos must invert that
 display transform before serializing a correction.
 
+The sidecar preserves Blender's armature-local Z-up basis. A Blender glTF export inserts
+the standard basis change `(X, Y, Z) -> (X, Z, -Y)` above its bones for the browser's Y-up
+scene. Rig Edit applies that conversion when displaying fit joints and its inverse when
+recording a drag, so downloaded corrections remain valid Blender coordinates. Rig Edit
+also restores the GLB bind pose before comparing the mesh and fit skeleton; an Action that
+was active during export must not become an apparent fit correction.
+
 Each correction records the source rest position as well as the target and delta:
 
 ```json

@@ -310,6 +310,10 @@ function disposeCurrent() {
 function loaded(loadedView, sidecarMessage) {
   if (view !== loadedView) return;
   empty.hidden = true;
+  // Rig Edit always compares the fit skeleton against the undeformed bind shape. A GLB
+  // may otherwise open at the pose that happened to be active during Blender export.
+  view.resetPose();
+  view.modelRoot.updateMatrixWorld(true);
   view.camera.position.set(1.45, 0.6, 2.45);
   view.controls.target.set(0, 0, 0);
   view.controls.update();

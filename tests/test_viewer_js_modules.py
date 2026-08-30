@@ -344,6 +344,15 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
       import * as THREE from {json.dumps(three_url)};
       import {{ FitSkeletonOverlay }} from {json.dumps(overlay_url)};
       const scene = new THREE.Scene();
+      const listeners = new Map();
+      const canvas = {{
+        addEventListener(name, callback) {{ listeners.set(name, callback); }},
+        removeEventListener(name) {{ listeners.delete(name); }},
+        getBoundingClientRect() {{ return {{ left: 0, top: 0, width: 100, height: 100 }}; }},
+      }};
+      const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+      camera.position.set(1, 1, 3);
+      camera.updateMatrixWorld(true);
       const armature = new THREE.Group();
       armature.position.set(1, 0, 0);
       const bone = new THREE.Bone();
@@ -358,17 +367,24 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
         }},
         corrections: {{}},
       }};
-      const overlay = new FitSkeletonOverlay({{ scene, sidecar, bones: [bone] }});
+      let picked = null;
+      const overlay = new FitSkeletonOverlay({{
+        scene, sidecar, bones: [bone], camera, canvas,
+        onSelect(id) {{ picked = id; }},
+      }});
       overlay.selectJoint('shoulder');
       overlay.setXray(false);
+      overlay.setJointLocalPosition('shoulder', [0.3, 1.1, 0]);
       const position = overlay.positions.get('shoulder').toArray();
       const mapped = overlay.jointsForBone('DEF-shoulder.L');
+      const listenerCount = listeners.size;
       const sceneCount = scene.children.length;
       overlay.dispose();
       console.log(JSON.stringify({{
         position, mapped, selected: overlay.selectedId, sceneCount,
         remaining: scene.children.length,
-        depthTest: overlay.markerMaterial.depthTest,
+        depthTest: overlay.markerMaterial.depthTest, listenerCount,
+        listenersAfterDispose: listeners.size, picked,
       }}));
     """
 
@@ -380,10 +396,13 @@ def test_fit_skeleton_overlay_maps_armature_local_joints_and_deform_bones():
     )
 
     assert json.loads(result.stdout) == {
-        "position": [1.2, 1, 0],
+        "position": [1.3, 1.1, 0],
         "mapped": ["chest", "shoulder"],
         "selected": "shoulder",
         "sceneCount": 3,
         "remaining": 1,
         "depthTest": True,
+        "listenerCount": 1,
+        "listenersAfterDispose": 0,
+        "picked": None,
     }

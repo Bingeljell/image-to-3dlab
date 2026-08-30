@@ -171,22 +171,28 @@ def test_bone_picker_maps_a_viewport_hit_back_to_the_bone():
       camera.updateMatrixWorld(true);
       const bone = new THREE.Bone();
       bone.name = 'DEF-hip';
+      const child = new THREE.Bone();
+      child.name = 'DEF-knee';
+      child.position.y = 0.5;
+      bone.add(child);
       scene.add(bone);
       scene.updateMatrixWorld(true);
       let selected = null;
       const picker = new BonePicker({{
-        scene, camera, canvas, bones: [bone],
+        scene, camera, canvas, bones: [bone, child],
         onSelect(value) {{ selected = value?.name || null; }},
       }});
       scene.updateMatrixWorld(true);
       picker.update();
       const hit = picker.pick(50, 50);
       const beforeDispose = scene.children.includes(picker.markers);
+      const bodyCount = picker.bodyBones.length;
       picker.dispose();
       console.log(JSON.stringify({{
         hit: hit?.name,
         selected,
         beforeDispose,
+        bodyCount,
         afterDispose: scene.children.includes(picker.markers),
         listeners: listeners.size,
       }}));
@@ -203,6 +209,7 @@ def test_bone_picker_maps_a_viewport_hit_back_to_the_bone():
         "hit": "DEF-hip",
         "selected": "DEF-hip",
         "beforeDispose": True,
+        "bodyCount": 1,
         "afterDispose": False,
         "listeners": 0,
     }

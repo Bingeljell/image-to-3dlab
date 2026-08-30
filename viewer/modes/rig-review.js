@@ -133,16 +133,31 @@ function selectBone(bone, index = -1, preferredJointId = null) {
   selectedJointId = jointIds.includes(preferredJointId) ? preferredJointId : (jointIds[0] || null);
   fitOverlay?.selectJoint(selectedJointId);
   updateJointEditor();
+  status.textContent = selectedJointId
+    ? `Editing ${sidecar.joints[selectedJointId].label}. Drag the cyan joint or an XYZ axis.`
+    : 'Current-rig bone selected for inspection only; it has no mapped editable fit joint.';
   requestRender();
 }
 
 function selectFitJoint(id) {
   if (!sidecar?.joints[id] || !view) return;
+  selectedJointId = id;
+  fitOverlay?.selectJoint(id);
   const index = view.rig.bones.findIndex((bone) => bone.name === sidecar.joints[id].sourceBone);
   if (index >= 0) {
     bonePicker.select(index);
     selectBone(view.rig.bones[index], index, id);
+    return;
   }
+  selectedBone = null;
+  selectionEmpty.hidden = true;
+  selection.hidden = true;
+  clearBone.disabled = false;
+  hierarchyRows.forEach((row) => row.classList.remove('on'));
+  updateJointEditor();
+  status.textContent = `Editing ${sidecar.joints[id].label}. ` +
+    'Drag the cyan joint or an XYZ axis; no matching deform bone was found for inspection.';
+  requestRender();
 }
 
 function updateJointEditor() {

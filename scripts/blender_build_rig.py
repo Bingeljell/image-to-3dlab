@@ -47,8 +47,8 @@ for _side in ("L", "R"):
         (f"front{_side}_forearm", f"front{_side}_elbow", f"front{_side}_wrist", f"front{_side}_upperarm", True),
         (f"front{_side}_paw", f"front{_side}_wrist", f"front{_side}_paw", f"front{_side}_forearm", True),
         (f"front{_side}_toe", f"front{_side}_paw", f"front{_side}_toe", f"front{_side}_paw", True),
-        (f"back{_side}_thigh", f"back{_side}_hip", f"back{_side}_knee", "spine_01", False),
-        (f"back{_side}_shin", f"back{_side}_knee", f"back{_side}_ankle", f"back{_side}_thigh", True),
+        (f"back{_side}_thigh", f"back{_side}_hip", f"back{_side}_stifle", "spine_01", False),
+        (f"back{_side}_shin", f"back{_side}_stifle", f"back{_side}_ankle", f"back{_side}_thigh", True),
         (f"back{_side}_paw", f"back{_side}_ankle", f"back{_side}_paw", f"back{_side}_shin", True),
         (f"back{_side}_toe", f"back{_side}_paw", f"back{_side}_toe", f"back{_side}_paw", True),
     ]
@@ -94,8 +94,8 @@ for mod in list(mesh.modifiers):
     if mod.type == "ARMATURE":
         mesh.modifiers.remove(mod)
 
-arm_data = bpy.data.armatures.new("FoxRig")
-arm = bpy.data.objects.new("FoxRig", arm_data)
+arm_data = bpy.data.armatures.new("QuadRig")
+arm = bpy.data.objects.new("QuadRig", arm_data)
 bpy.context.scene.collection.objects.link(arm)
 
 bpy.context.view_layer.objects.active = arm

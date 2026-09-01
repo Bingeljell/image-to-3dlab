@@ -41,6 +41,10 @@ QUADRUPED_MARKERS: dict[str, tuple[float, float, float]] = {
     # L is the *character's* left, which is +X (x > 0.5) given that the subject's front
     # is at minimum Y. On screen that puts the L markers on the viewer's right whenever
     # the subject faces the camera — correct, and the opposite of what looks right.
+    # (2026-08-21: the fractions below previously had this backwards — every *_L marker
+    # sat at x<0.5 and every *_R at x>0.5, opposite of the rule stated above. Caught by
+    # eye on the Tempest Ram rig, where the L markers were visibly on the character's own
+    # right leg. Fixed by swapping the L/R fraction in every pair below.)
     "ear_L": (0.62, 0.24, 0.93),
     "ear_R": (0.38, 0.24, 0.93),
     "tail_base": (0.50, 0.70, 0.55),
@@ -51,22 +55,31 @@ QUADRUPED_MARKERS: dict[str, tuple[float, float, float]] = {
     # (hip/knee/ankle); the animal walks on its fingers and toes, so the visible
     # mid-leg bend is a wrist in front and an ankle behind — not a knee in either case.
     # Calling both "knee" was actively misleading, so the names differ by limb.
-    "frontL_shoulder": (0.34, 0.32, 0.55),
-    "frontL_elbow": (0.34, 0.32, 0.40),
-    "frontL_wrist": (0.34, 0.32, 0.18),
-    "frontL_paw": (0.34, 0.32, 0.03),
-    "frontR_shoulder": (0.66, 0.32, 0.55),
-    "frontR_elbow": (0.66, 0.32, 0.40),
-    "frontR_wrist": (0.66, 0.32, 0.18),
-    "frontR_paw": (0.66, 0.32, 0.03),
-    "backL_hip": (0.34, 0.66, 0.55),
-    "backL_knee": (0.34, 0.68, 0.40),
-    "backL_ankle": (0.34, 0.70, 0.18),
-    "backL_paw": (0.34, 0.70, 0.03),
-    "backR_hip": (0.66, 0.66, 0.55),
-    "backR_knee": (0.66, 0.68, 0.40),
-    "backR_ankle": (0.66, 0.70, 0.18),
-    "backR_paw": (0.66, 0.70, 0.03),
+    "frontL_shoulder": (0.66, 0.32, 0.55),
+    "frontL_elbow": (0.66, 0.32, 0.40),
+    "frontL_wrist": (0.66, 0.32, 0.18),
+    "frontL_paw": (0.66, 0.32, 0.03),
+    "frontR_shoulder": (0.34, 0.32, 0.55),
+    "frontR_elbow": (0.34, 0.32, 0.40),
+    "frontR_wrist": (0.34, 0.32, 0.18),
+    "frontR_paw": (0.34, 0.32, 0.03),
+    # blender_build_rig.py's SKELETON needs a *_toe tail marker per leg (the foot is two
+    # segments so it can roll — see that script's docstring). These four were missing
+    # from this dict entirely, which crashed the rig build with "missing markers" the
+    # first time this pipeline ran end to end on a non-fox character. 27 markers here
+    # plus these 4 is the 31 the bake-spec doc expects.
+    "frontL_toe": (0.66, 0.25, 0.02),
+    "frontR_toe": (0.34, 0.25, 0.02),
+    "backL_hip": (0.66, 0.66, 0.55),
+    "backL_stifle": (0.66, 0.68, 0.40),
+    "backL_ankle": (0.66, 0.70, 0.18),
+    "backL_paw": (0.66, 0.70, 0.03),
+    "backL_toe": (0.66, 0.63, 0.02),
+    "backR_hip": (0.34, 0.66, 0.55),
+    "backR_stifle": (0.34, 0.68, 0.40),
+    "backR_ankle": (0.34, 0.70, 0.18),
+    "backR_paw": (0.34, 0.70, 0.03),
+    "backR_toe": (0.34, 0.63, 0.02),
 }
 
 PREFIX = "JOINT_"

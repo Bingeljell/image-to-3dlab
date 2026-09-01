@@ -72,6 +72,8 @@ HEAD_PITCH = math.radians({head_pitch})
 HEAD_LEVEL = math.radians({head_level})
 CHEST_DROP = math.radians({chest_drop})
 SHOULDER_TUCK = math.radians({shoulder_tuck})
+HIND_LEAD_L = math.radians({hind_lead_l})
+HIND_LEAD_R = math.radians({hind_lead_r})
 BODY_DROP = {body_drop}
 FRONT_CROUCH = math.radians({front_crouch})
 CROUCH = math.radians({crouch})
@@ -161,6 +163,15 @@ for frame in range(1, FRAMES + 2):
             # trailing. Counter-rotate by the same amount to keep them vertical,
             # then apply the tuck on top of that corrected zero.
             swing += SHOULDER_TUCK - CHEST_DROP
+        else:
+            # swing_amp*cos(theta) is symmetric, so a bigger forward reach always buys
+            # an equally bigger backward kick — there is no way to get one without the
+            # other from amplitude alone. HIND_LEAD_L/R is a static bias added after the
+            # cosine: it shifts one side's swing range forward without changing its span,
+            # so the forward peak can stay put while the rearward extreme shrinks. Split
+            # by side, not shared, because hand-placed markers are rarely symmetric —
+            # one leg needing this fix doesn't mean the other one does.
+            swing += HIND_LEAD_L if leg.endswith('L') else HIND_LEAD_R
         # Rectified sine, shaped: the exponent widens the airborne plateau so the
         # fold eases in and out instead of snapping at the contact frames.
         lift = max(0.0, math.sin(theta)) ** 0.7
@@ -353,6 +364,18 @@ def main() -> int:
              "splaying them out ahead",
     )
     parser.add_argument(
+        "--hind-lead-l", type=float, default=0.0,
+        help="Static forward bias on the LEFT hind leg's swing. swing-back alone is "
+             "symmetric — more forward reach always buys an equally bigger backward "
+             "kick. This shifts that side's swing range forward without changing its "
+             "span, so you can keep the forward peak and shrink the rearward extreme. "
+             "Split left/right because hand-placed markers are rarely symmetric",
+    )
+    parser.add_argument(
+        "--hind-lead-r", type=float, default=0.0,
+        help="Same as --hind-lead-l, for the RIGHT hind leg.",
+    )
+    parser.add_argument(
         "--front-crouch", type=float, default=0.0,
         help="Static fold on the front legs so their paws sit level with the back "
              "paws. Without it the front legs hang at full extension and sink below",
@@ -402,6 +425,8 @@ def main() -> int:
         head_level=args.head_level,
         chest_drop=args.chest_drop,
         shoulder_tuck=args.shoulder_tuck,
+        hind_lead_l=args.hind_lead_l,
+        hind_lead_r=args.hind_lead_r,
         body_drop=args.body_drop,
         front_crouch=args.front_crouch,
         crouch=args.crouch,

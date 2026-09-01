@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Ram headbutt and Rigify pose curves.** A headbutt/charge clip for the custom
+  quadruped rig (horns as the weapon, jaw shut, front legs as landing gear that fold
+  back at impact), plus walk/trot and headbutt curves retargeted onto a
+  Rigify-generated quadruped. The Rigify headbutt drives only the `spine_fk` chain:
+  `head`/`neck` pose bones exist on the Basic Quadruped metarig but move zero deform
+  bones, so posing them is dead motion.
+- **`--hind-lead-l` / `--hind-lead-r` on the walk cycle.** Swing amplitude is
+  symmetric, so more forward reach always bought an equally bigger backward kick.
+  These add a static per-side bias after the cosine, shifting a leg's swing range
+  forward without changing its span.
+- **RigNet inference on Apple Silicon**, via a patch to the vendored checkout plus
+  glue that drives its five-network pipeline on our own model ids. Spike is paused,
+  not concluded — see `docs/progress/2026-08-21-rignet-spike.md`.
+- **Reusable Blender scene helpers** for the dungeon-stage lane: append a rigged
+  character into the live scene, inspect a scene or unopened `.blend`, frame an orbit
+  camera, and bake a named Action's frame sequence at the locked stage angle.
+
+### Fixed
+- **Quadruped joint markers were mirrored, and four were missing.** Every `*_L`
+  marker sat at x<0.5 and every `*_R` at x>0.5, so the rig's left leg was the
+  character's right — caught by eye on the Tempest Ram. `blender_build_rig.py` also
+  referenced four `*_toe` markers the table never defined, crashing the rig build the
+  first time the pipeline ran end to end on a non-fox character. The hind mid-leg
+  joint is now `stifle` rather than `knee`, matching the front limb's naming, and the
+  armature is `QuadRig` rather than `FoxRig`.
+- **`rigify_walk_pose.sample()` accepted degenerate frame counts**, raising
+  `ZeroDivisionError` at zero and returning two frames of nonsense at one. It now
+  raises `ValueError`, matching both sibling pose modules.
+
+### Added
 - **Rig Review room with deform/fit skeleton separation.** Inspect tapered deform bones,
   search their hierarchy, lower mesh opacity, toggle x-ray rendering, and optionally load a
   fingerprint-verified `.rig.json` fit skeleton mapped in armature-local coordinates. Select

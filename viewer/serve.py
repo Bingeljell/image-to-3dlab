@@ -3,9 +3,10 @@
 
     python viewer/serve.py                      # http://127.0.0.1:8777
     python viewer/serve.py --open A.glb B.glb   # and print/launch a compare URL
+    python viewer/serve.py --host 100.x.y.z      # explicit Tailscale/LAN interface
 
-Bound to 127.0.0.1 only: this serves the whole repository, including `output/`, and has no
-business being reachable from the network.
+Bound to 127.0.0.1 by default. An explicit --host exposes the whole repository, including
+`output/`, on that interface; use a private interface protected by appropriate ACLs.
 
 The viewer exists because judging a mesh by eye is the acceptance test in this repo, and
 every such judgement previously required opening Blender. It is also driveable by browser
@@ -15,6 +16,7 @@ automation, which means the agent can look at its own output instead of asking.
 from __future__ import annotations
 
 import argparse
+import http.server
 import signal
 import socketserver
 import sys
@@ -38,7 +40,22 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
 
 
-def compare_url(assets: list[str], port: int, labels: list[str] | None = None) -> str:
+class StaticViewerHandler(http.server.SimpleHTTPRequestHandler):
+    """Serve viewer assets only; no repository files or generation endpoints."""
+
+    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, **Handler.extensions_map}
+
+    def do_POST(self) -> None:
+        self.send_error(405, "Static viewer mode does not accept jobs")
+
+
+def compare_url(
+    assets: list[str],
+    port: int,
+    labels: list[str] | None = None,
+    *,
+    host: str = "127.0.0.1",
+) -> str:
     """A viewer URL for up to three assets, paths relative to the repo root.
 
     Absolute paths inside the repo are rewritten to relative; anything outside it would not
@@ -56,19 +73,29 @@ def compare_url(assets: list[str], port: int, labels: list[str] | None = None) -
         params[key] = str(path)
         if labels and index < len(labels):
             params["l" + key] = labels[index]
-    return f"http://127.0.0.1:{port}/viewer/index.html?" + urllib.parse.urlencode(params)
+    return f"http://{host}:{port}/viewer/index.html?" + urllib.parse.urlencode(params)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--host", default="127.0.0.1", help="interface address to bind")
     parser.add_argument("--port", type=int, default=8777)
     parser.add_argument("--open", nargs="*", metavar="GLB", help="assets to compare")
     parser.add_argument("--labels", nargs="*", help="captions, one per asset")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--static-only",
+        action="store_true",
+        help="serve only viewer assets and disable generation endpoints",
+    )
     args = parser.parse_args()
 
-    url = compare_url(args.open, args.port, args.labels) if args.open else \
-        f"http://127.0.0.1:{args.port}/viewer/index.html"
+    if args.static_only and args.open:
+        parser.error("--static-only cannot serve repository paths passed with --open")
+    url = compare_url(args.open, args.port, args.labels, host=args.host) if args.open else (
+        f"http://{args.host}:{args.port}/index.html" if args.static_only
+        else f"http://{args.host}:{args.port}/viewer/index.html"
+    )
     print(url, flush=True)
 
     # A prior server life may have died mid-generation (crash, closed terminal) without
@@ -91,8 +118,10 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
 
     import functools
-    handler = functools.partial(Handler, directory=str(REPO))
-    with ThreadingHTTPServer(("127.0.0.1", args.port), handler) as httpd:
+    handler_class = StaticViewerHandler if args.static_only else Handler
+    directory = REPO / "viewer" if args.static_only else REPO
+    handler = functools.partial(handler_class, directory=str(directory))
+    with ThreadingHTTPServer((args.host, args.port), handler) as httpd:
         if args.open and not args.no_browser:
             webbrowser.open(url)
         print(f"serving {REPO} — ctrl-c to stop", flush=True)

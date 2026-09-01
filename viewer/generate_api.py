@@ -28,6 +28,16 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar
 from urllib.parse import parse_qs, unquote, urlparse
 
+# Sibling import must also work when tests load this file directly via importlib.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rig_api import (
+    ARTIFACTS as RIG_ARTIFACTS,
+    RIG_JOBS,
+    cancel_job as cancel_rig_job,
+    run_job as run_rig_job,
+    status_payload as rig_status_payload,
+)
+
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
 PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
@@ -715,10 +725,11 @@ def _terminate_active_job() -> None:
     exits), but the next startup's reconciliation finds it, sees the process is already
     dead, and annotates it correctly."""
     job = JOBS.jobs.get(JOBS.active) if JOBS.active else None
-    if job is None or job.process is None:
-        return
-    if job.process.poll() is None:
+    if job is not None and job.process is not None and job.process.poll() is None:
         _killpg_if_alive(job.process.pid)
+    rig_job = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
+    if rig_job is not None and rig_job.process is not None and rig_job.process.poll() is None:
+        _killpg_if_alive(rig_job.process.pid)
 
 
 def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
@@ -886,10 +897,24 @@ def _sf3d_build_args(job: Job) -> list[str]:
 
 
 def _sf3d_finalize(job: Job) -> None:
-    """pipeline.py --fast writes ``<stem>_sf3d.glb`` in the output dir; move it into place."""
-    produced = job.directory / f"{job.image_path.stem}_sf3d.glb"
-    if produced.is_file():
-        produced.replace(job.output_path)
+    """pipeline.py's provenance system (image_to_3dlab.provenance.finalize_output) sorts
+    the real output into a license-class subfolder with a randomized run id --
+    <job-dir>/<license-folder>/<image-stem>__sf3d__<classification>__<run-id>.glb -- not
+    the flat <stem>_sf3d.glb this used to assume. That wrong assumption meant every SF3D
+    run through the web UI reported "generator exited 0 but produced no output file" even
+    on a full, successful generation (confirmed 2026-08-20 with a real run: a genuine .glb
+    existed on disk the whole time, the web UI just never found it -- the bug the user
+    reported as "the web view never updated" was this, not a dropped connection).
+
+    The exact filename can't be predicted (random run id), so glob for it instead."""
+    matches = sorted(job.directory.glob(f"*/{job.image_path.stem}__sf3d__*.glb"))
+    if not matches:
+        return
+    produced = matches[-1]
+    produced.replace(job.output_path)
+    sidecar = produced.with_suffix(".provenance.json")
+    if sidecar.is_file():
+        sidecar.replace(job.manifest_path)
 
 
 def _sf3d_parse_line(job: Job, line: str) -> None:
@@ -1247,6 +1272,18 @@ def _json_bytes(value: Any) -> bytes:
     return (json.dumps(value, separators=(",", ":")) + "\n").encode("utf-8")
 
 
+def _job_status_payload(job: Job) -> dict[str, Any]:
+    """A single-shot snapshot of a job's current state -- the polling fallback for when
+    the SSE stream (_stream_events) drops and doesn't reconnect (found 2026-08-20: a fast
+    SF3D run finished server-side but the browser never learned it had, because nothing
+    covers a dead/never-recovered EventSource connection).
+
+    Deliberately the same event shape _run_job's "done"/"error" events already carry, so
+    the frontend can feed this straight into its existing applyGenerateProgress() renderer
+    instead of a separate code path."""
+    return {"status": job.status, "last_event": job.events[-1] if job.events else None}
+
+
 class Handler(SimpleHTTPRequestHandler):
     """Static repository server plus the local Generate job endpoints."""
 
@@ -1284,8 +1321,14 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "generate"]:
             self._create_job()
             return
+        if parts == ["api", "rig", "rebind"]:
+            self._create_rig_job()
+            return
         if len(parts) == 4 and parts[:2] == ["api", "generate"] and parts[3] == "cancel":
             self._cancel_job(parts[2])
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "rig", "rebind"] and parts[4] == "cancel":
+            self._cancel_rig_job(parts[3])
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -1322,8 +1365,22 @@ class Handler(SimpleHTTPRequestHandler):
             if action == "events":
                 self._events(job_id)
                 return
+            if action == "status":
+                self._status(job_id)
+                return
             if action in {"result.glb", "manifest.json"}:
                 self._artifact(job_id, action)
+                return
+        if len(parts) == 5 and parts[:3] == ["api", "rig", "rebind"]:
+            job_id, action = parts[3], parts[4]
+            if action == "events":
+                self._rig_events(job_id)
+                return
+            if action == "status":
+                self._rig_status(job_id)
+                return
+            if action in RIG_ARTIFACTS:
+                self._rig_artifact(job_id, action)
                 return
         super().do_GET()
 
@@ -1365,6 +1422,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})
+                return
+            rig_active = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
+            if rig_active is not None and rig_active.status not in {"done", "error", "cancelled"}:
+                self._send_json(409, {"error": "a rig rebind is running; wait for it to finish"})
                 return
             try:
                 settings = spec.validate_settings(raw_settings)
@@ -1420,6 +1481,50 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
+    def _create_rig_job(self) -> None:
+        try:
+            active = JOBS.get(JOBS.active) if JOBS.active else None
+            if active is not None and active.status in {"queued", "running", "cancelling"}:
+                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
+                return
+            if SETUP_ACTIVE is not None:
+                self._send_json(409, {"error": "setup is running; wait for it to finish"})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 768 * 1024 * 1024:
+                self._send_json(400, {"error": "rebind bundle is missing or larger than 768 MiB"})
+                return
+            form = parse_multipart(
+                self.headers.get("Content-Type", ""), self.rfile.read(length)
+            )
+            required = {"asset": ".glb", "scene": ".blend", "sidecar": ".rig.json"}
+            for field, suffix in required.items():
+                value = form.get(field)
+                filename = str(value.get("filename")) if value else ""
+                if not value or not filename.lower().endswith(suffix):
+                    self._send_json(422, {
+                        "error": f"multipart field {field!r} must be a {suffix} file"
+                    })
+                    return
+            try:
+                job = RIG_JOBS.create(
+                    str(form["asset"]["filename"]), form["asset"]["data"],
+                    form["scene"]["data"], form["sidecar"]["data"],
+                )
+            except (ValueError, RuntimeError) as exc:
+                self._send_json(422 if isinstance(exc, ValueError) else 409, {"error": str(exc)})
+                return
+            threading.Thread(
+                target=run_rig_job, args=(job,), daemon=True, name=f"rig-{job.id[:8]}"
+            ).start()
+            self._send_json(202, {
+                "job_id": job.id,
+                "events_url": f"/api/rig/rebind/{job.id}/events",
+                "status_url": f"/api/rig/rebind/{job.id}/status",
+            })
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
     def _find_job(self, job_id: str) -> Job | None:
         return JOBS.get(job_id) if _safe_id(job_id) else None
 
@@ -1429,6 +1534,52 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         self._stream_events(job)
+
+    def _rig_events(self, job_id: str) -> None:
+        job = RIG_JOBS.get(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._stream_events(job)
+
+    def _rig_status(self, job_id: str) -> None:
+        job = RIG_JOBS.get(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(200, rig_status_payload(job))
+
+    def _rig_artifact(self, job_id: str, action: str) -> None:
+        job = RIG_JOBS.get(job_id)
+        if job is None or job.status != "done":
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        attribute, content_type = RIG_ARTIFACTS[action]
+        path = getattr(job, attribute)
+        if not path.is_file() or job.directory not in path.parents:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        data = path.read_bytes()
+        disposition = "inline" if action == "result.glb" else "attachment"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'{disposition}; filename="{path.name}"')
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _cancel_rig_job(self, job_id: str) -> None:
+        job = RIG_JOBS.get(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        try:
+            cancel_rig_job(job)
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        job.emit({"phase": "error", "message": "Cancellation requested"})
+        self._send_json(202, {"job_id": job.id, "status": "cancelling"})
 
     def _stream_events(self, run: Job | SetupRun) -> None:
         """SSE pump shared by generation jobs and setup runs."""
@@ -1481,6 +1632,20 @@ class Handler(SimpleHTTPRequestHandler):
             "setup_run_id": setup_id,
             "events_url": f"/api/setup/run/{setup_id}/events",
         })
+
+    def _status(self, job_id: str) -> None:
+        job = self._find_job(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(200, _job_status_payload(job))
+
+    def _status(self, job_id: str) -> None:
+        job = self._find_job(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        self._send_json(200, _job_status_payload(job))
 
     def _artifact(self, job_id: str, action: str) -> None:
         job = self._find_job(job_id)

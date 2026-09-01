@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Rig Review room with deform/fit skeleton separation.** Inspect tapered deform bones,
+  search their hierarchy, lower mesh opacity, toggle x-ray rendering, and optionally load a
+  fingerprint-verified `.rig.json` fit skeleton mapped in armature-local coordinates. Select
+  and drag fit joints in the viewport, edit precise positions, mirror paired changes,
+  undo/reset corrections, and download the revised sidecar for Blender rebind. A matching
+  prepared `.blend` can be submitted directly to a queued headless Blender rebind; progress
+  covers Rigify regeneration, voxel weight transfer, and export, then the replacement GLB
+  is loaded automatically with downloadable artifacts.
+- **Animate room for rigged GLB/GLTF inspection.** Load a bound character, inspect its
+  bone/skinned-mesh/clip inventory, toggle the skeleton, play or scrub embedded animation
+  clips, switch back to the bind pose, and control loop playback in the browser.
+- **Click-to-inspect deform bones in Animate.** Always-visible joint markers can be selected
+  without mistaking an orbit drag for a click; the inspector shows hierarchy plus immutable
+  bind and live pose transforms while clips play.
 - **Generate-page jobs now survive the server dying.** All job state (subprocess handle,
   event log) lived only in the web server's process memory, so if `viewer/serve.py` itself
   crashed or was closed mid-run — which happened twice on 2026-08-20, once as a silent

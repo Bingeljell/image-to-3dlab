@@ -1,0 +1,55 @@
+#bar { position: fixed; inset: 42px 0 auto 0; z-index: 10; display: flex; flex-wrap: wrap;
+       gap: 6px; align-items: center; padding: 8px 10px; background: #1b1e24ee;
+       border-bottom: 1px solid #2c313a; backdrop-filter: blur(6px); }
+#add { background: #2f5233; border-color: #3f6d45; }
+#add:hover:not(:disabled) { background: #396b40; }
+#panes { position: fixed; inset: 86px 0 0 0; display: flex; }
+.pane { position: relative; flex: 1 1 0; min-width: 0; border-left: 1px solid #2c313a; overflow: hidden; }
+.pane:first-child { border-left: none; }
+.pane.dragtarget::after { content: 'drop here'; position: absolute; inset: 0; z-index: 8;
+         display: flex; align-items: center; justify-content: center; font-size: 14px;
+         color: #cfe3ff; background: #3b6ea533; border: 2px dashed #4d84c0; pointer-events: none; }
+.pane.model.dragtarget::after { content: 'drop model to replace · image to overlay'; }
+/* Empty "add another pane" placeholder, shown while there is a free slot. This is the
+   discoverable way to load a second/third model or a source image side by side. */
+.pane.ghost { display: flex; align-items: center; justify-content: center; cursor: pointer;
+              color: #6b7480; border-left: 1px dashed #39404b; }
+.pane.ghost:hover, .pane.ghost.dragtarget { background: #3b6ea51a; color: #cfe3ff; }
+.pane.ghost .inner { text-align: center; pointer-events: none; }
+.pane.ghost .plus { font-size: 34px; line-height: 1; opacity: .7; }
+.pane.ghost .t { margin-top: 10px; }
+.pane.ghost .s { font-size: 11px; opacity: .6; margin-top: 4px; }
+.cap { position: absolute; left: 8px; top: 8px; z-index: 6; padding: 3px 7px; border-radius: 4px; background: #14161acc; font-size: 12px; }
+.cap b { color: #8fb8e8; }
+.cap .kind { opacity: .5; margin-right: 5px; text-transform: uppercase; font-size: 10px; letter-spacing: .05em; }
+.ctl { position: absolute; right: 8px; top: 8px; z-index: 6; display: flex; gap: 4px; }
+.ctl button { padding: 2px 8px; font-size: 12px; line-height: 1.3; background: #14161acc; }
+.ctl button.on { background: #3b6ea5; border-color: #4d84c0; color: #fff; }
+.stats { position: absolute; left: 8px; bottom: 8px; z-index: 6; background: #14161acc;
+         padding: 4px 7px; border-radius: 4px; font-size: 11px; opacity: .8; white-space: pre; }
+/* Source-image pane: fit, then pan/zoom. */
+.imgwrap { position: absolute; inset: 0; overflow: hidden; cursor: grab; }
+.imgwrap.grabbing { cursor: grabbing; }
+.imgwrap img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+               transform-origin: center center; user-select: none; -webkit-user-drag: none; }
+/* Onion-skin overlay pinned over a model pane. */
+.model-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+                 pointer-events: none; z-index: 5; }
+.ovlbar { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 7;
+          display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 6px;
+          background: #14161acc; border: 1px solid #2c313a; }
+.ovlbar input[type=range] { width: 130px; accent-color: #4d84c0; }
+.ovlbar button { padding: 1px 7px; }
+/* Full-area drop zone, shown only when nothing is loaded. */
+#drop { position: fixed; inset: 86px 0 0 0; z-index: 9; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 14px; text-align: center; }
+#drop.hidden { display: none; }
+#drop .big { font-size: 20px; color: #cfe3ff; }
+#drop .sub { opacity: .6; max-width: 500px; }
+body.dragging #drop:not(.hidden) { background: #3b6ea51a; }
+#drop .zone { border: 2px dashed #39404b; border-radius: 12px; padding: 40px 60px;
+              transition: border-color .12s, background .12s; }
+body.dragging #drop .zone { border-color: #4d84c0; background: #3b6ea522; }
+#drop button { padding: 8px 16px; font-size: 14px; }
+#compare-view.hidden { display: none; }
+

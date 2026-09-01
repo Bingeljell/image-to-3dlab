@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -209,6 +210,29 @@ def test_emit_banner_fires_decode_and_bake(tmp_path):
     assert job.events[-1]["phase"] == "bake"
 
 
+# --- job-status polling fallback: same payload shape as the SSE stream's own events, so
+# a dropped/never-reconnected EventSource has something to recover from (2026-08-20: a
+# fast SF3D run finished server-side with the browser never finding out) ---
+def test_job_status_payload_reports_last_event(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "trellis")
+    job.emit({"phase": "load", "overall_pct": 0, "message": "Starting"})
+    job.emit({"phase": "done", "overall_pct": 100, "message": "Generation complete",
+              "result_url": "/api/generate/x/result.glb"})
+    job.status = "done"
+
+    payload = api._job_status_payload(job)
+
+    assert payload["status"] == "done"
+    assert payload["last_event"]["phase"] == "done"
+    assert payload["last_event"]["result_url"] == "/api/generate/x/result.glb"
+
+
+def test_job_status_payload_handles_no_events_yet(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "trellis")
+    payload = api._job_status_payload(job)
+    assert payload == {"status": "queued", "last_event": None}
+
+
 # --- backend registry ------------------------------------------------------------------
 
 def test_backend_registry_has_all_four():
@@ -226,11 +250,35 @@ def test_sf3d_build_args_matches_pipeline_cli(tmp_path):
     assert args[-1] == str(tmp_path / "input.png")
 
 
+# 2026-08-20: the old version of this test hand-derived <stem>_sf3d.glb -- a fictional
+# filename that matched _sf3d_finalize's own (wrong) assumption, not what pipeline.py's
+# provenance system actually produces. It passed while every real SF3D run through the
+# web UI failed with "generator exited 0 but produced no output file". Uses the real
+# finalize_output() to build the fixture so this can't drift from reality the same way.
 def test_sf3d_finalize_moves_output_into_place(tmp_path):
+    from image_to_3dlab.provenance import LICENSES, finalize_output
+
     job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb", {}, "sf3d")
-    (tmp_path / "input_sf3d.glb").write_bytes(b"glb-bytes")
+    image = tmp_path / "input.png"
+    image.write_bytes(b"fake-png")
+    generated = tmp_path / "raw_generated.glb"
+    generated.write_bytes(b"glb-bytes")
+    finalize_output(
+        generated=generated, image=image, output_root=tmp_path, backend="sf3d",
+        profile=LICENSES["sf3d"], intent={}, parameters={}, source_manifest=None,
+    )
+
     api._sf3d_finalize(job)
+
     assert job.output_path.read_bytes() == b"glb-bytes"
+    assert job.manifest_path.is_file()
+    assert json.loads(job.manifest_path.read_text())["model"]["backend"] == "sf3d"
+
+
+def test_sf3d_finalize_is_a_noop_when_nothing_was_produced(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "input.png", tmp_path / "model.glb", {}, "sf3d")
+    api._sf3d_finalize(job)  # must not raise
+    assert not job.output_path.exists()
 
 
 @pytest.mark.parametrize("payload", [
@@ -501,6 +549,60 @@ def test_terminate_active_job_is_a_noop_with_no_active_job(monkeypatch):
     api._terminate_active_job()  # must not raise
 
     assert killed == []
+
+
+def _valid_rig_sidecar(asset: bytes, scene: bytes) -> bytes:
+    import hashlib
+
+    return json.dumps({
+        "schemaVersion": 1,
+        "rigProfile": "test",
+        "assetFingerprint": "sha256:" + hashlib.sha256(asset).hexdigest(),
+        "coordinateSpace": "armature-local",
+        "mirror": {"axis": "X", "origin": 0},
+        "joints": {"joint": {
+            "label": "Joint", "position": [0, 0, 0], "sourceBone": "DEF-joint",
+            "parent": None, "mirrorOf": None,
+        }},
+        "corrections": {"joint": {
+            "sourcePosition": [0, 0, 0], "targetPosition": [0, 1, 0],
+            "delta": [0, 1, 0], "mirrored": False,
+        }},
+        "binding": {
+            "adapter": "test",
+            "sceneFingerprint": "sha256:" + hashlib.sha256(scene).hexdigest(),
+            "metarigObjectId": "object",
+            "joints": {"joint": {"targets": [
+                {"boneId": "bone", "boneName": "bone", "endpoint": "head"}
+            ]}},
+        },
+    }).encode()
+
+
+def test_terminate_active_job_also_kills_a_running_rebind(tmp_path, monkeypatch):
+    rig_jobs = api.RIG_JOBS.__class__(tmp_path)
+    job = rig_jobs.create(
+        "asset.glb", b"glb", b"blend", _valid_rig_sidecar(b"glb", b"blend")
+    )
+    job.process = _FakeProcess(5252)
+    killed = []
+    monkeypatch.setattr(api, "RIG_JOBS", rig_jobs)
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == [5252]
+
+
+def test_handler_exposes_typed_rig_rebind_routes():
+    source = MODULE_PATH.read_text()
+
+    assert '["api", "rig", "rebind"]' in source
+    assert "_create_rig_job" in source
+    assert "_rig_events" in source
+    assert "_rig_status" in source
+    assert "_rig_artifact" in source
+    assert "_cancel_rig_job" in source
 
 
 def test_terminate_active_job_is_a_noop_when_process_already_exited(tmp_path, monkeypatch):

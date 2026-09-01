@@ -1,0 +1,50 @@
+#animate-view { position: fixed; inset: 42px 0 0 0; overflow: hidden;
+  background: radial-gradient(circle at 72% 18%, #1d2a3a 0, transparent 42%), #14161a; }
+.animate-shell { height: 100%; display: grid; grid-template-columns: 300px minmax(0, 1fr); }
+.animate-sidebar { z-index: 2; overflow: auto; padding: 18px; background: #171a20ee;
+  border-right: 1px solid #303744; }
+.animate-sidebar h2 { margin: 0 0 4px; color: #cfe3ff; font-size: 16px; }
+.animate-sidebar > p { margin: 0 0 16px; opacity: .68; font-size: 12px; }
+.animate-notice { margin: 0 0 12px; padding: 9px; border: 1px solid #74532d;
+  border-radius: 6px; background: #74532d22; color: #e5c89b; font-size: 10px; }
+.animate-drop { min-height: 132px; padding: 18px; display: flex; align-items: center;
+  justify-content: center; text-align: center; border: 2px dashed #39404b;
+  border-radius: 9px; color: #aeb8c6; cursor: pointer; }
+.animate-drop:hover, .animate-drop.drag { border-color: #4d84c0; background: #3b6ea522; color: #cfe3ff; }
+.animate-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid #303744; }
+.animate-section h3 { margin: 0 0 10px; color: #9bc8ff; font-size: 12px; }
+.animate-section label { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 10px; }
+.animate-section select { min-width: 150px; max-width: 180px; background: #12151a;
+  color: #d8dee9; border: 1px solid #39404b; border-radius: 4px; padding: 6px; font: inherit; }
+.animate-section button { width: 100%; margin-top: 10px; }
+#animate-rig-summary { min-height: 38px; color: #aeb8c6; font-size: 11px; white-space: pre-wrap; }
+#animate-bone-empty { color: #7f8a98; font-size: 11px; }
+#animate-bone-name { display: block; margin-bottom: 8px; color: #ffc857; overflow-wrap: anywhere; }
+.bone-hierarchy, .bone-transform { display: grid; grid-template-columns: 58px minmax(0, 1fr);
+  gap: 4px 8px; margin: 0; font-size: 11px; }
+.bone-hierarchy dt, .bone-transform dt { color: #778393; }
+.bone-hierarchy dd, .bone-transform dd { min-width: 0; margin: 0; color: #c7d2df; overflow-wrap: anywhere; }
+.bone-transform-title { margin: 11px 0 5px; color: #778393; font-size: 10px;
+  letter-spacing: .04em; text-transform: uppercase; }
+.bone-transform dd { font-variant-numeric: tabular-nums; }
+#animate-status { min-height: 36px; margin-top: 12px; color: #ffb8ae; font-size: 11px; white-space: pre-wrap; }
+.animate-stage { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+#animate-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#animate-viewport canvas { position: absolute; inset: 0; }
+.animate-empty { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; padding: 30px; color: #6f7b8a; text-align: center; pointer-events: none; }
+.animate-stats { position: absolute; left: 10px; bottom: 10px; z-index: 3;
+  padding: 4px 7px; border-radius: 4px; background: #14161acc; opacity: .8;
+  font-size: 11px; white-space: pre; }
+.animate-transport { min-height: 62px; display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; background: #171a20f5; border-top: 1px solid #303744; }
+#animate-play { min-width: 74px; }
+#animate-time { min-width: 102px; color: #aeb8c6; font-variant-numeric: tabular-nums; }
+#animate-timeline { flex: 1; min-width: 80px; accent-color: #4d84c0; }
+.animate-loop { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+@media (max-width: 760px) {
+  .animate-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(420px, 1fr); overflow: auto; }
+  .animate-sidebar { overflow: visible; border-right: 0; border-bottom: 1px solid #303744; }
+  .animate-stage { min-height: 520px; }
+}

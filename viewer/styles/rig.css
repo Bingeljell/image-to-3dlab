@@ -1,0 +1,77 @@
+#rig-view { position: fixed; inset: 42px 0 0 0; overflow: hidden;
+  background: radial-gradient(circle at 66% 16%, #242a35 0, transparent 43%), #14161a; }
+.rig-shell { height: 100%; display: grid;
+  grid-template-columns: 310px minmax(0, 1fr) 280px; }
+.rig-sidebar, .rig-inspector { z-index: 2; overflow: auto; padding: 18px;
+  background: #171a20ee; }
+.rig-sidebar { border-right: 1px solid #303744; }
+.rig-inspector { border-left: 1px solid #303744; }
+.rig-sidebar h2, .rig-inspector h2 { margin: 0 0 4px; color: #cfe3ff; font-size: 16px; }
+.rig-sidebar > p, .rig-inspector > p { margin: 0 0 16px; opacity: .68; font-size: 12px; }
+.rig-drop { min-height: 116px; padding: 16px; display: flex; align-items: center;
+  justify-content: center; text-align: center; border: 2px dashed #39404b;
+  border-radius: 9px; color: #aeb8c6; cursor: pointer; }
+.rig-drop:hover, .rig-drop.drag { border-color: #e19a4c; background: #e19a4c18; color: #ffe1bc; }
+.rig-section { margin-top: 17px; padding-top: 15px; border-top: 1px solid #303744; }
+.rig-section h3 { margin: 0 0 9px; color: #eab878; font-size: 12px; }
+.rig-control { display: grid; grid-template-columns: 1fr auto; align-items: center;
+  gap: 8px; margin-top: 9px; }
+.rig-control input[type=range] { width: 128px; accent-color: #e19a4c; }
+.rig-layer-label { margin-top: 13px; color: #d4d9e1; font-size: 10px;
+  font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
+#rig-opacity-value { min-width: 34px; text-align: right; color: #aeb8c6; }
+#rig-status { min-height: 34px; margin-top: 10px; color: #ffb8ae; font-size: 11px; white-space: pre-wrap; }
+#rig-summary, #rig-sidecar-summary { color: #aeb8c6; font-size: 11px; white-space: pre-wrap; }
+#rig-hierarchy-search { width: 100%; margin-bottom: 8px; padding: 6px; color: #d8dee9;
+  background: #12151a; border: 1px solid #39404b; border-radius: 4px; font: inherit; }
+#rig-hierarchy { max-height: 310px; overflow: auto; border: 1px solid #2d333d;
+  border-radius: 5px; background: #111318; }
+.rig-bone-row { width: 100%; margin: 0; padding-top: 4px; padding-bottom: 4px;
+  text-align: left; border: 0; border-radius: 0; background: transparent;
+  color: #aeb8c6; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rig-bone-row:hover { background: #26303d; }
+.rig-bone-row.on { background: #594525; color: #ffe1a8; }
+.rig-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#rig-viewport { position: absolute; inset: 0; overflow: hidden; }
+#rig-viewport canvas { position: absolute; inset: 0; }
+.rig-empty { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; padding: 30px; color: #6f7b8a; text-align: center; pointer-events: none; }
+.rig-edit-banner { position: absolute; z-index: 4; top: 118px; left: 50%; width: min(520px, 72%);
+  padding: 10px 13px; transform: translateX(-50%); border: 1px solid #8b6332;
+  border-radius: 7px; background: #241b12e8; color: #e6c18e; text-align: center;
+  font-size: 11px; box-shadow: 0 5px 18px #0007; pointer-events: none; }
+.rig-stats { position: absolute; left: 10px; bottom: 10px; z-index: 3;
+  padding: 4px 7px; border-radius: 4px; background: #14161acc; opacity: .8;
+  font-size: 11px; white-space: pre; }
+#rig-selection-empty { color: #7f8a98; font-size: 11px; }
+#rig-bone-name { display: block; margin-bottom: 8px; color: #ffc857; overflow-wrap: anywhere; }
+.rig-detail { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 5px 8px;
+  margin: 0; font-size: 11px; }
+.rig-detail dt { color: #778393; }
+.rig-detail dd { min-width: 0; margin: 0; color: #c7d2df; overflow-wrap: anywhere; }
+.rig-notice { margin-top: 14px; padding: 10px; border: 1px solid #594525;
+  border-radius: 6px; background: #59452522; color: #d8bd91; font-size: 11px; }
+#rig-clear-bone { width: 100%; margin-top: 12px; }
+#rig-joint-name { display: block; margin-bottom: 8px; color: #f0a95b; overflow-wrap: anywhere; }
+#rig-joint-editor > p { margin: 7px 0; color: #7f8a98; font-size: 10px; }
+.rig-position-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.rig-position-grid label { color: #778393; font-size: 10px; }
+.rig-position-grid input { width: 100%; box-sizing: border-box; margin-top: 3px; padding: 5px;
+  color: #d8dee9; background: #12151a; border: 1px solid #39404b; border-radius: 4px; }
+.rig-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#rig-joint-editor button, #rig-correction-actions > button { width: 100%; margin-top: 7px; }
+#rig-correction-summary { margin-top: 8px; color: #aeb8c6; font-size: 10px; }
+#rig-rebind, #rig-cancel-rebind { width: 100%; margin-top: 8px; }
+#rig-rebind { border-color: #b87532; background: #6b461f; color: #fff0d9; }
+#rig-job { margin-top: 10px; }
+.rig-job-track { height: 5px; overflow: hidden; border-radius: 4px; background: #272c34; }
+#rig-job-bar { width: 0; height: 100%; background: #e19a4c; transition: width .2s ease; }
+#rig-job-label { margin-top: 5px; color: #d8bd91; font-size: 10px; }
+#rig-artifacts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; font-size: 10px; }
+#rig-artifacts a { color: #8cc8ff; }
+@media (max-width: 980px) {
+  .rig-shell { grid-template-columns: 280px minmax(0, 1fr); }
+  .rig-inspector { position: absolute; right: 0; top: 0; bottom: 0; width: 260px;
+    box-shadow: -12px 0 30px #0007; }
+  .rig-stage { margin-right: 260px; }
+}

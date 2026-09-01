@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import deque
-import json
 import os
 from pathlib import Path
 import re
@@ -19,7 +18,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab.rig_sidecar import load_sidecar, plan_corrections, verify_asset, verify_scene
+from image_to_3dlab.rig_sidecar import load_sidecar, plan_corrections, verify_asset, verify_scene  # noqa: E402
 
 OUTPUT_ROOT = REPO / "output" / "rig-rebind"
 WORKER = REPO / "scripts" / "blender_rebind.py"

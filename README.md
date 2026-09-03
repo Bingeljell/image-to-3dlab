@@ -23,8 +23,10 @@ Four backends, one Generate page. Sadly life is full of trade-offs, so pick the 
 
 ⭐ Start with Hunyuan3D-MLX (Xiong, full pipeline) — it's the quickest to get running from a
 fresh clone and gives strong results (~9 min shape+paint end to end at its default model).
-Reach for TRELLIS.2 when fidelity matters more than speed. But be warned, Trellis texture has minor drift (a Metal port artifact). 
-Working to see how we can be more colour accurate. 
+Reach for TRELLIS.2 when fidelity matters more than speed. Its material model can produce
+severe colour drift on flat/vector-style illustrations; prefer photographs or softly lit
+3D-style references. This is an input-dependent upstream model behaviour, not a Metal-port
+artifact. See the [investigation and input guidance](docs/trellis2-flat-illustration-colour-drift.md).
 
 ---
 
@@ -56,7 +58,9 @@ status telling you exactly what's missing:
 - **TRELLIS.2** — click **Run setup** (bootstraps the Metal port, ~1h, needs `uv`,
   Python 3.11 and Xcode command-line tools), or run it manually:
   `python scripts/bootstrap_trellis_space_macos.py`. First run downloads the ~14 GB
-  TRELLIS.2-4B weights automatically.
+  TRELLIS.2-4B weights automatically. Selecting an image also runs an optional local
+  TinyCLIP style advisory; its small checkpoint downloads on first use and never blocks
+  generation.
 - **Hunyuan3D-MLX (dgrauet shape + Xiong paint)** and **Stable Fast 3D** — no automated
   setup or documented setup guide yet; background and licensing in
   [`docs/info_and_credits.md`](docs/info_and_credits.md), but expect to read the source
@@ -97,6 +101,7 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
 | Python 3.11 (TRELLIS) / 3.12 (Hunyuan3D-MLX) | pinned by each backend's own setup |
 | ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights (auto-downloaded once) |
 | ~14 GB disk | TRELLIS.2-4B weights (auto-downloaded once, if using TRELLIS) |
+| ~94 MB download | TinyCLIP flat-input advisor (local and non-blocking) |
 
 ## How the runs behave
 
@@ -108,12 +113,15 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
   structure — a simple subject (~8k tokens) takes ~14 min end-to-end; a complex one
   (~22k tokens, e.g. a fluffy creature) ~78 min on my m5 w/ 32 gigs of unified memory. This is infinitely faster on CUDA / Nvidia. 
   Decode + bake adds a few minutes; the decode is cached, so re-bakes are ~1 min of setup. Known gaps vs the HF demo: slight
-  texture drift and mostly-pinhole holes.
+  texture drift, severe colour failures on some flat/vector inputs, and mostly-pinhole
+  holes. See the [TRELLIS.2 input guidance](docs/trellis2-flat-illustration-colour-drift.md).
 
 ## Licensing & provenance (non-negotiable)
 
 - **TRELLIS.2** code and weights: MIT. **DINOv3** image encoder: separate DINOv3 License —
   so TRELLIS output is classified `commercial-conditional`.
+- **TinyCLIP ViT-8M/16** input advisor: MIT. It only warns about risky input style and is
+  not part of the generated artifact.
 - **Hunyuan3D-2 / 2.1 model weights** (used by both Hunyuan3D-MLX backends): Tencent
   Hunyuan Community License — **not licensed for use in the EU, UK, or South Korea**;
   verify exact terms per model before any redistribution-sensitive use.

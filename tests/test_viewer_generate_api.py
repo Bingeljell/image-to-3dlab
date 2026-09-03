@@ -92,6 +92,52 @@ def test_weights_on_disk_reports_present_and_missing(tmp_path):
     assert trellis["human"] == "2.0 KB"
     dino = result["models--facebook--dinov3-vitl16-pretrain-lvd1689m"]
     assert dino["present"] is False
+    tinyclip = result["models--wkcn--TinyCLIP-ViT-8M-16-Text-3M-YFCC15M"]
+    assert tinyclip["present"] is False
+
+
+def test_trellis_input_advisor_runs_in_backend_environment(monkeypatch, tmp_path):
+    interpreter = tmp_path / "python"
+    script = tmp_path / "advisor.py"
+    image = tmp_path / "input.png"
+    for path in (interpreter, script, image):
+        path.write_bytes(b"x")
+    monkeypatch.setattr(api, "PYTHON", interpreter)
+    monkeypatch.setattr(api, "TINYCLIP_ADVISOR", script)
+
+    class Result:
+        stdout = json.dumps({"verdict": "likely_flat", "flat_risk": 0.91}) + "\n"
+
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return Result()
+
+    monkeypatch.setattr(api.subprocess, "run", fake_run)
+    result = api.run_trellis_input_advisor(image)
+
+    assert result["verdict"] == "likely_flat"
+    assert calls[0][0] == [str(interpreter), str(script), str(image)]
+    assert calls[0][1]["timeout"] == api.TINYCLIP_TIMEOUT_SECONDS
+    assert calls[0][1]["check"] is True
+
+
+def test_trellis_input_advisor_rejects_malformed_output(monkeypatch, tmp_path):
+    interpreter = tmp_path / "python"
+    script = tmp_path / "advisor.py"
+    image = tmp_path / "input.png"
+    for path in (interpreter, script, image):
+        path.write_bytes(b"x")
+    monkeypatch.setattr(api, "PYTHON", interpreter)
+    monkeypatch.setattr(api, "TINYCLIP_ADVISOR", script)
+
+    class Result:
+        stdout = "not-json\n"
+
+    monkeypatch.setattr(api.subprocess, "run", lambda *args, **kwargs: Result())
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        api.run_trellis_input_advisor(image)
 
 
 # --- setup runner (bootstrap via the web UI) ---
@@ -494,6 +540,59 @@ def test_image_has_transparent_alpha_false_for_fully_opaque_rgba(tmp_path):
     assert api.image_has_transparent_alpha(path) is False
 
 
+# --- "has alpha" is not "is cut out" (2026-09-03): a letterboxed image passed the alpha
+# check on its bars alone, and its opaque backdrop was rebuilt as 3D geometry ---
+def _save(tmp_path, name, alpha_rows):
+    from PIL import Image
+    import numpy as np
+
+    a = np.zeros((64, 64, 4), dtype=np.uint8)
+    a[..., :3] = 200
+    a[..., 3] = alpha_rows
+    path = tmp_path / name
+    Image.fromarray(a, "RGBA").save(path)
+    return path
+
+
+def test_border_opaque_fraction_flags_letterboxed_upload(tmp_path):
+    import numpy as np
+
+    alpha = np.full((64, 64), 255, dtype=np.uint8)
+    alpha[:8] = 0
+    alpha[-8:] = 0          # transparent bars only; left/right edges still opaque
+    path = _save(tmp_path, "letterboxed.png", alpha)
+    assert api.image_has_transparent_alpha(path) is True   # old gate lets it through
+    assert api.image_border_opaque_fraction(path) > api.UNCUT_BORDER_LIMIT
+
+
+def test_border_opaque_fraction_passes_real_cutout(tmp_path):
+    import numpy as np
+
+    alpha = np.zeros((64, 64), dtype=np.uint8)
+    alpha[8:-8, 8:-8] = 255
+    path = _save(tmp_path, "cutout.png", alpha)
+    assert api.image_border_opaque_fraction(path) == 0.0
+
+
+def test_border_opaque_fraction_none_for_non_rgba(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "rgb.png"
+    Image.new("RGB", (16, 16), (1, 2, 3)).save(path)
+    assert api.image_border_opaque_fraction(path) is None
+
+
+def test_border_opaque_fraction_none_when_unreadable(tmp_path):
+    """Unmeasurable must not mean "blocked" -- the wrapper still enforces the same rule."""
+    assert api.image_border_opaque_fraction(tmp_path / "missing.png") is None
+
+
+def test_uncut_image_error_states_the_measurement(tmp_path):
+    msg = api.uncut_image_error(0.39)
+    assert "39%" in msg
+    assert "transparent background" in msg
+
+
 def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):
     from PIL import Image
 
@@ -692,3 +791,40 @@ def test_trellis_build_args_skips_resume_caches_unless_debug(tmp_path):
     job.debug = True
     args = api._trellis_build_args(job)
     assert "--no-save-latents" not in args and "--no-save-decode" not in args
+
+
+# --- a failed run must say why, not just "exited with code 1" (2026-09-03) ---
+def test_failure_reason_returns_the_generators_last_words():
+    log = [
+        "[rss 0.13 GB]",
+        "Sampling shape SLat:  50%|#####     | 6/12 [01:40<01:38, 16.38s/it]",
+        "[rss 0.21 GB]",
+        "dog.png carries an alpha channel, but 39% of its outer border is still opaque.",
+        "Fix: re-export the image with a transparent background.",
+        "generator exited with code 1",
+    ]
+    reason = api.failure_reason(log)
+    assert reason is not None
+    assert "39%" in reason
+    assert "transparent background" in reason
+    assert "rss" not in reason and "Sampling" not in reason
+
+
+def test_failure_reason_is_none_when_only_progress_noise():
+    log = ["[rss 0.13 GB]", "Sampling shape SLat: 100%|##########| 12/12 [02:49<00:00]",
+           "Loading TRELLIS.2 pipeline (load_rembg=False)...", "generator exited with code 1"]
+    assert api.failure_reason(log) is None
+
+
+def test_failure_reason_stops_at_the_noise_above_the_message():
+    """Only the trailing block is the reason; earlier output is not dragged in."""
+    log = ["an unrelated earlier line", "[rss 0.13 GB]", "the actual failure"]
+    assert api.failure_reason(log) == "the actual failure"
+
+
+def test_failure_reason_keeps_a_traceback_together():
+    log = ["[rss 0.1 GB]", "Traceback (most recent call last):",
+           '  File "x.py", line 1, in <module>', "RuntimeError: weights missing"]
+    reason = api.failure_reason(log)
+    assert reason.startswith("Traceback")
+    assert reason.endswith("RuntimeError: weights missing")

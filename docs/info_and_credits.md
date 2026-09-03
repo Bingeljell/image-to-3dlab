@@ -22,6 +22,10 @@ itself (yet — see the fine-tuning notes if that's changed).
   is retired internally. It's kept only as the historical source of two self-inflicted bugs
   documented in `CLAUDE.md` (a 200k-face decode cap, and inconsistent mesh winding) —
   not as a build foundation for anything current.
+- **Input advisor:** [`wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M`](https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M)
+  (MIT). It runs locally after image selection and provides only a conservative warning
+  about flat/vector-style inputs. It does not modify the image, block generation, or form
+  part of the generated model.
 
 ### Stable Fast 3D
 
@@ -100,9 +104,17 @@ change rather than letting it go stale.
   from ~3 minutes to 37+ minutes between 500k and 700k faces; 1M faces never completed in
   testing. Keep `decimation_target` at or under 500,000. This applies to *both* Hunyuan
   variants — they share the same paint stage.
-- **TRELLIS's own texture generation drifts from the reference image** — a published,
-  documented weakness of the model itself, not this port. Hunyuan's paint tracks the
-  reference image more closely, since it's directly conditioned on it and TRELLIS's isn't.
+- **TRELLIS.2 material generation can drift from the reference image.** Community reports
+  and our controlled tests show a particularly severe failure mode for some flat/vector
+  illustrations: their predicted base colour can become nearly black. The same inputs fail
+  on MPS and official CUDA, while 3D-rendered versions preserve their colour, so this is not
+  a Metal-port artefact. TRELLIS.2 *is* directly conditioned on DINOv3 image features as
+  well as generated geometry; it does not copy source pixels onto the mesh. Full evidence,
+  user guidance, and next steps are in
+  [`trellis2-flat-illustration-colour-drift.md`](trellis2-flat-illustration-colour-drift.md).
+  The Generate page now pairs a static warning with a local TinyCLIP advisory. Its score
+  is similarity-based rather than a calibrated failure probability, so manual inspection
+  remains necessary.
 - **dgrauet's shape stage stays manually vendor-cloned** (`vendor/hunyuan-mlx`) — it's
   Tencent-licensed *code*, not just weights, so it isn't part of the clone-and-go
   simplification below. Xiong's shape+paint is MIT and tracked in-repo at `hunyuan_mlx/`:

@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -43,6 +44,8 @@ WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
 PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
 OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
+TINYCLIP_ADVISOR = REPO / "scripts" / "classify_trellis_input.py"
+TINYCLIP_TIMEOUT_SECONDS = 300
 
 # dgrauet's shape stage stays vendored (Tencent-licensed code, not just weights — see
 # docs/info_and_credits.md). Its shape quality is genuinely the best we've tested
@@ -86,6 +89,10 @@ HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingfac
 WEIGHT_REPOS = (
     ("models--microsoft--TRELLIS.2-4B", "TRELLIS.2-4B weights"),
     ("models--facebook--dinov3-vitl16-pretrain-lvd1689m", "DINOv3 image encoder"),
+    (
+        "models--wkcn--TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+        "TinyCLIP input advisor (~94 MB, advisory only)",
+    ),
 )
 
 
@@ -187,8 +194,41 @@ def setup_status() -> dict[str, Any]:
         "weights": weights,
         "missing_weights": missing,
         "ready": build_present,
-        "warning": "first run will download missing weights" if missing else None,
+        "warning": "first use will download missing weights" if missing else None,
     }
+
+
+def run_trellis_input_advisor(image_path: Path) -> dict[str, Any]:
+    """Run TinyCLIP out-of-process so the lightweight viewer never imports torch."""
+    if not PYTHON.is_file():
+        raise RuntimeError("TRELLIS environment is not installed")
+    if not TINYCLIP_ADVISOR.is_file():
+        raise RuntimeError(f"TinyCLIP advisor is missing: {TINYCLIP_ADVISOR}")
+    try:
+        result = subprocess.run(
+            [str(PYTHON), str(TINYCLIP_ADVISOR), str(image_path)],
+            cwd=REPO,
+            env=_job_env(),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=TINYCLIP_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("TinyCLIP input check timed out") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip().splitlines()
+        suffix = f": {detail[-1]}" if detail else ""
+        raise RuntimeError(f"TinyCLIP input check failed{suffix}") from exc
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("TinyCLIP input check returned invalid JSON") from exc
+    if payload.get("verdict") not in {"likely_flat", "likely_dimensional", "uncertain"}:
+        raise RuntimeError("TinyCLIP input check returned an invalid verdict")
+    if not isinstance(payload.get("flat_risk"), (int, float)):
+        raise RuntimeError("TinyCLIP input check returned an invalid score")
+    return payload
 
 
 # Setup-run state: one bootstrap subprocess at a time, mirrored to the browser over SSE.
@@ -352,6 +392,10 @@ def validate_settings(raw: Any) -> dict[str, Any]:
     return settings
 
 
+# Mirrors the wrapper's BORDER_OPAQUE_LIMIT; see image_border_opaque_fraction.
+UNCUT_BORDER_LIMIT = 0.05
+
+
 def image_has_transparent_alpha(path: Path) -> bool:
     """Return whether an image has an actual (not merely opaque) alpha channel.
 
@@ -379,6 +423,48 @@ def image_has_transparent_alpha(path: Path) -> bool:
         # A missing/undecodable alpha is deliberately conservative: the wrapper will refuse it
         # unless the user explicitly opts into BRIA rembg.
         return False
+
+
+def image_border_opaque_fraction(path: Path) -> float | None:
+    """Fraction of an image's outer border that is still opaque, or None if unmeasurable.
+
+    Delegates to the TRELLIS wrapper's own helper rather than restating the rule here: the
+    2026-09-03 slab bug happened because "has alpha" was defined in two places, and the UI's
+    copy and the wrapper's copy were each separately wrong about what a cut-out image is.
+    One definition, imported.
+
+    Returns None -- rather than raising or guessing -- when the check simply cannot run in
+    this interpreter (no numpy). The wrapper still enforces the same rule at run start, so a
+    missing preflight costs a late refusal, never a silent bad run.
+    """
+    import importlib.util
+
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        script = REPO / "scripts" / "trellis_space_generate.py"
+        spec = importlib.util.spec_from_file_location("trellis_space_generate", script)
+        wrapper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wrapper)
+        with Image.open(path) as image:
+            if image.mode != "RGBA":
+                return None
+            return wrapper.border_opaque_fraction(np.array(image)[..., 3])
+    except Exception:
+        return None
+
+
+def uncut_image_error(border_fraction: float) -> str:
+    """Browser-facing text for an image whose alpha never cut the subject out."""
+    return (
+        f"This image has an alpha channel, but {border_fraction:.0%} of its outer border is "
+        "still opaque, so the subject was never cut out of its background. Generating from it "
+        "would rebuild the background as 3D geometry -- roughly 45 minutes at resolution 1024, "
+        "ending in a slab behind the subject. Re-export it with a transparent background."
+    )
 
 
 def _baseline() -> dict[str, float]:
@@ -767,6 +853,31 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
     return touched
 
 
+# Progress chatter the generator emits constantly; never the reason it stopped.
+_LOG_NOISE = re.compile(r"^(\[rss |Sampling |Loading |Pipeline loaded|\s*$)|\|\s*\d+/\d+ \[")
+
+
+def failure_reason(log_lines, limit: int = 6) -> str | None:
+    """The generator's own last words, or None if it said nothing but progress.
+
+    A failed run used to surface as "generator exited with code 1" while the actual
+    explanation -- an alpha refusal, a missing weight, a traceback -- sat unread in the log
+    tail. Walk back from the end, skip the progress chatter, and return the trailing block
+    of real output so the browser can show what the process actually said.
+    """
+    reason: list[str] = []
+    for line in reversed(list(log_lines)):
+        text = line.rstrip()
+        if not text or _LOG_NOISE.match(text) or text.startswith("generator exited"):
+            if reason:
+                break
+            continue
+        reason.append(text)
+        if len(reason) >= limit:
+            break
+    return "\n".join(reversed(reason)) or None
+
+
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
@@ -820,7 +931,10 @@ def _run_job(job: Job) -> None:
         else:
             tail = "\n".join(job.log_lines)[-8000:]
             job.status = "error"
-            job.emit({"phase": "error", "message": f"generator exited with code {return_code}",
+            reason = failure_reason(job.log_lines)
+            job.emit({"phase": "error",
+                      "message": reason or f"generator exited with code {return_code}",
+                      "exit_code": return_code,
                       "log_tail": tail})
     except Exception as exc:  # process launch errors must reach the browser, not kill the server
         job.status = "error"
@@ -1321,6 +1435,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "generate"]:
             self._create_job()
             return
+        if parts == ["api", "trellis", "input-advice"]:
+            self._trellis_input_advice()
+            return
         if parts == ["api", "rig", "rebind"]:
             self._create_rig_job()
             return
@@ -1331,6 +1448,34 @@ class Handler(SimpleHTTPRequestHandler):
             self._cancel_rig_job(parts[3])
             return
         self.send_error(HTTPStatus.NOT_FOUND)
+
+    def _trellis_input_advice(self) -> None:
+        """Classify one upload without creating a generation job or retaining the image."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 50 * 1024 * 1024:
+                self._send_json(400, {"error": "image upload is missing or larger than 50 MiB"})
+                return
+            form = parse_multipart(
+                self.headers.get("Content-Type", ""), self.rfile.read(length)
+            )
+            image_field = form.get("image")
+            filename = str(image_field.get("filename")) if image_field else ""
+            suffix = Path(filename).suffix.lower()
+            if not image_field or suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+                self._send_json(422, {
+                    "error": "multipart field 'image' must be PNG, JPG, WebP, or BMP"
+                })
+                return
+            with tempfile.TemporaryDirectory(prefix="i2l-tinyclip-") as directory:
+                image_path = Path(directory) / f"input{suffix}"
+                image_path.write_bytes(image_field["data"])
+                payload = run_trellis_input_advisor(image_path)
+            self._send_json(200, payload)
+        except RuntimeError as exc:
+            self._send_json(503, {"error": str(exc), "advisory_only": True})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc), "advisory_only": True})
 
     def do_GET(self) -> None:
         parts = self._path_parts()
@@ -1460,6 +1605,14 @@ class Handler(SimpleHTTPRequestHandler):
                              "to use BRIA background removal, or upload a pre-masked PNG."
                 })
                 return
+            if spec.requires_alpha and not lacks_alpha:
+                border = image_border_opaque_fraction(image_path)
+                if border is not None and border > UNCUT_BORDER_LIMIT:
+                    for child in provisional.iterdir():
+                        child.unlink()
+                    provisional.rmdir()
+                    self._send_json(422, {"error": uncut_image_error(border)})
+                    return
             # JobManager builds the real, human-readable job directory. Move the upload into it
             # so the id and artifact URLs are stable, without ever accepting a client-provided path.
             provisional_image = image_path

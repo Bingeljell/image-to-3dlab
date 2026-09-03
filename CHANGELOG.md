@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A local, non-blocking TinyCLIP advisor for TRELLIS.2 inputs.** The Generate page now
+  warns about flat/vector-style artwork before an expensive run and scores a selected
+  image with the pinned MIT-licensed TinyCLIP ViT-8M/16 checkpoint. Conservative
+  thresholds catch both known near-black flat-dog inputs while leaving ambiguous images
+  as uncertain. The advisor never alters the source or disables generation; manual visual
+  inspection remains the fallback.
+- **TRELLIS.2 flat-illustration input guidance and investigation.** Controlled MPS/CUDA,
+  colour, style, resolution, and material-stage tests traced the near-black dog outputs to
+  an input-dependent upstream material-generation failure, strongest on flat/vector art
+  without recognizable 3D lighting cues—not to the Metal port. The guide documents the
+  current user recommendation, evidence, regression set, and next product steps.
 - **Ram headbutt and Rigify pose curves.** A headbutt/charge clip for the custom
   quadruped rig (horns as the weapon, jaw shut, front legs as landing gear that fold
   back at impact), plus walk/trot and headbutt curves retargeted onto a
@@ -26,6 +37,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   camera, and bake a named Action's frame sequence at the locked stage angle.
 
 ### Fixed
+- **An image with alpha is not necessarily an image that was cut out.** The TRELLIS
+  wrapper gated on "does any pixel have alpha < 255", which two transparent letterbox
+  bars satisfy while the subject still sits on an opaque backdrop. `preprocess_image`
+  keeps every opaque pixel, so the backdrop was reconstructed as geometry: a ~45-minute
+  run at resolution 1024 ending in a slab behind the subject. The wrapper now also
+  measures the outer border ring and refuses an uncut image up front, naming the
+  measurement and offering `--allow-uncut` for a subject that genuinely reaches the
+  frame edge. Across this repo's own assets the split is total — every real cutout
+  scores 0.0%, the one uncut image scored 39%.
+- **The web UI now rejects an uncut image at upload**, before a job is created, with the
+  same measurement in the message. It imports the wrapper's helper rather than restating
+  the rule, because the original bug came from the UI and the wrapper each keeping their
+  own idea of "has alpha". If the check cannot run (no numpy in the server interpreter) the
+  upload proceeds and the wrapper refuses it at run start instead.
+- **A failed generation now says why in the browser.** The error banner reported
+  `generator exited with code 1` while the real explanation -- an alpha refusal, a missing
+  weight, a traceback -- sat unread in the log tail. The job now walks back past the
+  progress chatter and surfaces the generator's own last words, keeping the exit code as a
+  separate field.
 - **Quadruped joint markers were mirrored, and four were missing.** Every `*_L`
   marker sat at x<0.5 and every `*_R` at x>0.5, so the rig's left leg was the
   character's right — caught by eye on the Tempest Ram. `blender_build_rig.py` also

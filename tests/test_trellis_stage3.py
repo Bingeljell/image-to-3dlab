@@ -29,6 +29,57 @@ def test_valid_bundle_is_accepted():
     stage3.validate_bundle(_bundle())
 
 
+@pytest.mark.parametrize(
+    "resolution,expected",
+    [
+        (512, (512, "tex_slat_flow_model_512")),
+        (1024, (1024, "tex_slat_flow_model_1024")),
+        (1536, (1024, "tex_slat_flow_model_1024")),
+    ],
+)
+def test_material_stage_contract_selects_matching_model(resolution, expected):
+    payload = _bundle()
+    payload["res"] = resolution
+    assert stage3.material_stage_contract(payload) == expected
+
+
+class _Voxel:
+    feats = torch.ones((3, 6))
+    coords = torch.tensor([[0, 1, 2, 3], [0, 4, 5, 6], [0, 7, 8, 9]])
+
+
+def test_material_payload_supports_clean_space_decode_schema():
+    geometry = {
+        "vertices": "V",
+        "faces": "F",
+        "attrs": "old attrs",
+        "coords": "old coords",
+        "attr_layout": {"base_color": slice(0, 3)},
+        "res": 512,
+    }
+    bundle = _bundle()
+    bundle["res"] = 512
+    payload = stage3.build_material_payload(geometry, _Voxel(), bundle, 42, {"steps": 12})
+    assert payload["vertices"] == "V"
+    assert payload["faces"] == "F"
+    assert payload["attrs"].shape == (3, 6)
+    assert payload["coords"].shape == (3, 3)
+    assert payload["texture_seed"] == 42
+    assert payload["res"] == 512
+
+
+def test_material_payload_preserves_legacy_split_cache_schema():
+    geometry = {
+        "geometry_ref": "geometry.pt",
+        "layout": {"base_color": slice(0, 3)},
+        "voxel_size": 0.5,
+    }
+    payload = stage3.build_material_payload(geometry, _Voxel(), _bundle(), 7, {"steps": 12})
+    assert payload["geometry_ref"] == "geometry.pt"
+    assert payload["voxel_size"] == 0.5
+    assert payload["texture_seed"] == 7
+
+
 def test_missing_shape_latent_is_rejected():
     payload = _bundle()
     del payload["shape_slat_feats"]
@@ -71,5 +122,6 @@ def test_runner_can_target_the_clean_space_port_and_stop_after_sampling():
     assert 'default="sdpa"' in source
     assert '"metal_flash"' in source
     assert '"--sample-only"' in source
+    assert '"--preprocessed-image"' in source
     assert "material decode intentionally skipped" in source
     assert "load_rembg=not has_transparent_alpha" in source

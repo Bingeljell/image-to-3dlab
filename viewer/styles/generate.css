@@ -15,6 +15,15 @@
 .alpha-badge { display: inline-block; margin-top: 8px; padding: 3px 7px; border-radius: 4px; font-size: 11px; }
 .alpha-good { background: #254f32; color: #a8e6b7; }
 .alpha-bad { background: #5a322e; color: #ffc2b8; }
+.trellis-input-guidance { margin-top: 10px; padding: 10px; border: 1px solid #725f2a;
+                          border-radius: 7px; background: #302817; color: #f5dda0;
+                          font-size: 11px; line-height: 1.45; }
+.trellis-input-guidance strong { display: block; margin-bottom: 3px; color: #ffe7a6; }
+.trellis-input-guidance a { color: #9bc8ff; margin-left: 5px; }
+#trellis-input-result { margin-top: 8px; padding-top: 8px; border-top: 1px solid #725f2a; }
+#trellis-input-result.advice-risk { color: #ffc2b8; }
+#trellis-input-result.advice-uncertain { color: #f5dda0; }
+#trellis-input-result.advice-suitable { color: #a8e6b7; }
 .field { margin-top: 12px; display: grid; grid-template-columns: 1fr 150px; gap: 8px; align-items: center; }
 .field small { grid-column: 1 / -1; opacity: .52; font-size: 10px; }
 .field input, .field select { width: 100%; background: #12151a; color: #d8dee9; border: 1px solid #39404b;

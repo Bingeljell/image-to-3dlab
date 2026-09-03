@@ -39,6 +39,8 @@ expects internally.
 License note: the input must carry a transparent alpha foreground. With alpha, the background
 remover (rembg / BRIA RMBG) is never loaded (``load_rembg=False``), honoring the repo's BRIA
 guardrail. A non-alpha input would load it, so this script refuses one unless ``--allow-rembg``.
+An image whose alpha does not actually cut the subject out (an opaque backdrop with only
+letterbox bars transparent) is refused too, unless ``--allow-uncut``.
 """
 
 from __future__ import annotations
@@ -110,6 +112,50 @@ def alpha_is_transparent(mode: str, alpha_min: int | None) -> bool:
     Mirrors app.py/trellis_stage3: RGBA with any pixel below fully opaque means real alpha.
     """
     return mode == "RGBA" and alpha_min is not None and alpha_min < 255
+
+
+# A real cutout leaves the frame transparent. An image that merely carries *some* alpha --
+# letterbox bars above and below otherwise-opaque artwork, say -- satisfies
+# ``alpha_is_transparent`` while still handing the model its own background as subject:
+# ``preprocess_image`` keeps every opaque pixel, so TRELLIS reconstructs the backdrop as
+# geometry. That costs a full run (~45 min at resolution 1024) and yields a slab behind the
+# subject. Measured across this repo's own assets the separation is total -- every real cutout
+# scores 0.0%, the one uncut letterboxed image scored 39% -- so this threshold is deliberately
+# loose, and only has to catch "the background is still here".
+BORDER_OPAQUE_LIMIT = 0.05
+
+
+def border_opaque_fraction(alpha, ring: int = 2) -> float:
+    """Fraction of the outermost ``ring`` pixels of an alpha channel that are ~opaque.
+
+    ``alpha`` is anything numpy views as a 2D array. Returns 0.0 for an image too small to
+    have a distinct border, so a degenerate input reads as "no background" rather than
+    raising -- the caller's threshold test is then trivially false.
+    """
+    import numpy as np
+
+    arr = np.asarray(alpha)
+    if arr.ndim != 2 or min(arr.shape) <= 2 * ring:
+        return 0.0
+    edges = np.concatenate([
+        arr[:ring].ravel(),
+        arr[-ring:].ravel(),
+        arr[ring:-ring, :ring].ravel(),
+        arr[ring:-ring, -ring:].ravel(),
+    ])
+    return float((edges > 250).mean())
+
+
+def uncut_foreground_message(image_path, border_fraction: float) -> str:
+    """Refusal text for an image whose alpha does not actually cut the subject out."""
+    return (
+        f"{image_path} carries an alpha channel, but {border_fraction:.0%} of its outer border "
+        "is still opaque -- the subject was never cut out of its background.\n"
+        "Generating from it would reconstruct that background as 3D geometry: a full run "
+        "(~45 min at resolution 1024) ending in a slab behind the subject.\n"
+        "Fix: re-export the image with a transparent background. Pass --allow-uncut to "
+        "override if the subject genuinely reaches the frame edge."
+    )
 
 
 def valid_face_mask(faces, num_vertices: int):
@@ -629,6 +675,7 @@ def generate(
     seed: int,
     sparse_attn_backend: str,
     allow_rembg: bool,
+    allow_uncut: bool = False,
     save_latents: bool,
     save_decode: bool,
     pre_cap: int,
@@ -648,6 +695,12 @@ def generate(
             f"{image_path} has no transparent alpha foreground. Loading the background remover "
             "(rembg/BRIA) would be required; pass --allow-rembg to permit it, or pre-mask the image."
         )
+    if has_alpha and not allow_uncut:
+        import numpy as np
+
+        border = border_opaque_fraction(np.array(raw_image)[..., 3])
+        if border > BORDER_OPAQUE_LIMIT:
+            raise SystemExit(uncut_foreground_message(image_path, border))
     load_rembg = not has_alpha
 
     pipeline_type = pipeline_type_for_resolution(resolution)
@@ -818,6 +871,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sparse-attn-backend", default="sdpa", choices=("sdpa", "metal_flash"))
     parser.add_argument("--allow-rembg", action="store_true",
                         help="permit loading the background remover for a non-alpha input")
+    parser.add_argument("--allow-uncut", action="store_true",
+                        help="permit an alpha image whose subject was never cut out of its "
+                             "background (the background becomes 3D geometry)")
     parser.add_argument("--no-save-latents", dest="save_latents", action="store_false",
                         help="do not write <out>_latents.pt")
     parser.add_argument("--no-save-decode", dest="save_decode", action="store_false",
@@ -886,6 +942,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         sparse_attn_backend=args.sparse_attn_backend,
         allow_rembg=args.allow_rembg,
+        allow_uncut=args.allow_uncut,
         save_latents=args.save_latents,
         save_decode=args.save_decode,
         pre_cap=args.pre_cap,

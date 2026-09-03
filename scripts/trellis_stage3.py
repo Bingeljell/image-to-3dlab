@@ -76,6 +76,52 @@ def validate_bundle(payload: dict) -> None:
         raise ValueError(f"unsupported latent resolution: {payload['res']}")
 
 
+def material_stage_contract(payload: dict) -> tuple[int, str]:
+    """Return the DINO resolution and texture-flow model for a cached shape.
+
+    TRELLIS has a dedicated 512 material model.  The 1024 and 1536 cascade paths both
+    condition and texture at 1024.  Keeping this mapping beside bundle validation avoids
+    silently resampling a 512 shape with the 1024 model, which the original diagnostic
+    runner did because it was written for one 1024-only Snag experiment.
+    """
+    resolution = int(payload["res"])
+    if resolution == 512:
+        return 512, "tex_slat_flow_model_512"
+    if resolution in (1024, 1536):
+        return 1024, "tex_slat_flow_model_1024"
+    raise ValueError(f"unsupported latent resolution: {resolution}")
+
+
+def build_material_payload(
+    geometry: dict, voxel, bundle: dict, texture_seed: int, params: dict
+) -> dict:
+    """Build a material cache compatible with either generation-cache generation.
+
+    The retired runner stored ``layout``/``voxel_size`` and can share geometry by reference.
+    The clean Space runner stores ``attr_layout``/``res`` and its ``--from-decode`` path
+    expects a complete bundle, so preserve that schema and replace only attrs/coords.
+    """
+    common = {
+        "attrs": voxel.feats.cpu(),
+        "coords": voxel.coords[:, 1:].cpu(),
+        "texture_seed": texture_seed,
+        "sampler": params,
+    }
+    if "attr_layout" in geometry and "res" in geometry:
+        return {
+            **geometry,
+            **common,
+            "attr_layout": geometry["attr_layout"],
+            "res": int(bundle["res"]),
+        }
+    return {
+        "geometry_ref": geometry["geometry_ref"],
+        **common,
+        "layout": geometry["layout"],
+        "voxel_size": geometry["voxel_size"],
+    }
+
+
 def default_geometry_decode(latent_path: Path) -> Path:
     name = latent_path.name
     if name.endswith("_latents.pt"):
@@ -98,6 +144,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--geometry-decode", type=Path)
     parser.add_argument("--image", type=Path,
                         help="conditioning image; defaults to the first cached image")
+    parser.add_argument(
+        "--preprocessed-image",
+        action="store_true",
+        help="treat --image as the final RGB DINO input; skip alpha crop/removal/premultiply",
+    )
     parser.add_argument("--texture-seed", type=int, required=True)
     parser.add_argument("--steps", type=int, default=12)
     parser.add_argument("--guidance-strength", type=float, default=1.0)
@@ -154,6 +205,7 @@ def main() -> int:
         "latents": repo_relative(args.latents),
         "geometry_decode": repo_relative(geometry_path),
         "image": repo_relative(image_path),
+        "preprocessed_image": args.preprocessed_image,
         "output": repo_relative(args.output),
         "vendor_root": str(vendor),
         "sparse_attention_backend": args.sparse_attn_backend,
@@ -183,17 +235,22 @@ def main() -> int:
     print("Loading TRELLIS.2 pipeline...", flush=True)
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(
         "microsoft/TRELLIS.2-4B",
-        load_rembg=not has_transparent_alpha,
+        load_rembg=not has_transparent_alpha and not args.preprocessed_image,
     )
     pipeline.to(torch.device("mps"))
     load_seconds = time.time() - started
     print(f"Pipeline loaded in {load_seconds:.1f}s", flush=True)
 
-    image = pipeline.preprocess_image(raw_image)
+    image = (
+        raw_image.convert("RGB")
+        if args.preprocessed_image
+        else pipeline.preprocess_image(raw_image)
+    )
     cond_started = time.time()
     # pipeline.run always wraps even a single image before get_cond; the extractor
     # deliberately accepts a list of PIL images, not one PIL object.
-    cond = pipeline.get_cond([image], 1024)
+    conditioning_resolution, texture_model_key = material_stage_contract(bundle)
+    cond = pipeline.get_cond([image], conditioning_resolution)
     cond_seconds = time.time() - cond_started
     print(f"Image conditioning encoded in {cond_seconds:.1f}s", flush=True)
 
@@ -209,7 +266,7 @@ def main() -> int:
     sample_started = time.time()
     tex_slat = pipeline.sample_tex_slat(
         cond,
-        pipeline.models["tex_slat_flow_model_1024"],
+        pipeline.models[texture_model_key],
         shape_slat,
         params,
     )
@@ -266,26 +323,27 @@ def main() -> int:
     print(f"Material field decoded in {decode_seconds:.1f}s", flush=True)
 
     geometry = torch.load(geometry_path, map_location="cpu", weights_only=False)
-    material_payload = {
-        "geometry_ref": repo_relative(geometry_path),
-        "attrs": voxel.feats.cpu(),
-        "coords": voxel.coords[:, 1:].cpu(),
-        "layout": geometry["layout"],
-        "voxel_size": geometry["voxel_size"],
-        "texture_seed": args.texture_seed,
-        "sampler": params,
-    }
+    geometry_for_payload = dict(geometry)
+    geometry_for_payload.setdefault("geometry_ref", repo_relative(geometry_path))
+    material_payload = build_material_payload(
+        geometry_for_payload, voxel, bundle, args.texture_seed, params
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(material_payload, args.output)
 
-    attrs = material_payload["attrs"]
+    attrs = material_payload["attrs"].detach()
+    layout = material_payload.get("attr_layout", material_payload.get("layout"))
     stats = {
         "count": int(attrs.shape[0]),
-        "base_color_mean": [float(value) for value in attrs[:, :3].mean(0)],
-        "base_color_median": [float(value) for value in attrs[:, :3].median(0).values],
-        "metallic_median": float(attrs[:, 3].median()),
-        "roughness_median": float(attrs[:, 4].median()),
-        "alpha_median": float(attrs[:, 5].median()),
+        "base_color_mean": [
+            float(value) for value in attrs[:, layout["base_color"]].mean(0)
+        ],
+        "base_color_median": [
+            float(value) for value in attrs[:, layout["base_color"]].median(0).values
+        ],
+        "metallic_median": float(attrs[:, layout["metallic"]].median()),
+        "roughness_median": float(attrs[:, layout["roughness"]].median()),
+        "alpha_median": float(attrs[:, layout["alpha"]].median()),
     }
     metadata = {
         "schema_version": 1,

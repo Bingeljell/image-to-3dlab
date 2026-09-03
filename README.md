@@ -23,8 +23,10 @@ Four backends, one Generate page. Sadly life is full of trade-offs, so pick the 
 
 ⭐ Start with Hunyuan3D-MLX (Xiong, full pipeline) — it's the quickest to get running from a
 fresh clone and gives strong results (~9 min shape+paint end to end at its default model).
-Reach for TRELLIS.2 when fidelity matters more than speed. But be warned, Trellis texture has minor drift (a Metal port artifact). 
-Working to see how we can be more colour accurate. 
+Reach for TRELLIS.2 when fidelity matters more than speed. Its material model can produce
+severe colour drift on flat/vector-style illustrations; prefer photographs or softly lit
+3D-style references. This is an input-dependent upstream model behaviour, not a Metal-port
+artifact. See the [investigation and input guidance](docs/trellis2-flat-illustration-colour-drift.md).
 
 ---
 
@@ -108,7 +110,8 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
   structure — a simple subject (~8k tokens) takes ~14 min end-to-end; a complex one
   (~22k tokens, e.g. a fluffy creature) ~78 min on my m5 w/ 32 gigs of unified memory. This is infinitely faster on CUDA / Nvidia. 
   Decode + bake adds a few minutes; the decode is cached, so re-bakes are ~1 min of setup. Known gaps vs the HF demo: slight
-  texture drift and mostly-pinhole holes.
+  texture drift, severe colour failures on some flat/vector inputs, and mostly-pinhole
+  holes. See the [TRELLIS.2 input guidance](docs/trellis2-flat-illustration-colour-drift.md).
 
 ## Licensing & provenance (non-negotiable)
 

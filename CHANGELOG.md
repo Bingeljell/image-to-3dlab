@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **TRELLIS.2 flat-illustration input guidance and investigation.** Controlled MPS/CUDA,
+  colour, style, resolution, and material-stage tests traced the near-black dog outputs to
+  an input-dependent upstream material-generation failure, strongest on flat/vector art
+  without recognizable 3D lighting cues—not to the Metal port. The guide documents the
+  current user recommendation, evidence, regression set, and next product steps.
 - **Ram headbutt and Rigify pose curves.** A headbutt/charge clip for the custom
   quadruped rig (horns as the weapon, jaw shut, front legs as landing gear that fold
   back at impact), plus walk/trot and headbutt curves retargeted onto a

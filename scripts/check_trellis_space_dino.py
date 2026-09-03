@@ -19,6 +19,12 @@ def main() -> int:
     parser.add_argument("image", type=Path)
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--resolution", type=int, default=1024)
+    parser.add_argument(
+        "--device",
+        choices=("auto", "cpu", "mps"),
+        default="auto",
+        help="conditioning device; auto selects MPS when available",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     root = args.root.resolve()
@@ -41,8 +47,15 @@ def main() -> int:
     from trellis2.modules.image_feature_extractor import DinoV3FeatureExtractor
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 
-    if not torch.backends.mps.is_available():
-        raise RuntimeError("MPS is unavailable; run this conditioning gate on Apple Silicon")
+    device = (
+        "mps"
+        if args.device == "auto" and torch.backends.mps.is_available()
+        else "cpu"
+        if args.device == "auto"
+        else args.device
+    )
+    if device == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("MPS is unavailable")
 
     image = Image.open(args.image)
     pipeline = Trellis2ImageTo3DPipeline()
@@ -54,7 +67,7 @@ def main() -> int:
         "facebook/dinov3-vitl16-pretrain-lvd1689m",
         image_size=args.resolution,
     )
-    extractor.to("mps")
+    extractor.to(device)
     features = extractor([processed]).detach().cpu().float().contiguous()
     feature_digest = hashlib.sha256(features.numpy().tobytes()).hexdigest()
 
@@ -70,6 +83,7 @@ def main() -> int:
         "torch": torch.__version__,
         "transformers": transformers.__version__,
         "resolution": args.resolution,
+        "device": device,
         "processed_shape": list(processed_array.shape),
         "processed_sha256": processed_digest,
         "feature_shape": list(features.shape),

@@ -11,6 +11,9 @@ def test_capture_records_preprocessing_and_full_feature_tensor():
     assert "pipeline.preprocess_image(image)" in source
     assert "DinoV3FeatureExtractor" in source
     assert 'image_size=args.resolution' in source
+    assert 'choices=("auto", "cpu", "mps")' in source
+    assert 'extractor.to(device)' in source
+    assert '"device": device' in source
     assert 'torch.save(features' in source
     assert 'processed_sha256' in source
     assert 'feature_sha256' in source

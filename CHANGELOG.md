@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   camera, and bake a named Action's frame sequence at the locked stage angle.
 
 ### Fixed
+- **An image with alpha is not necessarily an image that was cut out.** The TRELLIS
+  wrapper gated on "does any pixel have alpha < 255", which two transparent letterbox
+  bars satisfy while the subject still sits on an opaque backdrop. `preprocess_image`
+  keeps every opaque pixel, so the backdrop was reconstructed as geometry: a ~45-minute
+  run at resolution 1024 ending in a slab behind the subject. The wrapper now also
+  measures the outer border ring and refuses an uncut image up front, naming the
+  measurement and offering `--allow-uncut` for a subject that genuinely reaches the
+  frame edge. Across this repo's own assets the split is total — every real cutout
+  scores 0.0%, the one uncut image scored 39%.
 - **Quadruped joint markers were mirrored, and four were missing.** Every `*_L`
   marker sat at x<0.5 and every `*_R` at x>0.5, so the rig's left leg was the
   character's right — caught by eye on the Tempest Ram. `blender_build_rig.py` also

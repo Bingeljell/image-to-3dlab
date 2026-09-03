@@ -73,6 +73,63 @@ def test_alpha_is_transparent(mode, alpha_min, expected):
     assert gen.alpha_is_transparent(mode, alpha_min) is expected
 
 
+# --- "has alpha" is not "is cut out" ---
+# 2026-09-03: 2dDog.png passed alpha_is_transparent on its letterbox bars alone while its
+# subject sat on an opaque white backdrop. TRELLIS duly rebuilt the backdrop as geometry --
+# 45 minutes for a slab. The border ring is what separates the two cases.
+def _letterboxed(size=64, bar=8):
+    """Opaque artwork with only transparent bars top and bottom -- the 2dDog.png shape."""
+    import numpy as np
+
+    a = np.full((size, size), 255, dtype=np.uint8)
+    a[:bar] = 0
+    a[-bar:] = 0
+    return a
+
+
+def _real_cutout(size=64, margin=8):
+    """An opaque subject with a transparent frame all the way round."""
+    import numpy as np
+
+    a = np.zeros((size, size), dtype=np.uint8)
+    a[margin:-margin, margin:-margin] = 255
+    return a
+
+
+def test_border_opaque_fraction_flags_letterboxed_image():
+    # left/right edges of the un-barred rows are still opaque, so the ring is far from clear
+    assert gen.border_opaque_fraction(_letterboxed()) > gen.BORDER_OPAQUE_LIMIT
+
+
+def test_border_opaque_fraction_passes_real_cutout():
+    assert gen.border_opaque_fraction(_real_cutout()) == 0.0
+
+
+def test_border_opaque_fraction_ignores_interior_opacity():
+    """A subject filling most of the frame is fine so long as the frame itself is clear."""
+    import numpy as np
+
+    a = np.full((64, 64), 255, dtype=np.uint8)
+    a[:3] = a[-3:] = 0
+    a[:, :3] = a[:, -3:] = 0
+    assert a.mean() > 200  # overwhelmingly opaque overall...
+    assert gen.border_opaque_fraction(a) == 0.0  # ...but properly framed
+
+
+def test_border_opaque_fraction_survives_degenerate_input():
+    import numpy as np
+
+    assert gen.border_opaque_fraction(np.zeros((3, 3), dtype=np.uint8)) == 0.0
+    assert gen.border_opaque_fraction(np.zeros((8, 8, 3), dtype=np.uint8)) == 0.0
+
+
+def test_uncut_foreground_message_is_actionable():
+    msg = gen.uncut_foreground_message("dog.png", 0.39)
+    assert "dog.png" in msg
+    assert "39%" in msg           # the measurement, so the user can judge it
+    assert "--allow-uncut" in msg  # the override, so it is not a dead end
+
+
 # --- degenerate-face filter (the MPS decode -1 index crash) ---
 def test_valid_face_mask_drops_out_of_range():
     faces = [[0, 1, 2], [59990, 59991, -1], [3, 4, 5], [1, 2, 10]]

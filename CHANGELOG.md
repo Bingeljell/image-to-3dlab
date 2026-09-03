@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A local, non-blocking TinyCLIP advisor for TRELLIS.2 inputs.** The Generate page now
+  warns about flat/vector-style artwork before an expensive run and scores a selected
+  image with the pinned MIT-licensed TinyCLIP ViT-8M/16 checkpoint. Conservative
+  thresholds catch both known near-black flat-dog inputs while leaving ambiguous images
+  as uncertain. The advisor never alters the source or disables generation; manual visual
+  inspection remains the fallback.
 - **TRELLIS.2 flat-illustration input guidance and investigation.** Controlled MPS/CUDA,
   colour, style, resolution, and material-stage tests traced the near-black dog outputs to
   an input-dependent upstream material-generation failure, strongest on flat/vector art

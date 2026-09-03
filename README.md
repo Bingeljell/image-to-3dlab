@@ -58,7 +58,9 @@ status telling you exactly what's missing:
 - **TRELLIS.2** — click **Run setup** (bootstraps the Metal port, ~1h, needs `uv`,
   Python 3.11 and Xcode command-line tools), or run it manually:
   `python scripts/bootstrap_trellis_space_macos.py`. First run downloads the ~14 GB
-  TRELLIS.2-4B weights automatically.
+  TRELLIS.2-4B weights automatically. Selecting an image also runs an optional local
+  TinyCLIP style advisory; its small checkpoint downloads on first use and never blocks
+  generation.
 - **Hunyuan3D-MLX (dgrauet shape + Xiong paint)** and **Stable Fast 3D** — no automated
   setup or documented setup guide yet; background and licensing in
   [`docs/info_and_credits.md`](docs/info_and_credits.md), but expect to read the source
@@ -99,6 +101,7 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
 | Python 3.11 (TRELLIS) / 3.12 (Hunyuan3D-MLX) | pinned by each backend's own setup |
 | ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights (auto-downloaded once) |
 | ~14 GB disk | TRELLIS.2-4B weights (auto-downloaded once, if using TRELLIS) |
+| ~94 MB download | TinyCLIP flat-input advisor (local and non-blocking) |
 
 ## How the runs behave
 
@@ -117,6 +120,8 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
 
 - **TRELLIS.2** code and weights: MIT. **DINOv3** image encoder: separate DINOv3 License —
   so TRELLIS output is classified `commercial-conditional`.
+- **TinyCLIP ViT-8M/16** input advisor: MIT. It only warns about risky input style and is
+  not part of the generated artifact.
 - **Hunyuan3D-2 / 2.1 model weights** (used by both Hunyuan3D-MLX backends): Tencent
   Hunyuan Community License — **not licensed for use in the EU, UK, or South Korea**;
   verify exact terms per model before any redistribution-sensitive use.

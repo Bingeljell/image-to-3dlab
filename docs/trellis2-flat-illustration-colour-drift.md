@@ -1,7 +1,7 @@
 # TRELLIS.2 colour drift with flat illustrations
 
-**Status:** diagnosed on 2026-09-03. Current product decision: warn users; do not
-silently alter their source image.
+**Status:** diagnosed on 2026-09-03. Static guidance and a non-blocking TinyCLIP
+input advisor are implemented. We do not silently alter or reject a source image.
 
 ## Finding
 
@@ -122,17 +122,28 @@ not fully repair the failed dog.
 We will not automatically restyle user artwork at this stage. Doing so can change the
 character, silhouette, markings, or art direction without consent.
 
+The Generate page also runs a small local TinyCLIP check after a TRELLIS image is
+selected. It compares the image with prompt groups describing flat artwork and
+dimensional renders. The resulting “flat-style score” is an **uncalibrated similarity
+signal**, not the probability that TRELLIS will fail. It only advises; generation stays
+available regardless of the result, and visual inspection remains the fallback.
+
+The checkpoint is pinned to
+[`wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M`](https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M)
+revision `a2a8c6eaa2549ad66eb7c31b85022bf58273a26c`. It runs locally in the TRELLIS
+environment and does not upload the image.
+
 ## What we build next
 
-### 1. Input guidance in Generate
+### 1. Input guidance in Generate — implemented
 
 Add a short TRELLIS.2-specific notice next to image upload:
 
 > Best results come from photographs or softly lit 3D-style renders. Flat/vector artwork
 > may produce very dark or incorrect materials.
 
-The notice should include one successful and one failing thumbnail. It should advise but
-not block generation.
+The notice and TinyCLIP advisory are live. The UI deliberately does not block generation.
+Example thumbnails can be added once redistributable source-image licences are confirmed.
 
 ### 2. A durable regression set
 
@@ -148,12 +159,26 @@ Run all examples with a fixed manifest and seed. Record both viewer screenshots 
 PBR statistics, especially median base-colour luminance and metalness. Keep CUDA as an
 occasional upstream parity check; MPS remains the normal local pipeline.
 
-### 3. Optional input-suitability detection
+### 3. Input-suitability detection — first pass implemented
 
-Only after the static guidance is useful, evaluate a non-blocking detector for large flat
-colour regions and weak volumetric shading. It must say “this input may be risky,” not
-claim certainty. A heuristic will have false positives, especially for intentionally
-minimal 3D renders, so it should not reject an upload.
+The first pass uses TinyCLIP ViT-8M/16 with four flat-art prompts and four dimensional-
+render prompts. Conservative thresholds reserve “higher risk” for a score of 85% or
+above and “appears dimensional” for 35% or below; everything between is uncertain.
+
+Observed calibration set:
+
+| Input | Known TRELLIS result | TinyCLIP flat-style score | Advice |
+|---|---:|---:|---|
+| Flat blue dog | Nearly black | 96.9% | Higher risk |
+| Flat golden dog | Nearly black | 96.4% | Higher risk |
+| 3D-rendered blue dog | Blue preserved | 47.0% | Uncertain |
+| Rendered yellow duck | Yellow preserved | 28.3% | Appears dimensional |
+| Detailed golden dog | Gold preserved | 74.0% | Uncertain |
+| Bloomglass | Broadly successful | 16.7% | Appears dimensional |
+| Storm ram | Broadly successful | 30.9% | Appears dimensional |
+
+This detector identifies the particular flat-art risk; it does not predict every way a
+TRELLIS run can fail. Keep it advisory and recalibrate only against a larger labelled set.
 
 ### 4. Optional 3D-reference conversion, later
 
@@ -162,10 +187,14 @@ softly lit 3D-style reference while attempting to preserve silhouette, markings,
 palette. Show the transformed reference before generation, preserve the original, and
 record the transformation in provenance. Never make this conversion silently.
 
-## Completion criteria for the next product change
+## Current product behaviour
 
 - TRELLIS.2 users see the flat/vector warning before starting an expensive run.
 - The warning links to examples and the explanation above.
 - It remains possible to continue with any valid cutout image.
 - Documentation no longer describes this as a Metal-port artifact.
-- The regression manifest can reproduce the known failure and success cases locally.
+- TinyCLIP failures and uncertain results never disable the Generate button.
+- Manual eyeballing remains the fallback.
+
+The remaining next step is a redistributable regression manifest that can reproduce the
+known failure and success cases locally.

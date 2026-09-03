@@ -92,6 +92,52 @@ def test_weights_on_disk_reports_present_and_missing(tmp_path):
     assert trellis["human"] == "2.0 KB"
     dino = result["models--facebook--dinov3-vitl16-pretrain-lvd1689m"]
     assert dino["present"] is False
+    tinyclip = result["models--wkcn--TinyCLIP-ViT-8M-16-Text-3M-YFCC15M"]
+    assert tinyclip["present"] is False
+
+
+def test_trellis_input_advisor_runs_in_backend_environment(monkeypatch, tmp_path):
+    interpreter = tmp_path / "python"
+    script = tmp_path / "advisor.py"
+    image = tmp_path / "input.png"
+    for path in (interpreter, script, image):
+        path.write_bytes(b"x")
+    monkeypatch.setattr(api, "PYTHON", interpreter)
+    monkeypatch.setattr(api, "TINYCLIP_ADVISOR", script)
+
+    class Result:
+        stdout = json.dumps({"verdict": "likely_flat", "flat_risk": 0.91}) + "\n"
+
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return Result()
+
+    monkeypatch.setattr(api.subprocess, "run", fake_run)
+    result = api.run_trellis_input_advisor(image)
+
+    assert result["verdict"] == "likely_flat"
+    assert calls[0][0] == [str(interpreter), str(script), str(image)]
+    assert calls[0][1]["timeout"] == api.TINYCLIP_TIMEOUT_SECONDS
+    assert calls[0][1]["check"] is True
+
+
+def test_trellis_input_advisor_rejects_malformed_output(monkeypatch, tmp_path):
+    interpreter = tmp_path / "python"
+    script = tmp_path / "advisor.py"
+    image = tmp_path / "input.png"
+    for path in (interpreter, script, image):
+        path.write_bytes(b"x")
+    monkeypatch.setattr(api, "PYTHON", interpreter)
+    monkeypatch.setattr(api, "TINYCLIP_ADVISOR", script)
+
+    class Result:
+        stdout = "not-json\n"
+
+    monkeypatch.setattr(api.subprocess, "run", lambda *args, **kwargs: Result())
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        api.run_trellis_input_advisor(image)
 
 
 # --- setup runner (bootstrap via the web UI) ---

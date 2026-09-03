@@ -1,5 +1,6 @@
 // --- Generate mode -------------------------------------------------------------------
 import { JobProgressPanel, formatDuration } from '../components/job-progress.js';
+import { presentTrellisAdvice } from '../components/trellis-input-advice.js';
 
 // Backend metadata (stages, labels, requires_alpha) is server-owned truth (viewer/generate_api.py
 // BACKENDS registry) -- fetched once so the frontend never hardcodes a second copy that can drift.
@@ -24,7 +25,7 @@ function buildStageRows(backendId) {
 buildStageRows('trellis');
 const gen = {
   file: null, objectUrl: null, hasAlpha: false, jobId: null, source: null,
-  running: false, outputDir: null, pollTimer: null,
+  running: false, outputDir: null, pollTimer: null, adviceRequest: 0,
 };
 const setupState = { ready: false };
 function currentBackend() { return g('generate-backend').value; }
@@ -53,6 +54,36 @@ async function inspectAlpha(file) {
     return file.type === 'image/png' || file.type === 'image/webp' ? min < 255 : false;
   } catch (_) { return false; }
 }
+function resetTrellisAdvice() {
+  gen.adviceRequest += 1;
+  const result = g('trellis-input-result');
+  result.hidden = true;
+  result.className = '';
+  result.textContent = '';
+}
+async function inspectTrellisInput(file) {
+  resetTrellisAdvice();
+  if (currentBackend() !== 'trellis') return;
+  const request = gen.adviceRequest;
+  const result = g('trellis-input-result');
+  result.hidden = false;
+  result.className = 'advice-uncertain';
+  result.textContent = 'TinyCLIP is checking image style and lighting… First use may download ~94 MB.';
+  const body = new FormData(); body.append('image', file);
+  try {
+    const response = await fetch('/api/trellis/input-advice', { method: 'POST', body });
+    const payload = await response.json();
+    if (request !== gen.adviceRequest || gen.file !== file || currentBackend() !== 'trellis') return;
+    if (!response.ok) throw new Error(payload.error || `request failed (${response.status})`);
+    const advice = presentTrellisAdvice(payload);
+    result.className = `advice-${advice.tone}`;
+    result.textContent = advice.message;
+  } catch (error) {
+    if (request !== gen.adviceRequest || gen.file !== file || currentBackend() !== 'trellis') return;
+    result.className = 'advice-uncertain';
+    result.textContent = `Automatic check unavailable (${error.message || error}). Please eyeball the input; generation is still allowed.`;
+  }
+}
 function setGenerateFile(file) {
   if (!file || !file.type.startsWith('image/')) return;
   if (gen.objectUrl) URL.revokeObjectURL(gen.objectUrl);
@@ -68,6 +99,7 @@ function setGenerateFile(file) {
     badge.textContent = hasAlpha ? 'transparent foreground ✓' : 'no alpha — enable rembg to continue';
     updateGenerateButton();
   });
+  inspectTrellisInput(file);
   updateGenerateButton();
   g('generate-status').textContent = '';
 }
@@ -264,7 +296,7 @@ async function refreshSetup() {
     for (const repo of Object.values(s.weights || {})) {
       rows.push(repo.present
         ? '<div class="setup-check"><span class="ok">✓</span><span>' + repo.label + '</span><code>' + repo.human + ' on disk</code></div>'
-        : '<div class="setup-check"><span class="warn">⚠</span><span>' + repo.label + '</span><code>not on disk — first run downloads</code></div>');
+        : '<div class="setup-check"><span class="warn">⚠</span><span>' + repo.label + '</span><code>not on disk — first use downloads</code></div>');
     }
     el.innerHTML = rows.join('');
     // Only TRELLIS has an automated bootstrap script (scripts/bootstrap_trellis_space_macos.py);
@@ -297,6 +329,9 @@ g('generate-backend').onchange = () => {
   jobProgress.reset();
   gen.hasAlpha = false;
   g('generate-alpha').hidden = true;
+  g('trellis-input-guidance').hidden = backendId !== 'trellis';
+  resetTrellisAdvice();
+  if (backendId === 'trellis' && gen.file) inspectTrellisInput(gen.file);
   refreshSetup();
 };
 g('setup-run-btn').onclick = async () => {

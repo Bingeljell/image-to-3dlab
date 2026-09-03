@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -43,6 +44,8 @@ WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
 PYTHON = REPO / "vendor" / "trellis-space-mac" / ".venv" / "bin" / "python"
 OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"
+TINYCLIP_ADVISOR = REPO / "scripts" / "classify_trellis_input.py"
+TINYCLIP_TIMEOUT_SECONDS = 300
 
 # dgrauet's shape stage stays vendored (Tencent-licensed code, not just weights — see
 # docs/info_and_credits.md). Its shape quality is genuinely the best we've tested
@@ -86,6 +89,10 @@ HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingfac
 WEIGHT_REPOS = (
     ("models--microsoft--TRELLIS.2-4B", "TRELLIS.2-4B weights"),
     ("models--facebook--dinov3-vitl16-pretrain-lvd1689m", "DINOv3 image encoder"),
+    (
+        "models--wkcn--TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
+        "TinyCLIP input advisor (~94 MB, advisory only)",
+    ),
 )
 
 
@@ -187,8 +194,41 @@ def setup_status() -> dict[str, Any]:
         "weights": weights,
         "missing_weights": missing,
         "ready": build_present,
-        "warning": "first run will download missing weights" if missing else None,
+        "warning": "first use will download missing weights" if missing else None,
     }
+
+
+def run_trellis_input_advisor(image_path: Path) -> dict[str, Any]:
+    """Run TinyCLIP out-of-process so the lightweight viewer never imports torch."""
+    if not PYTHON.is_file():
+        raise RuntimeError("TRELLIS environment is not installed")
+    if not TINYCLIP_ADVISOR.is_file():
+        raise RuntimeError(f"TinyCLIP advisor is missing: {TINYCLIP_ADVISOR}")
+    try:
+        result = subprocess.run(
+            [str(PYTHON), str(TINYCLIP_ADVISOR), str(image_path)],
+            cwd=REPO,
+            env=_job_env(),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=TINYCLIP_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("TinyCLIP input check timed out") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip().splitlines()
+        suffix = f": {detail[-1]}" if detail else ""
+        raise RuntimeError(f"TinyCLIP input check failed{suffix}") from exc
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("TinyCLIP input check returned invalid JSON") from exc
+    if payload.get("verdict") not in {"likely_flat", "likely_dimensional", "uncertain"}:
+        raise RuntimeError("TinyCLIP input check returned an invalid verdict")
+    if not isinstance(payload.get("flat_risk"), (int, float)):
+        raise RuntimeError("TinyCLIP input check returned an invalid score")
+    return payload
 
 
 # Setup-run state: one bootstrap subprocess at a time, mirrored to the browser over SSE.
@@ -1395,6 +1435,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "generate"]:
             self._create_job()
             return
+        if parts == ["api", "trellis", "input-advice"]:
+            self._trellis_input_advice()
+            return
         if parts == ["api", "rig", "rebind"]:
             self._create_rig_job()
             return
@@ -1405,6 +1448,34 @@ class Handler(SimpleHTTPRequestHandler):
             self._cancel_rig_job(parts[3])
             return
         self.send_error(HTTPStatus.NOT_FOUND)
+
+    def _trellis_input_advice(self) -> None:
+        """Classify one upload without creating a generation job or retaining the image."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 50 * 1024 * 1024:
+                self._send_json(400, {"error": "image upload is missing or larger than 50 MiB"})
+                return
+            form = parse_multipart(
+                self.headers.get("Content-Type", ""), self.rfile.read(length)
+            )
+            image_field = form.get("image")
+            filename = str(image_field.get("filename")) if image_field else ""
+            suffix = Path(filename).suffix.lower()
+            if not image_field or suffix not in {".png", ".jpg", ".jpeg", ".webp", ".bmp"}:
+                self._send_json(422, {
+                    "error": "multipart field 'image' must be PNG, JPG, WebP, or BMP"
+                })
+                return
+            with tempfile.TemporaryDirectory(prefix="i2l-tinyclip-") as directory:
+                image_path = Path(directory) / f"input{suffix}"
+                image_path.write_bytes(image_field["data"])
+                payload = run_trellis_input_advisor(image_path)
+            self._send_json(200, payload)
+        except RuntimeError as exc:
+            self._send_json(503, {"error": str(exc), "advisory_only": True})
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc), "advisory_only": True})
 
     def do_GET(self) -> None:
         parts = self._path_parts()

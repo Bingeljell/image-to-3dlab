@@ -85,6 +85,15 @@
       <input id="generate-file" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" hidden>
       <div id="generate-alpha" class="alpha-badge" hidden></div>
 
+      <div id="trellis-input-guidance" class="trellis-input-guidance">
+        <strong>TRELLIS.2 input guidance</strong>
+        <span>Flat/vector-style artwork may produce nearly black or incorrect materials.
+          Prefer a photograph or softly lit 3D-style render. TinyCLIP provides an advisory
+          check after upload; please also eyeball the image.</span>
+        <a href="/docs/trellis2-flat-illustration-colour-drift.md" target="_blank" rel="noopener">Why?</a>
+        <div id="trellis-input-result" aria-live="polite" hidden></div>
+      </div>
+
       <div class="backend-fields" data-backend="trellis">
         <div class="field"><label for="generate-resolution">Resolution</label>
           <select id="generate-resolution"><option>512</option><option selected>1024</option><option>1536</option></select></div>
@@ -373,6 +382,7 @@
       <ul>
         <li>Mac/Metal port foundation: <a href="https://github.com/pedronaugusto/trellis2-apple">pedronaugusto/trellis2-apple</a>, plus Pedro Naugusto's <code>mtlbvh</code>, <code>mtldiffrast</code>, and <code>mtlgemm</code> Metal kernel libraries.</li>
         <li>Upstream model: Microsoft <a href="https://huggingface.co/microsoft/TRELLIS.2-4B">TRELLIS.2-4B</a> (MIT license; the DINOv3 image encoder has its own separate license).</li>
+        <li>Input advisor: <a href="https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M">TinyCLIP ViT-8M/16</a> (MIT, advisory only; it never blocks generation).</li>
         <li>The original Mac port (<a href="https://github.com/shivampkumar/trellis-mac">shivampkumar/trellis-mac</a>) is retired internally — kept only as the historical source of two bugs documented in <code>CLAUDE.md</code>, not as a build foundation.</li>
       </ul>
       <h3>Stable Fast 3D</h3>
@@ -397,7 +407,7 @@
       <ul>
         <li><strong>Texture tear on concave geometry (inner thigh, armpit, ear folds) — fixed 2026-08-19.</strong> The paint stage filled texels no camera could see (self-occluded creases) by grabbing the nearest already-painted texel in flat 2D UV-atlas space — xatlas can and does pack unrelated 3D regions (an eye chart, a leg chart) next to each other on that flat sheet, so occluded creases were filled with the wrong, unrelated color. Fixed by filling from the nearest neighbor in actual 3D surface space instead. Applies to <em>both</em> Hunyuan variants — they share the same paint stage, and the shape-stage geometry fusion defect noted previously is a separate, still-open issue.</li>
         <li>Hunyuan's paint stage has a hard face-count wall: the <code>xatlas</code> UV-unwrap step goes from ~3 min to 37+ min between 500k and 700k faces; 1M faces never completed. Keep <code>decimation_target</code> at or under 500,000. Applies to both Hunyuan variants — they share the same paint stage.</li>
-        <li>TRELLIS's own texture generation drifts from the reference image (a published, documented weakness). Hunyuan's paint tracks the reference more closely, since it's directly conditioned on it and TRELLIS's isn't.</li>
+        <li>TRELLIS.2 material generation can drift severely on some flat/vector-style references. It is conditioned on DINOv3 image features and generated geometry, rather than copying source pixels onto the mesh. See <a href="/docs/trellis2-flat-illustration-colour-drift.md">the investigation and input guidance</a>.</li>
         <li>dgrauet's shape stage (<code>vendor/hunyuan-mlx</code>) stays manually vendor-cloned — it's Tencent-licensed code, not just weights, so it isn't part of the clone-and-go simplification below. Xiong's shape+paint (<code>hunyuan_mlx/</code>) is MIT and tracked in-repo: <code>uv sync</code> in <code>hunyuan_mlx/shape</code> and <code>hunyuan_mlx/paint</code>, then <code>python hunyuan_mlx/download_weights.py</code>.</li>
         <li><strong>Xiong, full pipeline — benchmarked 2026-08-19</strong> (Flicker, octree=512, quantize=8, 30 steps, shape stage only): 2.0 ~167s (default); 2.0-turbo ~60-105s (real distillation-noise dents even at 30 steps — its PCM schedule caps at 100 steps); 2.1 ~450s with <code>--octree-decode</code>, ~48min without, and not Xiong's own recommended model regardless (weaker DINOv2-large conditioner). Full writeup: <code>docs/hunyuan-mlx-recipes.md</code>.</li>
         <li>The retired TRELLIS Mac port shipped two self-inflicted bugs for a long time before they were caught: a 200,000-face cap that crushed every decode with a crude decimator, and inconsistent mesh winding that left assets hollow under backface culling. Full story in <code>CLAUDE.md</code>.</li>

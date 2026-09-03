@@ -22,6 +22,10 @@ itself (yet — see the fine-tuning notes if that's changed).
   is retired internally. It's kept only as the historical source of two self-inflicted bugs
   documented in `CLAUDE.md` (a 200k-face decode cap, and inconsistent mesh winding) —
   not as a build foundation for anything current.
+- **Input advisor:** [`wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M`](https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M)
+  (MIT). It runs locally after image selection and provides only a conservative warning
+  about flat/vector-style inputs. It does not modify the image, block generation, or form
+  part of the generated model.
 
 ### Stable Fast 3D
 
@@ -108,6 +112,9 @@ change rather than letting it go stale.
   well as generated geometry; it does not copy source pixels onto the mesh. Full evidence,
   user guidance, and next steps are in
   [`trellis2-flat-illustration-colour-drift.md`](trellis2-flat-illustration-colour-drift.md).
+  The Generate page now pairs a static warning with a local TinyCLIP advisory. Its score
+  is similarity-based rather than a calibrated failure probability, so manual inspection
+  remains necessary.
 - **dgrauet's shape stage stays manually vendor-cloned** (`vendor/hunyuan-mlx`) — it's
   Tencent-licensed *code*, not just weights, so it isn't part of the clone-and-go
   simplification below. Xiong's shape+paint is MIT and tracked in-repo at `hunyuan_mlx/`:

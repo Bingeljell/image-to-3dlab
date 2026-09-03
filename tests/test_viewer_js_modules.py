@@ -34,6 +34,29 @@ def test_job_progress_formats_durations_from_the_shipped_module():
 
 
 @pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_trellis_input_advice_is_explicitly_non_blocking():
+    module_url = (REPO / "viewer" / "components" / "trellis-input-advice.js").as_uri()
+    program = f"""
+      import {{ presentTrellisAdvice }} from {json.dumps(module_url)};
+      console.log(JSON.stringify([
+        presentTrellisAdvice({{ verdict: 'likely_flat', flat_risk: 0.91 }}),
+        presentTrellisAdvice({{ verdict: 'uncertain', flat_risk: 0.51 }}),
+        presentTrellisAdvice({{ verdict: 'likely_dimensional', flat_risk: 0.08 }}),
+      ]));
+    """
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    values = json.loads(result.stdout)
+    assert [value["tone"] for value in values] == ["risk", "uncertain", "suitable"]
+    assert all(value["blocking"] is False for value in values)
+    assert "91%" in values[0]["message"]
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
 def test_rig_inspection_deduplicates_bones_and_resets_each_skeleton():
     module_url = (REPO / "viewer" / "animation" / "rig-inspection.js").as_uri()
     program = f"""

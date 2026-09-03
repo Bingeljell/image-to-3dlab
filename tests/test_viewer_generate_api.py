@@ -745,3 +745,40 @@ def test_trellis_build_args_skips_resume_caches_unless_debug(tmp_path):
     job.debug = True
     args = api._trellis_build_args(job)
     assert "--no-save-latents" not in args and "--no-save-decode" not in args
+
+
+# --- a failed run must say why, not just "exited with code 1" (2026-09-03) ---
+def test_failure_reason_returns_the_generators_last_words():
+    log = [
+        "[rss 0.13 GB]",
+        "Sampling shape SLat:  50%|#####     | 6/12 [01:40<01:38, 16.38s/it]",
+        "[rss 0.21 GB]",
+        "dog.png carries an alpha channel, but 39% of its outer border is still opaque.",
+        "Fix: re-export the image with a transparent background.",
+        "generator exited with code 1",
+    ]
+    reason = api.failure_reason(log)
+    assert reason is not None
+    assert "39%" in reason
+    assert "transparent background" in reason
+    assert "rss" not in reason and "Sampling" not in reason
+
+
+def test_failure_reason_is_none_when_only_progress_noise():
+    log = ["[rss 0.13 GB]", "Sampling shape SLat: 100%|##########| 12/12 [02:49<00:00]",
+           "Loading TRELLIS.2 pipeline (load_rembg=False)...", "generator exited with code 1"]
+    assert api.failure_reason(log) is None
+
+
+def test_failure_reason_stops_at_the_noise_above_the_message():
+    """Only the trailing block is the reason; earlier output is not dragged in."""
+    log = ["an unrelated earlier line", "[rss 0.13 GB]", "the actual failure"]
+    assert api.failure_reason(log) == "the actual failure"
+
+
+def test_failure_reason_keeps_a_traceback_together():
+    log = ["[rss 0.1 GB]", "Traceback (most recent call last):",
+           '  File "x.py", line 1, in <module>', "RuntimeError: weights missing"]
+    reason = api.failure_reason(log)
+    assert reason.startswith("Traceback")
+    assert reason.endswith("RuntimeError: weights missing")

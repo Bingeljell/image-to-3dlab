@@ -813,6 +813,31 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
     return touched
 
 
+# Progress chatter the generator emits constantly; never the reason it stopped.
+_LOG_NOISE = re.compile(r"^(\[rss |Sampling |Loading |Pipeline loaded|\s*$)|\|\s*\d+/\d+ \[")
+
+
+def failure_reason(log_lines, limit: int = 6) -> str | None:
+    """The generator's own last words, or None if it said nothing but progress.
+
+    A failed run used to surface as "generator exited with code 1" while the actual
+    explanation -- an alpha refusal, a missing weight, a traceback -- sat unread in the log
+    tail. Walk back from the end, skip the progress chatter, and return the trailing block
+    of real output so the browser can show what the process actually said.
+    """
+    reason: list[str] = []
+    for line in reversed(list(log_lines)):
+        text = line.rstrip()
+        if not text or _LOG_NOISE.match(text) or text.startswith("generator exited"):
+            if reason:
+                break
+            continue
+        reason.append(text)
+        if len(reason) >= limit:
+            break
+    return "\n".join(reversed(reason)) or None
+
+
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
@@ -866,7 +891,10 @@ def _run_job(job: Job) -> None:
         else:
             tail = "\n".join(job.log_lines)[-8000:]
             job.status = "error"
-            job.emit({"phase": "error", "message": f"generator exited with code {return_code}",
+            reason = failure_reason(job.log_lines)
+            job.emit({"phase": "error",
+                      "message": reason or f"generator exited with code {return_code}",
+                      "exit_code": return_code,
                       "log_tail": tail})
     except Exception as exc:  # process launch errors must reach the browser, not kill the server
         job.status = "error"

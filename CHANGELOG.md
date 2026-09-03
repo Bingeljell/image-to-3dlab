@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rule, because the original bug came from the UI and the wrapper each keeping their
   own idea of "has alpha". If the check cannot run (no numpy in the server interpreter) the
   upload proceeds and the wrapper refuses it at run start instead.
+- **A failed generation now says why in the browser.** The error banner reported
+  `generator exited with code 1` while the real explanation -- an alpha refusal, a missing
+  weight, a traceback -- sat unread in the log tail. The job now walks back past the
+  progress chatter and surfaces the generator's own last words, keeping the exit code as a
+  separate field.
 - **Quadruped joint markers were mirrored, and four were missing.** Every `*_L`
   marker sat at x<0.5 and every `*_R` at x>0.5, so the rig's left leg was the
   character's right — caught by eye on the Tempest Ram. `blender_build_rig.py` also

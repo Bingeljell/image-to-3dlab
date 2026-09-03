@@ -352,6 +352,10 @@ def validate_settings(raw: Any) -> dict[str, Any]:
     return settings
 
 
+# Mirrors the wrapper's BORDER_OPAQUE_LIMIT; see image_border_opaque_fraction.
+UNCUT_BORDER_LIMIT = 0.05
+
+
 def image_has_transparent_alpha(path: Path) -> bool:
     """Return whether an image has an actual (not merely opaque) alpha channel.
 
@@ -379,6 +383,48 @@ def image_has_transparent_alpha(path: Path) -> bool:
         # A missing/undecodable alpha is deliberately conservative: the wrapper will refuse it
         # unless the user explicitly opts into BRIA rembg.
         return False
+
+
+def image_border_opaque_fraction(path: Path) -> float | None:
+    """Fraction of an image's outer border that is still opaque, or None if unmeasurable.
+
+    Delegates to the TRELLIS wrapper's own helper rather than restating the rule here: the
+    2026-09-03 slab bug happened because "has alpha" was defined in two places, and the UI's
+    copy and the wrapper's copy were each separately wrong about what a cut-out image is.
+    One definition, imported.
+
+    Returns None -- rather than raising or guessing -- when the check simply cannot run in
+    this interpreter (no numpy). The wrapper still enforces the same rule at run start, so a
+    missing preflight costs a late refusal, never a silent bad run.
+    """
+    import importlib.util
+
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        script = REPO / "scripts" / "trellis_space_generate.py"
+        spec = importlib.util.spec_from_file_location("trellis_space_generate", script)
+        wrapper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wrapper)
+        with Image.open(path) as image:
+            if image.mode != "RGBA":
+                return None
+            return wrapper.border_opaque_fraction(np.array(image)[..., 3])
+    except Exception:
+        return None
+
+
+def uncut_image_error(border_fraction: float) -> str:
+    """Browser-facing text for an image whose alpha never cut the subject out."""
+    return (
+        f"This image has an alpha channel, but {border_fraction:.0%} of its outer border is "
+        "still opaque, so the subject was never cut out of its background. Generating from it "
+        "would rebuild the background as 3D geometry -- roughly 45 minutes at resolution 1024, "
+        "ending in a slab behind the subject. Re-export it with a transparent background."
+    )
 
 
 def _baseline() -> dict[str, float]:
@@ -1460,6 +1506,14 @@ class Handler(SimpleHTTPRequestHandler):
                              "to use BRIA background removal, or upload a pre-masked PNG."
                 })
                 return
+            if spec.requires_alpha and not lacks_alpha:
+                border = image_border_opaque_fraction(image_path)
+                if border is not None and border > UNCUT_BORDER_LIMIT:
+                    for child in provisional.iterdir():
+                        child.unlink()
+                    provisional.rmdir()
+                    self._send_json(422, {"error": uncut_image_error(border)})
+                    return
             # JobManager builds the real, human-readable job directory. Move the upload into it
             # so the id and artifact URLs are stable, without ever accepting a client-provided path.
             provisional_image = image_path

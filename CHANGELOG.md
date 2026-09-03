@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   measurement and offering `--allow-uncut` for a subject that genuinely reaches the
   frame edge. Across this repo's own assets the split is total — every real cutout
   scores 0.0%, the one uncut image scored 39%.
+- **The web UI now rejects an uncut image at upload**, before a job is created, with the
+  same measurement in the message. It imports the wrapper's helper rather than restating
+  the rule, because the original bug came from the UI and the wrapper each keeping their
+  own idea of "has alpha". If the check cannot run (no numpy in the server interpreter) the
+  upload proceeds and the wrapper refuses it at run start instead.
 - **Quadruped joint markers were mirrored, and four were missing.** Every `*_L`
   marker sat at x<0.5 and every `*_R` at x>0.5, so the rig's left leg was the
   character's right — caught by eye on the Tempest Ram. `blender_build_rig.py` also

@@ -494,6 +494,59 @@ def test_image_has_transparent_alpha_false_for_fully_opaque_rgba(tmp_path):
     assert api.image_has_transparent_alpha(path) is False
 
 
+# --- "has alpha" is not "is cut out" (2026-09-03): a letterboxed image passed the alpha
+# check on its bars alone, and its opaque backdrop was rebuilt as 3D geometry ---
+def _save(tmp_path, name, alpha_rows):
+    from PIL import Image
+    import numpy as np
+
+    a = np.zeros((64, 64, 4), dtype=np.uint8)
+    a[..., :3] = 200
+    a[..., 3] = alpha_rows
+    path = tmp_path / name
+    Image.fromarray(a, "RGBA").save(path)
+    return path
+
+
+def test_border_opaque_fraction_flags_letterboxed_upload(tmp_path):
+    import numpy as np
+
+    alpha = np.full((64, 64), 255, dtype=np.uint8)
+    alpha[:8] = 0
+    alpha[-8:] = 0          # transparent bars only; left/right edges still opaque
+    path = _save(tmp_path, "letterboxed.png", alpha)
+    assert api.image_has_transparent_alpha(path) is True   # old gate lets it through
+    assert api.image_border_opaque_fraction(path) > api.UNCUT_BORDER_LIMIT
+
+
+def test_border_opaque_fraction_passes_real_cutout(tmp_path):
+    import numpy as np
+
+    alpha = np.zeros((64, 64), dtype=np.uint8)
+    alpha[8:-8, 8:-8] = 255
+    path = _save(tmp_path, "cutout.png", alpha)
+    assert api.image_border_opaque_fraction(path) == 0.0
+
+
+def test_border_opaque_fraction_none_for_non_rgba(tmp_path):
+    from PIL import Image
+
+    path = tmp_path / "rgb.png"
+    Image.new("RGB", (16, 16), (1, 2, 3)).save(path)
+    assert api.image_border_opaque_fraction(path) is None
+
+
+def test_border_opaque_fraction_none_when_unreadable(tmp_path):
+    """Unmeasurable must not mean "blocked" -- the wrapper still enforces the same rule."""
+    assert api.image_border_opaque_fraction(tmp_path / "missing.png") is None
+
+
+def test_uncut_image_error_states_the_measurement(tmp_path):
+    msg = api.uncut_image_error(0.39)
+    assert "39%" in msg
+    assert "transparent background" in msg
+
+
 def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):
     from PIL import Image
 

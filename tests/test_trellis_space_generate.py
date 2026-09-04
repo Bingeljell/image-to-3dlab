@@ -145,6 +145,178 @@ def test_valid_face_mask_boundary_index_is_valid():
     assert gen.valid_face_mask([[0, 1, 2], [2, 3, 4]], num_vertices=5).all()
 
 
+# --- sampling checkpoint boundary ----------------------------------------------------
+def test_sample_without_decode_returns_latents_and_restores_decoder():
+    class FakePipeline:
+        def __init__(self):
+            self.decode_calls = 0
+
+        def decode_latent(self, shape, texture, resolution):
+            self.decode_calls += 1
+            return [f"mesh-{shape}-{texture}-{resolution}"]
+
+        def run(self, image, **kwargs):
+            assert image == "image"
+            assert kwargs["return_latent"] is True
+            output = self.decode_latent("shape", "texture", 512)
+            return output, ("shape", "texture", 512)
+
+    pipeline = FakePipeline()
+    latents = gen.sample_latents_without_decode(pipeline, "image", seed=7)
+
+    assert latents == ("shape", "texture", 512)
+    assert pipeline.decode_calls == 0
+    assert pipeline.decode_latent("shape", "texture", 512) == ["mesh-shape-texture-512"]
+    assert pipeline.decode_calls == 1
+
+
+def test_sample_without_decode_restores_decoder_after_sampling_error():
+    class FakePipeline:
+        def decode_latent(self, *_args):
+            return ["mesh"]
+
+        def run(self, *_args, **_kwargs):
+            raise RuntimeError("sampling broke")
+
+    pipeline = FakePipeline()
+    original = pipeline.decode_latent
+    with pytest.raises(RuntimeError, match="sampling broke"):
+        gen.sample_latents_without_decode(pipeline, "image")
+
+    assert pipeline.decode_latent == original
+
+
+def test_generate_checkpoints_latents_before_decode_failure(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import torch
+    from PIL import Image
+
+    image_path = tmp_path / "cutout.png"
+    image = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y in range(3, 13):
+        for x in range(3, 13):
+            image.putpixel((x, y), (80, 120, 40, 255))
+    image.save(image_path)
+    output_path = tmp_path / "model.glb"
+
+    class FakePipeline:
+        def preprocess_image(self, source):
+            return source
+
+    shape = SimpleNamespace(
+        feats=torch.tensor([[1.0, 2.0]]),
+        coords=torch.tensor([[0, 1, 2, 3]]),
+    )
+    texture = SimpleNamespace(feats=torch.tensor([[4.0, 5.0]]))
+    monkeypatch.setattr(gen, "load_pipeline", lambda *_args: FakePipeline())
+    monkeypatch.setattr(
+        gen,
+        "sample_latents_without_decode",
+        lambda *_args, **_kwargs: (shape, texture, 512),
+    )
+
+    checkpoint = tmp_path / "model_latents.pt"
+
+    def fail_decode(*_args, **_kwargs):
+        assert checkpoint.is_file(), "recovery checkpoint must exist before decode starts"
+        saved = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        assert saved["seed"] == 19
+        raise RuntimeError("decode failed")
+
+    monkeypatch.setattr(gen, "_decode_and_cache", fail_decode)
+
+    with pytest.raises(RuntimeError, match="decode failed"):
+        gen.generate(
+            image_path,
+            output_path,
+            tmp_path,
+            seed=19,
+            sparse_attn_backend="sdpa",
+            allow_rembg=False,
+            save_latents=False,
+            save_decode=False,
+            pre_cap=4_000_000,
+            resolution="512",
+            decimation_target=300_000,
+            texture_size=1024,
+        )
+
+    assert checkpoint.is_file(), "failed non-debug runs must retain their recovery checkpoint"
+
+
+def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import torch
+    from PIL import Image
+
+    image_path = tmp_path / "cutout.png"
+    image = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+    for y in range(3, 13):
+        for x in range(3, 13):
+            image.putpixel((x, y), (80, 120, 40, 255))
+    image.save(image_path)
+    output_path = tmp_path / "model.glb"
+
+    class FakePipeline:
+        def preprocess_image(self, source):
+            return source
+
+    shape = SimpleNamespace(
+        feats=torch.tensor([[1.0, 2.0]]),
+        coords=torch.tensor([[0, 1, 2, 3]]),
+    )
+    texture = SimpleNamespace(feats=torch.tensor([[4.0, 5.0]]))
+    monkeypatch.setattr(gen, "load_pipeline", lambda *_args: FakePipeline())
+    monkeypatch.setattr(
+        gen,
+        "sample_latents_without_decode",
+        lambda *_args, **_kwargs: (shape, texture, 512),
+    )
+    monkeypatch.setattr(
+        gen,
+        "_decode_and_cache",
+        lambda *_args, **_kwargs: (
+            {
+                "vertices": None,
+                "faces": None,
+                "attrs": None,
+                "coords": None,
+                "attr_layout": None,
+                "res": 512,
+            },
+            0.1,
+        ),
+    )
+    monkeypatch.setattr(gen, "_release_mps_memory", lambda: None)
+
+    def finish_bake(*_args, **_kwargs):
+        output_path.write_bytes(b"glTF")
+        return {"bake": 0.2}, {"glb": gen._artifact(output_path)}
+
+    monkeypatch.setattr(gen, "_bake_export", finish_bake)
+
+    manifest = gen.generate(
+        image_path,
+        output_path,
+        tmp_path,
+        seed=19,
+        sparse_attn_backend="sdpa",
+        allow_rembg=False,
+        save_latents=False,
+        save_decode=False,
+        pre_cap=4_000_000,
+        resolution="512",
+        decimation_target=300_000,
+        texture_size=1024,
+    )
+
+    assert output_path.is_file()
+    assert not (tmp_path / "model_latents.pt").exists()
+    assert "latents" not in manifest["artifacts"]
+
+
 # --- environment configuration ---
 def test_configure_environment_sets_sdpa(monkeypatch, tmp_path):
     for key in ("ATTN_BACKEND", "SPARSE_ATTN_BACKEND", "PYTORCH_ENABLE_MPS_FALLBACK",

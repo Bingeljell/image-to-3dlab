@@ -90,6 +90,9 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
   - `--from-decode out_decode.pt` — skip sampling, decode **and** model load (bake only)
 - Every run writes `<out>.glb`, `<out>_latents.pt`, `<out>_decode.pt`, and a `.json` manifest
   with exact params and per-stage timings.
+- In the web UI, a failed TRELLIS decode or bake retains `<out>_latents.pt` even when
+  **Debug** is off, so the expensive sampling stage can be resumed. Successful non-debug
+  runs clean up the checkpoint after the GLB is safely written.
 
 ## Requirements
 
@@ -112,7 +115,8 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
 - **TRELLIS.2:** sampling is attention-bound and scales with the subject's sparse
   structure — a simple subject (~8k tokens) takes ~14 min end-to-end; a complex one
   (~22k tokens, e.g. a fluffy creature) ~78 min on my m5 w/ 32 gigs of unified memory. This is infinitely faster on CUDA / Nvidia. 
-  Decode + bake adds a few minutes; the decode is cached, so re-bakes are ~1 min of setup. Known gaps vs the HF demo: slight
+  Decode + bake adds a few minutes; with Debug enabled the decode is cached, so re-bakes
+  are ~1 min of setup. Known gaps vs the HF demo: slight
   texture drift, severe colour failures on some flat/vector inputs, and mostly-pinhole
   holes. See the [TRELLIS.2 input guidance](docs/trellis2-flat-illustration-colour-drift.md).
 

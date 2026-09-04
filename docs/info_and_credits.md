@@ -147,8 +147,11 @@ Peeking behind the curtain without the browser:
   live view shows.
 - `ps aux | grep -E "trellis_space_generate|hunyuan_mlx_generate|hunyuan_mlx_xiong_generate|pipeline.py"`
   confirms the generation subprocess is alive and shows its exact arguments.
-- `debug` (off by default) keeps only the final `.glb`. Check it to keep the manifest,
-  textures, and intermediate meshes a run produces along the way.
+- Every TRELLIS run checkpoints `<out>_latents.pt` immediately after sampling and before
+  decode. If decode or bake fails, that checkpoint is retained and can be resumed with
+  `--from-latents`, even when `debug` is off. After a successful non-debug run it is
+  removed along with the other diagnostic artifacts; enable `debug` to retain the
+  manifest, latents, decoded mesh, textures, and intermediate meshes after success.
 
 ## TODO (for tomorrow)
 

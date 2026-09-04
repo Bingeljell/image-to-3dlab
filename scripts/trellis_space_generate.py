@@ -390,6 +390,31 @@ def _decode_mesh(
     )
 
 
+def sample_latents_without_decode(pipeline, image, **run_kwargs):
+    """Run TRELLIS sampling while postponing its built-in decode.
+
+    Upstream ``pipeline.run(return_latent=True)`` still decodes before it returns the
+    latents. That made our recovery checkpoint unreachable when decode failed, and then
+    the wrapper decoded a second time anyway. Temporarily replacing only the terminal
+    decode call lets upstream keep ownership of the sampling sequence and RNG behaviour
+    while giving us a safe checkpoint boundary before the single real decode.
+    """
+    original_decode = pipeline.decode_latent
+    skipped_decode = object()
+
+    def postpone_decode(_shape_slat, _tex_slat, _resolution):
+        return skipped_decode
+
+    pipeline.decode_latent = postpone_decode
+    try:
+        output, latents = pipeline.run(image, return_latent=True, **run_kwargs)
+    finally:
+        pipeline.decode_latent = original_decode
+    if output is not skipped_decode:
+        raise RuntimeError("TRELLIS sampling did not reach the postponed decode boundary")
+    return latents
+
+
 def _release_mps_memory() -> None:
     """gc + release MPS cached memory after the caller drops the pipeline reference.
 
@@ -723,7 +748,8 @@ def generate(
         torch.mps.manual_seed(seed)
 
     run_started = time.time()
-    outputs, latents = pipeline.run(
+    latents = sample_latents_without_decode(
+        pipeline,
         image,
         seed=seed,
         preprocess_image=False,
@@ -731,31 +757,33 @@ def generate(
         shape_slat_sampler_params=shape,
         tex_slat_sampler_params=tex,
         pipeline_type=pipeline_type,
-        return_latent=True,
     )
     run_seconds = time.time() - run_started
-    print(f"pipeline.run() (stages 1-3) done in {run_seconds:.1f}s", flush=True)
+    print(f"pipeline.run() sampling (stages 1-3) done in {run_seconds:.1f}s", flush=True)
 
     shape_slat, tex_slat, res = latents
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     artifacts: dict[str, Any] = {}
+    # Always checkpoint before decode. Non-debug UI runs request save_latents=False; for
+    # those runs the checkpoint is deleted only after a GLB exists. A decode/bake failure
+    # therefore remains resumable without turning ordinary successful runs into disk leaks.
+    latents_path = output_path.with_name(output_path.stem + "_latents.pt")
+    torch.save(
+        {
+            "shape_slat_feats": shape_slat.feats.cpu(),
+            "coords": shape_slat.coords.cpu(),
+            "tex_slat_feats": tex_slat.feats.cpu(),
+            "res": int(res),
+            "pipeline_type": pipeline_type,
+            "seed": seed,
+            "images": [str(image_path)],
+        },
+        latents_path,
+    )
+    print(f"Latents checkpointed before decode: {latents_path}", flush=True)
     if save_latents:
-        latents_path = output_path.with_name(output_path.stem + "_latents.pt")
-        torch.save(
-            {
-                "shape_slat_feats": shape_slat.feats.cpu(),
-                "coords": shape_slat.coords.cpu(),
-                "tex_slat_feats": tex_slat.feats.cpu(),
-                "res": int(res),
-                "pipeline_type": pipeline_type,
-                "seed": seed,
-                "images": [str(image_path)],
-            },
-            latents_path,
-        )
         artifacts["latents"] = _artifact(latents_path)
-        print(f"Latents cached: {latents_path}", flush=True)
 
     decode_path = None
     if save_decode:
@@ -774,6 +802,9 @@ def generate(
     )
     decode_timings = {"decode_latent": decode_seconds, **bake_timings}
     artifacts.update(bake_artifacts)
+    if not save_latents and output_path.is_file():
+        latents_path.unlink(missing_ok=True)
+        print("Removed temporary latent checkpoint after successful GLB", flush=True)
     if decode_path is not None and decode_path.is_file():
         artifacts["decode"] = _artifact(decode_path)
 

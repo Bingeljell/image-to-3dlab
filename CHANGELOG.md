@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   camera, and bake a named Action's frame sequence at the locked stage angle.
 
 ### Fixed
+- **TRELLIS recovery checkpoints now exist before decoding starts.** Upstream
+  `pipeline.run(return_latent=True)` still decoded before returning its latents, so a
+  decoder crash could erase an hour-long sampling run even with Debug enabled. The
+  wrapper now postpones that built-in decode, checkpoints the sampled latents first, and
+  performs one decode instead of two. Failed web-UI runs retain the checkpoint even when
+  Debug is off; successful non-debug runs remove it after the GLB has been written.
 - **An image with alpha is not necessarily an image that was cut out.** The TRELLIS
   wrapper gated on "does any pixel have alpha < 255", which two transparent letterbox
   bars satisfy while the subject still sits on an opaque backdrop. `preprocess_image`

@@ -94,6 +94,14 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
   **Debug** is off, so the expensive sampling stage can be resumed. Successful non-debug
   runs clean up the checkpoint after the GLB is safely written.
 
+## Blender animation recipes
+
+Our [Blender animation recipe library](scripts/blender_animation/README.md)
+preserves the Snag, Forest Flicker and Pangolin editing, inspection and preview
+scripts. These are model-specific references—not drop-in tools for arbitrary
+rigs. Consult their documented prerequisites, safety notes and superseded fixes
+before adapting the common techniques to another creature.
+
 ## Requirements
 
 | Thing | Why |

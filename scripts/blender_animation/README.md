@@ -1,9 +1,30 @@
-# Blender animation toolkit
+# Blender animation recipe library
 
 Model-specific recipes from the Snag, Forest Flicker and Clockwork Pangolin
 animation sessions. Consult these before writing new animation automation.
 Reuse their sampling, retiming, pose-keying and visual-review techniques; they
 are not a generic, one-command rebuild pipeline.
+
+## What is reusable today?
+
+The scripts themselves are tied to their creatures. A new model requires rig,
+action, bone-axis and path adaptation, plus fresh visual validation. The reusable
+parts are implementation examples: curve sampling/retiming, explicit hold keys,
+quaternion pose interpolation, action copies, carryover checks and preview capture.
+Only `_rpc.py` currently shares infrastructure here, reusing the existing RPC client.
+
+A future general-purpose toolkit should extract those operations into tested
+functions accepting explicit rigs, actions, control mappings and output paths.
+That extraction has **not** been done by organizing this library. Do not treat
+the recipe archive as already portable or use it as a batch execution pipeline.
+
+## Creature indexes
+
+- [Snag](SNAG.md): 24-frame whip, 48-frame death and idle-axis repair.
+- [Forest Flicker](FOREST_FLICKER.md): combat polish, ear weights and 44-frame
+  death; distinguishes failed paw-only experiments from the accepted chain fix.
+- [Clockwork Pangolin](PANGOLIN.md): whip/recoil timing, heavy slam, clearance
+  refinement and 60-frame retiming, with render flags and final action names.
 
 ## Safety and prerequisites
 

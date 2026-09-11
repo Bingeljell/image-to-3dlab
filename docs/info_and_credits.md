@@ -1,5 +1,7 @@
 # Info & Credits
 
+Built on the shoulder of giants. Thanks to all the hardwork done by folks keeping the Apple Silicon ecossytem alive. 
+
 Markdown counterpart to the Generate page's in-app "Credits & Info" tab
 (`viewer/index.html`). The in-app version is the terse, always-current summary; this is
 the place for the longer version — more context per pipeline, more room to explain the
@@ -153,9 +155,3 @@ Peeking behind the curtain without the browser:
   removed along with the other diagnostic artifacts; enable `debug` to retain the
   manifest, latents, decoded mesh, textures, and intermediate meshes after success.
 
-## TODO (for tomorrow)
-
-- [ ] Fill in real numbers once the Xiong-full pipeline gets its first timed run.
-- [ ] Confirm whether the two open Hunyuan defects (mouth drift, eye/thorn fusion) also
-      show up on the Xiong-full path, or are specific to dgrauet's shape stage.
-- [ ] Anything else worth promoting out of `journal/` into `docs/progress/`.

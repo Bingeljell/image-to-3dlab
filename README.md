@@ -12,6 +12,11 @@ Drop in a picture of a character or object; get back a `.glb` (with PBR texture)
 `.provenance.json` sidecar recording exactly how it was made and under which licenses. This should make your game-dev or whatever else you're up to easier to manage.
 Everything runs on your Mac; nothing is uploaded to a cloud service.
 
+> **Apple Silicon only, for now.** Every backend here is built on MLX or Metal, so Windows
+> and Linux/NVIDIA machines cannot run it yet. This repo wraps other people's ports rather
+> than writing its own, so NVIDIA support means picking the right CUDA backend and wiring
+> it in. Aiming for **30 September 2026**.
+
 Five backends, one Generate page. Sadly life is full of trade-offs, so pick the tradeoff you want (lol):
 
 | Backend | Best for | Setup | License |
@@ -192,6 +197,12 @@ the accepted trot, the implementation handoff and the validation needed before
 claiming support across Rigify basic-quadruped characters.
 
 ## Requirements
+
+**Not supported on Windows or Linux/NVIDIA yet.** The backends are MLX and Metal builds, so
+there is no route that finishes on those machines; the setup page will tell you so rather
+than starting a download it cannot use. NVIDIA is next, by wiring in an existing CUDA
+backend: the work here is the tuning and the pipeline on top, not the port underneath.
+Aiming for **30 September 2026**.
 
 | Thing | Why |
 |---|---|

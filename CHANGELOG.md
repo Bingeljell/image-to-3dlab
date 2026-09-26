@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The project is now licensed under Apache-2.0, with a `NOTICE` file asking forks and
   derived projects to credit image-to-3dlab. Model weights keep their own licences.
 
+### Fixed
+- A fresh install now includes `trimesh`, `fast_simplification` and `rtree`. The mesh tools
+  and 13 test modules needed them, but nothing installed them.
+- `scripts/README.md` no longer lists `build_showcase_reel.py`, which isn't in the repo yet.
+  The registry tests failed on every fresh clone.
+
 ## [0.3.1] - 2026-09-24
 
 ### Fixed

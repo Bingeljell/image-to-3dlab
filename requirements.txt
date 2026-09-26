@@ -7,4 +7,7 @@ requests>=2.32
 rembg>=2.0.57
 onnxruntime>=1.18
 huggingface-hub>=0.23
+trimesh>=4.0
+fast_simplification>=0.1.7
+rtree>=1.2
 

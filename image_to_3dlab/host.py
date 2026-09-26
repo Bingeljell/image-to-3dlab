@@ -62,7 +62,9 @@ def driver_cuda_version(which: Callable = shutil.which,
     This is the driver's ceiling, not an installed toolkit. A binary compiled with a newer
     CUDA than this fails at its first kernel, not at load time.
     """
-    match = re.search(r"CUDA Version:\s*(\d+)\.(\d+)", _smi([], which, run) or "")
+    # Driver 610 (Windows) renamed the field: "CUDA UMD Version: 13.3" where earlier
+    # drivers printed "CUDA Version: 12.8". Both mean the driver's CUDA ceiling.
+    match = re.search(r"CUDA (?:UMD )?Version:\s*(\d+)\.(\d+)", _smi([], which, run) or "")
     return (int(match[1]), int(match[2])) if match else None
 
 

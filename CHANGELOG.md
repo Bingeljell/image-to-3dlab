@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- NVIDIA driver 610 machines are no longer told they have no usable GPU. The driver's
+  CUDA ceiling is read from `nvidia-smi`'s header, and 610 renamed that field from
+  `CUDA Version:` to `CUDA UMD Version:`. It read as unknown, so every backend that
+  needs a minimum CUDA decided the driver was too old and switched its Setup button
+  off. Seen on Windows with an RTX 5090 and driver 610.88, CUDA 13.3.
+
 ## [0.3.1] - 2026-09-24
 
 ### Fixed

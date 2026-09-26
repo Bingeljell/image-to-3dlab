@@ -246,6 +246,12 @@ On a Mac, TRELLIS.2 runs about twice as fast with **Attention backend** set to `
 
 Full credits and per-backend detail: [`docs/info_and_credits.md`](docs/info_and_credits.md).
 
+## License
+
+This repo's own code is [Apache-2.0](LICENSE): use it, fork it, sell things built on it.
+If you do, keep the [`NOTICE`](NOTICE) file and credit image-to-3dlab with a link back
+here. Model weights keep their own licences, listed above.
+
 ## Development
 
 ```bash

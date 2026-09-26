@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The project is now licensed under Apache-2.0, with a `NOTICE` file asking forks and
+  derived projects to credit image-to-3dlab. Model weights keep their own licences.
+
 ## [0.3.1] - 2026-09-24
 
 ### Fixed

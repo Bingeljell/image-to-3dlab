@@ -1,0 +1,20 @@
+image-to-3dlab
+Copyright 2026 Bingeljell and image-to-3dlab contributors
+https://github.com/Bingeljell/image-to-3dlab
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+If you fork this project, or build on it and share the result, please keep this
+NOTICE file and credit image-to-3dlab with a link to the repository above.
+Section 4(d) of the licence asks the same of every redistribution.
+
+Third-party code and models
+---------------------------
+This project builds on other people's work, each under its own licence:
+
+- hunyuan_mlx/ is ZimengXiong/Hunyuan3D-MLX, MIT (see hunyuan_mlx/LICENSE).
+- Model weights are never shipped here. Each backend's weights keep their own
+  licence (Tencent Hunyuan Community, Stability AI Community, DINOv3, Qwen
+  Research and others), and those terms apply no matter what this licence says.
+
+Full credits: docs/info_and_credits.md

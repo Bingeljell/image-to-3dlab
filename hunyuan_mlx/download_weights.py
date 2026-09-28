@@ -34,10 +34,17 @@ PAINT_WEIGHTS = REPO / "paint" / "weights"
 # (hf_repo, hf_subdir, local_group_dir) -- local_group_dir matches the layout
 # hunyuan_mlx_xiong_generate.py's SHAPE_MODELS / generate_api.py's
 # HUNYUAN_XIONG_SHAPE_MODELS already expect.
-# Roughly what each piece costs on disk, measured 2026-09-21. Approximate on purpose and
+# Roughly what each piece costs on disk, measured 2026-09-21 (paint re-measured
+# 2026-09-29 after the VAE/DINO/UNet-safetensors additions). Approximate on purpose and
 # only ever printed, never checked: the point is that nobody starts a 13 GB fetch without
 # being told it is 13 GB.
-APPROX_GB = {"2.1": 6.9, "2.0": 4.6, "2.0-turbo": 4.6, "paint": 8.3}
+APPROX_GB = {"2.1": 6.9, "2.0": 4.6, "2.0-turbo": 4.6, "paint": 13.1}
+
+# Pinned revisions for every paint fetch, so a fresh install reproduces the
+# layout run_paint_pbr.py was verified against. Bump deliberately.
+PAINT_REVISION_21 = "0b94677654c57bb9a6b6845cd7b704ccf551d327"
+SHAPE_VAE_REVISION = "9cd649ba6913f7a852e3286bad86bfa9a2d83dcf"
+DINO_REVISION = "611a9d42f2335e0f921f1e313ad3c1b7178d206d"
 
 DEFAULT_MODEL = "2.0"
 
@@ -119,15 +126,53 @@ def announce(models: list[str], *, paint: bool) -> float:
 
 
 def download_paint() -> None:
-    from huggingface_hub import snapshot_download
+    from huggingface_hub import hf_hub_download, snapshot_download
 
+    # Everything run_paint_pbr.py opens, fetched at pinned revisions:
+    #   1. paintpbr-v2-1/* from tencent/Hunyuan3D-2.1 (VAE? no -- see 2; UNet ships
+    #      as a torch .bin, converted to safetensors below)
+    #   2. the paint VAE is ONLY in tencent/Hunyuan3D-2 under hunyuan3d-paint-v2-0/vae
+    #      (same SD2.1 VAE the 2.1 pipeline expects); the 2.1 repo never shipped it
+    #   3. dinov2/model.safetensors is NOT in any Tencent repo (the old comment
+    #      claiming it ships inside paintpbr-v2-1/dinov2/ was wrong -- verified
+    #      against upstream file lists 2026-09-28). The paint code is an HF
+    #      Dinov2Model port at giant config, so fetch facebook/dinov2-giant and
+    #      drop it in 1:1; run_paint_pbr.py transposes the conv at load.
     snapshot_download(
         "tencent/Hunyuan3D-2.1",
         allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
         local_dir=PAINT_WEIGHTS,
+        revision=PAINT_REVISION_21,
     )
-    # dinov2-giant ships inside paintpbr-v2-1/dinov2/ -- the paint code (run_paint_pbr.py,
-    # test_pbr_parity.py) loads it from there directly, no symlink needed.
+    pbr = PAINT_WEIGHTS / "hunyuan3d-paintpbr-v2-1"
+    for vae_file in (
+        "vae/config.json",
+        "vae/diffusion_pytorch_model.safetensors",
+    ):
+        hf_hub_download(
+            "tencent/Hunyuan3D-2",
+            f"hunyuan3d-paint-v2-0/{vae_file}",
+            local_dir=PAINT_WEIGHTS,
+            revision=SHAPE_VAE_REVISION,
+        )
+    hf_hub_download(
+        "facebook/dinov2-giant",
+        "model.safetensors",
+        local_dir=pbr / "dinov2",
+        revision=DINO_REVISION,
+    )
+    unet_st = pbr / "unet" / "diffusion_pytorch_model.safetensors"
+    unet_bin = pbr / "unet" / "diffusion_pytorch_model.bin"
+    if not unet_st.is_file():
+        if not unet_bin.is_file():
+            sys.exit(f"neither {unet_st} nor {unet_bin} found after download")
+        print("converting UNet .bin -> .safetensors (needs torch + safetensors)", flush=True)
+        subprocess.run(
+            [sys.executable, str(REPO / "paint" / "scripts" / "convert_unet_bin.py"),
+             str(unet_bin), str(unet_st)],
+            check=True,
+        )
+        discard_converted_checkpoint(unet_bin, unet_st)
     print(f"paint weights: ready at {PAINT_WEIGHTS}")
     print(
         "NOTE: RealESRGAN weights (weights/realesrgan/rrdbnet.npz) are NOT covered by "

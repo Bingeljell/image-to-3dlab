@@ -129,6 +129,7 @@ def _converter_deps_present() -> bool:
     """True iff this interpreter can run the UNet .bin -> .safetensors converter."""
     try:
         import huggingface_hub  # noqa: F401
+        import numpy  # noqa: F401
         import torch  # noqa: F401
         import safetensors  # noqa: F401
         return True
@@ -143,9 +144,10 @@ def download_paint() -> None:
     if not _converter_deps_present():
         sys.exit(
             "the paint download path needs huggingface_hub + torch + safetensors "
-            "in THIS python (the paint UNet ships as a torch .bin that must be "
-            "converted). Run this script with e.g. the env used for "
-            "convert_realesrgan.py (plus huggingface_hub), "
+            "+ numpy in THIS python (the paint UNet ships as a torch .bin that "
+            "must be converted, and the RealESRGAN x4 checkpoint likewise). Run "
+            "this script with e.g. the env used for convert_realesrgan.py "
+            "(plus huggingface_hub), "
             "or pre-convert "
             f"{PAINT_WEIGHTS / 'hunyuan3d-paintpbr-v2-1/unet/diffusion_pytorch_model.safetensors'}".strip() +
             " from its .bin with paint/scripts/convert_unet_bin.py first."
@@ -198,11 +200,29 @@ def download_paint() -> None:
              str(unet_bin), str(unet_st)],
             check=True,
         )
-    print(f"paint weights: ready at {PAINT_WEIGHTS}")
-    print(
-        "NOTE: RealESRGAN weights (weights/realesrgan/rrdbnet.npz) are NOT covered by "
-        "this script -- run paint/scripts/convert_realesrgan.py separately (needs torch)."
-    )
+
+    # The paint super-res stage opens weights/realesrgan/rrdbnet.npz
+    # unconditionally; upstream has no npz, so convert the official x4plus
+    # checkpoint (the converter downloads it from the Real-ESRGAN release if
+    # no local .pth is next to the output).
+    rrdbnet_npz = PAINT_WEIGHTS / "realesrgan" / "rrdbnet.npz"
+    if not rrdbnet_npz.is_file():
+        print("RealESRGAN x4plus: fetching/converting rrdbnet.npz "
+              "(torch + numpy required)", flush=True)
+        subprocess.run(
+            [sys.executable, str(REPO / "paint" / "scripts" / "convert_realesrgan.py"),
+             "--out", str(rrdbnet_npz)],
+            check=True,
+        )
+    if rrdbnet_npz.is_file():
+        print(f"paint weights: ready at {PAINT_WEIGHTS} (incl. RealESRGAN rrdbnet.npz)")
+    else:
+        print(f"paint weights: ready at {PAINT_WEIGHTS}")
+        print(
+            "NOTE: RealESRGAN weights (weights/realesrgan/rrdbnet.npz) are NOT covered "
+            "by this script -- run paint/scripts/convert_realesrgan.py separately "
+            "(needs torch + numpy)."
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:

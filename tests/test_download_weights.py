@@ -40,13 +40,13 @@ def fake_hf_hub():
 
 
 class DownloadPlanTest(unittest.TestCase):
-    def _run(self, deps_present=True, bin_present=True):
+    def _run(self, deps_present=True, bin_present=True, npz_present=False):
         mod = load_module()
         hub = fake_hf_hub()
         recorded = {}
 
         def fake_run(cmd, **kw):
-            recorded["converter_cmd"] = cmd
+            recorded.setdefault("cmds", []).append(cmd)
             return mock.Mock(returncode=0)
 
         tmp = tempfile.TemporaryDirectory()
@@ -57,6 +57,10 @@ class DownloadPlanTest(unittest.TestCase):
             unet_dir = weights / "hunyuan3d-paintpbr-v2-1" / "unet"
             unet_dir.mkdir(parents=True)
             (unet_dir / "diffusion_pytorch_model.bin").write_bytes(b"fake bin")
+        if npz_present:
+            rr_dir = weights / "realesrgan"
+            rr_dir.mkdir(parents=True)
+            (rr_dir / "rrdbnet.npz").write_bytes(b"fake npz")
 
         with mock.patch.dict(sys.modules, {"huggingface_hub": hub}), \
                 mock.patch.object(mod, "_converter_deps_present", return_value=deps_present), \
@@ -100,11 +104,25 @@ class DownloadPlanTest(unittest.TestCase):
         self.assertEqual(dino[0].kwargs.get("revision"), mod.DINO_REVISION)
         self.assertEqual(Path(dino[0].kwargs["local_dir"]).name, "dinov2")
 
-    def test_converter_invoked_when_bin_present(self):
+    def test_converters_invoked_when_sources_present(self):
         _, _, recorded = self._run(bin_present=True)
-        cmd = recorded.get("converter_cmd")
-        self.assertIsNotNone(cmd, "converter not invoked although the .bin ships upstream")
-        self.assertTrue(any("convert_unet_bin.py" in str(part) for part in cmd))
+        cmds = recorded.get("cmds", [])
+        self.assertTrue(
+            any(any("convert_unet_bin.py" in str(part) for part in c) for c in cmds),
+            f"UNet converter not invoked: {cmds}")
+        self.assertTrue(
+            any(any("convert_realesrgan.py" in str(part) for part in c) for c in cmds),
+            f"RealESRGAN converter not invoked although the npz was absent: {cmds}")
+
+    def test_realesrgan_converter_skipped_when_npz_present(self):
+        _, _, recorded = self._run(bin_present=False, npz_present=True)
+        cmds = recorded.get("cmds", [])
+        self.assertFalse(
+            any(any("convert_realesrgan.py" in str(part) for part in c) for c in cmds),
+            f"RealESRGAN converter ran despite existing npz: {cmds}")
+        self.assertFalse(
+            any(any("convert_unet_bin.py" in str(part) for part in c) for c in cmds),
+            "UNet converter ran although no .bin was present")
 
     def test_dependency_gate_fires_before_any_download(self):
         mod, hub, recorded = self._run(deps_present=False)

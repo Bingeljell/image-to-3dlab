@@ -159,6 +159,9 @@ def main() -> None:
     tmp_mesh.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(str(tmp_mesh))
 
+    # Capture manifest stats while the mesh is still alive.
+    n_verts, n_faces = len(mesh.vertices), len(mesh.faces)
+
     # The paint stage is a subprocess that allocates ~10 GB for its own models.
     # Everything the shape stage loaded (quantized DiT + VAE + DINOv2 conditioner
     # + octree buffers) is dead weight from here on, and Metal does not return
@@ -195,7 +198,8 @@ def main() -> None:
             "paint_steps": args.paint_steps,
             "paint_tex": args.paint_tex,
         },
-        "faces": len(mesh.faces),
+        "vertices": n_verts,
+        "faces": n_faces,
         "timings_seconds": {
             "shape": round(shape_seconds, 1),
             "remesh": round(remesh_seconds, 1),

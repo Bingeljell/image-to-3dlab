@@ -163,15 +163,19 @@ def main() -> None:
     n_verts, n_faces = len(mesh.vertices), len(mesh.faces)
 
     # The paint stage is a subprocess that allocates ~10 GB for its own models.
-    # Everything the shape stage loaded (quantized DiT + VAE + DINOv2 conditioner
-    # + octree buffers) is dead weight from here on, and Metal does not return
-    # wired allocations eagerly -- without an explicit release the paint child
-    # can get SIGKILLed by memory pressure even on 48 GB machines.
+    # The first chest run was killed by SIGKILL (rc 137) during paint-stage model
+    # load; the exact mechanism is not established. As a mitigation for the
+    # plausible case of Metal wired allocations from the shape stage not being
+    # returned, release the mesh, collect, and clear the MLX Metal cache before
+    # launching paint.
     del mesh
     import gc
     gc.collect()
-    import mlx.core as mx
-    mx.metal.clear_cache()
+    try:
+        import mlx.core as mx
+        mx.metal.clear_cache()
+    except ImportError:
+        pass  # nothing loaded, nothing cached
 
     paint_t0 = time.time()
     run_paint(tmp_mesh, args.image, args.output, args.paint_seed, args.paint_res,

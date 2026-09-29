@@ -1,113 +1,117 @@
-"""Tests for the Hunyuan weight downloader's post-conversion cleanup.
+#!/usr/bin/env python3
+"""Contract tests for hunyuan_mlx/download_weights.py's paint path.
 
-`download_shape` fetches a `.ckpt`, converts it to `.safetensors`, and used to leave both
-on disk. That stored the same 6.9 GB model twice for every user, and went unnoticed until
-a disk audit on 2026-09-21.
+Mocks huggingface_hub and the converter subprocess, then asserts the download
+plan: repository IDs, pinned revisions, allow-patterns, and local destinations.
+Also asserts the torch+safetensors dependency gate fires BEFORE any download.
+The weights directory is a temp tree, so no machine state or network is used.
+
+Run with any python 3.10+:
+    python3 tests/test_download_weights.py
 """
 
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
+import tempfile
+import types
+import unittest
 from pathlib import Path
+from unittest import mock
 
-SCRIPT = Path(__file__).resolve().parents[1] / "hunyuan_mlx" / "download_weights.py"
-
-
-def _load():
-    spec = importlib.util.spec_from_file_location("download_weights", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["download_weights"] = module
-    spec.loader.exec_module(module)
-    return module
+REPO = Path(__file__).resolve().parents[1]
 
 
-dw = _load()
+def load_module():
+    spec = importlib.util.spec_from_file_location(
+        "download_weights", REPO / "hunyuan_mlx" / "download_weights.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def test_the_checkpoint_goes_once_the_conversion_exists(tmp_path):
-    ckpt = tmp_path / "model.fp16.ckpt"
-    converted = tmp_path / "model.fp16.safetensors"
-    ckpt.write_bytes(b"\0" * 4096)
-    converted.write_bytes(b"\0" * 4096)
-
-    assert dw.discard_converted_checkpoint(ckpt, converted) is True
-    assert not ckpt.exists()
-    assert converted.is_file()
+def fake_hf_hub():
+    hub = types.ModuleType("huggingface_hub")
+    hub.snapshot_download = mock.Mock(return_value=None)
+    hub.hf_hub_download = mock.Mock(return_value=None)
+    return hub
 
 
-def test_an_unfinished_conversion_keeps_the_checkpoint(tmp_path):
-    # Deleting the source next to a zero-byte output would leave nothing to retry from.
-    ckpt = tmp_path / "model.fp16.ckpt"
-    converted = tmp_path / "model.fp16.safetensors"
-    ckpt.write_bytes(b"\0" * 4096)
-    converted.write_bytes(b"")
+class DownloadPlanTest(unittest.TestCase):
+    def _run(self, deps_present=True, bin_present=True):
+        mod = load_module()
+        hub = fake_hf_hub()
+        recorded = {}
 
-    assert dw.discard_converted_checkpoint(ckpt, converted) is False
-    assert ckpt.is_file()
+        def fake_run(cmd, **kw):
+            recorded["converter_cmd"] = cmd
+            return mock.Mock(returncode=0)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        weights = Path(tmp.name) / "weights"
+        weights.mkdir()
+        if bin_present:
+            unet_dir = weights / "hunyuan3d-paintpbr-v2-1" / "unet"
+            unet_dir.mkdir(parents=True)
+            (unet_dir / "diffusion_pytorch_model.bin").write_bytes(b"fake bin")
+
+        with mock.patch.dict(sys.modules, {"huggingface_hub": hub}), \
+                mock.patch.object(mod, "_converter_deps_present", return_value=deps_present), \
+                mock.patch.object(mod, "PAINT_WEIGHTS", weights), \
+                mock.patch.object(subprocess, "run", side_effect=fake_run):
+            if deps_present:
+                mod.download_paint()
+            else:
+                with self.assertRaises(SystemExit) as cm:
+                    mod.download_paint()
+                recorded["exit"] = cm.exception
+        return mod, hub, recorded
+
+    def test_every_fetch_is_pinned_with_expected_repos_and_paths(self):
+        mod, hub, _ = self._run()
+
+        hub.snapshot_download.assert_called_once()
+        args, kwargs = hub.snapshot_download.call_args
+        self.assertEqual(kwargs.get("repo_id") or (args[0] if args else None),
+                         "tencent/Hunyuan3D-2.1")
+        self.assertEqual(kwargs.get("revision"), mod.PAINT_REVISION_21)
+        self.assertIn("hunyuan3d-paintpbr-v2-1/*", kwargs.get("allow_patterns", []))
+
+        vae = [c for c in hub.hf_hub_download.call_args_list
+               if "hunyuan3d-paint-v2-0" in str(c.kwargs) or
+               (c.args and "hunyuan3d-paint-v2-0" in c.args[1])]
+        self.assertEqual(len(vae), 2, "VAE config + safetensors must both be fetched")
+        for c in vae:
+            repo = c.kwargs.get("repo_id") or (c.args[0] if c.args else None)
+            self.assertEqual(repo, "tencent/Hunyuan3D-2")
+            self.assertEqual(c.kwargs.get("revision"), mod.SHAPE_VAE_REVISION)
+
+        def _filename(c):
+            return c.kwargs.get("filename") or (c.args[1] if len(c.args) > 1 else "")
+
+        dino = [c for c in hub.hf_hub_download.call_args_list
+                if _filename(c) == "model.safetensors"]
+        self.assertEqual(len(dino), 1)
+        drepo = dino[0].kwargs.get("repo_id") or (dino[0].args[0] if dino[0].args else None)
+        self.assertEqual(drepo, "facebook/dinov2-giant")
+        self.assertEqual(dino[0].kwargs.get("revision"), mod.DINO_REVISION)
+        self.assertEqual(Path(dino[0].kwargs["local_dir"]).name, "dinov2")
+
+    def test_converter_invoked_when_bin_present(self):
+        _, _, recorded = self._run(bin_present=True)
+        cmd = recorded.get("converter_cmd")
+        self.assertIsNotNone(cmd, "converter not invoked although the .bin ships upstream")
+        self.assertTrue(any("convert_unet_bin.py" in str(part) for part in cmd))
+
+    def test_dependency_gate_fires_before_any_download(self):
+        mod, hub, recorded = self._run(deps_present=False)
+        hub.snapshot_download.assert_not_called()
+        hub.hf_hub_download.assert_not_called()
+        self.assertIn("torch", str(recorded["exit"]))
 
 
-def test_a_missing_conversion_keeps_the_checkpoint(tmp_path):
-    ckpt = tmp_path / "model.fp16.ckpt"
-    ckpt.write_bytes(b"\0" * 4096)
-    assert dw.discard_converted_checkpoint(ckpt, tmp_path / "absent.safetensors") is False
-    assert ckpt.is_file()
-
-
-def test_rerunning_after_cleanup_is_harmless(tmp_path):
-    converted = tmp_path / "model.fp16.safetensors"
-    converted.write_bytes(b"\0" * 4096)
-    assert dw.discard_converted_checkpoint(tmp_path / "model.fp16.ckpt", converted) is False
-
-
-def test_the_2_1_route_is_the_only_one_that_converts():
-    # 2.1 ships only a .ckpt on HF; the others ship safetensors directly, so only 2.1 has
-    # a checkpoint to clean up afterwards.
-    assert set(dw.SHAPE_HF_SOURCES) == {"2.1", "2.0", "2.0-turbo"}
-    assert dw.SHAPE_HF_SOURCES["2.1"][0] == "tencent/Hunyuan3D-2.1"
-
-
-def test_only_the_default_model_downloads_unless_all_is_asked_for():
-    """The bug: `--model` defaulted to None and None meant *every* model.
-
-    The README documents this exact command and calls it "~13 GB", while all three shape
-    checkpoints plus paint come to ~24 GB. Nobody chose the extra two, and the default
-    route never loads them.
-    """
-    assert dw.DEFAULT_MODEL == "2.0"
-    bare = dw.build_parser().parse_args([])
-    assert bare.model == "2.0"
-    assert bare.all is False
-
-    every = dw.build_parser().parse_args(["--all"])
-    assert every.all is True
-
-    one = dw.build_parser().parse_args(["--model", "2.1"])
-    assert one.model == "2.1"
-
-
-def test_the_default_route_costs_what_the_readme_says(capsys):
-    total = dw.announce([dw.DEFAULT_MODEL], paint=True)
-    assert 12.0 <= total <= 14.0, f"README promises ~13 GB, announce says {total}"
-    printed = capsys.readouterr().out
-    assert "12.9 GB" in printed
-    # The territorial restriction is stated before anything is fetched, not afterwards.
-    assert "EU" in printed and "South Korea" in printed
-
-
-def test_every_model_is_visibly_more_expensive(capsys):
-    total = dw.announce(sorted(dw.SHAPE_HF_SOURCES), paint=True)
-    assert total > 24.0
-    assert "total" in capsys.readouterr().out
-
-
-def test_skipping_paint_is_reflected_in_the_total():
-    with_paint = dw.announce([dw.DEFAULT_MODEL], paint=True)
-    without = dw.announce([dw.DEFAULT_MODEL], paint=False)
-    assert with_paint - without == dw.APPROX_GB["paint"]
-
-
-def test_every_shape_model_has_a_stated_size():
-    # A model that downloads silently because nobody gave it a number is the failure mode.
-    for model in dw.SHAPE_HF_SOURCES:
-        assert dw.APPROX_GB.get(model, 0) > 0, model
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

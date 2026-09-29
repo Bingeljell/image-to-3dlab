@@ -125,7 +125,31 @@ def announce(models: list[str], *, paint: bool) -> float:
     return total
 
 
+def _converter_deps_present() -> bool:
+    """True iff this interpreter can run the UNet .bin -> .safetensors converter."""
+    try:
+        import huggingface_hub  # noqa: F401
+        import torch  # noqa: F401
+        import safetensors  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def download_paint() -> None:
+    # Fail BEFORE any multi-GB download if the conversion step cannot run in
+    # this interpreter: upstream ships the paint UNet only as a torch .bin,
+    # so paint setup always needs torch + safetensors at least once.
+    if not _converter_deps_present():
+        sys.exit(
+            "the paint download path needs huggingface_hub + torch + safetensors "
+            "in THIS python (the paint UNet ships as a torch .bin that must be "
+            "converted). Run this script with e.g. the env used for "
+            "convert_realesrgan.py (plus huggingface_hub), "
+            "or pre-convert "
+            f"{PAINT_WEIGHTS / 'hunyuan3d-paintpbr-v2-1/unet/diffusion_pytorch_model.safetensors'}".strip() +
+            " from its .bin with paint/scripts/convert_unet_bin.py first."
+        )
     from huggingface_hub import hf_hub_download, snapshot_download
 
     # Everything run_paint_pbr.py opens, fetched at pinned revisions:
@@ -163,16 +187,17 @@ def download_paint() -> None:
     )
     unet_st = pbr / "unet" / "diffusion_pytorch_model.safetensors"
     unet_bin = pbr / "unet" / "diffusion_pytorch_model.bin"
-    if not unet_st.is_file():
-        if not unet_bin.is_file():
-            sys.exit(f"neither {unet_st} nor {unet_bin} found after download")
-        print("converting UNet .bin -> .safetensors (needs torch + safetensors)", flush=True)
+    if unet_bin.is_file():
+        # The converter is the validation gate: it accepts an existing
+        # destination only if it matches the .bin on keys/shapes/dtypes/values,
+        # and regenerates anything else. The source .bin is always retained.
+        print("validating/converting UNet .bin -> .safetensors "
+              "(torch + safetensors required)", flush=True)
         subprocess.run(
             [sys.executable, str(REPO / "paint" / "scripts" / "convert_unet_bin.py"),
              str(unet_bin), str(unet_st)],
             check=True,
         )
-        discard_converted_checkpoint(unet_bin, unet_st)
     print(f"paint weights: ready at {PAINT_WEIGHTS}")
     print(
         "NOTE: RealESRGAN weights (weights/realesrgan/rrdbnet.npz) are NOT covered by "

@@ -31,7 +31,7 @@ and more camera angles are next. [How Finish works](#finishing-an-asset).
 curl -fsSL https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.sh | bash
 ```
 
-**Windows** (untested, tell us how it goes):
+**Windows** (limited testing, more testers wanted: tell us how it goes):
 ```powershell
 irm https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.ps1 | iex
 ```

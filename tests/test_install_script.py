@@ -184,7 +184,7 @@ def test_windows_installer_keeps_step_with_the_shell_one():
     assert "v[0-9]*.[0-9]*.[0-9]*" in ps1 and "v[0-9]*.[0-9]*.[0-9]*" in SCRIPT.read_text()
     assert "--untracked-files=no" in ps1
     assert "hf_hub_download" not in ps1 and "bootstrap_" not in ps1
-    assert "UNTESTED" in ps1
+    assert "LIMITED TESTING" in ps1
 
 
 def test_windows_installer_gets_cuda_pytorch_before_the_requirements():

@@ -1,4 +1,4 @@
-# Install or update image-to-3dlab on Windows with an NVIDIA GPU. UNTESTED: if you run it,
+# Install or update image-to-3dlab on Windows with an NVIDIA GPU. LIMITED TESTING: if you run it,
 # please tell us how it went in GitHub Discussions.
 #
 #   irm https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.ps1 | iex

@@ -40,4 +40,4 @@ Only the ones everyone can hit:
   [picking a picture](trellis2-flat-illustration-colour-drift.md).
 - **NVIDIA: Pixal3D's ready-made build needs driver 575 or newer.** On an older driver the
   installer compiles it instead, if the CUDA toolkit is installed.
-- **Windows is untested.**
+- **Windows has had limited testing.** More testers wanted: tell us how it went.

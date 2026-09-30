@@ -860,8 +860,10 @@ def _cleanup_debug_files(job: Job) -> None:
     """Debug mode off (the default): keep only the primary .glb. Deletes the manifest,
     textures, intermediate meshes, resume caches, and run.log -- everything a run writes
     that exists purely to diagnose a run, not to use the asset."""
+    # The licence record travels with the file (AGENTS.md), so it is never "debug".
+    keep = {job.output_path, job.output_path.with_suffix(".provenance.json")}
     for path in job.directory.iterdir():
-        if path == job.output_path:
+        if path in keep:
             continue
         if path.is_dir():
             shutil.rmtree(path, ignore_errors=True)

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A `.provenance.json` beside the GLB is kept.** With Debug off, the viewer deleted
+  everything but the GLB, licence record included; the record now stays with the file.
+
 ## [0.3.5] - 2026-09-30
 
 ### Added

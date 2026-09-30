@@ -1075,3 +1075,11 @@ def test_reconcile_notes_a_finish_run_in_its_steps_log(tmp_path, monkeypatch):
 
     api._reconcile_orphaned_jobs(tmp_path)
     assert "died mid-run" in (job_dir / "steps" / "run.log").read_text()
+
+
+def test_cleanup_keeps_the_provenance_sidecar(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb", {}, "trellis")
+    for name in ("out.glb", "out.provenance.json", "out.json", "out_latents.pt"):
+        (tmp_path / name).write_text("x")
+    api._cleanup_debug_files(job)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.glb", "out.provenance.json"]

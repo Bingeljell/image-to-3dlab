@@ -12,6 +12,34 @@ Drop in a picture of a character or object; get back a `.glb` (with PBR texture)
 `.provenance.json` sidecar recording exactly how it was made and under which licenses. This should make your game-dev or whatever else you're up to easier to manage.
 Everything runs on your machine; nothing is uploaded to a cloud service.
 
+**Pixel Match: your picture's real pixels, on the model.** Image-to-3D models redraw your
+picture, so text, logos and faces come back as garbled lookalikes. Pixel Match, in the
+**Finish** step, copies the real pixels from your source image back onto every surface the
+image can see. "VANGUARD 07" on a chest stays "VANGUARD 07", even after Finish cuts the
+model down to ~5k faces. On by default for Pixal3D models made in the lab; other backends
+and more camera angles are next. [How Finish works](#finishing-an-asset).
+
+## Install
+
+**Mac (Apple Silicon) or Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.sh | bash
+```
+
+**Windows** (untested, tell us how it goes):
+```powershell
+irm https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.ps1 | iex
+```
+
+The installer is short, so [read it](install.sh) before you run it
+([Windows version](install.ps1)). It checks your machine, installs the code and
+Python 3.11, and prints how to start the viewer. It downloads **no model weights**: you
+choose those in **Setup & Status**, which states each size and licence and asks first. To
+update, run the same line again.
+
+For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
+(`--dry-run` shows what it would do).
+
 **No picture to start from?** There is now a **Generate Image** tab that makes one. Type a
 prompt, get a source image, hand it to **Generate 3D**. It runs Qwen-Image 2.1 on your own
 machine: about four and a half minutes an image on an M-series Mac, about twenty seconds
@@ -57,24 +85,7 @@ severe colour drift on flat/vector-style illustrations; prefer photographs or so
 
 ---
 
-## Quick start: web UI (recommended)
-
-**Mac or Linux:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.sh | bash
-```
-
-**Windows** (untested, tell us how it goes):
-```powershell
-irm https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.ps1 | iex
-```
-
-It checks your machine, installs the code and Python 3.11, and prints how to start the
-viewer. It downloads **no model weights**: you choose those in **Setup & Status**, which
-states each size and licence and asks first. To update, run the same line again.
-
-For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
-(`--dry-run` shows what it would do).
+## Setting up a backend
 
 Go to **Generate**, pick a backend from the dropdown. Each one has its own **Setup**
 status telling you exactly what's missing:
@@ -177,14 +188,20 @@ python scripts/retopo_repaint.py generated.glb source.png finished.glb \
     --faces 40000 --skip-paint
 ```
 
-Three stages, each skippable:
+Up to four stages; Finish in the viewer runs retopologise, Pixel Match and compress by
+default:
 
 1. **Retopologise**: voxel-remesh, then decimate. The ordering matters: decimating the raw
    mesh shatters thin geometry, measured.
-2. **Repaint** (optional): hands the clean mesh to Hunyuan 2.1 PBR and paints from the
-   source art. Use it when the generator's own texture is wrong; Pixal3D output usually does
-   not need it, so `--skip-paint` finishes in seconds instead of ~6 minutes.
-3. **Compress**: re-encodes the textures. The paint stage emits two uncompressed 4096²
+2. **Repaint** (optional, Apple Silicon): hands the clean mesh to Hunyuan 2.1 PBR and
+   paints from the source art. Pixal3D output rarely needs it, so it is off by default
+   (`--skip-paint` on the CLI) and a finish takes seconds instead of ~6 minutes.
+3. **Pixel Match**: every surface the source picture can see takes its real pixel, so
+   text, logos, numbers and faces stay exact instead of redrawn lookalikes. Automatic for
+   Pixal3D models made in the lab (their camera is found for you); on the CLI pass
+   `--views <run>.svviews`, or use `scripts/photo_paint.py` on its own. Surfaces the
+   picture cannot see keep the generator's paint.
+4. **Compress**: re-encodes the textures. The paint stage emits two uncompressed 4096²
    PNGs; core-glTF JPEG at 2048 measures below the renderer's own sampling noise and takes a
    typical asset from 32 MB to under 5.
 
@@ -211,7 +228,7 @@ character with them.
 | Thing | Why |
 |---|---|
 | Apple Silicon Mac (M-series), 32 GB recommended | Every route |
-| **or** Linux with an NVIDIA card (24 GB VRAM tested) | Pixal3D, Stable Fast 3D, Generate Image |
+| **or** Linux with an NVIDIA card (24 GB VRAM tested; Pixal3D's authors run it on 16 GB) | Pixal3D, Stable Fast 3D, Generate Image |
 | macOS: full Xcode | compiles the Metal kernels for Pixal3D and TRELLIS |
 | Blender 4.2+ | Finish (low-poly clean-up, Pixel Match) and rigging. Install it yourself from [blender.org](https://www.blender.org/download/); Setup & Status shows whether it was found |
 | `uv` | builds the reproducible Python environments |

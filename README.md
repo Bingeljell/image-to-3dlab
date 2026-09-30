@@ -20,7 +20,7 @@ model down to ~5k faces. On by default for Pixal3D models made in the lab; other
 and more camera angles are next. [How Finish works](#finishing-an-asset).
 
 <p align="center">
-  <img src="docs/images/pixel-match-vanguard.jpg" width="480"
+  <img src="docs/images/pixel-match-lettering-before-after.jpg" width="480"
        alt="Close-up of a robot's chest: the generated model's lettering is garbled, the Pixel Match model reads VANGUARD 07 exactly like the source picture">
 </p>
 

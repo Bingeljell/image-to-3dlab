@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Install Blender and the Mac Run setup button show their progress again.** The page
+  asked for a progress feed at an address the viewer never answered, so both ran blind.
+
 ## [0.3.7] - 2026-10-02
 
 ### Added

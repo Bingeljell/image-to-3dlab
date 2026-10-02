@@ -2162,8 +2162,10 @@ class Handler(SimpleHTTPRequestHandler):
                 else:
                     self._send_json(200, download_status_payload(run))
                 return
-        if len(parts) == 4 and parts[:3] == ["api", "setup", "run"] and parts[3] == "events":
-            run = SETUP_RUNS.get(parts[2]) if _safe_id(parts[2]) else None
+        # /api/setup/run/<id>/events: five parts, as _start_setup and the Blender
+        # install hand it out.
+        if len(parts) == 5 and parts[:3] == ["api", "setup", "run"] and parts[4] == "events":
+            run = SETUP_RUNS.get(parts[3]) if _safe_id(parts[3]) else None
             if run is None:
                 self.send_error(HTTPStatus.NOT_FOUND)
                 return

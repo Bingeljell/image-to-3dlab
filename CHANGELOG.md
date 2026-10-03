@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a **Turn 90°** button that re-bakes just the prop that came out facing sideways.
 
 ### Fixed
+- **Install Blender and the Mac Run setup button show their progress again.** The page
+  asked for a progress feed at an address the viewer never answered, so both ran blind.
 - `blender_bake_normals.py` no longer knocks normal-map values from 1 to 63 down a
   step when it fixes the map's sign. It truncated where it should have rounded. The
   normal map Finish bakes goes through the same step.

@@ -1450,3 +1450,39 @@ def test_blender_install_is_refused_when_it_cannot_or_should_not_run():
 def test_blender_install_runs_the_bootstrap_with_yes():
     command = api.blender_install_command()
     assert command[-2].endswith("bootstrap_blender.py") and command[-1] == "--yes"
+
+
+def test_a_setup_run_streams_its_progress_at_the_address_it_hands_out():
+    # Found on a pod 2026-10-02: Install Blender (and the Mac Run setup button) hand out
+    # /api/setup/run/<id>/events, but the route only matched four path parts, so the
+    # page's progress feed was a 404 since the day it was written.
+    import http.server
+    import threading
+    import urllib.request
+    import uuid
+
+    run_id = uuid.uuid4().hex
+    run = api.SetupRun(run_id)
+    run.emit({"phase": "setup", "message": "Downloading blender..."})
+    run.status = "done"
+    run.emit({"phase": "setup_done", "status": "done", "message": "exit 0"})
+    api.SETUP_RUNS[run_id] = run
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/api/setup/run/{run_id}/events"
+        # A live feed: read events until the last one, as the page's EventSource does,
+        # rather than waiting for the connection to close.
+        lines = []
+        with urllib.request.urlopen(url, timeout=30) as response:
+            assert response.status == 200
+            for raw in response:
+                lines.append(raw.decode())
+                if '"setup_done"' in lines[-1]:
+                    break
+        body = "".join(lines)
+        assert "Downloading blender" in body and '"setup_done"' in body
+    finally:
+        server.shutdown()
+        server.server_close()
+        api.SETUP_RUNS.pop(run_id, None)

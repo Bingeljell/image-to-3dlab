@@ -155,3 +155,10 @@ def test_a_missing_blender_is_explained_in_the_servers_words():
     assert "tools.blender_problem" in PROPS
     assert "I2L_BLENDER" not in PROPS
 
+
+
+def test_the_names_box_fits_a_three_by_three_sheet_and_warns_about_order():
+    # Six rows hid a typo on line 4 of nine; Qwen also drew a row in another order than
+    # the prompt listed it (props test, 2026-10-03).
+    assert '<textarea id="props-names" rows="9"' in INDEX
+    assert "In the order the picture shows them, which may not be your prompt's" in INDEX

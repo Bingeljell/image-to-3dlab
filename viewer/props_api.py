@@ -122,9 +122,12 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalise_names(value: Any) -> list[str]:
-    """Names in reading order. A string is one name per line; blank lines are skipped."""
+    """Names in reading order. A string is one name per line, or comma-separated; blank
+    entries are skipped."""
+    lines = None
     if isinstance(value, str):
-        value = value.splitlines()
+        lines = value.splitlines()
+        value = [part for line in lines for part in line.split(",")]
     if not isinstance(value, list):
         raise ValueError("names must be a list or one name per line")
     names = [str(name).strip() for name in value if str(name).strip()]
@@ -132,6 +135,12 @@ def normalise_names(value: Any) -> list[str]:
         raise ValueError(f"names: at most {MAX_PROPS}, got {len(names)}")
     for name in names:
         if not PROP_NAME.fullmatch(name):
+            if " " in name:
+                # Two props typed on one line read as one bad name; say where and how.
+                where = next((f"line {n} " for n, line in enumerate(lines or [], 1)
+                              if name in line), "")
+                raise ValueError(f"names: {where}has {name!r}. Put one name per line, and "
+                                 f"use - instead of a space ({name.replace(' ', '-')!r})")
             raise ValueError(f"names: {name!r} must be letters, digits, - or _ (up to 40), "
                              "starting with a letter or digit")
     # Compared without case: macOS disks are case-insensitive, so `Barrel.glb` and

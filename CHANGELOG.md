@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files come out much smaller. The Props tab now says so in plain words and links there,
   instead of asking you to put a native release on your PATH.
 
+### Changed
+- **The Props tab's names box is easier to fill in.** It fits a 3x3 sheet, takes commas
+  as well as new lines, and when two names land on one line it says which line and how
+  to fix it. Its hint now says to follow the order in the picture, which an image model
+  does not always take from your prompt.
+
 ### Fixed
 - **Install Blender and the Mac Run setup button show their progress again.** The page
   asked for a progress feed at an address the viewer never answered, so both ran blind.

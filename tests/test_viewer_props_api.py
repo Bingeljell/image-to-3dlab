@@ -69,6 +69,20 @@ def test_names_arrive_one_per_line_from_the_textarea():
     assert settings["names"] == ["barrel", "crate", "chest"]
 
 
+def test_names_may_also_be_separated_by_commas():
+    settings = props.normalise_settings({"names": "barrel, crate,chest\npot"})
+    assert settings["names"] == ["barrel", "crate", "chest", "pot"]
+
+
+def test_a_name_with_a_space_says_which_line_and_what_to_do():
+    # First real use typed two props on one line ("pot bucket", 2026-10-03).
+    with pytest.raises(ValueError) as caught:
+        props.normalise_settings({"names": "barrel\ncrate\nchest\npot bucket"})
+    message = str(caught.value)
+    assert "line 4" in message and "'pot bucket'" in message
+    assert "one name per line" in message and "pot-bucket" in message
+
+
 @pytest.mark.parametrize("names", [
     "barrel\nbarrel", "iron chest", "../etc", "a" * 41, ["x"] * 65, 12,
     "Barrel\nbarrel",                      # one file on a case-insensitive disk

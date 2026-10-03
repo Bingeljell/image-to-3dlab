@@ -751,3 +751,32 @@ def test_the_provenance_sidecar_wins_over_the_run_manifest(tmp_path):
 
 def test_job_ids_are_validated_before_lookup():
     assert props.PropsJobManager().get("../../etc") is None
+
+
+def test_tools_say_whether_setup_can_install_gltfpack(monkeypatch):
+    monkeypatch.setattr(props, "find_gltfpack", lambda: None)
+    monkeypatch.setattr(props.gltfpack_bootstrap(), "can_install", lambda: True)
+    assert props.tools_payload()["gltfpack_installable"] is True
+    monkeypatch.setattr(props.gltfpack_bootstrap(), "can_install", lambda: False)
+    assert props.tools_payload()["gltfpack_installable"] is False
+    monkeypatch.setattr(props, "find_gltfpack", lambda: Path("/bin/gltfpack"))
+    monkeypatch.setattr(props.gltfpack_bootstrap(), "can_install", lambda: True)
+    assert props.tools_payload()["gltfpack_installable"] is False  # already there
+
+
+def test_gltfpack_install_runs_the_bootstrap_with_yes():
+    command = props.gltfpack_install_command()
+    assert command[-2].endswith("bootstrap_gltfpack.py") and command[-1] == "--yes"
+
+
+def test_the_server_can_load_the_gltfpack_bootstrap_in_a_fresh_process():
+    # In this suite another test has already imported it, which hid a crash the live
+    # server hit on the first visit to Setup (a dataclass needs its module registered).
+    import subprocess
+
+    code = ("import sys; sys.path.insert(0, 'viewer'); import props_api; "
+            "print(props_api.tools_payload()['gltfpack_installable'] in (True, False))")
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
+                            text=True, check=False)
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert result.stdout.strip().endswith("True")

@@ -258,9 +258,13 @@ function showTools(tools) {
   // The server's words, the ones the Finish tab shows: where to get it and which version.
   if (!tools.blender) line('bad', '').textContent = tools.blender_problem;
   if (!tools.gltfpack) {
-    line('warn', 'gltfpack not found, so LODs stay uncompressed. Put a native release ' +
-      '(github.com/zeux/meshoptimizer/releases) on PATH or at ' +
-      '<code>vendor/gltfpack/gltfpack</code>; the npm build cannot write WebP.');
+    const warn = line('warn', 'Files will be bigger: gltfpack, the optional tool that '
+      + 'shrinks them, is not installed. <a href="#" data-setup>Install it in Setup &amp; '
+      + 'Status</a> (under 2 MB).');
+    warn.querySelector('[data-setup]').onclick = (event) => {
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent('viewer:navigate', { detail: { mode: 'setup' } }));
+    };
   }
   // Refreshed on every visit, so only force it off; a choice to skip it stays made.
   f('props-compress').disabled = !tools.gltfpack;

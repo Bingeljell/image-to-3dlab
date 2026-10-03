@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   browser, with a 3D view and downloads per prop, a warning when gltfpack is missing, and
   a **Turn 90°** button that re-bakes just the prop that came out facing sideways.
 
+- **Install gltfpack from Setup & Status.** One click, under 2 MB, and the Props tab's
+  files come out much smaller. The Props tab now says so in plain words and links there,
+  instead of asking you to put a native release on your PATH.
+
 ### Fixed
 - **Install Blender and the Mac Run setup button show their progress again.** The page
   asked for a progress feed at an address the viewer never answered, so both ran blind.

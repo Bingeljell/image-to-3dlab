@@ -382,6 +382,7 @@ async function renderBackends(catalog) {
   const token = ++state.renderToken;
   const readOnly = state.tab !== catalog.host.id;
   const blender = readOnly ? null : await blenderCard();
+  const gltfpack = readOnly ? null : await gltfpackCard();
   const hf = readOnly ? null : await hfCard();
   if (token !== state.renderToken) return;
   const host = s('setup-backends');
@@ -398,6 +399,7 @@ async function renderBackends(catalog) {
   const list = readOnly ? catalog.views[state.tab] : hereBackends(catalog);
   for (const backend of list) host.appendChild(backendCard(backend, { readOnly }));
   if (blender) host.appendChild(blender);
+  if (gltfpack) host.appendChild(gltfpack);
   placeRunPanel();
 }
 
@@ -554,6 +556,66 @@ async function blenderCard() {
       button.disabled = true;
       try {
         const response = await fetch('/api/blender/install', { method: 'POST' });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        const source = new EventSource(payload.events_url);
+        source.onmessage = (message) => {
+          const event = JSON.parse(message.data);
+          if (event.message) progress.textContent = event.message;
+          if (event.phase === 'setup_done') { source.close(); load(); }
+        };
+      } catch (error) {
+        progress.textContent = `Could not start: ${error.message}`;
+        button.disabled = false;
+      }
+    };
+    action.replaceChildren(button);
+    card.appendChild(progress);
+  }
+  return card;
+}
+
+/* gltfpack shrinks the Props tab's LODs (WebP textures, GPU-ordered meshes). Optional:
+ * without it props still split and bake, just bigger. A small MIT tool, so Setup offers
+ * it on every machine with a build (scripts/bootstrap_gltfpack.py). */
+async function gltfpackCard() {
+  let tools = null;
+  try {
+    const response = await fetch('/api/props/tools');
+    if (response.ok) tools = await response.json();
+  } catch { /* shown as unknown below */ }
+  const found = Boolean(tools && tools.gltfpack);
+  const card = document.createElement('div');
+  card.className = `setup-card ${found ? 'ready' : 'missing'}`;
+  card.dataset.backend = 'gltfpack';
+  card.innerHTML = `
+    <div class="setup-card-head">
+      <span class="setup-dot ${found ? 'ok' : 'off'}">${found ? '●' : '○'}</span>
+      <div class="setup-card-title">
+        <strong>gltfpack (optional, for Props)</strong>
+        <div class="setup-card-state">${found ? `found at <code>${tools.gltfpack}</code>` : 'not found'}</div>
+      </div>
+      <div class="setup-card-action">${found
+        ? '<span class="setup-ready">✓ ready</span>'
+        : '<a href="https://github.com/zeux/meshoptimizer/releases" target="_blank" rel="noopener">Get gltfpack</a>'}</div>
+    </div>
+    <p class="setup-card-best">Makes the Props tab's files much smaller, ready for web games.
+      Without it, props still work, just bigger.</p>`;
+  if (tools && tools.gltfpack_installable) {
+    const action = card.querySelector('.setup-card-action');
+    const button = document.createElement('button');
+    button.textContent = 'Install gltfpack';
+    const progress = document.createElement('p');
+    progress.className = 'setup-card-trade';
+    progress.textContent = 'gltfpack 1.3 (MIT) from GitHub: under 2 MB, into vendor/gltfpack/ '
+      + 'in this folder. No admin rights needed.';
+    button.onclick = async () => {
+      // eslint-disable-next-line no-alert -- same deliberate confirmation as a download
+      if (!window.confirm('Install gltfpack 1.3 (MIT) from GitHub?\n\n'
+        + 'Under 2 MB, into vendor/gltfpack/ in this folder.')) return;
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/gltfpack/install', { method: 'POST' });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
         const source = new EventSource(payload.events_url);

@@ -126,8 +126,11 @@ def find_gltfpack(explicit: Path | None = None, which=shutil.which) -> Path | No
     on_path = which("gltfpack")
     if on_path:
         return Path(on_path)
-    vendored = REPO / "vendor" / "gltfpack" / "gltfpack"
-    return vendored if vendored.is_file() else None
+    for name in ("gltfpack", "gltfpack.exe"):  # .exe: what scripts/bootstrap_gltfpack.py
+        vendored = REPO / "vendor" / "gltfpack" / name  # installs on Windows
+        if vendored.is_file():
+            return vendored
+    return None
 
 
 def gltfpack_command(binary: Path, source: Path, output: Path) -> list[str]:

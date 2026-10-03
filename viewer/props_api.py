@@ -45,6 +45,7 @@ from image_to_3dlab.blender import missing_help  # noqa: E402
 OUTPUT_ROOT = REPO / "output" / "props"
 SPLITTER = REPO / "scripts" / "blender_split_props.py"
 FINISHER = REPO / "scripts" / "finish_props.py"
+GLTFPACK_BOOTSTRAP = REPO / "scripts" / "bootstrap_gltfpack.py"
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 # The exact shape `create` builds. A turn takes its directory name from a URL, so the
 # name is matched against the generator rather than merely sanitised.
@@ -207,6 +208,21 @@ def finisher_module():
 
 def find_gltfpack() -> Path | None:
     return finisher_module().find_gltfpack()
+
+
+@functools.cache
+def gltfpack_bootstrap():
+    """`bootstrap_gltfpack.py`, imported once, to ask whether this machine has a build."""
+    spec = importlib.util.spec_from_file_location("bootstrap_gltfpack", GLTFPACK_BOOTSTRAP)
+    module = importlib.util.module_from_spec(spec)
+    # Registered first: its @dataclass looks itself up in sys.modules while it is built.
+    sys.modules.setdefault("bootstrap_gltfpack", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def gltfpack_install_command() -> list[str]:
+    return [sys.executable, str(GLTFPACK_BOOTSTRAP), "--yes"]
 
 
 def lod_triangles(path: Path) -> int | None:
@@ -862,7 +878,9 @@ def tools_payload() -> dict[str, Any]:
     gltfpack = find_gltfpack()
     return {"blender": str(blender) if blender else None,
             "blender_problem": None if blender else missing_help(),
-            "gltfpack": str(gltfpack) if gltfpack else None}
+            "gltfpack": str(gltfpack) if gltfpack else None,
+            # Setup's gltfpack card offers Install (scripts/bootstrap_gltfpack.py).
+            "gltfpack_installable": gltfpack is None and gltfpack_bootstrap().can_install()}
 
 
 def _size(path: Path) -> int | None:

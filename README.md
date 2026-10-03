@@ -240,6 +240,21 @@ default:
 Every run writes a JSON record of the settings used, so a batch of finished assets is
 comparable rather than each one being tuned by hand.
 
+## Prop sheets: many props from one image
+
+Generate one picture holding a grid of props (barrels, crates, a chest), turn the whole
+sheet into 3D in a single Pixal3D run, and the viewer's **Props** tab splits it into
+separate, upright, named props, each with three levels of detail (LODs) baked from the
+original. Install the optional gltfpack from Setup & Status and each LOD also comes as a
+much smaller web-ready file. The prompt that works and what was measured are in
+[`docs/prop-sheets.md`](docs/prop-sheets.md). Built by
+[@AdrielSantana](https://github.com/AdrielSantana).
+
+<p align="center">
+  <img src="docs/images/prop-sheet-one-image-nine-props.jpg" width="480"
+       alt="A generated 3x3 sheet of medieval props, and the nine separate game-ready props made from it">
+</p>
+
 ## Blender animation recipes
 
 The reusable Blender tooling lives in `scripts/blender_*.py`: import, inspect,
@@ -264,6 +279,7 @@ character with them.
 | Linux + NVIDIA: CUDA toolkit matching PyTorch's CUDA | compiles TRELLIS.2's CUDA extensions (not needed on RTX 50-series) and Hunyuan3D-2.1's rasterizer (CUDA 12) |
 | macOS: full Xcode | compiles the Metal kernels for Pixal3D and TRELLIS |
 | Blender 4.2+ | Finish (low-poly clean-up, Pixel Match) and rigging. Install it yourself from [blender.org](https://www.blender.org/download/); Setup & Status shows whether it was found |
+| gltfpack (optional) | smaller web-ready files from the Props tab; one click in Setup & Status, under 2 MB |
 | `uv` | builds the reproducible Python environments |
 | Python 3.11 (TRELLIS) / 3.12 (Hunyuan3D-MLX) | pinned by each backend's own setup |
 | ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights (auto-downloaded once) |

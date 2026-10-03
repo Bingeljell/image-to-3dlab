@@ -127,7 +127,3 @@ able to state what it is about to fetch and how large it is, and stop there.
 Concretely, a download path must: name the backend, name the route, state the size, and
 require an affirmative answer. `--yes` for non-interactive use is fine; defaulting to yes
 is not.
-
-*Status 2026-09-21: not yet true anywhere.* `scripts/bootstrap_pixal3d_cpp.sh` pulls
-8.1 GB unconditionally, `hunyuan_mlx/download_weights.py` defaults to a full set, and the
-viewer's TRELLIS **Run setup** fetches ~14 GB on one click. Fixing these is owed.

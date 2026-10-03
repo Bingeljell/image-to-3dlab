@@ -7,17 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-10-03
+
 ### Added
 - **Prop sheets: many props from one image, in one run.** Generate a grid of props,
   turn the whole sheet into 3D with one Pixal3D run, then split it into separate,
   upright, named props (`scripts/blender_split_props.py`) and give each prop
   compressed LODs with Finish's normal and metallic-roughness bake
   (`scripts/finish_props.py`). The walkthrough and what was measured are in
-  `docs/prop-sheets.md`.
+  `docs/prop-sheets.md`. Built by @AdrielSantana (#77, #78).
 - **Props tab in the viewer.** Split a prop sheet and bake every prop's LODs from the
   browser, with a 3D view and downloads per prop, a warning when gltfpack is missing, and
   a **Turn 90°** button that re-bakes just the prop that came out facing sideways.
-
 - **Install gltfpack from Setup & Status.** One click, under 2 MB, and the Props tab's
   files come out much smaller. The Props tab now says so in plain words and links there,
   instead of asking you to put a native release on your PATH.
@@ -38,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   error, so the retopology or detail bake read as done.
 - Finished models now pass the Khronos glTF validator with no warnings. The detail
   bake ships the tangents its normal map was baked against, instead of leaving every
-  engine to make up its own, and gives the odd zero-length one a direction.
+  engine to make up its own, and gives the odd zero-length one a direction. These three
+  Finish fixes are also @AdrielSantana's (#76).
 - Stopping the viewer (Ctrl-C) now stops a running Finish job too, instead of leaving its
   Blender stages running in the background until the next start.
 - The viewer starts even when a folder inside `output/` is called `pid`. Its cleanup after

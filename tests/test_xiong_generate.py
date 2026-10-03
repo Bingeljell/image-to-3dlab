@@ -24,22 +24,16 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "hunyuan_mlx_xiong_generate.py"
 
-MLX_STUBS = {
-    "mlx": None,  # filled in setUpClass
-    "mlx.core": None,
-    "mlx.metal": None,
-}
-
-
 def _make_mlx_stubs():
-    metal = types.SimpleNamespace(clear_cache=mock.Mock())
+    # mx.clear_cache is the current API; mx.metal.clear_cache is deprecated
+    # (MLX 0.31 prints a warning) and deliberately absent here, so a regression
+    # to the old name fails with AttributeError.
     core = types.ModuleType("mlx.core")
-    core.metal = metal
+    core.clear_cache = mock.Mock()
     mlx = types.ModuleType("mlx")
     mlx.core = core
-    mlx.metal = metal
     mlx.__path__ = []  # mark as package so `import mlx.core` resolves via sys.modules
-    return {"mlx": mlx, "mlx.core": core, "mlx.metal": metal}
+    return {"mlx": mlx, "mlx.core": core}
 
 
 class FakeMesh:
@@ -74,15 +68,18 @@ class OrchestrationTest(unittest.TestCase):
             calls["remesh"] = True
             return m, False
 
+        stubs = _make_mlx_stubs()
+
         def fake_run_paint(mesh_path, image, output, seed, res, steps, tex, t0):
             calls["paint"] = True
+            calls["cache_cleared_before_paint"] = stubs["mlx.core"].clear_cache.called
             if paint_error is not None:
                 raise paint_error
             output.write_bytes(b"fake glb")
 
         argv = ["xiong_generate.py", "/fake/ref.png", str(tmp / "chest.glb"),
                 "--seed", "42"]
-        with mock.patch.dict(sys.modules, _make_mlx_stubs()), \
+        with mock.patch.dict(sys.modules, stubs), \
                 mock.patch.object(sys, "argv", argv), \
                 mock.patch.object(mod, "run_shape", fake_run_shape), \
                 mock.patch.object(mod, "run_remesh", fake_run_remesh), \
@@ -93,7 +90,9 @@ class OrchestrationTest(unittest.TestCase):
     def test_main_reaches_manifest_with_captured_counts(self):
         with tempfile.TemporaryDirectory() as td_s:
             td = Path(td_s)
-            self._run_main(td, None)
+            calls = self._run_main(td, None)
+            self.assertTrue(calls["cache_cleared_before_paint"],
+                            "MLX cache must be released before the paint child starts")
             out = td / "chest.glb"
             obj = td / "chest_shape.obj"
             manifest_path = td / "chest.json"  # <stem>.json per production code

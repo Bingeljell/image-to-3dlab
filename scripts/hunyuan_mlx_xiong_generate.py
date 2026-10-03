@@ -171,7 +171,7 @@ def main() -> None:
     import gc
     gc.collect()
     import mlx.core as mx
-    mx.metal.clear_cache()
+    mx.clear_cache()
 
     paint_t0 = time.time()
     run_paint(tmp_mesh, args.image, args.output, args.paint_seed, args.paint_res,

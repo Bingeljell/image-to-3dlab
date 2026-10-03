@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compressed LODs with Finish's normal and metallic-roughness bake
   (`scripts/finish_props.py`). The walkthrough and what was measured are in
   `docs/prop-sheets.md`.
+- **Props tab in the viewer.** Split a prop sheet and bake every prop's LODs from the
+  browser, with a 3D view and downloads per prop, a warning when gltfpack is missing, and
+  a **Turn 90°** button that re-bakes just the prop that came out facing sideways.
 
 ### Fixed
 - `blender_bake_normals.py` no longer knocks normal-map values from 1 to 63 down a
@@ -24,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Finished models now pass the Khronos glTF validator with no warnings. The detail
   bake ships the tangents its normal map was baked against, instead of leaving every
   engine to make up its own, and gives the odd zero-length one a direction.
+- Stopping the viewer (Ctrl-C) now stops a running Finish job too, instead of leaving its
+  Blender stages running in the background until the next start.
+- The viewer starts even when a folder inside `output/` is called `pid`. Its cleanup after
+  a crash tried to delete that folder as a stale process file, and gave up with an error.
+- `serve.py --open` shows the models it was given again. Its link landed on Setup & Status
+  (or on About, on the first visit after an update) instead of on Compare.
+- The menu bar stays on one row in a narrower window and scrolls sideways, instead of
+  wrapping its labels and cutting off About.
 
 ## [0.3.7] - 2026-10-02
 

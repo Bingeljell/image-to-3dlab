@@ -235,6 +235,20 @@ def test_generate_uses_shared_job_progress():
     assert progress.is_file()
 
 
+def test_the_menu_bar_stays_one_row():
+    """Every view sits 42px down; a menu whose labels wrap is taller than that, and at 768px
+    the last tabs fell off the edge with no way to reach them."""
+    css = (REPO / "viewer" / "styles" / "base.css").read_text()
+    assert "#mode-switch > * { flex: none; white-space: nowrap; }" in css
+    assert "#mode-switch { overflow-x: auto;" in css
+    # The spacer that pushes Setup and About right must still stretch.
+    assert "#mode-switch .mode-spacer { flex: 1; }" in css
+    # With its scrollbar hidden, a plain mouse wheel is what reaches the last tabs.
+    app = (REPO / "viewer" / "app.js").read_text()
+    assert "import { sidewaysScroll } from './core/sideways-wheel.js';" in app
+    assert "menu?.addEventListener('wheel'" in app
+
+
 # --- ./lab --auto: one command for a new user, local or remote ------------------------
 def test_auto_on_your_own_machine_stays_private_and_opens_the_browser():
     plan = serve.launch_plan({}, port=8777)

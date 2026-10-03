@@ -127,6 +127,29 @@ settings.
 | chest | 495 KB | 454 KB | 432 KB |
 | anvil | 190 KB | 206 KB | 172 KB |
 
+## From the viewer
+
+The **Props** tab runs steps 3 and 4 in one go. Pick the sheet's GLB from what
+Generate 3D made, or upload one; type the names one per line, in reading order; press
+**Split & finish**. The panel shows the split, then one row per prop counting its LODs.
+
+The results are a chip per prop. Clicking one shows its 3D view (the plain LOD0), a
+table of its LODs with a download for each `.glb` and `.web.glb`, and **Turn 90°**. A
+prop flagged as a tie gets a ⚠ on its chip and a note above the view. Turn 90° re-splits
+the sheet with that turn and re-bakes only that prop, in the same run folder, so the
+chest fix above is one click. Clicking twice turns it twice. A turn is built beside the
+run and swapped in when it finishes, so one that fails or is cancelled leaves the run as
+it was.
+
+Above the chips, the run says which licence its props inherit, from the record kept
+beside the generated model. With **Debug** off, Generate 3D deletes the run's manifest,
+which is where Pixal3D keeps that record, and the tab says the record is missing rather
+than guess.
+
+Runs live in `output/props/<sheet>__props__<time>/` and stay listed under the form.
+The tab says so when Blender or gltfpack is missing: without gltfpack the LODs are
+written uncompressed. It looks for gltfpack on PATH, then at `vendor/gltfpack/gltfpack`.
+
 ## Limits
 
 - **Some bend stays.** After standing up and squaring, what is left is 2 to 5 degrees,

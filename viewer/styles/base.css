@@ -4,8 +4,14 @@ body { margin: 0; background: #14161a; color: #d8dee9; font: 13px/1.5 ui-monospa
 #mode-switch { position: fixed; inset: 0 0 auto 0; z-index: 30; display: flex; gap: 6px;
        align-items: center; padding: 6px 10px; height: 42px; background: #111318;
        border-bottom: 1px solid #2c313a; }
-#mode-switch .mode { padding: 3px 12px; }
+/* 11px, not 12: with the Props tab the bar just overran a 1024px window by 11px. */
+#mode-switch .mode { padding: 3px 11px; }
 #mode-switch .mode-spacer { flex: 1; }
+/* One row that scrolls sideways when the tabs do not fit, rather than labels wrapping onto
+   two lines taller than the 42px bar every view is placed under, and the last tabs falling
+   off the edge. The spacer's own rule above is more specific, so it still stretches. */
+#mode-switch { overflow-x: auto; scrollbar-width: none; }
+#mode-switch > * { flex: none; white-space: nowrap; }
 #mode-switch .mode.has-pending::after { content: ''; display: inline-block; width: 6px;
   height: 6px; margin-left: 6px; border-radius: 50%; background: #f0a95b;
   box-shadow: 0 0 0 2px #f0a95b22; vertical-align: middle; }
@@ -28,7 +34,7 @@ canvas { display: block; }
 .viewport-camera-controls button[data-camera-view=reset] { min-width: 48px;
   border-left-color: #3a424f; }
 #err { position: fixed; left: 10px; bottom: 10px; z-index: 20; color: #e88; max-width: 70vw; }
-#generate-view, #about-view, #setup-view, #finish-view { position: fixed; inset: 42px 0 0 0; overflow: auto; padding: 22px 24px 30px;
+#generate-view, #about-view, #setup-view, #finish-view, #props-view { position: fixed; inset: 42px 0 0 0; overflow: auto; padding: 22px 24px 30px;
                  background: radial-gradient(circle at 75% 20%, #1d2a3a 0, transparent 38%), #14161a; }
 .credits-col { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
 .credits-col h2 { margin: 0 0 10px; font-size: 16px; color: #cfe3ff; }

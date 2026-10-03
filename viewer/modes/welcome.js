@@ -132,11 +132,11 @@ async function renderWithoutServer() {
 }
 
 /** On arrival: land on About once for a first visit or an update, else stay quiet. */
-export async function welcomeOnArrival() {
+export async function welcomeOnArrival({ linked = false } = {}) {
   const seen = lastSeen();
   try {
     const payload = await fetchWelcome(seen);
-    if (shouldShow(seen, payload)) {
+    if (shouldShow(seen, payload, linked)) {
       render(payload, seen, false);
       markSeen(payload.version);
       announcing = true;

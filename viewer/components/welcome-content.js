@@ -5,9 +5,10 @@
 
 const SECTION_ORDER = ['Added', 'Changed', 'Fixed', 'Removed', 'Security'];
 
-/** First visit, or news since the version this browser last saw. */
-export function shouldShow(lastSeen, payload) {
-  return !lastSeen || (payload.news || []).length > 0;
+/** First visit, or news since the version this browser last saw. Not when the page was
+ *  opened on a model (`linked`): that visit is for the model, and the card waits. */
+export function shouldShow(lastSeen, payload, linked = false) {
+  return !linked && (!lastSeen || (payload.news || []).length > 0);
 }
 
 /** The kicker and title. `reopened` is a click on the brand, not an arrival. */

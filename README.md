@@ -8,20 +8,47 @@ Mac, or Linux with an NVIDIA card), with a license-provenance record for every r
 Apple Silicon deserves more love in the 3D and Imagen community. So this is an attempt at that. 
 
 
-Drop in a picture of a character or object; get back a `.glb` (with PBR texture) plus a
-`.provenance.json` sidecar recording exactly how it was made and under which licenses. This should make your game-dev or whatever else you're up to easier to manage.
-Everything runs on your machine; nothing is uploaded to a cloud service.
+Drop in a picture of a character or object; get back a textured `.glb`, ready for your
+game or whatever else you're up to. Nothing is uploaded to a cloud service.
+
+**What you get**
+
+- **Low poly, high quality.** Pixel Match puts your picture's real pixels back on the
+  model, so text, logos and faces stay sharp even after it is cut to ~5k faces.
+  [More](#finishing-an-asset)
+- **One prompt, nine game-ready props.** Prop sheets turn one picture into a set of
+  separate, named props with LODs, ready to drop into your game.
+  [More](#prop-sheets-many-props-from-one-image)
+- **Your pick of models, all local.** Pixal3D, TRELLIS.2 and Hunyuan3D behind one browser
+  viewer and one CLI.
+- **No picture? Make one.** Type a prompt in the Generate Image tab and get a source image.
+- **Game-size files.** Finish turns a heavy, 30 MB generated model into a light, compressed
+  one. [More](#finishing-an-asset)
+- **Know what you can ship.** Every file carries a record of the licences behind it.
+  [More](#licensing--provenance-non-negotiable)
 
 **Pixel Match: your picture's real pixels, on the model.** Image-to-3D models redraw your
 picture, so text, logos and faces come back as garbled lookalikes. Pixel Match, in the
 **Finish** step, copies the real pixels from your source image back onto every surface the
-image can see. "VANGUARD 07" on a chest stays "VANGUARD 07", even after Finish cuts the
-model down to ~5k faces. On by default for Pixal3D models made in the lab; other backends
-and more camera angles are next. [How Finish works](#finishing-an-asset).
+image can see. "VANGUARD 07" on a chest stays "VANGUARD 07", even at ~5k faces. On by
+default for Pixal3D models; other backends are next. [How Finish works](#finishing-an-asset).
 
 <p align="center">
   <img src="docs/images/pixel-match-lettering-before-after.jpg" width="480"
        alt="Close-up of a robot's chest: the generated model's lettering is garbled, the Pixel Match model reads VANGUARD 07 exactly like the source picture">
+</p>
+
+**Prop sheets: one prompt, nine game-ready props.** Making props one at a time means a
+picture, a 3D run and a clean-up for every barrel. Instead, generate one picture holding a
+grid of props and turn the whole sheet into 3D in a single run. The **Props** tab splits it
+into separate, upright, named props, each with three levels of detail (LODs) and compressed
+textures, ready for a game engine. [How it works](#prop-sheets-many-props-from-one-image).
+
+Prop sheets were built and contributed by [@AdrielSantana](https://github.com/AdrielSantana). Thank you!
+
+<p align="center">
+  <img src="docs/images/prop-sheet-one-image-nine-props.jpg" width="480"
+       alt="A generated 3x3 sheet of medieval props, and the nine separate game-ready props made from it">
 </p>
 
 ## Install
@@ -47,17 +74,15 @@ run the same line again.
 For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
 (`--dry-run` shows what it would do).
 
-**No picture to start from?** There is now a **Generate Image** tab that makes one. Type a
-prompt, get a source image, hand it to **Generate 3D**. It runs Qwen-Image 2.1 on your own
-machine: about four and a half minutes an image on an M-series Mac, about twenty seconds
-on an RTX 4090.
+**No picture to start from?** The **Generate Image** tab makes one. Type a prompt, get a
+source image, hand it to **Generate 3D**. It runs Qwen-Image 2.1 on your own machine.
 
 ![Three creatures generated from text prompts on a laptop, about four and a half minutes each](docs/images/prompt-to-source-image.jpg)
 
 Built with Qwen. Candidly, Qwen's licence is a bit ambiguous. Qwen says the pictures you
 generate are yours ([their statement](https://x.com/QwenDevs/status/2101917379785838660)), but the [licence](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) still says the model
-is for non-commercial use. Our reading is that commercial work needs a licence from Qwen;
-if you plan to go commercial, check their licence yourself. The pipeline keeps those runs in
+is for non-commercial use. Our reading is that commercial work needs a licence from Qwen,
+so check it yourself if you plan to. The pipeline keeps those runs in
 their own folder and says so in the sidecar. Bring your own image and none of that applies.
 
 Six backends, one Generate 3D page. Sadly life is full of trade-offs, so pick the tradeoff you want (lol):
@@ -85,8 +110,7 @@ Silicon ports; on Linux + NVIDIA it runs Microsoft's and Tencent's own code.
   Every model on this page came from a single image.</sub>
 </p>
 
-Hunyuan3D-MLX (Xiong, full pipeline) remains the quickest to get running from a fresh clone
-(~9 min shape+paint end to end at its default model).
+Hunyuan3D-MLX (Xiong, full pipeline) is the quickest to get running from a fresh clone.
 Reach for TRELLIS.2 when fidelity matters more than speed. Its material model can produce
 severe colour drift on flat/vector-style illustrations; prefer photographs or softly lit
 3D-style references. See [picking a picture for TRELLIS.2](docs/trellis2-flat-illustration-colour-drift.md).
@@ -176,6 +200,21 @@ hunyuan_mlx/shape/.venv/bin/python scripts/hunyuan_mlx_xiong_generate.py \
     input.png output.glb --model 2.0
 ```
 
+**TRELLIS.2** (after the bootstrap):
+```bash
+vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py input.png output/out.glb
+```
+- `--check` verifies the environment first (seconds, no model load).
+- Resume modes skip the expensive parts:
+  - `--from-latents out_latents.pt`: skip sampling (stages 1–3), re-decode + bake
+  - `--from-decode out_decode.pt`: skip sampling, decode **and** model load (bake only)
+- Every run writes `<out>.glb`, `<out>_latents.pt`, `<out>_decode.pt`, and a `.json` manifest
+  with exact params and per-stage timings.
+- On Linux + NVIDIA, use the CUDA checkout instead:
+  `vendor/trellis-cuda/.venv/bin/python scripts/trellis_cuda_generate.py input.png output/out.glb`
+  (same settings; `--check` and `--from-latents` work the same way). It also writes
+  `<out>.provenance.json`.
+
 ### Reproducible runs
 
 For a run you can audit or repeat later, use a manifest; it records the input, the
@@ -191,24 +230,6 @@ Paths inside a manifest resolve relative to the manifest file, not your working
 directory. Manifests you write land in `manifests/` and stay local; only the template is
 tracked. See [`manifests/README.md`](manifests/README.md).
 
-**TRELLIS.2** (after the bootstrap):
-```bash
-vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py input.png output/out.glb
-```
-- `--check` verifies the environment first (seconds, no model load).
-- Resume modes skip the expensive parts:
-  - `--from-latents out_latents.pt`: skip sampling (stages 1–3), re-decode + bake
-  - `--from-decode out_decode.pt`: skip sampling, decode **and** model load (bake only)
-- Every run writes `<out>.glb`, `<out>_latents.pt`, `<out>_decode.pt`, and a `.json` manifest
-  with exact params and per-stage timings.
-- On Linux + NVIDIA, use the CUDA checkout instead:
-  `vendor/trellis-cuda/.venv/bin/python scripts/trellis_cuda_generate.py input.png output/out.glb`
-  (same settings; `--check` and `--from-latents` work the same way). It also writes
-  `<out>.provenance.json`.
-- In the web UI, a failed TRELLIS decode or bake retains `<out>_latents.pt` even when
-  **Debug** is off, so the expensive sampling stage can be resumed. Successful non-debug
-  runs clean up the checkpoint after the GLB is safely written.
-
 ## Finishing an asset
 
 Generated assets arrive dense and heavy, often ~900k faces and 30+ MB, nearly all of it
@@ -223,8 +244,7 @@ python scripts/retopo_repaint.py generated.glb source.png finished.glb \
 Up to four stages; Finish in the viewer runs retopologise, Pixel Match and compress by
 default:
 
-1. **Retopologise**: voxel-remesh, then decimate. The ordering matters: decimating the raw
-   mesh shatters thin geometry, measured.
+1. **Retopologise**: rebuilds the mesh with far fewer faces, keeping thin parts intact.
 2. **Repaint** (optional, Apple Silicon): hands the clean mesh to Hunyuan 2.1 PBR and
    paints from the source art. Pixal3D output rarely needs it, so it is off by default
    (`--skip-paint` on the CLI) and a finish takes seconds instead of ~6 minutes.
@@ -233,9 +253,8 @@ default:
    Pixal3D models made in the lab (their camera is found for you); on the CLI pass
    `--views <run>.svviews`, or use `scripts/photo_paint.py` on its own. Surfaces the
    picture cannot see keep the generator's paint.
-4. **Compress**: re-encodes the textures. The paint stage emits two uncompressed 4096²
-   PNGs; core-glTF JPEG at 2048 measures below the renderer's own sampling noise and takes a
-   typical asset from 32 MB to under 5.
+4. **Compress**: re-encodes the textures, taking a typical asset from 32 MB to under 5
+   with no visible difference.
 
 Every run writes a JSON record of the settings used, so a batch of finished assets is
 comparable rather than each one being tuned by hand.
@@ -247,13 +266,8 @@ sheet into 3D in a single Pixal3D run, and the viewer's **Props** tab splits it 
 separate, upright, named props, each with three levels of detail (LODs) baked from the
 original. Install the optional gltfpack from Setup & Status and each LOD also comes as a
 much smaller web-ready file. The prompt that works and what was measured are in
-[`docs/prop-sheets.md`](docs/prop-sheets.md). Built by
+[`docs/prop-sheets.md`](docs/prop-sheets.md). Built and contributed by
 [@AdrielSantana](https://github.com/AdrielSantana).
-
-<p align="center">
-  <img src="docs/images/prop-sheet-one-image-nine-props.jpg" width="480"
-       alt="A generated 3x3 sheet of medieval props, and the nine separate game-ready props made from it">
-</p>
 
 ## Blender animation recipes
 
@@ -263,12 +277,9 @@ produces. **[`scripts/README.md`](scripts/README.md) indexes every tool in the
 repository**, grouped by what you are trying to do, and is kept honest by a test
 that reads each script's own docstring.
 
-Per-creature rigs and animations are **not** shipped. They lived here once and
-were model-specific references rather than drop-in tools, so they now sit in a
-git-ignored `characters/<name>/` folder alongside their tests. The techniques are
-documented in `docs/`; the creature-specific scripts are ours, not yours. The
+Ready-made rigs and animations are not included. The
 [quadruped pipeline](docs/quadruped-pipeline.md) walks through rigging a four-legged
-character with them.
+character with these tools.
 
 ## Requirements
 

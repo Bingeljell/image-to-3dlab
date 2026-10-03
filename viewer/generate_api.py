@@ -72,6 +72,17 @@ from finish_api import (
     run_job as run_finish_job,
     status_payload as finish_status_payload,
 )
+from props_api import (
+    PROPS_JOBS,
+    cancel_job as cancel_props_job,
+    generated_model,
+    generated_models,
+    list_runs as list_props_runs,
+    run_job as run_props_job,
+    source_record_for,
+    status_payload as props_status_payload,
+    tools_payload as props_tools_payload,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
@@ -1047,6 +1058,19 @@ def _terminate_active_job() -> None:
     rig_job = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
     if rig_job is not None and rig_job.process is not None and rig_job.process.poll() is None:
         _killpg_if_alive(rig_job.process.pid)
+    props_job = PROPS_JOBS.get(PROPS_JOBS.active) if PROPS_JOBS.active else None
+    if props_job is not None and props_job.process is not None and props_job.process.poll() is None:
+        _killpg_if_alive(props_job.process.pid)
+    finish_job = FINISH_JOBS.get(FINISH_JOBS.active) if FINISH_JOBS.active else None
+    if finish_job is not None and finish_job.process is not None and finish_job.process.poll() is None:
+        _killpg_if_alive(finish_job.process.pid)
+
+
+def _props_baking() -> bool:
+    """Whether a prop-sheet job is running. Its Blender bakes share unified memory with a
+    generation or a finishing repaint, so neither of those starts while it runs."""
+    job = PROPS_JOBS.get(PROPS_JOBS.active) if PROPS_JOBS.active else None
+    return job is not None and job.status not in {"done", "error", "cancelled"}
 
 
 def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
@@ -1065,6 +1089,8 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
     Returns the touched job-folder names, for a one-line startup banner."""
     touched = []
     for pid_file in sorted(output_root.rglob("pid")):
+        if not pid_file.is_file():
+            continue    # a folder that happens to be called pid (a prop, say), not a job's
         directory = pid_file.parent
         try:
             pid, owner = processes.parse_pid_record(pid_file.read_text())
@@ -1962,6 +1988,15 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 5 and parts[:3] == ["api", "finish", "runs"] and parts[4] == "resume":
             self._resume_finish_job(parts[3])
             return
+        if parts == ["api", "props"]:
+            self._create_props_job()
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "props"] and parts[3] == "cancel":
+            self._cancel_props_job(parts[2])
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "props", "runs"] and parts[4] == "turn":
+            self._turn_prop(parts[3])
+            return
         if parts == ["api", "image"]:
             self._create_image_job()
             return
@@ -2199,6 +2234,29 @@ class Handler(SimpleHTTPRequestHandler):
             if action in FINISH_ARTIFACTS:
                 self._finish_artifact(job_id, action)
                 return
+        if parts == ["api", "props", "runs"]:
+            try:
+                payload = {
+                    "runs": list_props_runs(PROPS_JOBS.output_root),
+                    "generated": generated_models(OUTPUT_ROOT),
+                    "tools": props_tools_payload(),
+                }
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+                return
+            self._send_json(200, payload)
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "props"]:
+            job = PROPS_JOBS.get(parts[2])
+            if job is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if parts[3] == "events":
+                self._stream_events(job)
+                return
+            if parts[3] == "status":
+                self._send_json(200, props_status_payload(job))
+                return
         if len(parts) == 5 and parts[:3] == ["api", "rig", "rebind"]:
             job_id, action = parts[3], parts[4]
             if action == "events":
@@ -2254,6 +2312,9 @@ class Handler(SimpleHTTPRequestHandler):
             rig_active = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
             if rig_active is not None and rig_active.status not in {"done", "error", "cancelled"}:
                 self._send_json(409, {"error": "a rig rebind is running; wait for it to finish"})
+                return
+            if _props_baking():
+                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
                 return
             try:
                 settings = spec.validate_settings(raw_settings)
@@ -2323,6 +2384,9 @@ class Handler(SimpleHTTPRequestHandler):
             if active is not None and active.status in {"queued", "running", "cancelling"}:
                 self._send_json(409, {"error": "a generation is running; wait for it to finish"})
                 return
+            if _props_baking():
+                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
+                return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})
                 return
@@ -2375,6 +2439,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})
+                return
+            if _props_baking():
+                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 768 * 1024 * 1024:
@@ -2478,6 +2545,9 @@ class Handler(SimpleHTTPRequestHandler):
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})
                 return
+            if _props_baking():
+                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
+                return
         try:
             if find_blender() is None:
                 raise RuntimeError(blender_missing_help())
@@ -2503,6 +2573,134 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             cancel_finish_job(job)
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._send_json(202, {"job_id": job.id, "status": job.status})
+
+    def _props_busy(self) -> str | None:
+        """Why a prop-sheet job cannot start now, or None.
+
+        Its bakes are Blender on the CPU, but a generation or a finishing repaint holds
+        gigabytes of model in unified memory, and a Blender bake on top of that is how
+        this machine starts swapping.
+        """
+        active = JOBS.get(JOBS.active) if JOBS.active else None
+        if active is not None and active.status in {"queued", "running", "cancelling"}:
+            return "a generation is running; wait for it to finish"
+        if SETUP_ACTIVE is not None:
+            return "setup is running; wait for it to finish"
+        finishing = FINISH_JOBS.jobs.get(FINISH_JOBS.active) if FINISH_JOBS.active else None
+        if finishing is not None and finishing.status in {"queued", "running", "cancelling"}:
+            return "a finishing job is running; wait for it to finish"
+        rebind = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
+        if rebind is not None and rebind.status not in {"done", "error", "cancelled"}:
+            return "a rig rebind is running; wait for it to finish"
+        return None
+
+    def _start_props_job(self, job) -> None:
+        threading.Thread(
+            target=run_props_job, args=(job,), daemon=True, name=f"props-{job.id[:8]}"
+        ).start()
+        self._send_json(202, {
+            "job_id": job.id,
+            "directory": job.directory.name,
+            "settings": job.settings,
+            "events_url": f"/api/props/{job.id}/events",
+            "status_url": f"/api/props/{job.id}/status",
+        })
+
+    def _create_props_job(self) -> None:
+        """Split a prop-sheet GLB into props and bake each one's LODs.
+
+        The GLB is an upload, or one the Generate tab already wrote, named by the path
+        `/api/props/runs` listed it under; nothing else on disk can be named.
+        """
+        try:
+            busy = self._props_busy()
+            if busy:
+                self._send_json(409, {"error": busy})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 768 * 1024 * 1024:
+                self._send_json(400, {"error": "prop sheet is missing or larger than 768 MiB"})
+                return
+            form = parse_multipart(
+                self.headers.get("Content-Type", ""), self.rfile.read(length)
+            )
+            asset = form.get("asset")
+            generated = str(form.get("generated", {}).get("value", "")).strip()
+            source_record, from_generated = None, False
+            if asset and str(asset.get("filename", "")).lower().endswith(".glb"):
+                asset_name, data = str(asset["filename"]), asset["data"]
+            elif generated:
+                try:
+                    path = generated_model(OUTPUT_ROOT, generated)
+                except RuntimeError as exc:
+                    self._send_json(422, {"error": str(exc)})
+                    return
+                asset_name, data = path.name, path.read_bytes()
+                source_record, from_generated = source_record_for(path), True
+            else:
+                self._send_json(422, {
+                    "error": "send a .glb as 'asset', or a generated model as 'generated'"
+                })
+                return
+            try:
+                raw_settings = json.loads(form.get("settings", {}).get("value", "{}"))
+            except json.JSONDecodeError as exc:
+                self._send_json(422, {"error": f"invalid settings JSON: {exc}"})
+                return
+            if not isinstance(raw_settings, dict):
+                self._send_json(422, {"error": "settings must be a JSON object"})
+                return
+            try:
+                job = PROPS_JOBS.create(asset_name, data, raw_settings, source_record,
+                                        generated=from_generated)
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            except RuntimeError as exc:
+                self._send_json(409, {"error": str(exc)})
+                return
+            self._start_props_job(job)
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _turn_prop(self, name: str) -> None:
+        """Turn one prop of a finished run about the vertical and re-bake only it."""
+        try:
+            busy = self._props_busy()
+            if busy:
+                self._send_json(409, {"error": busy})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 4096:
+                self._send_json(400, {"error": "expected a small JSON body"})
+                return
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("expected a JSON object")
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": f"could not read the request: {exc}"})
+            return
+        try:
+            job = PROPS_JOBS.turn(name, str(payload.get("prop", "")), payload.get("degrees", 90))
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._start_props_job(job)
+
+    def _cancel_props_job(self, job_id: str) -> None:
+        job = PROPS_JOBS.get(job_id)
+        if job is None:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        try:
+            cancel_props_job(job)
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return

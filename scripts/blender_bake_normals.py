@@ -108,7 +108,10 @@ def resolve_tangent_sign(pixels):
     normals = np.asarray(pixels, dtype=np.float32) / 255.0 * 2.0 - 1.0
     flipped = normals[..., 2] < 0.0
     normals[flipped] = -normals[flipped]
-    encoded = np.clip((normals + 1.0) / 2.0 * 255.0, 0, 255).astype(np.uint8)
+    # Rounded, not truncated: every value from 1 to 63 decodes and re-encodes a hair
+    # under itself (1 comes back as 0.99999994), so truncating moved it down a step
+    # even in texels that were never flipped.
+    encoded = np.clip(np.rint((normals + 1.0) / 2.0 * 255.0), 0, 255).astype(np.uint8)
     return encoded, float(flipped.mean())
 
 

@@ -94,6 +94,16 @@ def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
     return stages
 
 
+def headless(blender: Path, script: str) -> list[str]:
+    """Blender, headless, running one of this repo's scripts; its arguments follow.
+
+    Blender exits 0 when a ``--python`` script raises unless ``--python-exit-code`` comes
+    first, and a stage that crashed would then read as done.
+    """
+    return [str(blender), "--background", "--python-exit-code", "1",
+            "--python", str(SCRIPTS / script), "--"]
+
+
 def retopo_command(
     source: Path, output: Path, faces: int, atlas: int, angle: float,
     voxel: float, metallic: float, roughness: float, ior: float,
@@ -106,8 +116,7 @@ def retopo_command(
     error. Built here so it can be asserted in a test.
     """
     return [
-        str(blender), "--background", "--python",
-        str(SCRIPTS / "blender_retopo_bake.py"), "--",
+        *headless(blender, "blender_retopo_bake.py"),
         str(source), str(output), str(faces), str(atlas), str(angle),
         str(voxel), str(metallic), str(roughness), str(ior),
     ]
@@ -118,8 +127,7 @@ def bake_command(
 ) -> list[str]:
     """The headless bake-detail invocation: original high-poly onto the current mesh."""
     return [
-        str(blender), "--background", "--python",
-        str(SCRIPTS / "blender_bake_detail.py"), "--",
+        *headless(blender, "blender_bake_detail.py"),
         str(source), str(target), str(output), str(size),
     ]
 
@@ -134,9 +142,16 @@ def reuse(path: Path, resume: bool) -> bool:
     return resume and path.is_file() and path.stat().st_size > 0
 
 
+def shown(command: list[str]) -> str:
+    """The start of a stage's command, for its progress line: through the script it runs,
+    which is what tells one Blender stage from another."""
+    end = command.index("--python") + 2 if "--python" in command else 4
+    return " ".join(command[:end])
+
+
 def _run(command: list[str], log: Path, label: str) -> None:
     """Run one stage, tee its output to a log, and fail loudly."""
-    print(f"[{label}] {' '.join(command[:4])} ...", flush=True)
+    print(f"[{label}] {shown(command)} ...", flush=True)
     with log.open("w") as handle:
         process = subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT, check=False)
     if process.returncode != 0:

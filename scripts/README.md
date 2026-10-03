@@ -21,6 +21,9 @@ standing transition** workflow, start with [the quadruped pipeline guide](../doc
 It includes commands, parameter definitions, failure checks, and an LLM-assisted
 tuning checklist. Manual fitting and visual weight/deformation review remain required.
 
+For **prop sheets** (many props from one image in one run, then split and finished into
+game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
+
 | Script | What it does |
 |---|---|
 | `blender_quadruped_pipeline.py` | Bind, capture and animate fitted Rigify quadrupeds with tunable profiles and audit reports. |
@@ -96,6 +99,7 @@ The asset's surface, as opposed to its shape.
 | `fix_glb_opaque_material.py` | Make an existing TRELLIS GLB opaque and single-sided without rebaking it. |
 | `compress_glb_textures.py` | Re-encode a GLB's textures, without touching its geometry. |
 | `retopo_repaint.py` | Finish a generated asset: retopologise, repaint, bake detail, compress. |
+| `finish_props.py` | Finish every prop from a prop sheet: LODs re-baked from the original, then compressed. |
 | `living_organic_material.py` | Apply a reproducible living-organic material recipe to an existing GLB. |
 | `project_labels.py` | Project a 2D image onto a generated mesh as per-vertex colours. |
 | `project_markings.py` | Paint the source image's markings back onto a generated mesh's texture. |
@@ -153,6 +157,7 @@ Heavier edits that need Blender's own operators rather than trimesh.
 | `blender_shrinkwrap.py` | Pull a clean remeshed surface back onto the original decode. |
 | `blender_visibility_cull.py` | Delete every face never seen from outside the mesh, headless. |
 | `blender_retopo_bake.py` | Quad-retopologise a generated mesh and transfer its texture onto the clean topology. |
+| `blender_split_props.py` | Split a multi-prop GLB into one upright, named object per prop, headless. |
 | `blender_reunwrap_bake.py` | Re-unwrap a generated mesh into coherent UV islands and re-bake its texture, headless. |
 | `blender_split_regions.py` | Split a generated mesh into per-region material slots, each with its own texture. |
 | `blender_bake_ao.py` | Bake an ambient-occlusion map from an asset's own geometry, headless. |

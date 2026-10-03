@@ -1,7 +1,8 @@
 """Bake the original's surface detail onto a finished mesh: normal map + metallic-roughness.
 
 Run with:
-    blender --background --python scripts/blender_bake_detail.py -- SOURCE.glb TARGET.glb OUT.glb [size]
+    blender --background --python-exit-code 1 --python scripts/blender_bake_detail.py -- \
+        SOURCE.glb TARGET.glb OUT.glb [size]
 
 SOURCE is the generated high-poly asset, TARGET the retopologised (or repainted) mesh
 with its own UVs, OUT the target with the new maps wired into its material.
@@ -26,6 +27,10 @@ first orc attempt baked across a 2.06 spread and produced garbage with no error.
 reversed. The fix is `resolve_tangent_sign` from `blender_bake_normals.py`, imported, not
 copied.
 
+**Tangents ship with the map.** A tangent-space normal map only reads right against the
+tangents it was baked with. Left out, every engine generates its own, and the glTF
+validator warns on every file that those may not match; exported, it reports nothing.
+
 Headless on purpose: a Cycles bake through the live Blender socket blocks the GUI and
 clobbers the open scene.
 """
@@ -40,6 +45,7 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from blender_bake_normals import axis_size_ratios, resolve_tangent_sign
+from compress_glb_textures import build_glb, parse_glb
 
 MIN_SIZE, MAX_SIZE = 256, 8192
 # How far the three axis ratios may disagree before the two meshes are treated as not the
@@ -48,6 +54,7 @@ MAX_SPREAD = 1.05
 # Ray reach as a fraction of the asset's largest dimension. Same as the retopo transfer:
 # short enough not to hit the far side of a limb, long enough to find the old surface.
 RAY_FRACTION = 0.02
+FLOAT = 5126
 
 
 class Args(NamedTuple):
@@ -67,7 +74,8 @@ def parse_args(argv: list[str]) -> Args:
     """Positional arguments after Blender's `--`."""
     rest = argv[argv.index("--") + 1:] if "--" in argv else []
     if len(rest) < 3:
-        raise SystemExit("usage: blender --background --python scripts/blender_bake_detail.py "
+        raise SystemExit("usage: blender --background --python-exit-code 1 --python "
+                         "scripts/blender_bake_detail.py "
                          "-- SOURCE.glb TARGET.glb OUT.glb [size]")
     size = int(rest[3]) if len(rest) > 3 else 2048
     if not MIN_SIZE <= size <= MAX_SIZE:
@@ -91,6 +99,73 @@ def transfer_metallic_roughness(source_has_map: bool, target_has_map: bool) -> b
 
 def ray_reach(dimensions: tuple[float, float, float]) -> float:
     return max(dimensions) * RAY_FRACTION
+
+
+def repair_zero_tangents(glb: bytes) -> tuple[bytes, int]:
+    """Give every zero-length tangent in a GLB a unit direction across its normal.
+
+    Blender's exporter leaves a few tangents at zero length: on a test prop sheet, one or
+    two vertices in 3 files of 27, each on a lone triangle that is a UV island of its own.
+    The glTF validator counts each one as an error, and gltfpack already repairs them in
+    the files it writes, so this does the same: any unit direction perpendicular to the
+    normal, handedness positive. One triangle's shading is all it can affect.
+    """
+    import numpy as np
+
+    document, chunk = parse_glb(glb)
+    if not chunk:
+        return glb, 0
+    binary = bytearray(chunk)
+
+    def view(index: int, width: int) -> np.ndarray:
+        accessor = document["accessors"][index]
+        if accessor["componentType"] != FLOAT:
+            raise ValueError("expected float normals and tangents")
+        buffer_view = document["bufferViews"][accessor["bufferView"]]
+        offset = buffer_view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
+        stride = buffer_view.get("byteStride", 4 * width)
+        return np.ndarray((accessor["count"], width), dtype="<f4", buffer=binary,
+                          offset=offset, strides=(stride, 4))
+
+    repaired = 0
+    for mesh in document.get("meshes", []):
+        for primitive in mesh["primitives"]:
+            attributes = primitive["attributes"]
+            if "TANGENT" not in attributes or "NORMAL" not in attributes:
+                continue
+            tangents = view(attributes["TANGENT"], 4)
+            normals = view(attributes["NORMAL"], 3)
+            # Written as "not long enough" so a NaN tangent counts as broken too.
+            zero = ~(np.linalg.norm(tangents[:, :3], axis=1) >= 1e-6)
+            for i in np.flatnonzero(zero):
+                normal = normals[i].astype(np.float64)
+                helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+                tangent = np.cross(normal, helper)
+                length = np.linalg.norm(tangent)
+                # A zero normal has no "across"; any unit vector beats a NaN.
+                tangents[i] = (*(tangent / length if length > 1e-12 else helper), 1.0)
+            repaired += int(zero.sum())
+    if not repaired:
+        return glb, 0
+    return build_glb(document, bytes(binary)), repaired
+
+
+def partial_path(final: Path) -> Path:
+    """Where the exporter writes, beside OUT, until its tangents are repaired."""
+    return final.with_name(f"{final.stem}.partial.glb")
+
+
+def finish_export(partial: Path, final: Path) -> int:
+    """Repair the exported GLB's tangents and only then put it at `final`.
+
+    Finish's --resume trusts any OUT that is not empty, so a bake cut short between the
+    export and the repair must leave no OUT behind. Returns how many were repaired.
+    """
+    glb, repaired = repair_zero_tangents(partial.read_bytes())
+    if repaired:
+        partial.write_bytes(glb)
+    partial.replace(final)
+    return repaired
 
 
 # --- Blender side (thin) ---------------------------------------------------------------
@@ -275,12 +350,16 @@ def main() -> int:
         bpy.data.objects.remove(obj, do_unlink=True)
     bpy.ops.object.select_all(action="DESELECT")
     target.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=args.output, export_format="GLB", use_selection=True)
+    partial = partial_path(Path(args.output))
+    bpy.ops.export_scene.gltf(filepath=str(partial), export_format="GLB", use_selection=True,
+                              export_tangents=True)
+    repaired = finish_export(partial, Path(args.output))
 
     print("BAKE_DETAIL::" + json.dumps({
         "source": args.source, "target": args.target, "output": args.output,
         "size": args.size, "scale": round(shape.scale, 5), "spread": round(shape.spread, 4),
         "normal_flipped_fraction": round(flipped, 4),
+        "zero_tangents_repaired": repaired,
         "metallic_roughness": "transferred" if moved_mr else (
             "kept target's own" if target_has_map else "none on source"),
     }), flush=True)

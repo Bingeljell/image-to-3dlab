@@ -6,10 +6,12 @@ import { checkForUpdates } from './modes/update.js';
 import './modes/generate-image.js';
 import './modes/generate.js';
 import './modes/finish.js';
+import './modes/props.js';
 import './modes/rig-review.js';
 import './modes/animate.js';
 import { subscribeRigEditState } from './core/rig-edit-state.js';
-import { isEmbedded, landingMode } from './core/embed.js';
+import { isEmbedded, landingMode, linksAModel } from './core/embed.js';
+import { sidewaysScroll } from './core/sideways-wheel.js';
 
 const byId = (id) => document.getElementById(id);
 const modes = {
@@ -18,6 +20,7 @@ const modes = {
   'generate-image': byId('generate-image-view'),
   generate: byId('generate-view'),
   finish: byId('finish-view'),
+  props: byId('props-view'),
   rig: byId('rig-view'),
   animate: byId('animate-view'),
   about: byId('about-view'),
@@ -29,6 +32,7 @@ function setMode(activeMode) {
   modes['generate-image'].hidden = activeMode !== 'generate-image';
   modes.generate.hidden = activeMode !== 'generate';
   modes.finish.hidden = activeMode !== 'finish';
+  modes.props.hidden = activeMode !== 'props';
   modes.rig.hidden = activeMode !== 'rig';
   modes.animate.hidden = activeMode !== 'animate';
   modes.about.hidden = activeMode !== 'about';
@@ -62,9 +66,19 @@ subscribeRigEditState(({ pendingCount }) => {
 // Inside the Generate tab's preview iframe the page is just a 3D view: hide the app chrome
 // and skip the About/update checks, which would otherwise navigate the iframe elsewhere.
 const embedded = isEmbedded(location.search);
+const linked = linksAModel(location.search);
 document.documentElement.classList.toggle('embedded', embedded);
-setMode(landingMode({ embedded, skipSetup: skipRequested() }));
+setMode(landingMode({ embedded, linked, skipSetup: skipRequested() }));
 if (!embedded) {
-  welcomeOnArrival();
+  welcomeOnArrival({ linked });
   checkForUpdates();
 }
+
+// In a narrow window the menu scrolls sideways with no scrollbar; let a mouse wheel do it.
+const menu = byId('mode-switch');
+menu?.addEventListener('wheel', (event) => {
+  const next = sidewaysScroll(event, menu);
+  if (next === null) return;
+  event.preventDefault();
+  menu.scrollLeft = next;
+}, { passive: false });

@@ -90,3 +90,14 @@ def test_the_input_array_is_not_modified_in_place():
 
     bn.resolve_tangent_sign(image)
     assert np.array_equal(image, original)
+
+
+def test_an_untouched_texel_comes_back_exactly():
+    """Decoding and re-encoding lands a hair under some values; rounding keeps them."""
+    values = np.arange(256, dtype=np.uint8)
+    image = np.stack([values, values[::-1], np.full(256, 255, dtype=np.uint8)], axis=-1)
+    image = image.reshape(16, 16, 3)
+
+    resolved, flipped = bn.resolve_tangent_sign(image)
+    assert flipped == 0.0
+    assert np.array_equal(resolved, image)

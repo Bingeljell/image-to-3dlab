@@ -313,7 +313,8 @@ async function loadRuns() {
     if (!runs.length) host.innerHTML = '<small style="opacity:.7">No prop-sheet runs yet.</small>';
     for (const run of runs) host.appendChild(runRow(run));
   } catch (error) {
-    host.innerHTML = `<small style="opacity:.7">Could not list runs: ${error.message}</small>`;
+    host.innerHTML = '<small style="opacity:.7"></small>';
+    host.firstChild.textContent = `Could not list runs: ${error.message}`;
   }
   updateSubmit();
 }

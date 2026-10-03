@@ -162,3 +162,8 @@ def test_the_names_box_fits_a_three_by_three_sheet_and_warns_about_order():
     # the prompt listed it (props test, 2026-10-03).
     assert '<textarea id="props-names" rows="9"' in INDEX
     assert "In the order the picture shows them, which may not be your prompt's" in INDEX
+
+
+def test_a_failed_run_list_shows_its_error_as_text_not_markup():
+    assert "Could not list runs: ${error.message}</small>`" not in PROPS
+    assert "host.firstChild.textContent = `Could not list runs: ${error.message}`" in PROPS

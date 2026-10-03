@@ -545,7 +545,7 @@ def test_a_turn_that_would_lose_the_web_files_is_refused(tmp_path, monkeypatch):
     before = _snapshot(directory)
     monkeypatch.setattr(props, "find_gltfpack", lambda: None)
     manager = props.PropsJobManager(tmp_path)
-    with pytest.raises(RuntimeError, match="gltfpack"):
+    with pytest.raises(RuntimeError, match="gltfpack.*Setup & Status"):
         manager.turn(directory.name, "chest", 90)
     assert manager.active is None
     assert _snapshot(directory) == before

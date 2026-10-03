@@ -498,8 +498,8 @@ class PropsJobManager:
             if settings["compress"] and find_gltfpack() is None and any(
                     (directory / "finished" / prop).glob("*.web.glb")):
                 raise RuntimeError(
-                    f"gltfpack is missing now, so turning {prop} would lose its .web.glb "
-                    "files. Put gltfpack back on PATH or in vendor/gltfpack/, then turn it again.")
+                    f"gltfpack is missing now, so turning {prop} would lose its smaller "
+                    "web files. Install it in Setup & Status, then turn it again.")
             turns = settings["turns"]
             turns[prop] = wrap_degrees(turns.get(prop, 0.0) + step)
             if turns[prop] == 0.0:

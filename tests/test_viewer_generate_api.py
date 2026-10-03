@@ -1447,6 +1447,16 @@ def test_blender_install_is_refused_when_it_cannot_or_should_not_run():
     assert code == 409 and "blender.org" in message
 
 
+def test_gltfpack_install_is_refused_when_it_cannot_or_should_not_run():
+    ok = {"gltfpack_installable": True}
+    assert api.gltfpack_install_refusal(ok, generating=False, setting_up=False) is None
+    assert api.gltfpack_install_refusal(ok, generating=True, setting_up=False)[0] == 409
+    assert api.gltfpack_install_refusal(ok, generating=False, setting_up=True)[0] == 409
+    code, message = api.gltfpack_install_refusal(
+        {"gltfpack_installable": False}, generating=False, setting_up=False)
+    assert code == 409 and "meshoptimizer/releases" in message
+
+
 def test_blender_install_runs_the_bootstrap_with_yes():
     command = api.blender_install_command()
     assert command[-2].endswith("bootstrap_blender.py") and command[-1] == "--yes"

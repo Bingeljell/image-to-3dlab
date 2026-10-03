@@ -81,6 +81,7 @@ from props_api import (
     run_job as run_props_job,
     source_record_for,
     status_payload as props_status_payload,
+    gltfpack_install_command,
     tools_payload as props_tools_payload,
 )
 
@@ -489,6 +490,19 @@ def blender_install_refusal(caps: dict[str, Any], generating: bool,
     if not caps.get("blender_installable"):
         return 409, ("Blender is already found, or this machine needs the app from "
                      "https://www.blender.org/download/")
+    return None
+
+
+def gltfpack_install_refusal(tools: dict[str, Any], generating: bool,
+                             setting_up: bool) -> tuple[int, str] | None:
+    """Why Setup's Install gltfpack cannot start now, or None when it can."""
+    if generating:
+        return 409, "a generation is running; wait for it to finish"
+    if setting_up:
+        return 409, "another setup is running; wait for it to finish"
+    if not tools.get("gltfpack_installable"):
+        return 409, ("gltfpack is already found, or there is no build for this machine at "
+                     "https://github.com/zeux/meshoptimizer/releases")
     return None
 
 
@@ -1950,6 +1964,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()
             return
+        if parts == ["api", "gltfpack", "install"]:
+            self._start_gltfpack_install()
+            return
         if parts == ["api", "hf", "sign-in"]:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2234,6 +2251,9 @@ class Handler(SimpleHTTPRequestHandler):
             if action in FINISH_ARTIFACTS:
                 self._finish_artifact(job_id, action)
                 return
+        if parts == ["api", "props", "tools"]:
+            self._send_json(200, props_tools_payload())
+            return
         if parts == ["api", "props", "runs"]:
             try:
                 payload = {
@@ -2839,6 +2859,24 @@ class Handler(SimpleHTTPRequestHandler):
             setup_id = uuid.uuid4().hex
             SETUP_ACTIVE = setup_id
             SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+        self._send_json(202, {"setup_run_id": setup_id,
+                              "events_url": f"/api/setup/run/{setup_id}/events"})
+
+    def _start_gltfpack_install(self) -> None:
+        global SETUP_ACTIVE
+        with SETUP_LOCK:
+            active = JOBS.get(JOBS.active)
+            refusal = gltfpack_install_refusal(
+                props_tools_payload(),
+                generating=active is not None
+                and active.status in {"queued", "running", "cancelling"},
+                setting_up=SETUP_ACTIVE is not None or download_active() is not None)
+            if refusal:
+                self._send_json(refusal[0], {"error": refusal[1]})
+                return
+            setup_id = uuid.uuid4().hex
+            SETUP_ACTIVE = setup_id
+            SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
         self._send_json(202, {"setup_run_id": setup_id,
                               "events_url": f"/api/setup/run/{setup_id}/events"})
 

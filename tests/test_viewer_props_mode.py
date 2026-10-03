@@ -55,9 +55,21 @@ def test_the_progress_track_shares_the_styled_markup():
     assert '<div class="progress-track"><div id="props-overall-bar"></div></div>' in INDEX
 
 
-def test_a_missing_gltfpack_is_said_rather_than_silently_skipped():
-    assert "gltfpack not found" in PROPS
-    assert "vendor/gltfpack/gltfpack" in PROPS
+def test_a_missing_gltfpack_is_said_and_points_to_setup():
+    # Plain words and a way out, not "put a native release on PATH" (props test, 2026-10-03).
+    assert "gltfpack, the optional tool that" in PROPS
+    assert "detail: { mode: 'setup' }" in PROPS
+    assert "native release" not in PROPS
+
+
+def test_setup_offers_gltfpack_beside_blender():
+    setup = (VIEWER / "modes" / "setup.js").read_text()
+    assert "await gltfpackCard()" in setup and "host.appendChild(gltfpack)" in setup
+    assert "fetch('/api/props/tools')" in setup
+    assert "fetch('/api/gltfpack/install', { method: 'POST' })" in setup
+    assert "window.confirm('Install gltfpack" in setup  # asks before it downloads
+    assert 'parts == ["api", "gltfpack", "install"]' in SERVER
+    assert 'parts == ["api", "props", "tools"]' in SERVER
 
 
 def test_a_near_45_degree_turn_offers_the_quarter_turn_fix():
@@ -143,3 +155,15 @@ def test_a_missing_blender_is_explained_in_the_servers_words():
     assert "tools.blender_problem" in PROPS
     assert "I2L_BLENDER" not in PROPS
 
+
+
+def test_the_names_box_fits_a_three_by_three_sheet_and_warns_about_order():
+    # Six rows hid a typo on line 4 of nine; Qwen also drew a row in another order than
+    # the prompt listed it (props test, 2026-10-03).
+    assert '<textarea id="props-names" rows="9"' in INDEX
+    assert "In the order the picture shows them, which may not be your prompt's" in INDEX
+
+
+def test_a_failed_run_list_shows_its_error_as_text_not_markup():
+    assert "Could not list runs: ${error.message}</small>`" not in PROPS
+    assert "host.firstChild.textContent = `Could not list runs: ${error.message}`" in PROPS

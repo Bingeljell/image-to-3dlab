@@ -69,6 +69,20 @@ def test_names_arrive_one_per_line_from_the_textarea():
     assert settings["names"] == ["barrel", "crate", "chest"]
 
 
+def test_names_may_also_be_separated_by_commas():
+    settings = props.normalise_settings({"names": "barrel, crate,chest\npot"})
+    assert settings["names"] == ["barrel", "crate", "chest", "pot"]
+
+
+def test_a_name_with_a_space_says_which_line_and_what_to_do():
+    # First real use typed two props on one line ("pot bucket", 2026-10-03).
+    with pytest.raises(ValueError) as caught:
+        props.normalise_settings({"names": "barrel\ncrate\nchest\npot bucket"})
+    message = str(caught.value)
+    assert "line 4" in message and "'pot bucket'" in message
+    assert "one name per line" in message and "pot-bucket" in message
+
+
 @pytest.mark.parametrize("names", [
     "barrel\nbarrel", "iron chest", "../etc", "a" * 41, ["x"] * 65, 12,
     "Barrel\nbarrel",                      # one file on a case-insensitive disk
@@ -531,7 +545,7 @@ def test_a_turn_that_would_lose_the_web_files_is_refused(tmp_path, monkeypatch):
     before = _snapshot(directory)
     monkeypatch.setattr(props, "find_gltfpack", lambda: None)
     manager = props.PropsJobManager(tmp_path)
-    with pytest.raises(RuntimeError, match="gltfpack"):
+    with pytest.raises(RuntimeError, match="gltfpack.*Setup & Status"):
         manager.turn(directory.name, "chest", 90)
     assert manager.active is None
     assert _snapshot(directory) == before
@@ -751,3 +765,32 @@ def test_the_provenance_sidecar_wins_over_the_run_manifest(tmp_path):
 
 def test_job_ids_are_validated_before_lookup():
     assert props.PropsJobManager().get("../../etc") is None
+
+
+def test_tools_say_whether_setup_can_install_gltfpack(monkeypatch):
+    monkeypatch.setattr(props, "find_gltfpack", lambda: None)
+    monkeypatch.setattr(props.gltfpack_bootstrap(), "can_install", lambda: True)
+    assert props.tools_payload()["gltfpack_installable"] is True
+    monkeypatch.setattr(props.gltfpack_bootstrap(), "can_install", lambda: False)
+    assert props.tools_payload()["gltfpack_installable"] is False
+    monkeypatch.setattr(props, "find_gltfpack", lambda: Path("/bin/gltfpack"))
+    monkeypatch.setattr(props.gltfpack_bootstrap(), "can_install", lambda: True)
+    assert props.tools_payload()["gltfpack_installable"] is False  # already there
+
+
+def test_gltfpack_install_runs_the_bootstrap_with_yes():
+    command = props.gltfpack_install_command()
+    assert command[-2].endswith("bootstrap_gltfpack.py") and command[-1] == "--yes"
+
+
+def test_the_server_can_load_the_gltfpack_bootstrap_in_a_fresh_process():
+    # In this suite another test has already imported it, which hid a crash the live
+    # server hit on the first visit to Setup (a dataclass needs its module registered).
+    import subprocess
+
+    code = ("import sys; sys.path.insert(0, 'viewer'); import props_api; "
+            "print(props_api.tools_payload()['gltfpack_installable'] in (True, False))")
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True,
+                            text=True, check=False)
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert result.stdout.strip().endswith("True")

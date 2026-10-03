@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **Hunyuan paint no longer runs short of memory after the shape stage.** The shape
-  stage now hands its GPU memory back before the paint stage starts, so paint is less
-  likely to be killed on smaller Macs, and the run's `.json` record now includes the
-  vertex count. Thanks @gabelul (#85).
-
 ## [0.3.8] - 2026-10-03
 
 ### Added
@@ -36,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not always take from your prompt.
 
 ### Fixed
+- **Hunyuan paint no longer runs short of memory after the shape stage.** The shape
+  stage now hands its GPU memory back before the paint stage starts, so paint is less
+  likely to be killed on smaller Macs, and the run's `.json` record now includes the
+  vertex count. Thanks @gabelul (#85).
 - **Install Blender and the Mac Run setup button show their progress again.** The page
   asked for a progress feed at an address the viewer never answered, so both ran blind.
 - `blender_bake_normals.py` no longer knocks normal-map values from 1 to 63 down a

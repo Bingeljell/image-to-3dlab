@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-10-04
+
 ### Changed
 - **Pixal3D models now face the front.** Pixal3D writes models facing away from glTF's
   front, so viewers and game engines showed their backs first. Each run is now turned

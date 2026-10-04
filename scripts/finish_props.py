@@ -13,7 +13,8 @@ barrel of the test sheet: meshoptimizer's simplifier took LOD0 from 5,000 triang
 normal map re-baked for that mesh did not help, because the texture coordinates
 themselves had been stretched. Running `blender_retopo_bake.py` again at 1,000 faces,
 from the original, with its own atlas, came out clean on all nine props. The cost is one
-atlas per LOD rather than one shared between them.
+atlas per LOD rather than one shared between them, so each LOD after the first gets half
+the atlas of the one before (down to 256): a far LOD is small on screen.
 
 **Then the detail bake Finish uses.** `blender_bake_detail.py` bakes the original's
 relief into a normal map and carries its metallic-roughness map across, so the iron
@@ -69,13 +70,16 @@ FACE_RANGE = (1000, 200000)
 # 1024 is a common prop texture size, and what every measurement here used.
 DEFAULT_ATLAS = 1024
 ATLAS_SIZES = (1024, 2048, 4096)
+# --atlas is LOD0's. Each further LOD halves it down to this floor: a far LOD fills few
+# pixels on screen, and one full-size atlas per LOD made LOD2 about as big as LOD0.
+MIN_LOD_ATLAS = 256
 # `blender_retopo_bake.py`'s own defaults for the unwrap angle and voxel size.
 ANGLE = 89.0
 VOXEL = 0.004
 # -kn keeps the named node, so the prop's name survives compression.
 GLTFPACK_FLAGS = ("-cc", "-tw", "-kn")
 # What a LOD on disk was baked with. `--resume` refuses to keep LODs when any differ.
-BAKE_SETTINGS = ("lods", "atlas", "surface")
+BAKE_SETTINGS = ("lods", "atlas", "lod_atlas", "surface")
 # The line `blender_bake_detail.py` ends with: what it did, as JSON.
 DETAIL_MARKER = "BAKE_DETAIL::"
 # What this prints as it goes, for the viewer's progress bar: see progress_line.
@@ -160,6 +164,11 @@ def write_lod(detailed: Path, lod: Path, name: str) -> None:
     """
     detailed.write_bytes(name_lod(detailed.read_bytes(), name))
     detailed.replace(lod)
+
+
+def lod_atlas(atlas: int, index: int) -> int:
+    """The atlas size LOD `index` is baked at: LOD0's halved once per step, floored."""
+    return max(MIN_LOD_ATLAS, atlas >> index)
 
 
 def glb_triangles(glb: bytes) -> int:
@@ -258,7 +267,9 @@ def main(argv: list[str] | None = None) -> int:
     if gltfpack is None and not args.no_compress:
         print("gltfpack not found: writing uncompressed LODs only (see --help)")
 
-    record = {"lods": lods, "atlas": args.atlas, "gltfpack": str(gltfpack) if gltfpack else None,
+    record = {"lods": lods, "atlas": args.atlas,
+              "lod_atlas": [lod_atlas(args.atlas, i) for i in range(len(lods))],
+              "gltfpack": str(gltfpack) if gltfpack else None,
               "surface": {"metallic": args.metallic, "roughness": args.roughness,
                           "ior": args.ior},
               "props": []}
@@ -283,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         entry = {"name": name, "source": os.path.relpath(source, out_dir), "lods": []}
         for index, faces in enumerate(lods):
             step = time.time()
+            atlas = lod_atlas(args.atlas, index)
             baked = lod_path(out_dir, name, index)
             detail_log = logs / f"LOD{index}.detail.log"
             rebaked = not reuse(baked, args.resume)
@@ -292,15 +304,15 @@ def main(argv: list[str] | None = None) -> int:
                 # --resume keeps any LOD file it finds, so it must never see a half-done one.
                 retopo = logs / f"LOD{index}.retopo.glb"
                 detailed = logs / f"LOD{index}.detail.glb"
-                _run(retopo_command(source, retopo, faces, args.atlas, ANGLE, VOXEL,
+                _run(retopo_command(source, retopo, faces, atlas, ANGLE, VOXEL,
                                     args.metallic, args.roughness, args.ior,
                                     blender=blender),
                      logs / f"LOD{index}.log", f"{name} LOD{index}")
-                _run(bake_command(source, retopo, detailed, args.atlas, blender=blender),
+                _run(bake_command(source, retopo, detailed, atlas, blender=blender),
                      detail_log, f"{name} LOD{index} detail")
                 retopo.unlink()
                 write_lod(detailed, baked, f"{name}_LOD{index}")
-            lod = {"faces": faces, "triangles": glb_triangles(baked.read_bytes()),
+            lod = {"faces": faces, "atlas": atlas, "triangles": glb_triangles(baked.read_bytes()),
                    "glb": os.path.relpath(baked, out_dir), "bytes": baked.stat().st_size}
             if detail_log.is_file():
                 lod["detail"] = detail_record(detail_log.read_text())

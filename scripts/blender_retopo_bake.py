@@ -78,8 +78,9 @@ def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float
             raise SystemExit(f"{name} must be within 0..1, got {value}")
     if not 1.0 <= ior <= 3.0:
         raise SystemExit(f"ior must be within 1.0..3.0, got {ior}")
-    if size not in (1024, 2048, 4096):
-        raise SystemExit(f"atlas size must be 1024, 2048 or 4096, got {size}")
+    # 256 and 512 are for the far LODs finish_props.py bakes, which are seen small.
+    if size not in (256, 512, 1024, 2048, 4096):
+        raise SystemExit(f"atlas size must be 256, 512, 1024, 2048 or 4096, got {size}")
     if not 1000 <= target_faces <= 200000:
         raise SystemExit(
             f"target faces must be 1000..200000; too few loses the silhouette, too many "

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Far prop LODs are now smaller files.** Each LOD after the first is baked with half
+  the texture size of the one before, down to 256 (1024, 512, 256 by default). Before,
+  every LOD carried a full-size texture, so LOD2 was nearly as big as LOD0. `--resume`
+  will not mix in LODs baked the old way.
+
 ### Fixed
 - **Rig Review rebinds now report Blender's real error.** A crash in the rebind script
   used to exit cleanly and surface only as "missing artifacts"; Blender now exits with

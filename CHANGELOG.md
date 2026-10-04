@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   will not mix in LODs baked the old way.
 
 ### Fixed
+- **Pixal3D runs, and the props cut from them, now record their licence class**
+  (commercial-conditional: MIT with the DINOv3 encoder, as for TRELLIS.2). It was
+  missing, so the Props tab showed none.
 - **Rig Review rebinds now report Blender's real error.** A crash in the rebind script
   used to exit cleanly and surface only as "missing artifacts"; Blender now exits with
   an error code, so the viewer shows the failure and its log.

@@ -480,3 +480,21 @@ def test_an_explicit_count_the_build_cannot_honour_is_refused(tmp_path):
     with pytest.raises(SystemExit, match="not patched"):
         px.resolve_steps(8, source, cli)
     assert px.resolve_steps(12, source, cli)[0] == 12
+
+
+def test_the_manifest_records_the_licence_class_props_inherit(tmp_path):
+    """The Props tab copies output.classification; without it every prop said null."""
+    from image_to_3dlab.provenance import LICENSES
+    from viewer.backend_catalog import resolve
+
+    image = tmp_path / "i.png"
+    output = tmp_path / "o.glb"
+    image.write_bytes(b"i")
+    output.write_bytes(b"o")
+    record = px.manifest(image, output, res=1024, seed=42, fov=0.349, gss=10.0, gsh=None,
+                         matted=True, matted_here=False, seconds=1.0)
+    profile = LICENSES["pixal3d"]
+    assert record["output"]["classification"] == profile.classification == "commercial-conditional"
+    catalogue = resolve("pixal3d")
+    assert (profile.license_name, profile.license_url) == (catalogue.license_name,
+                                                           catalogue.license_url)

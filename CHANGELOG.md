@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Pixal3D models now face the front.** Pixal3D writes models facing away from glTF's
+  front, so viewers and game engines showed their backs first. Each run is now turned
+  half a turn as it is saved, together with the camera Pixel Match projects through, so
+  Pixel Match still lands the photo on the right side. Prop sheets turned this way
+  split with the same names as before; older sheets still split correctly.
 - **Far prop LODs are now smaller files.** Each LOD after the first is baked with half
   the texture size of the one before, down to 256 (1024, 512, 256 by default). Before,
   every LOD carried a full-size texture, so LOD2 was nearly as big as LOD0. `--resume`

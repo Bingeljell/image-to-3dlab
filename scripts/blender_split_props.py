@@ -36,8 +36,11 @@ The walkthrough and every measurement quoted here are in `docs/prop-sheets.md`.
 7. **Origin at the bottom centre**, each prop at the origin in its own GLB, and all of
    them lined up along X in the `.blend`.
 
-Pixal3D's single-view output faces +Y once imported (the importer's Y-up to Z-up turn
-included), so the viewer's left is +X. That is what the reading order assumes.
+Pixal3D's raw output faces +Y once imported (the importer's Y-up to Z-up turn included),
+so the viewer's left is +X. Since 0.3.9 `pixal3d_generate.py` turns it to face glTF's
+front, -Y once imported, and stamps the GLB (`image_to_3dlab/glb_turn.py`); the viewer's
+left is then -X. The reading order follows the stamp, so sheets from either side split
+the same.
 
 Writes `OUT_DIR/props.blend`, one `OUT_DIR/<name>.glb` per prop and `OUT_DIR/props.json`,
 a record of what was done to each prop.
@@ -244,12 +247,13 @@ def group_parts(boxes: list[Box], face_counts: list[int], margin: float,
     return sorted((sorted(group) for group in kept), key=lambda group: group[0])
 
 
-def reading_order(centres: list[tuple[float, float]], heights: list[float]) -> list[int]:
+def reading_order(centres: list[tuple[float, float]], heights: list[float],
+                  left_is_plus_x: bool = True) -> list[int]:
     """Indices ordered like reading the source image: top row first, left to right.
 
     ``centres`` are (x, z) in Blender space. A new row starts when a prop's centre sits
     more than half the tallest prop below the top of the current row; within a row, the
-    viewer's left is +X. Measured from the row's top, not from the prop before, so a row
+    viewer's left is +X, or -X for a sheet turned to face front. Measured from the row's top, not from the prop before, so a row
     that sags a little per prop cannot creep into the next one.
     """
     if not centres:
@@ -264,7 +268,8 @@ def reading_order(centres: list[tuple[float, float]], heights: list[float]) -> l
             rows.append(current)
             current = [i]
     rows.append(current)
-    return [i for row in rows for i in sorted(row, key=lambda i: -centres[i][0])]
+    side = -1.0 if left_is_plus_x else 1.0
+    return [i for row in rows for i in sorted(row, key=lambda i: side * centres[i][0])]
 
 
 def tilt_matrix(x_degrees: float, y_degrees: float) -> np.ndarray:
@@ -357,6 +362,10 @@ def main() -> int:
 
     args = parse_args(list(sys.argv))
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from image_to_3dlab.glb_turn import glb_faces_front
+    front = glb_faces_front(args.source.read_bytes())
+    print(f"SPLIT:: sheet faces {'front (+Z)' if front else 'back (-Z, unturned)'}")
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(args.source), merge_vertices=True)
@@ -405,7 +414,7 @@ def main() -> int:
     boxes = [bounds(p) for p in props]
     centres = [((lo[0] + hi[0]) / 2, (lo[2] + hi[2]) / 2) for lo, hi in boxes]
     heights = [hi[2] - lo[2] for lo, hi in boxes]
-    props = [props[i] for i in reading_order(centres, heights)]
+    props = [props[i] for i in reading_order(centres, heights, left_is_plus_x=not front)]
     if args.names and len(args.names) != len(props):
         print(f"SPLIT:: warning: {len(args.names)} names for {len(props)} props; "
               f"the rest are numbered")

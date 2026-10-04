@@ -227,3 +227,10 @@ def test_a_turn_for_a_prop_that_is_not_there_is_refused():
     split.check_turns({"chest": 90.0}, ["chest", "crate"])
     with pytest.raises(SystemExit, match="chets"):
         split.check_turns({"chets": 90.0}, ["chest", "crate"])
+
+
+def test_a_sheet_turned_to_face_front_reads_left_to_right_from_minus_x():
+    """Turned half a turn, the viewer stands at -Y and their left is -X."""
+    centres = [(-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)]   # left to right, seen from the front
+    assert split.reading_order(centres[::-1], [0.8] * 3, left_is_plus_x=False) == [2, 1, 0]
+    assert split.reading_order(centres, [0.8] * 3) == [2, 1, 0]   # the old facing

@@ -329,3 +329,9 @@ def test_nothing_is_rented_without_a_yes(monkeypatch, tmp_path):
     monkeypatch.setattr("builtins.input", lambda *_: "n")
     monkeypatch.setattr(smoke, "rent", lambda *a: pytest.fail("rented"))
     assert smoke.main(["--image", str(image)]) == 1
+
+
+def test_pods_are_rented_with_a_driver_new_enough_for_the_pixal3d_prebuilt():
+    """An older host driver silently turns a one-minute install into a 15-minute compile."""
+    command = smoke.create_command("NVIDIA A40", "smoke", 2.0)
+    assert command[command.index("--min-cuda-version") + 1] == "12.9"

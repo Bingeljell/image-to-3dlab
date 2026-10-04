@@ -235,6 +235,15 @@ def test_an_old_driver_with_a_compiler_announces_a_local_cuda_build(monkeypatch)
     monkeypatch.setattr(boot, "nvcc_cuda", lambda _: (12, 8))
     text = boot.announcement()
     assert "compiled locally with CUDA" in text and "prebuilt" not in text
+    # Says why it is compiling, and that a driver update skips the wait.
+    assert "12.8" in text and "575" in text and "about a minute" in text
+
+
+def test_choosing_to_compile_on_a_new_driver_gets_no_driver_advice(monkeypatch, new_driver):
+    monkeypatch.setattr(boot, "target", lambda: "linux-nvidia")
+    monkeypatch.setattr(boot, "find_nvcc", lambda: NVCC)
+    monkeypatch.setattr(boot, "nvcc_cuda", lambda _: (12, 8))
+    assert "575" not in boot.announcement(prefer_compile=True)
 
 
 def test_cuda_source_build_targets_this_card(monkeypatch):

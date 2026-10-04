@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   will not mix in LODs baked the old way.
 
 ### Fixed
+- **NVIDIA: the Pixal3D installer says why it is compiling.** On a driver older than
+  575 it compiles for 10+ minutes; it now says so before starting, and that updating
+  the driver makes it a one-minute download instead.
 - **Pixal3D runs, and the props cut from them, now record their licence class**
   (commercial-conditional: MIT with the DINOv3 encoder, as for TRELLIS.2). It was
   missing, so the Props tab showed none.

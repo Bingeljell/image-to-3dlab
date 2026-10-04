@@ -65,7 +65,10 @@ def test_blender_command_is_noninteractive_and_typed(tmp_path):
     command = rig_api.build_command(job, Path("/Applications/Blender"))
 
     assert command[:3] == ["/Applications/Blender", "--background", str(job.scene_path)]
-    assert command[3:5] == ["--python", str(rig_api.WORKER)]
+    # Without this Blender exits 0 when the worker raises, so a crash reads as success.
+    # It must come before --python: Blender applies arguments in order.
+    assert command[3:5] == ["--python-exit-code", "1"]
+    assert command[5:7] == ["--python", str(rig_api.WORKER)]
     assert command[-4:] == [
         str(job.result_glb), str(job.result_blend), str(job.result_sidecar), str(job.report_path)
     ]

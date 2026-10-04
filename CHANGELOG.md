@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Rig Review rebinds now report Blender's real error.** A crash in the rebind script
+  used to exit cleanly and surface only as "missing artifacts"; Blender now exits with
+  an error code, so the viewer shows the failure and its log.
+
 ## [0.3.8] - 2026-10-03
 
 ### Added

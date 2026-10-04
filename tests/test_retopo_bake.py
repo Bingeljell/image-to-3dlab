@@ -83,6 +83,14 @@ def test_rejects_a_face_target_too_low_to_hold_a_silhouette():
 def test_rejects_a_bad_atlas_size():
     with pytest.raises(SystemExit):
         retopo.parse_args(["--", "a.glb", "b.glb", "20000", "3000"])
+    with pytest.raises(SystemExit):
+        retopo.parse_args(["--", "a.glb", "b.glb", "20000", "128"])
+
+
+@pytest.mark.parametrize("size", [256, 512])
+def test_accepts_the_small_atlases_far_lods_use(size):
+    """finish_props.py halves the atlas per LOD, so the far ones are 512 and 256."""
+    assert retopo.parse_args(["--", "a.glb", "b.glb", "2000", str(size)])[3] == size
 
 
 def test_missing_arguments_exit_with_usage():

@@ -123,7 +123,8 @@ RIG_JOBS = RigJobManager()
 
 def build_command(job: RigJob, blender: Path) -> list[str]:
     return [
-        str(blender), "--background", str(job.scene_path), "--python", str(WORKER), "--",
+        str(blender), "--background", str(job.scene_path),
+        "--python-exit-code", "1", "--python", str(WORKER), "--",
         str(job.asset_path), str(job.sidecar_path), str(job.result_glb),
         str(job.result_blend), str(job.result_sidecar), str(job.report_path),
     ]

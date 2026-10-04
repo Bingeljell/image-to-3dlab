@@ -166,8 +166,25 @@ def announcement(build: bool = True, weights: bool = True,
         lines.append(f"             {WEIGHTS_REPO}, plus BiRefNet matting ({MATTE_REPO})")
         lines.append(f"  and:     BiRefNet-lite background remover, "
                      f"{matte.LITE_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LITE_MODEL)}")
+    note = old_driver_note(target(), prefer_compile)
+    if note:
+        lines += ["", "  " + note]
     lines += ["", "  licence: " + LICENCE, ""]
     return "\n".join(lines)
+
+
+def old_driver_note(key: str | None, prefer_compile: bool = False) -> str | None:
+    """Why this NVIDIA machine compiles, when the reason is only an old driver.
+
+    Without it the installer just starts a 10+ minute compile, and nobody learns that a
+    driver update would have made it a one-minute download.
+    """
+    if prefer_compile or key not in PREBUILTS or current_kind(key) != "cuda-source":
+        return None
+    cuda = driver_cuda()
+    have = f"CUDA {cuda[0]}.{cuda[1]}" if cuda else "an unknown CUDA version"
+    return (f"note:    your NVIDIA driver supports {have}, so Pixal3D compiles here. "
+            f"With driver {PREBUILT_MIN_DRIVER}+ it installs ready-made in about a minute.")
 
 
 def cli_path() -> Path:

@@ -131,10 +131,11 @@ def test_the_limits_match_what_the_bake_accepts():
     for faces in (low - 1, high + 1):
         with pytest.raises(SystemExit):
             retopo.parse_args(["--", "a.glb", "b.glb", str(faces)])
-    for size in finish.ATLAS_SIZES:
+    # Every size a LOD can reach, from each --atlas choice down to the floor.
+    for size in {finish.lod_atlas(a, i) for a in finish.ATLAS_SIZES for i in range(6)}:
         retopo.parse_args(["--", "a.glb", "b.glb", "5000", str(size)])
     with pytest.raises(SystemExit):
-        retopo.parse_args(["--", "a.glb", "b.glb", "5000", "512"])
+        retopo.parse_args(["--", "a.glb", "b.glb", "5000", str(finish.MIN_LOD_ATLAS // 2)])
     defaults = retopo.parse_args(["--", "a.glb", "b.glb"])
     assert defaults[4] == pytest.approx(math.radians(finish.ANGLE))
     assert defaults[5] == finish.VOXEL
@@ -243,6 +244,12 @@ def test_each_lod_is_retopologised_then_detail_baked_from_the_original(sheet):
     # From the original onto the fresh retopology, at the LOD's own atlas size.
     assert after[:2] == [source, retopo[retopo.index("--") + 2]]
     assert after[3] == "1024"
+    # Each LOD after the first gets half the atlas: LOD1 bakes at 512, in both steps.
+    retopo1, detail1 = runs.commands[3], runs.commands[4]
+    assert retopo1[retopo1.index("--") + 4] == "512"
+    assert detail1[detail1.index("--") + 4] == "512"
+    lods = json.loads((out / "finish_props.json").read_text())["props"][0]["lods"]
+    assert [lod["atlas"] for lod in lods] == [1024, 512]
     # Baked in logs/, then named and moved to the LOD's own path.
     assert Path(after[2]).parent == out / "chest" / "logs"
     assert finish.lod_path(out, "chest", 0).is_file()
@@ -357,3 +364,20 @@ def test_the_record_is_written_before_the_first_bake(sheet):
 
 def test_resume_without_a_record_keeps_the_lods():
     assert finish.resume_mismatch(None, {"lods": [1], "atlas": 1024, "surface": {}}) == []
+
+
+def test_lod_atlas_halves_per_lod_and_stops_at_256():
+    assert [finish.lod_atlas(1024, i) for i in range(4)] == [1024, 512, 256, 256]
+    assert [finish.lod_atlas(4096, i) for i in range(3)] == [4096, 2048, 1024]
+
+
+def test_resume_refuses_lods_baked_before_the_atlas_halved(sheet):
+    """Older records have no per-LOD atlas: their far LODs were baked at full size."""
+    out, _runs, run = sheet
+    run()
+    record_path = out / "finish_props.json"
+    record = json.loads(record_path.read_text())
+    del record["lod_atlas"]
+    record_path.write_text(json.dumps(record))
+    with pytest.raises(SystemExit, match="lod_atlas"):
+        run("--resume")

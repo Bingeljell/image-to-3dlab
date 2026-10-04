@@ -87,6 +87,9 @@ def create_command(gpu: str, name: str, hours: float, cloud: str = "secure",
     community = ["--public-ip"] if cloud == "community" else []
     return ["runpodctl", "pod", "create", "--cloud-type", cloud.upper(), *community,
             "--country-code", country, "--gpu-id", gpu,
+            # Hosts set the driver. Below CUDA 12.9 (driver 575) Pixal3D compiles for 15
+            # minutes instead of downloading its prebuilt in one.
+            "--min-cuda-version", "12.9",
             "--image", IMAGE, "--name", name, "--container-disk-in-gb", "120",
             "--volume-in-gb", "60", "--ports", f"{PORT}/http,22/tcp",
             "--terminate-after", terminate_after(hours), "--wait", "-o", "json"]

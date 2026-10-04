@@ -42,7 +42,8 @@ sys.path.insert(0, str(REPO))
 
 from image_to_3dlab.host import executable
 from image_to_3dlab.matte import cut_out, fallback_note, is_matted, matte_model
-from image_to_3dlab.provenance import sha256_file
+from image_to_3dlab.glb_turn import turn_cameras, turn_glb
+from image_to_3dlab.provenance import LICENSES, sha256_file
 
 PIXAL3D_ROOT = REPO / "vendor" / "pixal3d-cpp"
 CLI = executable(PIXAL3D_ROOT / "build", "trellis-cli")
@@ -86,8 +87,9 @@ MATTE_LICENSES = {
 }
 
 # Must match viewer/backend_catalog.py's "pixal3d" entry; a test holds them together.
-LICENSE_NAME = "MIT (code + flow weights); DINOv3 License (bundled encoder)"
-LICENSE_URL = "https://huggingface.co/raven38/pixal3d-sv-q8_0-v1"
+PROFILE = LICENSES["pixal3d"]
+LICENSE_NAME = PROFILE.license_name
+LICENSE_URL = PROFILE.license_url
 
 
 def manifest(image: Path, output: Path, *, res: int, seed: int, fov: float, gss: float,
@@ -103,7 +105,8 @@ def manifest(image: Path, output: Path, *, res: int, seed: int, fov: float, gss:
         "schema_version": 1,
         "backend": "pixal3d",
         "input": {"path": str(image), "sha256": sha256_file(image)},
-        "output": {"path": str(output), "sha256": sha256_file(output)},
+        "output": {"path": str(output), "sha256": sha256_file(output),
+                   "classification": PROFILE.classification},
         "parameters": {"res": res, "seed": seed, "fov": fov, "gss": gss, "gsh": gsh,
                        "matted": matted, "steps": steps},
         "license": {"name": LICENSE_NAME, "url": LICENSE_URL},
@@ -114,6 +117,22 @@ def manifest(image: Path, output: Path, *, res: int, seed: int, fov: float, gss:
         }] if matted_here and matte_model else [],
         "timings_seconds": {"total": round(seconds, 1)},
     }
+
+
+def face_front(output: Path) -> None:
+    """Turn the GLB trellis-cli wrote to face +Z, glTF's front, and its saved camera with it.
+
+    pixal3d.cpp writes models facing -Z, so every viewer showed the back first. The camera
+    in `<output>.svviews/` turns too, or Pixel Match would paint the photo on the back.
+    The .ply beside it is left as written: nothing here reads it.
+    """
+    turned = output.with_name(output.name + ".turning")
+    turned.write_bytes(turn_glb(output.read_bytes()))
+    turned.replace(output)
+    cameras = output.with_suffix(".svviews") / "transforms.json"
+    if cameras.is_file():
+        cameras.write_text(json.dumps(turn_cameras(json.loads(cameras.read_text())),
+                                      indent=2) + "\n")
 
 
 def has_alpha(image: Path) -> bool:
@@ -396,6 +415,7 @@ def main() -> int:
         raise SystemExit(f"trellis-cli exited with code {code}")
     if not args.output.is_file():
         raise SystemExit(f"trellis-cli exited 0 without writing {args.output}")
+    face_front(args.output)
 
     seconds = time.time() - started
     record = manifest(args.image, args.output, res=args.res, seed=args.seed, fov=args.fov,

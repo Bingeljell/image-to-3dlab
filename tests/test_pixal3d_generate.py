@@ -9,10 +9,15 @@ projected through it, so a missing FOV is not a cosmetic difference.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
+
+from image_to_3dlab import glb_turn
+from tests.test_glb_turn import make_glb, read
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "pixal3d_generate.py"
 
@@ -357,11 +362,17 @@ def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypat
     image.write_bytes(b"png")
     output = tmp_path / "out" / "gnome.glb"
 
+    views = output.with_suffix(".svviews")
+
     class FakeProcess:
         stdout = iter(["[1/3] structure\n"])
 
         def wait(self):
-            output.write_bytes(b"glb")
+            # What trellis-cli leaves: a GLB facing -Z, and the camera it staged.
+            output.write_bytes(make_glb([[0.1, 0.2, 0.3]]))
+            views.mkdir()
+            (views / "transforms.json").write_text(json.dumps(
+                {"frames": [{"file_path": "input.png", "transform_matrix": np.eye(4).tolist()}]}))
             return 0
 
     monkeypatch.setattr(px, "has_alpha", lambda _: True)
@@ -373,6 +384,19 @@ def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypat
     record = __import__("json").loads((tmp_path / "out" / "gnome.json").read_text())
     assert record["backend"] == "pixal3d"
     assert record["output"]["path"] == str(output.resolve())
+    # Turned to face front, with its camera, before the record hashes it.
+    assert glb_turn.glb_faces_front(output.read_bytes())
+    assert np.allclose(read(output.read_bytes(), 0), [[-0.1, 0.2, -0.3]])
+    camera = json.loads((views / "transforms.json").read_text())
+    assert camera["frames"][0]["transform_matrix"][0][0] == -1.0
+    assert record["output"]["sha256"] == px.sha256_file(output)
+
+
+def test_a_run_without_a_saved_camera_still_turns_the_model(tmp_path):
+    output = tmp_path / "o.glb"
+    output.write_bytes(make_glb([[1.0, 0.0, 0.0]]))
+    px.face_front(output)
+    assert glb_turn.glb_faces_front(output.read_bytes())
 
 
 # --- Fewer sampling steps ------------------------------------------------------------------
@@ -480,3 +504,21 @@ def test_an_explicit_count_the_build_cannot_honour_is_refused(tmp_path):
     with pytest.raises(SystemExit, match="not patched"):
         px.resolve_steps(8, source, cli)
     assert px.resolve_steps(12, source, cli)[0] == 12
+
+
+def test_the_manifest_records_the_licence_class_props_inherit(tmp_path):
+    """The Props tab copies output.classification; without it every prop said null."""
+    from image_to_3dlab.provenance import LICENSES
+    from viewer.backend_catalog import resolve
+
+    image = tmp_path / "i.png"
+    output = tmp_path / "o.glb"
+    image.write_bytes(b"i")
+    output.write_bytes(b"o")
+    record = px.manifest(image, output, res=1024, seed=42, fov=0.349, gss=10.0, gsh=None,
+                         matted=True, matted_here=False, seconds=1.0)
+    profile = LICENSES["pixal3d"]
+    assert record["output"]["classification"] == profile.classification == "commercial-conditional"
+    catalogue = resolve("pixal3d")
+    assert (profile.license_name, profile.license_url) == (catalogue.license_name,
+                                                           catalogue.license_url)

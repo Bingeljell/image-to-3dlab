@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-10-04
+
+### Changed
+- **Pixal3D models now face the front.** Pixal3D writes models facing away from glTF's
+  front, so viewers and game engines showed their backs first. Each run is now turned
+  half a turn as it is saved, together with the camera Pixel Match projects through, so
+  Pixel Match still lands the photo on the right side. Prop sheets turned this way
+  split with the same names as before; older sheets still split correctly.
+- **Far prop LODs are now smaller files.** Each LOD after the first is baked with half
+  the texture size of the one before, down to 256 (1024, 512, 256 by default). Before,
+  every LOD carried a full-size texture, so LOD2 was nearly as big as LOD0. `--resume`
+  will not mix in LODs baked the old way.
+
+### Fixed
+- **NVIDIA: the Pixal3D installer says why it is compiling.** On a driver older than
+  575 it compiles for 10+ minutes; it now says so before starting, and that updating
+  the driver makes it a one-minute download instead.
+- **Pixal3D runs, and the props cut from them, now record their licence class**
+  (commercial-conditional: MIT with the DINOv3 encoder, as for TRELLIS.2). It was
+  missing, so the Props tab showed none.
+- **Rig Review rebinds now report Blender's real error.** A crash in the rebind script
+  used to exit cleanly and surface only as "missing artifacts"; Blender now exits with
+  an error code, so the viewer shows the failure and its log.
+
 ## [0.3.8] - 2026-10-03
 
 ### Added

@@ -180,6 +180,7 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `blender_rebind_weights.py` | Voxel-proxy weight transfer used by the headless rig rebind worker. |
 | `blender_export_rig_binding.py` | Prepare an open Blender metarig scene and export its browser rig sidecar. |
 | `rignet_infer.py` | Run vendored RigNet inference on one of our own generated meshes. |
+| `bootstrap_autorig.py` | Install the auto-rigger: SkinTokens (VAST-AI, MIT), which gives a humanoid mesh a skeleton and skin weights. |
 | `kimodo_retarget.py` | Play a Kimodo text-to-motion clip on a SkinTokens-rigged humanoid and export an animated GLB. |
 | `attack_pose.py` | Pose curves for a quadruped slam attack, as pure functions. |
 | `rigify_walk_pose.py` | Pose curves for a quadruped trot on a Rigify-generated rig, as pure functions. |
@@ -206,6 +207,7 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `patch_pixal3d_model_subset.py` | Let Pixal3D load only the checkpoints a run actually needs. |
 | `patch_pixal3d_low_vram.py` | Make Pixal3D's low-VRAM mode reachable, via `PIXAL3D_LOW_VRAM=1`. |
 | `patch_pixal3d_steps.py` | Let Pixal3D (pixal3d.cpp) run fewer sampling steps, via `PIXAL3D_STEPS=N`. |
+| `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |
 | `patch_trellis_no_bria.py` | Disable TRELLIS' configured background model for license-controlled runs. |
 | `patch_trellis_cuda_no_bria.py` | Stop the NVIDIA TRELLIS.2 checkout loading BRIA RMBG-2.0, before it ever downloads it. |

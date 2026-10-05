@@ -558,6 +558,29 @@ CATALOG: tuple[Backend, ...] = (
                       note="One file, used by Pixal3D, TRELLIS and SF3D alike."),
         ),
     ),
+    Backend(
+        id="autorig",
+        label="Auto-rig (SkinTokens)",
+        kind="tool",
+        best_for=("Gives a humanoid model a skeleton and skin weights, so the Rig tab can "
+                  "play preset animations on it."),
+        tradeoff="Humanoids in a T-pose only for now. Four-legged creatures are coming.",
+        license_name="MIT",
+        license_url="https://github.com/VAST-AI-Research/SkinTokens/blob/main/LICENSE",
+        install="scripts/bootstrap_autorig.py",
+        runs_on=(APPLE, NVIDIA),
+        setup_minutes=10,
+        build_probes=(venv_python(REPO / "vendor" / "SkinTokens"),
+                      REPO / "vendor" / "SkinTokens" / "demo.py"),
+        upstream=("VAST-AI SkinTokens", "https://github.com/VAST-AI-Research/SkinTokens"),
+        weights=(
+            WeightSet("SkinTokens rigging + skinning checkpoints", "VAST-AI/SkinTokens",
+                      1_131_603_979 + 487_311_745,
+                      HF_HUB_DIR / "models--VAST-AI--SkinTokens",
+                      note="Pinned to the revision we tested. Setup also fetches "
+                           "Qwen3-0.6B's config and tokenizer (~16 MB, no weights)."),
+        ),
+    ),
 )
 
 BY_ID = {backend.id: backend for backend in CATALOG}

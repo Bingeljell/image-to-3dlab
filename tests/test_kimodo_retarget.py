@@ -244,3 +244,12 @@ def test_a_mitten_follows_the_middle_finger():
         heads[name] = heads[hand] + np.array([-0.05 * (i + 1), 0, 0])
     m, _ = kr.map_skintokens_to_soma(parents, heads)
     assert m["mit0"].startswith("LeftHandMiddle") and m["mit1"].startswith("LeftHandMiddle")
+
+
+def test_stiff_fingers_follow_their_hand_and_leave_the_rest():
+    parents, heads, roles = _humanoid(face=+1)
+    m, _ = kr.map_skintokens_to_soma(parents, heads)
+    stiff = kr.stiffen_fingers(m)
+    assert stiff[roles["Lindex2"]] == "LeftHand" and stiff[roles["Rthumb0"]] == "RightHand"
+    assert stiff[roles["Lhand"]] == "LeftHand" and stiff[roles["Lfa"]] == "LeftForeArm"
+    assert stiff[roles["head"]] == m[roles["head"]]

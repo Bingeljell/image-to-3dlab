@@ -71,7 +71,10 @@ def test_rig_job_copies_the_source_and_records_both_licences(tmp_path):
     assert job.directory.name.startswith("My-Knight__rig__")
     assert (job.directory / "input" / "source.glb").read_bytes() == b"glTF-data"
     assert job.result.name == "My-Knight_rigged.glb"
-    assert job.command[1:3] == ["demo.py", "--input"] and "--use_transfer" in job.command
+    (rig, rig_cwd), (clean, _) = job.commands
+    assert rig[1:3] == ["demo.py", "--input"] and "--use_transfer" in rig and rig_cwd == aa.SKINTOKENS
+    # The clean-up rewrites SkinTokens' result in place, after it.
+    assert clean[1].endswith("clean_skin_weights.py") and clean[-1] == str(job.result)
     assert job.record["license"] == {"name": "MIT"}
     assert job.record["classification"] == "commercial"
     assert job.record["rig"]["license"]["name"] == "MIT"
@@ -93,7 +96,8 @@ def test_animation_needs_a_rigged_model_a_preset_and_a_sane_spread(tmp_path, mot
         manager.create_animation(rigged, "walk", "wide")
     job = manager.create_animation(rigged, "walk", 12)
     assert job.result == run / "knight_walk.glb"
-    assert job.command[job.command.index("--arm-spread") + 1] == "12"
+    (command, _), = job.commands
+    assert command[command.index("--arm-spread") + 1] == "12"
     assert job.record["motion"]["made_with"] == "Kimodo"
     assert "NVIDIA" in job.record["motion"]["license"]["name"]
 
@@ -101,7 +105,7 @@ def test_animation_needs_a_rigged_model_a_preset_and_a_sane_spread(tmp_path, mot
 def _fake_job(tmp_path, script: str) -> aa.AnimateJob:
     result = tmp_path / "out.glb"
     command = [sys.executable, "-c", script.format(out=result)]
-    return aa.AnimateJob("0" * 32, "rig", tmp_path, result, command, tmp_path, 1.0,
+    return aa.AnimateJob("0" * 32, "rig", tmp_path, result, [(command, tmp_path)], 1.0,
                          {"license": {"name": "MIT"}})
 
 
@@ -142,3 +146,13 @@ def test_friendly_names_drop_run_stamps_and_keep_the_face_count(output):
     assert names["rigged"] == "knight"
     long = aa.friendly_name("a-cute-anime-girl-standing-in-a-perfect-t-pose__20261003__pixal3d")
     assert long.startswith("a cute anime girl") and long.endswith("…") and len(long) == 40
+
+
+def test_a_failing_first_step_stops_the_chain(tmp_path):
+    result = tmp_path / "out.glb"
+    marker = tmp_path / "second-ran"
+    commands = [([sys.executable, "-c", "import sys; sys.exit(2)"], tmp_path),
+                ([sys.executable, "-c", f"open(r'{marker}', 'w')"], tmp_path)]
+    job = aa.AnimateJob("1" * 32, "rig", tmp_path, result, commands, 1.0, {})
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert job.status == "error" and not marker.exists()

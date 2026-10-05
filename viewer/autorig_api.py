@@ -45,6 +45,7 @@ from image_to_3dlab import processes
 OUTPUT_ROOT = REPO / "output" / "animate"
 SKINTOKENS = REPO / "vendor" / "SkinTokens"
 RETARGET = REPO / "scripts" / "kimodo_retarget.py"
+CLEAN_WEIGHTS = REPO / "scripts" / "clean_skin_weights.py"
 MOTIONS = REPO / "image_to_3dlab" / "motions"
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 RUN_DIRECTORY = re.compile(r"^[A-Za-z0-9_-]{1,80}__rig__\d{8}-\d{6}(?:-\d+)?$")
@@ -202,9 +203,14 @@ def animation_record(rig: dict[str, Any] | None, preset: dict[str, Any],
 # ----------------------------------------------------------------------------- jobs
 
 
-def rig_command(source: Path, result: Path) -> list[str]:
-    return [str(venv_python()), "demo.py", "--input", str(source), "--output", str(result),
-            "--use_transfer"]
+def rig_commands(source: Path, result: Path) -> list[tuple[list[str], Path]]:
+    """SkinTokens, then a skin-weight clean-up: it sometimes weights fingertips to a toe,
+    which stretches them into spikes once the hand moves (scripts/clean_skin_weights.py)."""
+    return [
+        ([str(venv_python()), "demo.py", "--input", str(source), "--output", str(result),
+          "--use_transfer"], SKINTOKENS),
+        ([str(venv_python()), str(CLEAN_WEIGHTS), "--in", str(result), "--out", str(result)], REPO),
+    ]
 
 
 def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float) -> list[str]:
@@ -228,14 +234,13 @@ def _slug(value: str) -> str:
 
 class AnimateJob:
     def __init__(self, job_id: str, kind: str, directory: Path, result: Path,
-                 command: list[str], cwd: Path, expected_seconds: float,
+                 commands: list[tuple[list[str], Path]], expected_seconds: float,
                  record: dict[str, Any]):
         self.id = job_id
         self.kind = kind
         self.directory = directory
         self.result = result
-        self.command = command
-        self.cwd = cwd
+        self.commands = commands  # run in order, each as (argv, working directory)
         self.expected_seconds = expected_seconds
         self.record = record
         self.status = "queued"
@@ -302,7 +307,7 @@ class AnimateJobManager:
             source_glb.write_bytes(data)
             result = directory / f"{stem}_rigged.glb"
             job = AnimateJob(uuid.uuid4().hex, "rig", directory, result,
-                             rig_command(source_glb, result), SKINTOKENS, RIG_SECONDS,
+                             rig_commands(source_glb, result), RIG_SECONDS,
                              rig_record(name, data, source, origin))
             return self._claim(job)
 
@@ -322,9 +327,9 @@ class AnimateJobManager:
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
-                             animate_command(rigged, self.motions / f"{preset_id}.npz",
-                                             result, spread),
-                             REPO, ANIMATE_SECONDS, record)
+                             [(animate_command(rigged, self.motions / f"{preset_id}.npz",
+                                               result, spread), REPO)],
+                             ANIMATE_SECONDS, record)
             return self._claim(job)
 
     def get(self, job_id: str) -> AnimateJob | None:
@@ -353,18 +358,22 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         job.emit({"phase": "queued", "overall_pct": 0,
                   "message": "Starting the auto-rig" if job.kind == "rig" else "Starting"})
         threading.Thread(target=_tick, args=(job, stop), daemon=True).start()
-        job.process = subprocess.Popen(
-            job.command, cwd=str(job.cwd),
-            env={**os.environ, "PYTHONUNBUFFERED": "1", "HF_HUB_OFFLINE": "1"},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-            **processes.group_popen_kwargs(),
-        )
-        assert job.process.stdout is not None
-        for raw in job.process.stdout:
-            line = raw.rstrip("\n")
-            if line:
-                job.append_log(line)
-        code = job.process.wait()
+        code = 0
+        for command, cwd in job.commands:
+            job.process = subprocess.Popen(
+                command, cwd=str(cwd),
+                env={**os.environ, "PYTHONUNBUFFERED": "1", "HF_HUB_OFFLINE": "1"},
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                **processes.group_popen_kwargs(),
+            )
+            assert job.process.stdout is not None
+            for raw in job.process.stdout:
+                line = raw.rstrip("\n")
+                if line:
+                    job.append_log(line)
+            code = job.process.wait()
+            if code != 0 or job.cancel_requested:
+                break
         stop.set()
         if job.cancel_requested:
             job.status = "cancelled"

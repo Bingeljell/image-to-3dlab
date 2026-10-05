@@ -166,6 +166,16 @@ def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.n
     return m, frame
 
 
+def stiffen_fingers(mapping: dict[str, str]) -> dict[str, str]:
+    """Fingers and thumbs follow their hand rigidly instead of copying SOMA's curls.
+
+    For hands whose skin weights bleed between fingers, a curled fist pulls skin from
+    one finger towards another and stretches it into spikes; a rigid hand cannot.
+    """
+    return {b: (s.split("Hand")[0] + "Hand" if "Hand" in s and not s.endswith("Hand") else s)
+            for b, s in mapping.items()}
+
+
 def soma_tpose(global_rots: np.ndarray, posed_joints: np.ndarray, t: int = 0) -> np.ndarray:
     """SOMA's standard T-pose joint positions (hips at origin), recovered from any clip frame.
 
@@ -355,6 +365,8 @@ def main() -> None:  # pragma: no cover - needs bpy
     ap.add_argument("--out", required=True, type=Path, help="animated GLB to write")
     ap.add_argument("--blend", type=Path, help="also save a .blend for inspection")
     ap.add_argument("--no-align", action="store_true", help="skip rest-pose alignment (debug)")
+    ap.add_argument("--stiff-fingers", action="store_true",
+                    help="fingers move rigidly with the hand (for gloves, mittens or bad hand weights)")
     ap.add_argument("--arm-spread", type=float, default=0.0,
                     help="degrees to tilt hanging arms outward, for bulky characters (try 8-15)")
     args = ap.parse_args()
@@ -382,6 +394,8 @@ def main() -> None:  # pragma: no cover - needs bpy
     arm_rot = np.array(arm.matrix_world.to_3x3().normalized())
     up = arm_rot.T @ np.array([0.0, 0.0, 1.0])
     mapping, frame = map_skintokens_to_soma(parents, heads, up)
+    if args.stiff_fingers:
+        mapping = stiffen_fingers(mapping)
     axes = soma_to_rig_axes(frame)
 
     g, joints0, hips = load_motion(args.motion)

@@ -182,6 +182,7 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `rignet_infer.py` | Run vendored RigNet inference on one of our own generated meshes. |
 | `bootstrap_autorig.py` | Install the auto-rigger: SkinTokens (VAST-AI, MIT), which gives a humanoid mesh a skeleton and skin weights. |
 | `pack_kimodo_clip.py` | Shrink a Kimodo motion clip to what `kimodo_retarget.py` reads, about 12x smaller. |
+| `clean_skin_weights.py` | Drop skin weights that come from bones far away in the skeleton, then rebalance. |
 | `kimodo_retarget.py` | Play a Kimodo text-to-motion clip on a SkinTokens-rigged humanoid and export an animated GLB. |
 | `attack_pose.py` | Pose curves for a quadruped slam attack, as pure functions. |
 | `rigify_walk_pose.py` | Pose curves for a quadruped trot on a Rigify-generated rig, as pure functions. |

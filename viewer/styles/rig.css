@@ -1,12 +1,12 @@
 #rig-view { position: fixed; inset: 42px 0 0 0; overflow: hidden;
-  background: radial-gradient(circle at 66% 16%, #242a35 0, transparent 43%), #14161a; }
+  background: radial-gradient(circle at 66% 16%, #242a35 0, transparent 43%), #100d0c; }
 .rig-shell { height: 100%; display: grid;
   grid-template-columns: 310px minmax(0, 1fr) 280px; }
 .rig-sidebar, .rig-inspector { z-index: 2; overflow: auto; padding: 18px;
   background: #171a20ee; }
 .rig-sidebar { border-right: 1px solid #303744; }
 .rig-inspector { border-left: 1px solid #303744; }
-.rig-sidebar h2, .rig-inspector h2 { margin: 0 0 4px; color: #cfe3ff; font-size: 16px; }
+.rig-sidebar h2, .rig-inspector h2 { margin: 0 0 4px; color: #ffe2cc; font-size: 16px; }
 .rig-sidebar > p, .rig-inspector > p { margin: 0 0 16px; opacity: .68; font-size: 12px; }
 .rig-drop { min-height: 116px; padding: 16px; display: flex; align-items: center;
   justify-content: center; text-align: center; border: 2px dashed #39404b;
@@ -25,7 +25,7 @@
 #rig-hierarchy-search { width: 100%; margin-bottom: 8px; padding: 6px; color: #d8dee9;
   background: #12151a; border: 1px solid #39404b; border-radius: 4px; font: inherit; }
 #rig-hierarchy { max-height: 310px; overflow: auto; border: 1px solid #2d333d;
-  border-radius: 5px; background: #111318; }
+  border-radius: 5px; background: #0c0a09; }
 .rig-bone-row { width: 100%; margin: 0; padding-top: 4px; padding-bottom: 4px;
   text-align: left; border: 0; border-radius: 0; background: transparent;
   color: #aeb8c6; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -41,7 +41,7 @@
   border-radius: 7px; background: #241b12e8; color: #e6c18e; text-align: center;
   font-size: 11px; box-shadow: 0 5px 18px #0007; pointer-events: none; }
 .rig-stats { position: absolute; left: 10px; bottom: 10px; z-index: 3;
-  padding: 4px 7px; border-radius: 4px; background: #14161acc; opacity: .8;
+  padding: 4px 7px; border-radius: 4px; background: #100d0ccc; opacity: .8;
   font-size: 11px; white-space: pre; }
 #rig-selection-empty { color: #7f8a98; font-size: 11px; }
 #rig-bone-name { display: block; margin-bottom: 8px; color: #ffc857; overflow-wrap: anywhere; }

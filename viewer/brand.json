@@ -1,5 +1,8 @@
 {
-  "name": "AssetFurnace",
+  "name": "Bingeljell's AssetFurnace",
   "short": "AssetFurnace",
-  "tagline": "Prompt or picture in, 3D model out. On your own machine, with the licence of every asset written down."
+  "by": "Bingeljell",
+  "tagline": "Prompt or picture in, 3D model out. On your own machine, with the licence of every asset written down.",
+  "x": "https://x.com/bingeljell",
+  "github": "https://github.com/Bingeljell"
 }

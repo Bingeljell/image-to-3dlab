@@ -11,7 +11,7 @@
 .props-form > p { margin: 0; }
 
 .props-field { display: grid; gap: 5px; min-width: 0; }
-.props-field label { font-size: 12px; color: #cfe3ff; }
+.props-field label { font-size: 12px; color: #ffe2cc; }
 .props-field small, .props-settings > small { opacity: .55; font-size: 11px; }
 .props-field input, .props-field select, .props-field textarea {
   width: 100%; min-width: 0; background: #12151a; color: #d8dee9; border: 1px solid #39404b;
@@ -23,7 +23,7 @@
 
 .props-settings { border: 1px solid #303744; border-radius: 8px; padding: 0 12px; }
 .props-settings[open] { padding-bottom: 12px; display: grid; gap: 12px; }
-.props-settings summary { cursor: pointer; padding: 10px 0; color: #cfe3ff; font-size: 12px; }
+.props-settings summary { cursor: pointer; padding: 10px 0; color: #ffe2cc; font-size: 12px; }
 .props-settings .check { margin: 0; align-items: flex-start; }
 .props-settings .check input { margin-top: 3px; }
 .props-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 10px; }
@@ -45,7 +45,7 @@
                   grid-template-columns: minmax(0, 1fr); }
 #props-runs { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
 .props-run { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px;
-             background: #14161a; }
+             background: #100d0c; }
 .props-run > span { flex: 1; min-width: 0; }
 .props-run code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                   font-size: 11px; }
@@ -55,7 +55,7 @@
 .props-empty { text-align: center; padding: 40px 24px; }
 .props-empty p { margin: 8px auto 0; max-width: 460px; }
 #props-progress-box .progress-track { margin: 10px 0 12px; }
-#props-overall-label { color: #cfe3ff; }
+#props-overall-label { color: #ffe2cc; }
 #props-overall-eta { opacity: .75; font-size: 12px; }
 #props-stages { display: grid; gap: 6px; }
 #props-status { font-size: 12px; margin-top: 8px; opacity: .85; }
@@ -63,31 +63,31 @@
 #props-result { display: grid; gap: 14px; }
 #props-result[hidden], #props-progress-box[hidden], #props-empty[hidden] { display: none; }
 #props-result-title { font-size: 13px; overflow-wrap: anywhere; }
-.props-link { color: #9bc8ff; font-size: 12px; white-space: nowrap; }
+.props-link { color: #ffb37a; font-size: 12px; white-space: nowrap; }
 .props-licence { font-size: 11px; opacity: .7; margin-top: -6px; }
 .props-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .props-chips button { padding: 8px 14px; border-radius: 99px; font-size: 13px; }
-.props-chips button[aria-pressed=true] { background: #3b6ea5; border-color: #4d84c0; color: #fff; }
+.props-chips button[aria-pressed=true] { background: #b4501c; border-color: #e0702e; color: #fff; }
 .props-chips button.tie::after { content: ' ⚠'; color: #f5d742; }
 .props-chips button.tie[aria-pressed=true]::after { color: #ffe7a6; }
 
 .props-detail { display: grid; gap: 12px; }
 .props-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.props-detail-head h3 { margin: 0; font-size: 16px; color: #cfe3ff; }
+.props-detail-head h3 { margin: 0; font-size: 16px; color: #ffe2cc; }
 .props-meta { opacity: .65; font-size: 12px; margin-top: 2px; }
 #props-turn { padding: 8px 16px; white-space: nowrap; }
 #props-turn.suggested { background: #5a4a1c; border-color: #8a7230; color: #ffe7a6; }
 .props-tie { padding: 9px 11px; border: 1px solid #725f2a; border-radius: 7px; background: #302817;
              color: #f5dda0; font-size: 12px; line-height: 1.45; }
 #props-viewer iframe { display: block; width: 100%; height: clamp(300px, 52vh, 560px);
-                       border: 1px solid #303744; border-radius: 8px; background: #14161a; }
+                       border: 1px solid #303744; border-radius: 8px; background: #100d0c; }
 
 .props-lods { width: 100%; border-collapse: collapse; font-size: 12px; }
 .props-lods th { text-align: left; font-weight: normal; opacity: .6; padding: 0 8px 6px; }
 .props-lods td { padding: 8px; border-top: 1px solid #262b33; }
 .props-lods td:first-child, .props-lods th:first-child { padding-left: 0; }
 .props-lods a { display: inline-block; padding: 4px 10px; border: 1px solid #39404b; border-radius: 5px;
-                background: #1f242c; color: #9bc8ff; text-decoration: none; white-space: nowrap; }
+                background: #1f242c; color: #ffb37a; text-decoration: none; white-space: nowrap; }
 .props-lods a:hover { background: #2a313b; }
 .props-note { opacity: .5; font-size: 11px; }
 

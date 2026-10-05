@@ -2,12 +2,12 @@
                  display: grid; grid-template-columns: minmax(280px, 390px) minmax(0, 1fr); gap: 18px; }
 .generate-card { background: #1b1e24e8; border: 1px solid #303744; border-radius: 10px;
                  padding: 16px; box-shadow: 0 14px 45px #0004; }
-.generate-card h2 { margin: 0 0 4px; font-size: 16px; color: #cfe3ff; }
+.generate-card h2 { margin: 0 0 4px; font-size: 16px; color: #ffe2cc; }
 .generate-card p { margin: 0 0 14px; opacity: .68; font-size: 12px; }
 #generate-drop { border: 2px dashed #39404b; border-radius: 9px; min-height: 180px; padding: 14px;
                  display: flex; align-items: center; justify-content: center; text-align: center;
                  cursor: pointer; transition: .12s; }
-#generate-drop.drag { border-color: #4d84c0; background: #3b6ea522; }
+#generate-drop.drag { border-color: #e0702e; background: #b4501c22; }
 #generate-preview { max-width: 100%; max-height: 220px; display: none; object-fit: contain; border-radius: 6px; }
 #generate-drop.has-image #generate-preview { display: block; }
 #generate-drop.has-image #generate-prompt { display: none; }
@@ -19,7 +19,7 @@
                           border-radius: 7px; background: #302817; color: #f5dda0;
                           font-size: 11px; line-height: 1.45; }
 .trellis-input-guidance strong { display: block; margin-bottom: 3px; color: #ffe7a6; }
-.trellis-input-guidance a { color: #9bc8ff; margin-left: 5px; }
+.trellis-input-guidance a { color: #ffb37a; margin-left: 5px; }
 #trellis-input-result { margin-top: 8px; padding-top: 8px; border-top: 1px solid #725f2a; }
 #trellis-input-result.advice-risk { color: #ffc2b8; }
 #trellis-input-result.advice-uncertain { color: #f5dda0; }
@@ -49,25 +49,25 @@
 #setup-run { margin-top: 10px; }
 #setup-run-btn { background: #2f5233; border-color: #3f6d45; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
 #setup-run-btn:disabled { opacity: .6; cursor: default; }
-#setup-log { display: none; margin: 8px 0 0; padding: 8px; max-height: 220px; overflow: auto; background: #0d0f12; border: 1px solid #303744; border-radius: 6px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #cfe3ff; }
+#setup-log { display: none; margin: 8px 0 0; padding: 8px; max-height: 220px; overflow: auto; background: #0d0f12; border: 1px solid #303744; border-radius: 6px; font-size: 11px; line-height: 1.5; white-space: pre-wrap; color: #ffe2cc; }
 #generate-progress-box { flex: 1; min-height: 450px; }
 #generate-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
-#generate-overall-label { color: #cfe3ff; }
+#generate-overall-label { color: #ffe2cc; }
 #generate-overall-eta { opacity: .75; white-space: nowrap; }
 .progress-track { height: 9px; margin: 12px 0 16px; background: #0d0f12; border-radius: 99px; overflow: hidden; }
 /* Every track's fill, not just Generate's: the Finish panel's bar was an id this rule
    never named, so it sat empty for the whole run (found 2026-09-21). */
-.progress-track > div { height: 100%; width: 0; background: linear-gradient(90deg, #4d84c0, #7eb4ef); transition: width .2s; }
+.progress-track > div { height: 100%; width: 0; background: linear-gradient(90deg, #e0702e, #ff9447); transition: width .2s; }
 #generate-stages { display: grid; gap: 8px; }
 .stage-row { display: grid; grid-template-columns: 18px 1fr auto; gap: 7px; align-items: center; padding: 7px 8px;
-             border-radius: 5px; background: #14161a; color: #8993a2; }
+             border-radius: 5px; background: #100d0c; color: #8993a2; }
 .stage-row.active { color: #d8dee9; background: #243247; }
 .stage-row.done { color: #a8e6b7; }
 .stage-row .stage-detail { text-align: right; font-size: 11px; opacity: .8; }
 #generate-viewer { display: none; flex: 1; min-height: 450px; position: relative; }
-#generate-viewer iframe { width: 100%; height: 100%; min-height: 450px; border: 1px solid #303744; border-radius: 8px; background: #14161a; }
+#generate-viewer iframe { width: 100%; height: 100%; min-height: 450px; border: 1px solid #303744; border-radius: 8px; background: #100d0c; }
 #generate-downloads { display: none; gap: 10px; margin-top: 10px; font-size: 12px; }
-#generate-downloads a { color: #9bc8ff; }
+#generate-downloads a { color: #ffb37a; }
 #generate-summary { display: none; margin-top: 8px; opacity: .7; font-size: 11px; white-space: pre-wrap; }
 @media (max-width: 760px) {
   .generate-grid { grid-template-columns: 1fr; }
@@ -90,7 +90,7 @@
   background: #1b2130; font-size: 13px; }
 .setup-backends { display: grid; gap: 12px; }
 .setup-card { border: 1px solid #262b36; border-radius: 10px; padding: 12px 14px;
-  background: #15181e; }
+  background: #15110f; }
 .setup-card.ready { border-color: #2a4436; }
 .setup-card.partial { border-color: #4a4426; }
 .setup-card.elsewhere { opacity: .8; }
@@ -99,7 +99,7 @@
 .setup-hf-form input { flex: 1; }
 .setup-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 18px 0 10px; }
 .setup-tab { border-radius: 8px 8px 0 0; }
-.setup-tab[aria-selected="true"] { background: #2d4f78; border-color: #4d84c0; color: #fff; }
+.setup-tab[aria-selected="true"] { background: #2d4f78; border-color: #e0702e; color: #fff; }
 /* A build with no percentage: a sliding band, so the bar never sits empty. */
 .progress-track.busy > div { width: 30% !important; animation: setup-busy 1.4s ease-in-out infinite; }
 @keyframes setup-busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
@@ -112,7 +112,7 @@
 .setup-card-title strong { font-size: 14px; }
 .setup-card-state { font-size: 11px; opacity: .7; margin-top: 2px; }
 .setup-pill { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-  background: #2b4a6f; color: #cfe3ff; padding: 2px 6px; border-radius: 99px;
+  background: #2b4a6f; color: #ffe2cc; padding: 2px 6px; border-radius: 99px;
   margin-left: 6px; vertical-align: 2px; }
 .setup-ready { color: #7fd6a0; font-size: 12px; }
 /* Stated, not greyed out: a disabled-looking button invites clicking it again. */
@@ -120,7 +120,7 @@
 /* Routes the viewer cannot install for you. The command is the whole point, so it is
    selectable text rather than a tooltip on a dead button. */
 .setup-manual { color: #8a8f98; font-size: 12px; text-align: right; display: block; }
-.setup-manual code { color: #cfe3ff; user-select: all; word-break: break-all; }
+.setup-manual code { color: #ffe2cc; user-select: all; word-break: break-all; }
 .setup-card-best { font-size: 12px; margin: 8px 0 2px; }
 .setup-card-trade { font-size: 12px; opacity: .7; margin: 0; }
 .setup-card-caveat { font-size: 12px; margin: 8px 0 0; padding: 7px 9px; border-radius: 6px;
@@ -130,7 +130,7 @@
 .setup-card-detail ul { margin: 8px 0; padding-left: 18px; }
 .setup-card-detail li { margin-bottom: 4px; }
 .setup-card-licence, .setup-card-extra { opacity: .7; margin: 6px 0 0; }
-.setup-run { margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: #15181e;
+.setup-run { margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: #15110f;
   border: 1px solid #262b36; }
 .setup-backends .setup-run { margin-top: 0; }
 .setup-run-head { display: flex; justify-content: space-between; align-items: center; }
@@ -141,7 +141,7 @@
 
 /* Generate keeps only a health line; the detail lives on the page above. */
 .health-strip { display: flex; align-items: center; gap: 9px; padding: 8px 12px;
-  border-radius: 8px; background: #15181e; border: 1px solid #262b36; font-size: 12px;
+  border-radius: 8px; background: #15110f; border: 1px solid #262b36; font-size: 12px;
   margin-bottom: 12px; }
 .health-dot { font-size: 15px; }
 .health-dot.ok { color: #7fd6a0; }
@@ -167,7 +167,7 @@
   text-align: center; padding: 24px; opacity: .55; font-size: 13px;
   border: 1px dashed #303744; border-radius: 8px; }
 #finish-compare-frame { flex: 1; width: 100%; min-height: 0; border: 1px solid #303744;
-  border-radius: 8px; background: #14161a; }
+  border-radius: 8px; background: #100d0c; }
 #finish-compare-empty[hidden], #finish-compare-frame[hidden],
 #finish-compare-expand[hidden] { display: none; }
 /* Full window: everything below the menu. */
@@ -177,7 +177,7 @@
 #finish-progress-box { margin-top: 14px; }
 #finish-result { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 12px; }
 #finish-result[hidden] { display: none; }
-#finish-result a { color: #9bc8ff; }
+#finish-result a { color: #ffb37a; }
 #finish-result small { flex-basis: 100%; opacity: .6; }
 #finish-submit { margin-top: 14px; }
 /* Finish's options: the note goes under its label rather than squeezing it. */

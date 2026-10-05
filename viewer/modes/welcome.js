@@ -82,8 +82,21 @@ function render(payload, seen, reopened) {
     go.textContent = action.label;
     go.dataset.mode = action.mode;
   }
-  document.title = payload.brand.name;
-  s('brand').textContent = payload.brand.short || payload.brand.name;
+  showBrand(payload.brand);
+}
+
+/** The name in the menu bar and the About hero, and where to find the maker. */
+function showBrand(brand) {
+  document.title = brand.name;
+  const word = brand.short || brand.name;
+  const by = brand.by ? `${brand.by}'s` : '';
+  document.querySelectorAll('.brand-word, .brand-hero-word').forEach((el) => { el.textContent = word; });
+  document.querySelectorAll('.brand-by, .brand-hero-by').forEach((el) => {
+    el.textContent = by;
+    el.hidden = !by;
+  });
+  if (brand.x) s('brand-x').href = brand.x;
+  if (brand.github) s('brand-github').href = brand.github;
 }
 
 function navigate(mode) {
@@ -122,7 +135,7 @@ async function renderWithoutServer() {
     const brand = await (await fetch('./brand.json')).json();
     s('welcome-title').textContent = `Welcome to ${brand.name}`;
     s('welcome-tagline').textContent = brand.tagline || '';
-    document.title = brand.name;
+    showBrand(brand);
   } catch (_) { /* the static title stays */ }
   s('welcome-kicker').textContent = 'Restart needed';
   s('welcome-machine').innerHTML = '<p>The viewer\'s code changed while it was running. '

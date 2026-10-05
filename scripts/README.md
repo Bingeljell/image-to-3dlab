@@ -180,6 +180,7 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `blender_rebind_weights.py` | Voxel-proxy weight transfer used by the headless rig rebind worker. |
 | `blender_export_rig_binding.py` | Prepare an open Blender metarig scene and export its browser rig sidecar. |
 | `rignet_infer.py` | Run vendored RigNet inference on one of our own generated meshes. |
+| `arm_clearance.py` | Keep a retargeted character's arms out of its own body. |
 | `bootstrap_autorig.py` | Install the auto-rigger: SkinTokens (VAST-AI, MIT), which gives a humanoid mesh a skeleton and skin weights. |
 | `pack_kimodo_clip.py` | Shrink a Kimodo motion clip to what `kimodo_retarget.py` reads, about 12x smaller. |
 | `clean_skin_weights.py` | Drop skin weights that come from bones far away in the skeleton, then rebalance. |

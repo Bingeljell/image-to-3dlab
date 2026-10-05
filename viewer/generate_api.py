@@ -2566,7 +2566,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(500, {"error": str(exc)})
 
     def _create_animate_play(self) -> None:
-        """Play a preset on a rigged model: JSON {model, preset, arm_spread}."""
+        """Play a preset on a rigged model: JSON {model, preset, arm_spread, speed}."""
         try:
             blocked = self._animate_blocked()
             if blocked:
@@ -2583,7 +2583,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 rigged = resolve_animate_model(str(body.get("model", "")), OUTPUT_ROOT)
                 job = ANIMATE_JOBS.create_animation(rigged, str(body.get("preset", "")),
-                                                    body.get("arm_spread", 0))
+                                                    body.get("arm_spread", 0), body.get("speed"))
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return

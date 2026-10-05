@@ -35,8 +35,10 @@ def motions(tmp_path):
     root = tmp_path / "motions"
     root.mkdir()
     (root / "walk.npz").write_bytes(b"x")
+    (root / "kick.npz").write_bytes(b"x")
     (root / "presets.json").write_text(json.dumps({"presets": [
         {"id": "walk", "label": "Walk", "seconds": 4},
+        {"id": "kick", "label": "Kick", "seconds": 2, "speed": 1.25},
         {"id": "missing", "label": "No file"},
         {"id": "../evil", "label": "Bad id"},
     ]}))
@@ -61,7 +63,7 @@ def test_resolve_refuses_anything_not_offered(output):
 
 
 def test_presets_need_a_file_and_a_safe_id(motions):
-    assert [p["id"] for p in aa.presets(motions)] == ["walk"]
+    assert [p["id"] for p in aa.presets(motions)] == ["walk", "kick"]
 
 
 def test_rig_job_copies_the_source_and_records_both_licences(tmp_path):
@@ -156,3 +158,16 @@ def test_a_failing_first_step_stops_the_chain(tmp_path):
     job = aa.AnimateJob("1" * 32, "rig", tmp_path, result, commands, 1.0, {})
     aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
     assert job.status == "error" and not marker.exists()
+
+
+def test_speed_defaults_to_the_presets_own_and_can_be_overridden(tmp_path, motions):
+    run = tmp_path / "animate" / "knight__rig__20261005-120000"
+    rigged = _glb(run / "knight_rigged.glb")
+    for preset, asked, expected in (("walk", None, "1"), ("kick", None, "1.25"), ("kick", 1.5, "1.5")):
+        manager = aa.AnimateJobManager(tmp_path / "animate", motions)
+        job = manager.create_animation(rigged, preset, 0, asked)
+        (command, _), = job.commands
+        assert command[command.index("--speed") + 1] == expected
+        assert job.record["motion"]["speed"] == float(expected)
+    with pytest.raises(ValueError, match="between"):
+        aa.AnimateJobManager(tmp_path / "animate", motions).create_animation(rigged, "walk", 0, 5)

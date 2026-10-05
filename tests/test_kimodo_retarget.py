@@ -253,3 +253,86 @@ def test_stiff_fingers_follow_their_hand_and_leave_the_rest():
     assert stiff[roles["Lindex2"]] == "LeftHand" and stiff[roles["Rthumb0"]] == "RightHand"
     assert stiff[roles["Lhand"]] == "LeftHand" and stiff[roles["Lfa"]] == "LeftForeArm"
     assert stiff[roles["head"]] == m[roles["head"]]
+
+
+def _rest_and_tails(parents, heads):
+    rest = {}
+    for b, h in heads.items():
+        m = np.eye(4)
+        m[:3, 3] = h
+        rest[b] = m
+    kids = kr._children(parents)
+    tails = {b: (heads[kids[b][0]] if kids[b] else heads[b] + np.array([0, 0, 0.05])) for b in heads}
+    return rest, tails
+
+
+def _order(parents):
+    order = [b for b, p in parents.items() if p is None]
+    kids = kr._children(parents)
+    i = 0
+    while i < len(order):
+        order += kids[order[i]]
+        i += 1
+    return order
+
+
+def test_clear_arms_swings_an_arm_out_of_the_chest_and_leaves_a_clear_one_alone():
+    import arm_clearance as ac
+
+    parents, heads, _ = _humanoid(face=+1)
+    m, _ = kr.map_skintokens_to_soma(parents, heads)
+    rest, tails = _rest_and_tails(parents, heads)
+    order = _order(parents)
+    by_role = {v: k for k, v in m.items()}
+    proxy = ac.Proxy(body={by_role["Chest"]: 0.12, by_role["Spine2"]: 0.12},
+                     arms={"Left": {"upper": by_role["LeftArm"], "fore": by_role["LeftForeArm"],
+                                    "hand": by_role["LeftHand"],
+                                    "radius": {by_role["LeftArm"]: 0.03, by_role["LeftForeArm"]: 0.03,
+                                               by_role["LeftHand"]: 0.02}}},
+                     side_shoulder={"Left": None, "Right": None}, margin=0.01)
+    turn = np.array([[-1.0, 0, 0], [0, -1, 0], [0, 0, 1]])  # 180 deg about up: arm through chest
+    left_arm = kr._subtree(by_role["LeftArm"], parents)
+    bent = {b: (turn if b in left_arm else np.eye(3)) for b in order}
+    straight = {b: np.eye(3) for b in order}
+    frames = [(dict(bent), heads[order[0]]) for _ in range(5)] + [(dict(straight), heads[order[0]])]
+    kr.clear_arms(frames, rest, parents, order, tails, proxy)
+
+    def gap(world_rot):
+        pose = kr.pose_matrices(rest, parents, order, world_rot, heads[order[0]])
+        seg = kr.posed_segments(rest, pose, tails, order)
+        return min(ac.point_segment(p, *seg[b])[0] - (r + ra + proxy.margin)
+                   for p, ra in ac._test_points(seg, proxy.arms["Left"])
+                   for b, r in proxy.body.items())
+
+    assert gap(bent) < 0
+    assert gap(frames[2][0]) > -1e-3
+
+
+def test_retarget_with_clearance_matches_without_when_nothing_collides():
+    import arm_clearance as ac
+
+    parents, heads, _ = _humanoid(face=+1)
+    m, frame = kr.map_skintokens_to_soma(parents, heads)
+    rest, tails = _rest_and_tails(parents, heads)
+    order = _order(parents)
+    axes = kr.soma_to_rig_axes(frame)
+    g = np.tile(np.eye(3), (3, 77, 1, 1))
+    hips = np.zeros((3, 3))
+    by_role = {v: k for k, v in m.items()}
+    proxy = ac.Proxy(body={by_role["Chest"]: 0.1}, arms={"Left": {
+        "upper": by_role["LeftArm"], "fore": by_role["LeftForeArm"], "hand": by_role["LeftHand"],
+        "radius": {by_role["LeftArm"]: 0.02, by_role["LeftForeArm"]: 0.02, by_role["LeftHand"]: 0.02}}},
+        side_shoulder={"Left": None, "Right": None}, margin=0.01)
+    plain = list(kr.retarget_frames(rest, parents, order, m, axes, g, hips, 1.0))
+    cleared = list(kr.retarget_frames(rest, parents, order, m, axes, g, hips, 1.0,
+                                      tails=tails, clearance=proxy))
+    for a, b in zip(plain, cleared):
+        assert all(np.allclose(a[k], b[k]) for k in a)
+
+
+def test_key_frames_compress_with_speed_and_keep_the_first_frame():
+    assert kr.key_frame(1, 1.25) == 1
+    assert kr.key_frame(101, 1.25) == pytest.approx(81)
+    assert kr.key_frame(31, 1.0) == 31
+    with pytest.raises(ValueError):
+        kr.key_frame(5, 0)

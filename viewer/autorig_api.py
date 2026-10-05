@@ -56,6 +56,7 @@ TERMINAL = {"done", "error", "cancelled"}
 RIG_SECONDS = 70.0
 ANIMATE_SECONDS = 12.0
 MAX_ARM_SPREAD = 30.0
+SPEED_RANGE = (0.5, 2.0)
 
 SKINTOKENS_LICENSE = {
     "name": "MIT",
@@ -213,9 +214,27 @@ def rig_commands(source: Path, result: Path) -> list[tuple[list[str], Path]]:
     ]
 
 
-def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float) -> list[str]:
+def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float,
+                    speed: float = 1.0) -> list[str]:
     return [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
-            "--out", str(result), "--arm-spread", f"{arm_spread:g}"]
+            "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
+
+
+def clamp_speed(value: Any, preset: dict[str, Any]) -> float:
+    """The playback speed: the caller's, else the preset's own default, else 1.
+
+    Kimodo's strikes are slow next to real ones, so kick and punch presets ship faster.
+    """
+    if value is None or value == "":
+        value = preset.get("speed", 1.0)
+    try:
+        speed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("speed must be a number") from exc
+    low, high = SPEED_RANGE
+    if not low <= speed <= high:
+        raise ValueError(f"speed must be between {low:g} and {high:g}")
+    return speed
 
 
 def clamp_spread(value: Any) -> float:
@@ -311,7 +330,8 @@ class AnimateJobManager:
                              rig_record(name, data, source, origin))
             return self._claim(job)
 
-    def create_animation(self, rigged: Path, preset_id: str, arm_spread: Any) -> AnimateJob:
+    def create_animation(self, rigged: Path, preset_id: str, arm_spread: Any,
+                         speed: Any = None) -> AnimateJob:
         with self.lock:
             if self.busy():
                 raise RuntimeError("an Animate job is already running")
@@ -322,13 +342,15 @@ class AnimateJobManager:
             if preset is None:
                 raise ValueError(f"no such preset: {preset_id!r}")
             spread = clamp_spread(arm_spread)
+            pace = clamp_speed(speed, preset)
             stem = rigged.name.removesuffix("_rigged.glb")
             result = run / f"{stem}_{preset_id}.glb"
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
+            record["motion"]["speed"] = pace
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
-                                               result, spread), REPO)],
+                                               result, spread, pace), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)
 

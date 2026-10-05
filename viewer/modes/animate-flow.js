@@ -10,6 +10,8 @@ const presetSelect = el('anim-preset');
 const playButton = el('anim-play-preset');
 const spread = el('anim-spread');
 const spreadValue = el('anim-spread-value');
+const speed = el('anim-speed');
+const speedValue = el('anim-speed-value');
 const upload = el('anim-upload');
 const job = el('anim-job');
 const barFill = el('anim-bar-fill');
@@ -73,6 +75,7 @@ async function loadList(keep = modelSelect.value) {
     state.installed = payload.installed;
     fillModels(keep);
     fillPresets();
+    presetSelect.onchange();
     setupNotice.hidden = state.installed;
     if (!state.installed) {
       setupNotice.innerHTML = 'Auto-rig is not installed yet (~1.6 GB). '
@@ -154,7 +157,7 @@ async function startPreset() {
   status.textContent = '';
   try {
     const body = JSON.stringify({ model: modelSelect.value, preset: presetSelect.value,
-                                  arm_spread: Number(spread.value) });
+                                  arm_spread: Number(spread.value), speed: Number(speed.value) });
     follow(await post('/api/animate/play', { body, headers: { 'Content-Type': 'application/json' } }),
       (event) => {
         status.textContent = 'Done. It is playing on the right; Download keeps it.';
@@ -201,6 +204,14 @@ el('anim-refresh').onclick = () => loadList();
 rigButton.onclick = startRig;
 playButton.onclick = startPreset;
 spread.oninput = () => { spreadValue.textContent = `${spread.value}°`; };
+const showSpeed = () => { speedValue.textContent = `${Number(speed.value).toFixed(2)}×`; };
+speed.oninput = showSpeed;
+// Each preset carries its own default pace (strikes ship faster); picking one resets to it.
+presetSelect.onchange = () => {
+  const preset = state.presets.find((p) => p.id === presetSelect.value);
+  speed.value = String(preset?.speed ?? 1);
+  showSpeed();
+};
 cancelButton.onclick = () => {
   if (state.running) post(`/api/animate/${state.running}/cancel`).catch(() => {});
 };

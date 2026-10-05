@@ -270,6 +270,15 @@ def pose_basis(rest: dict[str, np.ndarray], parents: dict[str, str | None], orde
     wanted armature-space head position of the root. `order` is parent-first. Uses
     Blender's rule  pose_b = pose_parent @ inv(rest_parent) @ rest_b @ basis_b.
     """
+    return _posed(rest, parents, order, world_rot, root_pos)[1]
+
+
+def pose_matrices(rest, parents, order, world_rot, root_pos) -> dict[str, np.ndarray]:
+    """Each bone's posed armature-space matrix (4x4) for one frame: where it ends up."""
+    return _posed(rest, parents, order, world_rot, root_pos)[0]
+
+
+def _posed(rest, parents, order, world_rot, root_pos):
     pose: dict[str, np.ndarray] = {}
     basis: dict[str, np.ndarray] = {}
     for b in order:
@@ -282,22 +291,66 @@ def pose_basis(rest: dict[str, np.ndarray], parents: dict[str, str | None], orde
         target[:3, 3] = root_pos if p is None else unposed[:3, 3]
         pose[b] = target
         basis[b] = np.linalg.inv(unposed) @ target
-    return basis
+    return pose, basis
+
+
+def posed_segments(rest, pose, tails, bones) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """(head, tail) of each bone after posing; `tails` holds rest tails in armature space."""
+    out = {}
+    for b in bones:
+        moved = pose[b] @ np.linalg.inv(rest[b])
+        out[b] = (pose[b][:3, 3], (moved @ np.append(tails[b], 1.0))[:3])
+    return out
+
+
+def _subtree(root: str, parents: dict[str, str | None]) -> list[str]:
+    kids = _children(parents)
+    out, stack = [], [root]
+    while stack:
+        b = stack.pop()
+        out.append(b)
+        stack.extend(kids[b])
+    return out
+
+
+def clear_arms(frames, rest, parents, order, tails, proxy) -> None:
+    """Swing each arm out of the body wherever it went in (see `arm_clearance`), in place.
+
+    `frames` is a list of (world_rot, root_pos); the swing is applied to the whole arm,
+    upper arm down to the fingertips, so the hand keeps its pose relative to the forearm.
+    """
+    import arm_clearance
+
+    sides = list(proxy.arms)
+    swings = {side: [] for side in sides}
+    for world_rot, root_pos in frames:
+        pose = pose_matrices(rest, parents, order, world_rot, root_pos)
+        seg = posed_segments(rest, pose, tails, order)
+        for side in sides:
+            swings[side].append(arm_clearance.arm_swing(seg, proxy, side))
+    for side in sides:
+        arm = _subtree(proxy.arms[side]["upper"], parents)
+        for (world_rot, _), swing in zip(frames, arm_clearance.smooth_swings(swings[side])):
+            for b in arm:
+                world_rot[b] = swing @ world_rot[b]
 
 
 def retarget_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
-                    hip_scale: float, align=None, frame=None, spread_degrees: float = 0.0):
+                    hip_scale: float, align=None, frame=None, spread_degrees: float = 0.0,
+                    tails=None, clearance=None):
     """Yield `pose_basis` dicts for every frame of a Kimodo clip.
 
     `axes` is `soma_to_rig_axes(...)` expressed in armature space, `global_rots` Kimodo's
     [T, 77, 3, 3] `global_rot_mats`, `hips_pos` its [T, 3] hips track. `align` comes from
-    `rest_alignment`; `frame` and `spread_degrees` drive `arm_spread`.
+    `rest_alignment`; `frame` and `spread_degrees` drive `arm_spread`. With `clearance`
+    (an `arm_clearance.Proxy`) and the rest `tails`, arms are kept out of the body.
     """
     root = order[0]
     rest_rot = {b: rest[b][:3, :3] for b in order}
     align = align or {b: np.eye(3) for b in order}
     upper = {lr: next((b for b in order if mapping[b] == f"{lr}Arm"), None) for lr in ("Left", "Right")}
     soma_arm_dir = {lr: axes @ np.array([1.0 if lr == "Left" else -1.0, 0, 0]) for lr in ("Left", "Right")}
+    frames = []
     for t in range(len(global_rots)):
         world_rot = {}
         delta = {b: axes @ global_rots[t, SOMA_INDEX[mapping[b]]] @ axes.T for b in order}
@@ -309,7 +362,23 @@ def retarget_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
                     world_rot[b] = arm_spread(mapping[b], delta[upper[lr]], soma_arm_dir[lr], frame,
                                               spread_degrees) @ world_rot[b]
         travel = axes @ (hips_pos[t] - hips_pos[0]) * hip_scale
-        yield pose_basis(rest, parents, order, world_rot, rest[root][:3, 3] + travel)
+        frames.append((world_rot, rest[root][:3, 3] + travel))
+    if clearance is not None and tails is not None:
+        clear_arms(frames, rest, parents, order, tails, clearance)
+    for world_rot, root_pos in frames:
+        yield pose_basis(rest, parents, order, world_rot, root_pos)
+
+
+def key_frame(t: int, speed: float) -> float:
+    """Timeline frame for clip frame `t` (1-based) played at `speed` (1.25 = 25% faster).
+
+    Kimodo's kicks and punches are slow next to a real strike; playing them faster gives
+    them snap without touching the poses. Fractional frames are fine: the glTF exporter
+    samples the curve at whole frames.
+    """
+    if speed <= 0:
+        raise ValueError("speed must be positive")
+    return 1 + (t - 1) / speed
 
 
 def matrices_to_quaternions(m: np.ndarray) -> np.ndarray:
@@ -358,6 +427,30 @@ def soma_hip_height(posed_joints: np.ndarray) -> float:
     return float(f0[SOMA_INDEX["Hips"], 1] - f0[feet, 1].min())
 
 
+def body_proxy(arm, mapping, heads, tails, up):  # pragma: no cover - needs bpy
+    """`arm_clearance.Proxy` from the rig's skinned meshes, in armature space."""
+    import arm_clearance
+
+    inv = np.array(arm.matrix_world.inverted())
+    points, owners = [], []
+    import bpy
+
+    for mesh in (o for o in bpy.data.objects if o.type == "MESH" and o.find_armature() == arm):
+        to_arm = inv @ np.array(mesh.matrix_world)
+        names = {g.index: g.name for g in mesh.vertex_groups}
+        for v in mesh.data.vertices:
+            best = max(v.groups, key=lambda g: g.weight, default=None)
+            if best is None or names.get(best.group) not in heads:
+                continue
+            points.append((to_arm @ np.append(np.array(v.co), 1.0))[:3])
+            owners.append(names[best.group])
+    if not points:
+        return None
+    height = max(h @ up for h in heads.values()) - min(h @ up for h in heads.values())
+    segments = {b: (heads[b], tails[b]) for b in heads}
+    return arm_clearance.build_proxy(mapping, np.array(points), owners, segments, height)
+
+
 def main() -> None:  # pragma: no cover - needs bpy
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rig", required=True, type=Path, help="SkinTokens-rigged GLB")
@@ -365,6 +458,10 @@ def main() -> None:  # pragma: no cover - needs bpy
     ap.add_argument("--out", required=True, type=Path, help="animated GLB to write")
     ap.add_argument("--blend", type=Path, help="also save a .blend for inspection")
     ap.add_argument("--no-align", action="store_true", help="skip rest-pose alignment (debug)")
+    ap.add_argument("--speed", type=float, default=1.0,
+                    help="play the clip faster (>1) or slower (<1); 1.25 gives strikes snap")
+    ap.add_argument("--no-clearance", action="store_true",
+                    help="let arms pass through the body (debug; clearance is on by default)")
     ap.add_argument("--stiff-fingers", action="store_true",
                     help="fingers move rigidly with the hand (for gloves, mittens or bad hand weights)")
     ap.add_argument("--arm-spread", type=float, default=0.0,
@@ -389,6 +486,7 @@ def main() -> None:  # pragma: no cover - needs bpy
         i += 1
     rest = {b.name: np.array(b.matrix_local) for b in bones}
     heads = {n: m[:3, 3] for n, m in rest.items()}
+    tails = {b.name: np.array(b.tail_local) for b in bones}
 
     # Work in armature space; find which armature axis is world up.
     arm_rot = np.array(arm.matrix_world.to_3x3().normalized())
@@ -405,19 +503,21 @@ def main() -> None:  # pragma: no cover - needs bpy
 
     scene = bpy.context.scene
     scene.render.fps = 30
-    scene.frame_start, scene.frame_end = 1, len(g)
+    scene.frame_start, scene.frame_end = 1, int(np.ceil(key_frame(len(g), args.speed)))
     for pb in arm.pose.bones:
         pb.rotation_mode = "QUATERNION"
+    clearance = None if args.no_clearance else body_proxy(arm, mapping, heads, tails, up)
     tpose = soma_tpose(g[:1], joints0[None])
     align = None if args.no_align else rest_alignment(parents, heads, mapping, axes, tpose)
     for t, basis in enumerate(retarget_frames(rest, parents, order, mapping, axes, g, hips,
-                                              scale, align, frame, args.arm_spread), start=1):
+                                              scale, align, frame, args.arm_spread,
+                                              tails, clearance), start=1):
         for name, mtx in basis.items():
             pb = arm.pose.bones[name]
             pb.matrix_basis = Matrix(mtx.tolist())
-            pb.keyframe_insert("rotation_quaternion", frame=t)
+            pb.keyframe_insert("rotation_quaternion", frame=key_frame(t, args.speed))
             if parents[name] is None:
-                pb.keyframe_insert("location", frame=t)
+                pb.keyframe_insert("location", frame=key_frame(t, args.speed))
     print(f"retargeted {len(g)} frames onto {len(order)} bones, hip scale {scale:.3f}")
     print("side check:", {k: v for k, v in mapping.items() if v in ("LeftHand", "RightHand", "Head")})
 

@@ -336,3 +336,19 @@ def test_key_frames_compress_with_speed_and_keep_the_first_frame():
     assert kr.key_frame(31, 1.0) == 31
     with pytest.raises(ValueError):
         kr.key_frame(5, 0)
+
+
+def test_posture_is_kept_only_limbs_are_aligned():
+    """A cartoon dwarf's neck juts 45 degrees forward; pulling it upright to match the
+    mocap actor tipped his whole head back to the sky. Spine, neck and head keep the
+    character's own posture; arms, legs and fingers are still straightened."""
+    parents, heads, roles = _humanoid(face=+1)
+    heads[roles["head"]] = heads[roles["neck"]] + np.array([0, 0.07, 0.07])  # forward neck
+    knee, ankle = heads[roles["Lshin"]], heads[roles["Lfoot"]]
+    heads[roles["Lfoot"]] = knee + np.array([-0.15, 0, -0.4])  # splayed shin
+    heads[roles["Ltoe"]] = heads[roles["Lfoot"]] + np.array([0, 0.12, -0.06])
+    m, frame = kr.map_skintokens_to_soma(parents, heads)
+    align = kr.rest_alignment(parents, heads, m, kr.soma_to_rig_axes(frame), _soma_like_tpose())
+    for role in ("hips", "s1", "s2", "chest", "neck", "head"):
+        assert np.allclose(align[roles[role]], np.eye(3)), role
+    assert not np.allclose(align[roles["Lshin"]], np.eye(3))

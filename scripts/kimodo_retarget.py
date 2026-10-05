@@ -208,8 +208,8 @@ def rest_alignment(parents, heads, mapping, axes, tpose) -> dict[str, np.ndarray
     Generated characters rarely stand in a clean T-pose: legs splay, feet turn out, arms
     droop. Copying Kimodo's turns on top of that keeps the error in every frame (a wide,
     duck-footed walk; hands sunk into the hips). Bones with one child are swung so the
-    bone points where SOMA's matching bone points; forks (hips, chest, hands) keep their
-    rest. Leaves (toes, head, fingertips) have no direction of their own to fix, so they
+    bone points where SOMA's matching bone points; forks (hips, chest, hands) and the
+    spine, neck and head keep their rest. Leaves (toes, head, fingertips) have no direction of their own to fix, so they
     turn with their parent: left at rest, a toe under a swung foot kept a permanent bend
     at the ball of the foot, which showed as a deformed toe.
     """
@@ -217,7 +217,9 @@ def rest_alignment(parents, heads, mapping, axes, tpose) -> dict[str, np.ndarray
     out = {}
     for b in parents:
         out[b] = np.eye(3)
-        if len(kids[b]) != 1:
+        # Only limbs. A spine's curve and a neck's angle are the character's design: a
+        # cartoon dwarf's neck juts forward, and pulling it upright tipped his head back.
+        if len(kids[b]) != 1 or not mapping[b].startswith(("Left", "Right")):
             continue
         c = kids[b][0]
         j, k = SOMA_INDEX[mapping[b]], SOMA_INDEX[mapping[c]]

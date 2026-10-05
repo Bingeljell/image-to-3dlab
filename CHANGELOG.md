@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **New name: AssetFurnace.** The viewer, its tab title and the README now carry the new
+  name. The repo keeps its name, so existing links and clones still work.
+
 ## [0.3.9] - 2026-10-04
 
 ### Changed

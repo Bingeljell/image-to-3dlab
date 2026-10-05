@@ -1,4 +1,6 @@
-# Image to 3D Lab
+# AssetFurnace
+
+*Image-to-3D on your own machine. By Bingeljell (formerly Image to 3D Lab).*
 
 ![Three source images above the textured 3D models generated from them: a photoreal warrior bust, a stylised garden gnome, and a multi-object shoe-house diorama](docs/images/one-image-in-textured-model-out.jpg)
 

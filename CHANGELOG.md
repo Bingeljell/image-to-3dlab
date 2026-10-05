@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Animate tab: rig and animate a humanoid in a few clicks.** Pick a model from your runs
+  (or upload one), press Auto-rig, choose a preset animation, and download the animated
+  GLB. Auto-rig is set up from Setup & Status (~1.6 GB, asks first) and runs on Apple
+  Silicon and NVIDIA. Every result records its licences.
+
+### Removed
+- **The Rig Edit and Pose tabs.** Animate replaces them; its Inspect skeleton panel keeps
+  the bone viewer.
+
 ## [0.3.9] - 2026-10-04
 
 ### Changed

@@ -7,9 +7,10 @@ cheap, and both were checked rather than assumed:
 
 * Kimodo's `global_rot_mats` are rotations *away from SOMA's standard T-pose*: rebuilding
   `posed_joints` from the T-pose plus those rotations matches to 1e-7 m.
-* SkinTokens fits a humanoid to the same bone *tree* every time (52 bones on two very
-  different characters) and only moves the joints. So bones are found by tree shape --
-  spine, a chest that forks into neck and two arms, hands that fork into five fingers --
+* SkinTokens fits a humanoid to one of a few bone *trees* (52 bones on two very
+  different characters, 22 on a mech with mitten hands) and only moves the joints. So bones
+  are found by tree shape --
+  spine, a chest that forks into neck and two arms, hands with five fingers or none --
   never by `bone_N` number, and never by any one character's measurements.
 
 Both rests are T-poses, so each bone gets its SOMA joint's world-space turn applied to its
@@ -139,11 +140,18 @@ def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.n
     for arm in arms:
         lr = "Left" if side[arm] > 0 else "Right"
         ch = _chain(arm, kids)
+        # A hand with one finger chain does not fork, so the walk runs on into it: the
+        # arm is the first four bones, anything past the hand is that one finger.
+        ch, past_hand = ch[:4], ch[4:]
         m.update(_spread(ch, [f"{lr}Shoulder", f"{lr}Arm", f"{lr}ForeArm", f"{lr}Hand"]))
         hand = ch[-1]
-        fingers = [_chain(c, kids) for c in kids[hand]]
+        fingers = [past_hand] if past_hand else [_chain(c, kids) for c in kids[hand]]
+        # SkinTokens leaves fingers out for mitten-like hands (a mech: 22 bones, not 52).
+        # Anything short of a full hand moves stiffly with SOMA's middle finger.
         if len(fingers) != 5:
-            raise ValueError(f"expected 5 fingers on {hand}, got {len(fingers)}")
+            for fch in fingers:
+                m.update(_spread(fch, [f"{lr}HandMiddle{i}" for i in (2, 3, 4)]))
+            continue
         # Thumb: the chain rooted nearest the wrist. The rest run front to back.
         thumb = min(fingers, key=lambda f: np.linalg.norm(heads[f[0]] - heads[hand]))
         others = sorted((f for f in fingers if f is not thumb), key=lambda f: -(heads[f[0]] @ frame[:, 2]))

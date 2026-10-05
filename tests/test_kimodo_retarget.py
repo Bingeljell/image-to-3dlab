@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import kimodo_retarget as kr
 
 
-def _humanoid(face=+1):
+def _humanoid(face=+1, fingers=True):
     """Z-up T-pose humanoid facing `face`*Y. Returns (parents, heads, role->name)."""
     roles, P = {}, {}
     rng = np.random.default_rng(0)
@@ -32,14 +32,15 @@ def _humanoid(face=+1):
     for lr, sx in (("L", -fy), ("R", fy)):  # facing +Y: character's left is -X
         add(f"{lr}sh", "chest", (0.05 * sx, 0, 1.45)); add(f"{lr}arm", f"{lr}sh", (0.15 * sx, 0, 1.45))
         add(f"{lr}fa", f"{lr}arm", (0.4 * sx, 0, 1.45)); add(f"{lr}hand", f"{lr}fa", (0.65 * sx, 0, 1.45))
-        add(f"{lr}thumb0", f"{lr}hand", (0.68 * sx, 0.03 * fy, 1.43))
-        add(f"{lr}thumb1", f"{lr}thumb0", (0.70 * sx, 0.05 * fy, 1.42))
-        add(f"{lr}thumb2", f"{lr}thumb1", (0.72 * sx, 0.06 * fy, 1.41))
-        for k, fname in enumerate(("index", "middle", "ring", "pinky")):
-            y = (0.03 - 0.02 * k) * fy
-            add(f"{lr}{fname}0", f"{lr}hand", (0.72 * sx, y, 1.45))
-            add(f"{lr}{fname}1", f"{lr}{fname}0", (0.75 * sx, y, 1.45))
-            add(f"{lr}{fname}2", f"{lr}{fname}1", (0.78 * sx, y, 1.45))
+        if fingers:
+            add(f"{lr}thumb0", f"{lr}hand", (0.68 * sx, 0.03 * fy, 1.43))
+            add(f"{lr}thumb1", f"{lr}thumb0", (0.70 * sx, 0.05 * fy, 1.42))
+            add(f"{lr}thumb2", f"{lr}thumb1", (0.72 * sx, 0.06 * fy, 1.41))
+            for k, fname in enumerate(("index", "middle", "ring", "pinky")):
+                y = (0.03 - 0.02 * k) * fy
+                add(f"{lr}{fname}0", f"{lr}hand", (0.72 * sx, y, 1.45))
+                add(f"{lr}{fname}1", f"{lr}{fname}0", (0.75 * sx, y, 1.45))
+                add(f"{lr}{fname}2", f"{lr}{fname}1", (0.78 * sx, y, 1.45))
         add(f"{lr}leg", "hips", (0.1 * sx, 0, 0.95)); add(f"{lr}shin", f"{lr}leg", (0.1 * sx, 0, 0.5))
         add(f"{lr}foot", f"{lr}shin", (0.1 * sx, 0, 0.08)); add(f"{lr}toe", f"{lr}foot", (0.1 * sx, 0.12 * fy, 0.02))
     parents = {roles[r]: (roles[p] if p else None) for r, (p, _) in P.items()}
@@ -225,3 +226,21 @@ def test_arm_spread_only_while_hanging():
     raised = kr.rotation_between(level, frame[:, 1])
     assert np.allclose(kr.arm_spread("LeftForeArm", raised, level, frame, 10.0), np.eye(3))
     assert np.allclose(kr.arm_spread("Head", hanging, level, frame, 10.0), np.eye(3))
+
+
+def test_a_fingerless_rig_maps_without_fingers():
+    """SkinTokens leaves fingers out for mitten-like hands (a mech got 22 bones, not 52)."""
+    parents, heads, roles = _humanoid(face=+1, fingers=False)
+    m, _ = kr.map_skintokens_to_soma(parents, heads)
+    assert m[roles["Lhand"]] == "LeftHand" and m[roles["Rhand"]] == "RightHand"
+    assert not any("Thumb" in v or "Index" in v for v in m.values())
+
+
+def test_a_mitten_follows_the_middle_finger():
+    parents, heads, roles = _humanoid(face=+1, fingers=False)
+    hand = roles["Lhand"]
+    for i, name in enumerate(("mit0", "mit1")):
+        parents[name] = hand if i == 0 else "mit0"
+        heads[name] = heads[hand] + np.array([-0.05 * (i + 1), 0, 0])
+    m, _ = kr.map_skintokens_to_soma(parents, heads)
+    assert m["mit0"].startswith("LeftHandMiddle") and m["mit1"].startswith("LeftHandMiddle")

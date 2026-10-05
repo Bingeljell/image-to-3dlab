@@ -239,9 +239,13 @@ function loaded(loadedView) {
   rigSummary.textContent = `${view.rig.bones.length} bones · ` +
     `${view.rig.skinnedMeshes.length} skinned mesh${view.rig.skinnedMeshes.length === 1 ? '' : 'es'} · ` +
     `${view.rig.animations.length} clip${view.rig.animations.length === 1 ? '' : 's'}`;
-  status.textContent = view.rig.bones.length
-    ? 'Rig loaded. Choose a clip or inspect the bind pose.'
-    : 'Model loaded, but it does not contain a skinned skeleton.';
+  // The Animate flow writes its own next step here when it loads a model; only a file
+  // opened from Inspect skeleton needs the player to say what it found.
+  if (!status.textContent) {
+    status.textContent = view.rig.bones.length
+      ? `Rigged: ${view.rig.bones.length} bones.`
+      : 'No skeleton yet. Press Auto-rig to add one.';
+  }
   resizeViewport();
 }
 
@@ -274,7 +278,6 @@ export function showModel(url, label, { autoplay = false } = {}) {
 }
 
 function showSpec(spec, { autoplay = false } = {}) {
-  status.textContent = '';
   autoplayNext = autoplay;
   disposeCurrent();
   empty.hidden = false;

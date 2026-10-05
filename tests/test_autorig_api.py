@@ -134,3 +134,11 @@ def test_source_record_prefers_a_sidecar_that_names_a_licence(tmp_path):
     assert aa.source_record_for(glb) is None
     (tmp_path / "m.retopo-repaint.json").write_text(json.dumps({"license": {"name": "X"}}))
     assert aa.source_record_for(glb)["license"]["name"] == "X"
+
+
+def test_friendly_names_drop_run_stamps_and_keep_the_face_count(output):
+    names = {m["kind"]: m["name"] for m in aa.pickable_models(output)}
+    assert names["finished"] == "knight · 40k"
+    assert names["rigged"] == "knight"
+    long = aa.friendly_name("a-cute-anime-girl-standing-in-a-perfect-t-pose__20261003__pixal3d")
+    assert long.startswith("a cute anime girl") and long.endswith("…") and len(long) == 40

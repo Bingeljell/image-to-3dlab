@@ -32,7 +32,9 @@ function fillModels(keep) {
     for (const model of group.items) {
       const option = document.createElement('option');
       option.value = model.path;
-      option.textContent = model.name;
+      const when = new Date(model.modified * 1000)
+        .toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      option.textContent = `${model.name} · ${when}`;
       optgroup.appendChild(option);
     }
     modelSelect.appendChild(optgroup);

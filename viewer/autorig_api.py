@@ -93,8 +93,17 @@ def presets(root: Path = MOTIONS) -> list[dict[str, Any]]:
 # ----------------------------------------------------------------------------- models
 
 
+def friendly_name(stem: str, detail: str | None = None) -> str:
+    """'a-cute-anime-girl-standing-in__20261003-153554__pixal3d' -> 'a cute anime girl
+    standing in', capped at 40 characters, plus an optional detail ('40k')."""
+    words = stem.split("__")[0].replace("-", " ").replace("_", " ").strip() or stem
+    if len(words) > 40:
+        words = words[:39].rstrip() + "…"
+    return f"{words} · {detail}" if detail else words
+
+
 def _entry(path: Path, kind: str, output: Path, label: str | None = None) -> dict[str, Any]:
-    return {"name": label or path.stem, "kind": kind,
+    return {"name": label or friendly_name(path.stem), "kind": kind,
             "path": path.relative_to(output).as_posix(),
             "bytes": path.stat().st_size, "modified": path.stat().st_mtime}
 
@@ -109,15 +118,18 @@ def pickable_models(output: Path = REPO / "output", limit: int = 40) -> list[dic
         for run in rigs.iterdir():
             if run.is_dir() and RUN_DIRECTORY.fullmatch(run.name):
                 for glb in run.glob("*_rigged.glb"):
-                    found.append(_entry(glb, "rigged", output))
+                    found.append(_entry(glb, "rigged", output,
+                                        friendly_name(glb.name.removesuffix("_rigged.glb"))))
     finished = output / "finish"
     if finished.is_dir():
         for run in finished.iterdir():
             if run.is_dir():
                 # The result is the only GLB at the top of a finish run.
                 for glb in run.glob("*.glb"):
-                    label = f"{run.name.split('__')[0][:40]} ({glb.stem})"
-                    found.append(_entry(glb, "finished", output, label))
+                    faces = glb.stem.rsplit("_", 1)[-1]
+                    detail = faces if faces[:-1].isdigit() and faces[-1] in "km" else None
+                    found.append(_entry(glb, "finished", output,
+                                        friendly_name(run.name, detail)))
     from props_api import generated_models  # the Props tab's list, same rules
 
     for model in generated_models(output, limit=limit):

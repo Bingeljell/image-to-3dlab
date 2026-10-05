@@ -200,6 +200,21 @@ def test_alignment_straightens_a_splayed_leg():
     assert np.allclose(fixed / np.linalg.norm(fixed), [0, 0, -1], atol=1e-9)  # straight down
 
 
+def test_end_bones_turn_with_their_parent_so_no_joint_is_kinked():
+    """A toe that kept its rest while the foot was swung put a permanent bend at the ball
+    of the foot: the odd toe deformation seen on the knight (foot swung 22 degrees)."""
+    parents, heads, roles = _humanoid(face=+1)
+    heads[roles["Ltoe"]] = heads[roles["Lfoot"]] + np.array([-0.05, 0.08, -0.06])  # toe turned out
+    m, frame = kr.map_skintokens_to_soma(parents, heads)
+    axes = kr.soma_to_rig_axes(frame)
+    align = kr.rest_alignment(parents, heads, m, axes, _soma_like_tpose())
+    foot, toe = roles["Lfoot"], roles["Ltoe"]
+    assert not np.allclose(align[foot], np.eye(3))  # the foot really was swung
+    assert np.allclose(align[toe], align[foot])
+    assert np.allclose(align[roles["head"]], align[roles["neck"]])
+    assert np.allclose(align[roles["Lindex2"]], align[roles["Lindex1"]])
+
+
 def test_arm_spread_only_while_hanging():
     frame = np.stack([[-1.0, 0, 0], [0, 0, 1.0], [0, 1.0, 0]], axis=1)  # left -X, up Z, fwd Y
     level = frame[:, 0]  # left arm rest direction in rig space

@@ -13,6 +13,10 @@ Third-party code and models
 This project builds on other people's work, each under its own licence:
 
 - hunyuan_mlx/ is ZimengXiong/Hunyuan3D-MLX, MIT (see hunyuan_mlx/LICENSE).
+- image_to_3dlab/motions/ holds animation clips made with NVIDIA Kimodo. Kimodo is
+  licensed by NVIDIA Corporation under the NVIDIA Open Model License; NVIDIA claims
+  no ownership of its outputs.
+- The auto-rig uses VAST-AI SkinTokens (MIT), cloned at setup, not shipped here.
 - Model weights are never shipped here. Each backend's weights keep their own
   licence (Tencent Hunyuan Community, Stability AI Community, DINOv3, Qwen
   Research and others), and those terms apply no matter what this licence says.

@@ -16,6 +16,10 @@ This lab builds on other people's models and ports. Thank you.
 - [Qwen-Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) (Qwen Research License,
   non-commercial), run by [leejet/stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
   (MIT). Built with Qwen.
+- [VAST-AI SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) (MIT): the
+  Animate tab's auto-rig, which gives a humanoid its skeleton and skin weights.
+- [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo): the Animate tab's preset clips were
+  made with it. Code Apache-2.0; model under the NVIDIA Open Model License.
 - [Apple MLX](https://github.com/ml-explore/mlx), [rembg](https://github.com/danielgatis/rembg),
   [TinyCLIP](https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M) and
   [three.js](https://threejs.org), all MIT.
@@ -40,4 +44,7 @@ Only the ones everyone can hit:
   [picking a picture](trellis2-flat-illustration-colour-drift.md).
 - **NVIDIA: Pixal3D's ready-made build needs driver 575 or newer.** On an older driver the
   installer compiles it instead, if the CUDA toolkit is installed.
+- **Animate: humanoids in a T-pose only.** Four-legged creatures are coming.
+- **Animate: feet can slide a little, and elbows and knees can bend like rubber.**
+  Generated meshes have no extra edges at the joints; a cleaner retopology helps.
 - **Windows has had limited testing.** More testers wanted: tell us how it went.

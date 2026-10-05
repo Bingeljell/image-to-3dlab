@@ -825,6 +825,7 @@
         <li><a href="https://github.com/ZimengXiong/Hunyuan3D-MLX">ZimengXiong/Hunyuan3D-MLX</a> (MIT) and <a href="https://github.com/dgrauet">dgrauet</a>'s Hunyuan3D shape port, for <a href="https://huggingface.co/tencent/Hunyuan3D-2.1">Tencent Hunyuan3D</a> (Tencent Hunyuan Community License).</li>
         <li><a href="https://github.com/Stability-AI/stable-fast-3d">Stability AI's Stable Fast 3D</a> (Stability AI Community License).</li>
         <li><a href="https://huggingface.co/Qwen/Qwen-Image-2.1">Qwen-Image 2.1</a> (Qwen Research License, non-commercial), run by <a href="https://github.com/leejet/stable-diffusion.cpp">leejet/stable-diffusion.cpp</a> (MIT). Built with Qwen.</li>
+        <li><a href="https://github.com/VAST-AI-Research/SkinTokens">VAST-AI SkinTokens</a> (MIT) for the auto-rig, and <a href="https://github.com/nv-tlabs/kimodo">NVIDIA Kimodo</a> (NVIDIA Open Model License) for the preset animations.</li>
         <li><a href="https://github.com/ml-explore/mlx">Apple MLX</a> (MIT), <a href="https://github.com/danielgatis/rembg">rembg</a> (MIT), <a href="https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M">TinyCLIP</a> (MIT) and <a href="https://threejs.org">three.js</a> (MIT).</li>
       </ul>
       <p><strong>Licences travel with the output.</strong> Qwen-Image's licence is a bit ambiguous: Qwen says your pictures are yours (<a href="https://x.com/QwenDevs/status/2101917379785838660" target="_blank" rel="noopener">statement</a>), the licence text says non-commercial. Check it if you plan to sell. The Hunyuan weights are not licensed in the EU, the UK or South Korea. Every run writes a <code>.provenance.json</code> saying which licences apply.</p>
@@ -843,6 +844,7 @@
         <li><strong>Hunyuan's paint stage stalls above ~500,000 faces.</strong> Keep <code>decimation_target</code> at or under 500,000.</li>
         <li><strong>TRELLIS.2 can get colours badly wrong on flat or vector-style art.</strong> Photos and softly lit 3D-style pictures work best. <a href="/docs/trellis2-flat-illustration-colour-drift.md">Input guidance</a>.</li>
         <li><strong>NVIDIA: Pixal3D's ready-made build needs driver 575 or newer.</strong> On an older driver, the installer compiles it instead if the CUDA toolkit is installed.</li>
+        <li><strong>Animate works on humanoids in a T-pose.</strong> Feet can slide a little, and elbows and knees can bend like rubber. Four-legged creatures are coming.</li>
         <li><strong>Windows has had limited testing.</strong> More testers wanted: tell us how it went.</li>
       </ul>
     </div>

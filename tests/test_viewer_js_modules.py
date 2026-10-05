@@ -703,7 +703,7 @@ def _run_welcome(expr: str):
 
 
 WELCOME = {
-    "brand": {"name": "Bingeljell's AssetFurnace"},
+    "brand": {"name": "AssetFurnace"},
     "version": "0.3.0",
     "routes": [{"id": "pixal3d", "state": "missing"}, {"id": "qwen-image", "state": "ready"}],
     "news": [{"version": "0.3.0", "sections": {
@@ -727,7 +727,7 @@ def test_welcome_greets_first_visits_updates_and_reopens_differently():
     first, update, reopen = _run_welcome(
         f"[w.greeting(null, {payload}), w.greeting('0.2.0', {payload}),"
         f" w.greeting('0.3.0', {payload}, true)]")
-    assert first["title"] == "Welcome to Bingeljell's AssetFurnace"
+    assert first["title"] == "Welcome to AssetFurnace"
     assert update["title"].startswith("Welcome back") and "0.3.0" in update["kicker"]
     assert "0.3.0" in reopen["kicker"] and reopen["title"].startswith("Welcome to")
 

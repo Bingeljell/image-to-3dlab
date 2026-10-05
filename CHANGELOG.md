@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **New name: Bingeljell's AssetFurnace.** A darker ember look, a new wordmark, and links
+- **New name: AssetFurnace.** A darker ember look, a new wordmark, and links
   to X and GitHub on the About page. The viewer, its tab title and the README carry the new
   name. The repo keeps its name, so existing links and clones still work.
 

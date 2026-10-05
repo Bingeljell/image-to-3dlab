@@ -1,5 +1,7 @@
 <!-- DRAFT: the user rewrites this header before the launch push. -->
-<h1 align="center">Bingeljell's AssetFurnace</h1>
+<h1 align="center">AssetFurnace</h1>
+
+<p align="center"><sub>by Bingeljell</sub></p>
 
 <p align="center"><b>Prompt or picture in, game-ready 3D out. On your own machine.</b><br>
 Image-to-3D, finishing and props on an Apple Silicon Mac or an NVIDIA card,

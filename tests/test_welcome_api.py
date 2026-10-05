@@ -80,7 +80,7 @@ def test_version_matches_the_newest_changelog_release():
 
 def test_brand_lives_in_one_file():
     brand = json.loads((REPO / "viewer" / "brand.json").read_text())
-    assert brand["name"] == "Bingeljell's AssetFurnace"
+    assert brand["name"] == "AssetFurnace"
     assert welcome_api.brand() == brand
 
 
@@ -90,7 +90,7 @@ def test_payload_names_this_machine_and_its_routes(monkeypatch):
     monkeypatch.setattr(welcome_api, "read_changelog", lambda: CHANGELOG)
     data = welcome_api.payload(since="0.2.0")
     assert data["version"] == image_to_3dlab.__version__
-    assert data["brand"]["name"] == "Bingeljell's AssetFurnace"
+    assert data["brand"]["name"] == "AssetFurnace"
     assert data["host"]["id"] == "nvidia"
     runs_here = {r["id"] for r in data["routes"]}
     assert {"pixal3d", "qwen-image"} <= runs_here
@@ -151,5 +151,5 @@ def test_the_viewer_serves_it():
             data = json.loads(response.read())
     finally:
         server.shutdown()
-    assert data["brand"]["name"] == "Bingeljell's AssetFurnace"
+    assert data["brand"]["name"] == "AssetFurnace"
     assert data["news"] and data["news"][0]["version"] == image_to_3dlab.__version__

@@ -89,9 +89,9 @@ function render(payload, seen, reopened) {
 function showBrand(brand) {
   document.title = brand.name;
   const word = brand.short || brand.name;
-  const by = brand.by ? `${brand.by}'s` : '';
+  const by = brand.by ? `by ${brand.by}` : '';
   document.querySelectorAll('.brand-word, .brand-hero-word').forEach((el) => { el.textContent = word; });
-  document.querySelectorAll('.brand-by, .brand-hero-by').forEach((el) => {
+  document.querySelectorAll('.brand-hero-by').forEach((el) => {
     el.textContent = by;
     el.hidden = !by;
   });

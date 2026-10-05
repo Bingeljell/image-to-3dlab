@@ -7,11 +7,10 @@
   font-weight: 800; letter-spacing: -.01em;
   background: linear-gradient(180deg, var(--ember-hot) 0%, var(--ember) 55%, var(--ember-deep) 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent; }
-.brand-by, .brand-hero-by { color: #b9a497; font-weight: 400; }
+.brand-hero-by { color: #b9a497; font-weight: 400; }
 
 #mode-switch .brand { display: inline-flex; align-items: baseline; gap: 6px;
   background: transparent; border-color: transparent; padding: 3px 10px 3px 4px; }
-#mode-switch .brand .brand-by { font-size: 11px; }
 #mode-switch .brand .brand-word { font-size: 15px;
   filter: drop-shadow(0 0 6px #ff7a2f55); }
 #mode-switch .brand:hover { background: #22170f; border-color: #4a2c1c; }
@@ -22,7 +21,7 @@
 .brand-hero { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px;
   border-bottom: 1px solid #3a2216; }
 .credits-col .brand-hero p { margin: 0; opacity: 1; }
-.credits-col .brand-hero-by { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
+.credits-col .brand-hero-by { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
 .credits-col .brand-hero-word { font-size: clamp(32px, 6vw, 52px); line-height: 1.1;
   filter: drop-shadow(0 0 18px #ff7a2f66); }
 .credits-col .brand-hero-links { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px !important;

@@ -9,6 +9,7 @@ import './modes/finish.js';
 import './modes/props.js';
 import './modes/rig-review.js';
 import './modes/animate.js';
+import './modes/animate-flow.js';
 import { subscribeRigEditState } from './core/rig-edit-state.js';
 import { isEmbedded, landingMode, linksAModel } from './core/embed.js';
 import { sidewaysScroll } from './core/sideways-wheel.js';

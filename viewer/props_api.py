@@ -86,7 +86,7 @@ def split_share(props: int) -> float:
     return SPLIT_SECONDS / (SPLIT_SECONDS + PROP_SECONDS * max(props, 1))
 
 # Top-level directories under output/ that hold something other than generated models.
-NOT_GENERATED = {"finish", "props", "images", "rig-rebind"}
+NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate"}
 
 
 def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:

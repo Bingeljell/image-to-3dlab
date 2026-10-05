@@ -294,6 +294,45 @@ def retarget_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
         yield pose_basis(rest, parents, order, world_rot, rest[root][:3, 3] + travel)
 
 
+def matrices_to_quaternions(m: np.ndarray) -> np.ndarray:
+    """[..., 3, 3] rotation matrices -> [..., 4] unit quaternions (w, x, y, z), w >= 0."""
+    m = np.asarray(m, dtype=np.float64)
+    w = np.sqrt(np.clip(1 + m[..., 0, 0] + m[..., 1, 1] + m[..., 2, 2], 0, None)) / 2
+    x = np.sqrt(np.clip(1 + m[..., 0, 0] - m[..., 1, 1] - m[..., 2, 2], 0, None)) / 2
+    y = np.sqrt(np.clip(1 - m[..., 0, 0] + m[..., 1, 1] - m[..., 2, 2], 0, None)) / 2
+    z = np.sqrt(np.clip(1 - m[..., 0, 0] - m[..., 1, 1] + m[..., 2, 2], 0, None)) / 2
+    x = np.copysign(x, m[..., 2, 1] - m[..., 1, 2])
+    y = np.copysign(y, m[..., 0, 2] - m[..., 2, 0])
+    z = np.copysign(z, m[..., 1, 0] - m[..., 0, 1])
+    q = np.stack([w, x, y, z], axis=-1)
+    return q / np.linalg.norm(q, axis=-1, keepdims=True)
+
+
+def quaternions_to_matrices(q: np.ndarray) -> np.ndarray:
+    """[..., 4] quaternions (w, x, y, z), not necessarily unit -> [..., 3, 3]."""
+    q = np.asarray(q, dtype=np.float64)
+    q = q / np.linalg.norm(q, axis=-1, keepdims=True)
+    w, x, y, z = (q[..., i] for i in range(4))
+    return np.stack([
+        np.stack([1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)], -1),
+        np.stack([2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)], -1),
+        np.stack([2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)], -1),
+    ], -2)
+
+
+def load_motion(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(world rotations [T,77,3,3], frame-0 joints [77,3], hips track [T,3]) from either
+    Kimodo's own `.npz` or one packed by `pack_kimodo_clip.py`."""
+    d = np.load(path)
+    if "quats" in d.files:
+        return quaternions_to_matrices(d["quats"]), d["joints0"].astype(np.float64), \
+            d["hips"].astype(np.float64)
+    g, x = d["global_rot_mats"], d["posed_joints"]
+    if g.ndim == 5:  # [samples, T, J, 3, 3] -> first sample
+        g, x = g[0], x[0]
+    return g, x[0], x[:, SOMA_INDEX["Hips"]]
+
+
 def soma_hip_height(posed_joints: np.ndarray) -> float:
     """Hips above the lowest foot joint on frame 0 (SOMA is Y-up)."""
     f0 = posed_joints[0]
@@ -337,23 +376,20 @@ def main() -> None:  # pragma: no cover - needs bpy
     mapping, frame = map_skintokens_to_soma(parents, heads, up)
     axes = soma_to_rig_axes(frame)
 
-    d = np.load(args.motion)
-    g, x = d["global_rot_mats"], d["posed_joints"]
-    if g.ndim == 5:  # [samples, T, J, 3, 3] -> first sample
-        g, x = g[0], x[0]
+    g, joints0, hips = load_motion(args.motion)
     lowest = min(heads[b] @ up for b in heads)
     rig_hip = float(heads[order[0]] @ up - lowest)
-    scale = rig_hip / soma_hip_height(x)
+    scale = rig_hip / soma_hip_height(joints0[None])
 
     scene = bpy.context.scene
     scene.render.fps = 30
     scene.frame_start, scene.frame_end = 1, len(g)
     for pb in arm.pose.bones:
         pb.rotation_mode = "QUATERNION"
-    align = None if args.no_align else rest_alignment(parents, heads, mapping, axes, soma_tpose(g, x))
-    for t, basis in enumerate(retarget_frames(rest, parents, order, mapping, axes, g,
-                                              x[:, SOMA_INDEX["Hips"]], scale, align, frame,
-                                              args.arm_spread), start=1):
+    tpose = soma_tpose(g[:1], joints0[None])
+    align = None if args.no_align else rest_alignment(parents, heads, mapping, axes, tpose)
+    for t, basis in enumerate(retarget_frames(rest, parents, order, mapping, axes, g, hips,
+                                              scale, align, frame, args.arm_spread), start=1):
         for name, mtx in basis.items():
             pb = arm.pose.bones[name]
             pb.matrix_basis = Matrix(mtx.tolist())

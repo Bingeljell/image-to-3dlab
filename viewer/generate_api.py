@@ -72,6 +72,17 @@ from finish_api import (
     run_job as run_finish_job,
     status_payload as finish_status_payload,
 )
+from autorig_api import (
+    ANIMATE_JOBS,
+    cancel_job as cancel_animate_job,
+    installed as autorig_installed,
+    pickable_models as animate_models,
+    presets as animate_presets,
+    resolve_model as resolve_animate_model,
+    run_job as run_animate_job,
+    source_record_for as animate_source_record,
+    status_payload as animate_status_payload,
+)
 from props_api import (
     PROPS_JOBS,
     cancel_job as cancel_props_job,
@@ -1080,6 +1091,11 @@ def _terminate_active_job() -> None:
         _killpg_if_alive(finish_job.process.pid)
 
 
+def _animate_running() -> bool:
+    """Whether the Animate tab is rigging (SkinTokens holds ~8 GB) or retargeting."""
+    return ANIMATE_JOBS.busy()
+
+
 def _props_baking() -> bool:
     """Whether a prop-sheet job is running. Its Blender bakes share unified memory with a
     generation or a finishing repaint, so neither of those starts while it runs."""
@@ -2008,6 +2024,24 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "props"]:
             self._create_props_job()
             return
+        if parts == ["api", "animate", "rig"]:
+            self._create_animate_rig()
+            return
+        if parts == ["api", "animate", "play"]:
+            self._create_animate_play()
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "animate"] and parts[3] == "cancel":
+            job = ANIMATE_JOBS.get(parts[2])
+            if job is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            try:
+                cancel_animate_job(job)
+            except RuntimeError as exc:
+                self._send_json(409, {"error": str(exc)})
+                return
+            self._send_json(202, {"job_id": job.id, "status": job.status})
+            return
         if len(parts) == 4 and parts[:2] == ["api", "props"] and parts[3] == "cancel":
             self._cancel_props_job(parts[2])
             return
@@ -2251,6 +2285,25 @@ class Handler(SimpleHTTPRequestHandler):
             if action in FINISH_ARTIFACTS:
                 self._finish_artifact(job_id, action)
                 return
+        if parts == ["api", "animate", "models"]:
+            try:
+                self._send_json(200, {"models": animate_models(OUTPUT_ROOT),
+                                      "presets": animate_presets(),
+                                      "installed": autorig_installed()})
+            except Exception as exc:
+                self._send_json(500, {"error": str(exc)})
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "animate"]:
+            job = ANIMATE_JOBS.get(parts[2])
+            if job is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            if parts[3] == "events":
+                self._stream_events(job)
+                return
+            if parts[3] == "status":
+                self._send_json(200, animate_status_payload(job))
+                return
         if parts == ["api", "props", "tools"]:
             self._send_json(200, props_tools_payload())
             return
@@ -2336,6 +2389,9 @@ class Handler(SimpleHTTPRequestHandler):
             if _props_baking():
                 self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
                 return
+            if _animate_running():
+                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+                return
             try:
                 settings = spec.validate_settings(raw_settings)
             except ValueError as exc:
@@ -2407,6 +2463,9 @@ class Handler(SimpleHTTPRequestHandler):
             if _props_baking():
                 self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
                 return
+            if _animate_running():
+                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+                return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})
                 return
@@ -2445,6 +2504,96 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
+    def _animate_blocked(self) -> str | None:
+        """Why an Animate job cannot start now. The auto-rig loads an ~8 GB model, so it
+        waits for anything else that holds the GPU or unified memory."""
+        active = JOBS.get(JOBS.active) if JOBS.active else None
+        if active is not None and active.status in {"queued", "running", "cancelling"}:
+            return "a generation is running; wait for it to finish"
+        if SETUP_ACTIVE is not None:
+            return "setup is running; wait for it to finish"
+        if _props_baking():
+            return "a prop sheet is baking; wait for it to finish"
+        finishing = FINISH_JOBS.get(FINISH_JOBS.active) if FINISH_JOBS.active else None
+        if finishing is not None and finishing.status not in {"done", "error", "cancelled"}:
+            return "a model is being finished; wait for it to finish"
+        if not autorig_installed():
+            return "Auto-rig is not installed. Set it up on the Setup & Status page."
+        return None
+
+    def _start_animate(self, job) -> None:
+        threading.Thread(target=run_animate_job, args=(job,), daemon=True,
+                         name=f"animate-{job.id[:8]}").start()
+        self._send_json(202, {"job_id": job.id, "kind": job.kind,
+                              "events_url": f"/api/animate/{job.id}/events",
+                              "status_url": f"/api/animate/{job.id}/status"})
+
+    def _create_animate_rig(self) -> None:
+        """Rig a model: a GLB uploaded in field 'asset', or one the lab made, named in
+        field 'model' by the path /api/animate/models listed it under."""
+        try:
+            blocked = self._animate_blocked()
+            if blocked:
+                self._send_json(409, {"error": blocked})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > 512 * 1024 * 1024:
+                self._send_json(400, {"error": "request is missing or larger than 512 MiB"})
+                return
+            form = parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length))
+            asset = form.get("asset")
+            chosen = str((form.get("model") or {}).get("value", "")).strip()
+            if asset and str(asset.get("filename", "")).lower().endswith(".glb"):
+                name, data, record, origin = str(asset["filename"]), asset["data"], None, "uploaded"
+            elif chosen:
+                try:
+                    path = resolve_animate_model(chosen, OUTPUT_ROOT)
+                except ValueError as exc:
+                    self._send_json(422, {"error": str(exc)})
+                    return
+                name, data = path.name, path.read_bytes()
+                record, origin = animate_source_record(path), "generated"
+            else:
+                self._send_json(422, {"error": "send a .glb in 'asset' or a listed 'model'"})
+                return
+            try:
+                job = ANIMATE_JOBS.create_rig(name, data, record, origin)
+            except RuntimeError as exc:
+                self._send_json(409, {"error": str(exc)})
+                return
+            self._start_animate(job)
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
+    def _create_animate_play(self) -> None:
+        """Play a preset on a rigged model: JSON {model, preset, arm_spread}."""
+        try:
+            blocked = self._animate_blocked()
+            if blocked:
+                self._send_json(409, {"error": blocked})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            try:
+                body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else None
+            except json.JSONDecodeError:
+                body = None
+            if not isinstance(body, dict):
+                self._send_json(422, {"error": "expected a JSON object"})
+                return
+            try:
+                rigged = resolve_animate_model(str(body.get("model", "")), OUTPUT_ROOT)
+                job = ANIMATE_JOBS.create_animation(rigged, str(body.get("preset", "")),
+                                                    body.get("arm_spread", 0))
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            except RuntimeError as exc:
+                self._send_json(409, {"error": str(exc)})
+                return
+            self._start_animate(job)
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+
     def _create_finish_job(self) -> None:
         """Retopologise, repaint and compress a GLB the viewer already has.
 
@@ -2462,6 +2611,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if _props_baking():
                 self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
+                return
+            if _animate_running():
+                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 768 * 1024 * 1024:
@@ -2568,6 +2720,9 @@ class Handler(SimpleHTTPRequestHandler):
             if _props_baking():
                 self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
                 return
+            if _animate_running():
+                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+                return
         try:
             if find_blender() is None:
                 raise RuntimeError(blender_missing_help())
@@ -2616,6 +2771,8 @@ class Handler(SimpleHTTPRequestHandler):
         rebind = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
         if rebind is not None and rebind.status not in {"done", "error", "cancelled"}:
             return "a rig rebind is running; wait for it to finish"
+        if _animate_running():
+            return "an auto-rig or animation is running; wait for it to finish"
         return None
 
     def _start_props_job(self, job) -> None:

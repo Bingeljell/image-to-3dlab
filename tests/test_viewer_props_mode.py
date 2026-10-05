@@ -87,8 +87,10 @@ def test_a_prop_bake_and_the_other_heavy_jobs_refuse_to_share_the_machine():
     """They hold gigabytes in the same unified memory, so none starts over another."""
     assert "def _props_busy(self)" in SERVER
     assert "a finishing job is running; wait for it to finish" in SERVER
-    # Generation, a new finish, a finish resume and a rig rebind each check for a bake.
-    assert SERVER.count("if _props_baking():") == 4
+    # Generation, a new finish, a finish resume, a rig rebind and an auto-rig each check
+    # for a bake. The first four, and a bake itself, also wait for a running auto-rig.
+    assert SERVER.count("if _props_baking():") == 5
+    assert SERVER.count("if _animate_running():") == 5
 
 
 def test_the_tab_sits_under_the_menu_bar_like_generate():

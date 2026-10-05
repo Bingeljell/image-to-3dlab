@@ -970,3 +970,17 @@ def test_every_viewer_script_parses(script):
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr.decode()
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_animate_models_group_rigged_first_and_drop_empty_groups():
+    module_url = (REPO / "viewer" / "components" / "model-groups.js").as_uri()
+    models = [{"path": "a", "kind": "generated"}, {"path": "b", "kind": "rigged"},
+              {"path": "c", "kind": "generated"}]
+    program = (f"import {{ groupModels }} from {json.dumps(module_url)};"
+               f"console.log(JSON.stringify(groupModels({json.dumps(models)})));")
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program],
+                            check=True, capture_output=True, text=True)
+    groups = json.loads(result.stdout)
+    assert [g["kind"] for g in groups] == ["rigged", "generated"]
+    assert [m["path"] for m in groups[1]["items"]] == ["a", "c"]

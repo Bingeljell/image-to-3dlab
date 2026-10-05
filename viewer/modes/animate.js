@@ -41,6 +41,7 @@ let player = null;
 let bonePicker = null;
 let selectedBone = null;
 let renderPending = false;
+let autoplayNext = false;
 const cameraViews = createCameraViewControls({
   container: viewport,
   getView: () => view,
@@ -226,6 +227,12 @@ function loaded(loadedView) {
   }
 
   buildClipMenu();
+  if (autoplayNext && view.rig.animations.length) {
+    clipSelect.value = '0';
+    selectClip(0);
+    player.toggle();
+  }
+  autoplayNext = false;
   bonesToggle.disabled = view.rig.bones.length === 0;
   jointsToggle.disabled = view.rig.bones.length === 0;
   resetButton.disabled = view.rig.skeletons.length === 0;
@@ -255,6 +262,20 @@ function loadFiles(fileList) {
     return;
   }
 
+  showSpec(spec);
+}
+
+/**
+ * Show one model, from a file the user dropped or a URL the Animate flow produced.
+ * With `autoplay`, its first clip starts playing as soon as it loads.
+ */
+export function showModel(url, label, { autoplay = false } = {}) {
+  showSpec({ kind: 'model', url, label, ext: 'glb' }, { autoplay });
+}
+
+function showSpec(spec, { autoplay = false } = {}) {
+  status.textContent = '';
+  autoplayNext = autoplay;
   disposeCurrent();
   empty.hidden = false;
   empty.textContent = `Loading ${spec.label}…`;

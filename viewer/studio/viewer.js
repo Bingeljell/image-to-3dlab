@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { createModelViewport, disposeModelViewport } from '../components/model-viewport.js';
 import { setCameraView } from '../components/camera-view-controls.js';
 import { AnimationPlayer } from '../animation/player.js';
-import { projectAxes } from './gizmo.js';
+import { projectAxes, AXES } from './gizmo.js';
+import { createBoneDisplay } from './bones.js';
 
 const ICON = {
   reset: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
@@ -44,6 +45,16 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   let view = null, player = null, skeleton = null, renderPending = false, loadToken = 0;
   let clips = [], clipIndex = -1;
   const gizmo = tools.querySelector('.sv-gizmo');
+  const axisButtons = new Map(AXES.map((end) => {
+    const button = document.createElement('button');
+    button.className = `${end.axis}${end.key[0] === '-' ? ' neg' : ''} tip-left`;
+    button.textContent = end.key[0] === '+' ? end.axis.toUpperCase() : '';
+    button.dataset.tip = `Look from: ${end.label}`;
+    button.setAttribute('aria-label', `Look from ${end.label}`);
+    button.onclick = () => snap(end.view);
+    gizmo.appendChild(button);
+    return [end.key, button];
+  }));
 
   function requestRender() {
     if (renderPending || !view) return;
@@ -54,6 +65,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     renderPending = false;
     if (!view) return;
     const moving = view.controls.update();
+    skeleton?.update();
     view.renderer.render(view.scene, view.camera);
     drawGizmo();
     if (moving) requestRender();
@@ -80,19 +92,14 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     const radius = 38;
     gizmo.querySelector('.lines').innerHTML = ends.filter((e) => e.key[0] === '+')
       .map((e) => `<line class="${e.axis}" x1="0" y1="0" x2="${e.x * radius}" y2="${e.y * radius}"/>`).join('');
-    gizmo.querySelectorAll('button').forEach((b) => b.remove());
-    for (const end of ends) {
-      const button = document.createElement('button');
-      button.className = `${end.axis}${end.key[0] === '-' ? ' neg' : ''}`;
+    // Buttons are made once and only moved: rebuilding them every animation frame swallowed clicks.
+    ends.forEach((end, order) => {
+      const button = axisButtons.get(end.key);
       button.style.left = `${56 + end.x * radius}px`;
       button.style.top = `${56 + end.y * radius}px`;
-      button.textContent = end.key[0] === '+' ? end.axis.toUpperCase() : '';
-      button.dataset.tip = `Look from: ${end.label}`;
-      button.setAttribute('aria-label', `Look from ${end.label}`);
+      button.style.zIndex = String(order + 1);  // nearer ends on top
       button.disabled = !enabled;
-      button.onclick = () => snap(end.view);
-      gizmo.appendChild(button);
-    }
+    });
   }
 
   function snap(name) {
@@ -106,12 +113,12 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   }
 
   function setSkeleton(on) {
-    if (skeleton) { view?.scene.remove(skeleton); skeleton.dispose?.(); skeleton = null; }
-    if (on && view?.modelRoot && view.rig?.bones?.length) {
-      skeleton = new THREE.SkeletonHelper(view.modelRoot);
-      skeleton.material.depthTest = false;
-      skeleton.material.color = new THREE.Color(0xffb37a);
-      view.scene.add(skeleton);
+    skeleton?.dispose();
+    skeleton = null;
+    if (on && view?.rig?.bones?.length) {
+      skeleton = createBoneDisplay(view.rig.bones);
+      view.scene.add(skeleton.group);
+      skeleton.update();
     }
     requestRender();
   }
@@ -149,13 +156,13 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   function dispose() {
     player?.dispose?.();
     player = null;
-    if (skeleton) { view?.scene.remove(skeleton); skeleton = null; }
+    skeleton?.dispose();
+    skeleton = null;
     if (view) {
       disposeModelViewport(view);
       view.renderer.domElement.remove();
       view = null;
     }
-    tools.querySelectorAll('[aria-pressed]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
   }
 
   function load(url, { label = '', autoplay = false } = {}) {
@@ -178,6 +185,13 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
           player.select(loaded.rig.animations[0]);
           player.action.setLoop(THREE.LoopRepeat, Infinity);
           if (autoplay) player.play();
+        }
+        // keep wireframe and skeleton on across models and moves
+        const pressed = (act) => tools.querySelector(`[data-act="${act}"]`).getAttribute('aria-pressed') === 'true';
+        if (pressed('wire')) setWireframe(true);
+        if (pressed('bones')) {
+          if (loaded.rig.bones.length) setSkeleton(true);
+          else tools.querySelector('[data-act="bones"]').setAttribute('aria-pressed', 'false');
         }
         resize();
         drawGizmo();

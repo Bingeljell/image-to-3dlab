@@ -83,7 +83,7 @@ from autorig_api import (
     source_record_for as animate_source_record,
     status_payload as animate_status_payload,
 )
-from assets_api import assets_payload
+from assets_api import assets_payload, set_hidden as set_asset_hidden
 from props_api import (
     PROPS_JOBS,
     cancel_job as cancel_props_job,
@@ -2051,6 +2051,16 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "image"]:
             self._create_image_job()
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "hidden":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                set_asset_hidden(OUTPUT_ROOT, parts[2], bool(body.get("hidden", True)))
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            self._send_json(200, {"id": parts[2], "hidden": bool(body.get("hidden", True))})
             return
         if len(parts) == 4 and parts[:2] == ["api", "image"] and parts[3] == "cancel":
             self._cancel_image_job(parts[2])

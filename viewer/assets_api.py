@@ -34,6 +34,8 @@ NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate"}
 TAKE_SUFFIX = re.compile(r"_[b-z]$")
 STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
+META_NAME = ".assets-meta.json"   # the user's own choices about assets, e.g. hidden ones
+ASSET_ID = re.compile(r"^[0-9a-f]{12}$")
 
 
 def friendly_name(stem: str) -> str:
@@ -263,8 +265,32 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             "props": [{"name": p["name"], "file": rel(p["file"])} for p in (prop_set["props"] if prop_set else [])],
             "updated": max((f.stat().st_mtime for f in files), default=0),
         })
+    hidden = set(_read_meta(output).get("hidden", []))
+    for asset in assets:
+        asset["hidden"] = asset["id"] in hidden
     assets.sort(key=lambda a: a["updated"], reverse=True)
     return assets
+
+
+def _read_meta(output: Path) -> dict[str, Any]:
+    try:
+        meta = json.loads((output / META_NAME).read_text())
+        return meta if isinstance(meta, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def set_hidden(output: Path, asset_id: str, hidden: bool) -> None:
+    """Hide an asset from the Library, or bring it back. Never touches its files."""
+    if not ASSET_ID.fullmatch(asset_id or ""):
+        raise ValueError(f"not an asset id: {asset_id!r}")
+    if asset_id not in {a["id"] for a in list_assets(output)}:
+        raise ValueError(f"no such asset: {asset_id}")
+    meta = _read_meta(output)
+    ids = set(meta.get("hidden", []))
+    ids.add(asset_id) if hidden else ids.discard(asset_id)
+    meta["hidden"] = sorted(ids)
+    (output / META_NAME).write_text(json.dumps(meta, indent=1))
 
 
 def assets_payload(output: Path) -> dict[str, Any]:

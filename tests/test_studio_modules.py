@@ -147,3 +147,24 @@ def test_a_job_with_no_news_for_three_minutes_is_flagged_as_stalled():
       await m.followJob('/s', { interval: 1, fetchImpl, now: () => clock, onUpdate: (u) => stalls.push(u.stalled) }).done;
       console.log(JSON.stringify(stalls));""")
     assert out == [False, True, False]
+
+
+@needs_node
+def test_library_search_hides_and_pages():
+    assets = [{"name": f"knight {i}", "kind": "character", "hidden": i % 10 == 0} for i in range(45)]
+    assets.append({"name": "tavern barrel", "kind": "prop set", "hidden": False})
+    out = _run("library.js", f"""
+      const a = {json.dumps(assets)};
+      const v = (o) => {{ const r = m.visibleAssets(a, o); return [r.rows.length, r.more, r.hiddenCount]; }};
+      console.log(JSON.stringify({{
+        first: v({{}}),
+        withHidden: v({{ showHidden: true }}),
+        search: v({{ query: 'BARREL' }}),
+        twoWords: v({{ query: 'knight 4' }}),
+        props: v({{ filter: 'props' }}),
+      }}));""")
+    assert out["first"] == [30, 11, 5]        # 46 assets, 5 hidden: 41 shown in pages of 30
+    assert out["withHidden"] == [30, 16, 5]
+    assert out["search"] == [1, 0, 0]
+    assert out["twoWords"] == [8, 0, 1]       # "4" anywhere: 4, 14, 24, 34, 40-44 (9); 40 is hidden
+    assert out["props"] == [1, 0, 0]

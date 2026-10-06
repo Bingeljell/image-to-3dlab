@@ -168,3 +168,14 @@ input[type="range"] { accent-color: var(--ember); }
 .step.stalled { border-color: #f2c14e; }
 .stallnote { margin: 0; font-size: 12.5px; color: #f6dfa4; }
 body.busy .step .body [data-run] { opacity: .5; pointer-events: none; }
+
+/* library controls */
+#search { width: 100%; background: #110d0b; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; color: var(--bone); }
+#search::placeholder { color: #7d6e64; }
+.lib-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hidden-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.hidden-toggle input { accent-color: var(--ember); }
+.ghost.more { width: 100%; justify-content: center; margin: 4px 0 8px; }
+.ghost.small { padding: 3px 9px; font-size: 12px; }
+.side-right { display: inline-flex; align-items: center; gap: 10px; }
+.asset.is-hidden { opacity: .5; }

@@ -19,6 +19,7 @@
 <div class="studio">
   <aside class="col lib" aria-label="Your assets">
     <div class="lib-head">
+      <input type="search" id="search" placeholder="Search your assets" aria-label="Search your assets" autocomplete="off">
       <div class="seg" role="group" aria-label="Filter">
         <button aria-pressed="true" data-filter="all">All</button>
         <button aria-pressed="false" data-filter="characters">Characters</button>
@@ -26,7 +27,8 @@
       </div>
     </div>
     <div class="scroll"><ul class="assets" id="assetList" aria-live="polite"></ul></div>
-    <div class="lib-foot" id="libFoot">Loading your assets…</div>
+    <div class="lib-foot"><span id="libFoot">Loading your assets…</span>
+      <label class="hidden-toggle" data-tip="Hidden assets stay on disk; this shows them again." hidden><input type="checkbox" id="showHidden"> <span id="hiddenLabel"></span></label></div>
   </aside>
 
   <main class="col stage" id="stage" aria-label="3D viewer">
@@ -34,7 +36,8 @@
   </main>
 
   <aside class="col side" aria-label="Steps">
-    <div class="side-head"><h2>Steps</h2><span class="meta" id="sideKind"></span></div>
+    <div class="side-head"><h2>Steps</h2><span class="side-right"><span class="meta" id="sideKind"></span>
+      <button class="ghost small tip-left" id="hideBtn" data-tip="Hide from the Library. Nothing is deleted; turn on Show hidden to see it again." hidden>Hide</button></span></div>
     <div class="scroll"><ol class="steps" id="steps"></ol></div>
     <div class="side-foot"><a class="primary export" id="download" data-tip="Download this model as a GLB for Godot, Unity, Unreal, Blender or three.js." hidden download>Download GLB</a></div>
   </aside>

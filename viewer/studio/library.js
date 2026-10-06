@@ -58,3 +58,16 @@ export function servedUrl(base, relative) {
   if (!relative) return null;
   return base + relative.split('/').map(encodeURIComponent).join('/');
 }
+
+/**
+ * What the Library list shows: filtered, searched, hidden ones out unless asked for, and
+ * only the first `limit`. Returns the rows plus how many more there are and how many are hidden.
+ */
+export function visibleAssets(assets, { filter = 'all', query = '', showHidden = false, limit = 30 } = {}) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matching = filterAssets(assets, filter)
+    .filter((a) => words.every((w) => a.name.toLowerCase().includes(w)));
+  const hiddenCount = matching.filter((a) => a.hidden).length;
+  const pool = showHidden ? matching : matching.filter((a) => !a.hidden);
+  return { rows: pool.slice(0, limit), more: Math.max(0, pool.length - limit), hiddenCount };
+}

@@ -154,3 +154,20 @@ def test_the_library_endpoint_serves_the_list(output, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_hiding_an_asset_keeps_its_files_and_can_be_undone(output):
+    knight = _by_name(aa.list_assets(output))["a chunky knight"]
+    assert knight["hidden"] is False
+    aa.set_hidden(output, knight["id"], True)
+    assert _by_name(aa.list_assets(output))["a chunky knight"]["hidden"] is True
+    assert (output / "finish" / FIN / "a-chunky-knight_40k.glb").is_file()  # nothing deleted
+    aa.set_hidden(output, knight["id"], False)
+    assert _by_name(aa.list_assets(output))["a chunky knight"]["hidden"] is False
+
+
+def test_only_real_asset_ids_can_be_hidden(output):
+    with pytest.raises(ValueError):
+        aa.set_hidden(output, "../../etc", True)
+    with pytest.raises(ValueError):
+        aa.set_hidden(output, "0123456789ab", True)  # well formed, but no such asset

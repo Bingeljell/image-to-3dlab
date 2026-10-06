@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the classic tabs' own job APIs; prop sheets still split in the classic Props tab.
 
-import { STEPS, stepCount, doneCount, statusText, filterAssets, displayModel, servedUrl } from './library.js';
+import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -12,7 +12,7 @@ const CLASSIC_TAB = { model: 'generate', finished: 'finish', rigged: 'animate', 
 
 let base = '/output/';
 let assets = [];
-let filter = 'all';
+let filter = 'all', query = '', showHidden = false, limit = 30;
 let current = null;
 let engines = [], presets = [], busy = false, playNext = null;
 
@@ -23,16 +23,21 @@ const url = (relative) => servedUrl(base, relative);
 const fileName = (relative) => relative?.split('/').pop() ?? '';
 
 function renderLibrary() {
-  const list = filterAssets(assets, filter);
-  $('assetList').innerHTML = list.length ? list.map((asset) => {
+  const { rows: list, more, hiddenCount } = visibleAssets(assets, { filter, query, showHidden, limit });
+  $('assetList').innerHTML = (list.length ? list.map((asset) => {
     const pips = Array.from({ length: stepCount(asset) }, (_, i) => `<i class="${i < doneCount(asset) ? 'done' : ''}"></i>`).join('');
     const thumb = asset.picture ? `<img src="${url(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
-    return `<li><button class="asset" data-id="${escape(asset.id)}" aria-current="${asset === current}">
+    return `<li><button class="asset${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" aria-current="${asset === current}">
       <span class="thumb">${thumb}</span>
       <span style="min-width:0"><span class="nm">${escape(asset.name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(statusText(asset))}</span></span>
     </button></li>`;
-  }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing here with this filter.' : 'No assets yet. Make one in the classic view, and it shows up here.'}</li>`;
-  $('libFoot').textContent = `${assets.length} asset${assets.length === 1 ? '' : 's'} · saved in output/ on this machine`;
+  }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing matches.' : 'No assets yet. Make one in the classic view, and it shows up here.'}</li>`)
+    + (more ? `<li><button class="ghost more" id="showMore">Show ${Math.min(more, 30)} more of ${more}</button></li>` : '');
+  const shown = assets.filter((a) => !a.hidden).length;
+  $('libFoot').textContent = `${shown} asset${shown === 1 ? '' : 's'} · saved in output/ on this machine`;
+  document.querySelector('.hidden-toggle').hidden = !hiddenCount && !showHidden;
+  $('hiddenLabel').textContent = `Show hidden (${assets.filter((a) => a.hidden).length})`;
+  $('showMore')?.addEventListener('click', () => { limit += 30; renderLibrary(); });
 }
 
 function engineOf(path) {
@@ -100,6 +105,7 @@ function show(asset) {
     return;
   }
   renderSteps(asset);
+  renderHideButton();
   if (asset.kind === 'character' && asset.clips.length) {
     const index = Math.max(0, asset.clips.findIndex((c) => c.name === playNext));
     playNext = null;
@@ -117,10 +123,28 @@ function show(asset) {
 
 $('assetList').addEventListener('click', (event) => {
   const button = event.target.closest('.asset');
-  if (!button) return;
+  if (!button) return;  // the "Show more" row has its own handler
   const asset = assets.find((a) => a.id === button.dataset.id);
   if (asset && asset !== current) show(asset);
 });
+
+$('search').addEventListener('input', (event) => { query = event.target.value; limit = 30; renderLibrary(); });
+$('showHidden').addEventListener('change', (event) => { showHidden = event.target.checked; renderLibrary(); });
+$('hideBtn').addEventListener('click', async () => {
+  if (!current) return;
+  const hidden = !current.hidden;
+  const response = await fetch(`/api/assets/${current.id}/hidden`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hidden }) });
+  if (!response.ok) return;
+  current.hidden = hidden;
+  renderLibrary();
+  renderHideButton();
+});
+
+function renderHideButton() {
+  const button = $('hideBtn');
+  button.hidden = !current;
+  button.textContent = current?.hidden ? 'Unhide' : 'Hide';
+}
 
 document.querySelectorAll('.seg [data-filter]').forEach((button) => {
   button.onclick = () => {

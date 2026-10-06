@@ -72,3 +72,11 @@ export function followJob(statusUrl, { onUpdate, interval = 1200, fetchImpl = fe
   });
   return { done, stop() { stopped = true; } };
 }
+
+// engine chatter that means nothing to a person: kernel compiles, verbose/debug lines, blanks
+const NOISE = /\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+/i;
+
+/** The last `count` lines of a log worth showing to a person. */
+export function readableLog(text, count = 4) {
+  return String(text || '').split('\n').map((line) => line.trimEnd()).filter((line) => line && !NOISE.test(line)).slice(-count).join('\n');
+}

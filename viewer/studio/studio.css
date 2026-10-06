@@ -227,3 +227,21 @@ textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); bord
 .chain-steps li.cur { color: var(--bone); font-weight: 600; } .chain-steps li.cur b { color: var(--flame); }
 .chain-steps li.bad b { color: #f07067; }
 .chain.stalled { border-color: #f2c14e; }
+
+/* Create progress in the viewer */
+.progress { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; padding: 24px; pointer-events: none; }
+.progress > * { pointer-events: auto; }
+.pcard { width: min(520px, 100%); background: rgb(23 18 15 / .94); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: grid; gap: 12px; }
+.pcard > img.glow { width: 40px; height: 40px; justify-self: center; }
+.progress.failed .pcard { border-color: #f07067; }
+.progress.stalled .pcard, .progress.stalled .pc { border-color: #f2c14e; }
+.progress.compact { inset: 64px 14px auto 14px; display: block; padding: 0; }
+.pc { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 12px; background: rgb(23 18 15 / .9); border: 1px solid var(--line); backdrop-filter: blur(6px); max-width: 640px; margin: 0 auto; }
+.pc .bigbar { flex: 1; min-width: 80px; }
+.pc .job-msg { font-size: 12.5px; color: var(--ash); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+img.glow { animation: doorglow 2.4s ease-in-out infinite; }
+@keyframes doorglow { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+.asset.making { border-color: var(--ember); }
+.asset .thumb img.mark.glow { opacity: .8; }
+.pips i.run { background: var(--flame); animation: doorglow 1.4s ease-in-out infinite; }
+.pips i.stop { background: #6b5448; }

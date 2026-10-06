@@ -229,3 +229,18 @@ def test_progress_is_read_from_whichever_field_a_step_uses():
     out = _run("jobs.js", """console.log(JSON.stringify([
       m.percentOf({ overall_pct: 55 }), m.percentOf({ percent: 40 }), m.percentOf({ progress: 0.25 }), m.percentOf({ phase: 'x' })]));""")
     assert out == [55, 40, 25, None]
+
+
+@needs_node
+def test_the_live_log_drops_engine_chatter():
+    log = "\n".join([
+        "loading model weights",
+        "[VERBOSE] ggml - ggml_metal_library_compile_pipeline: loaded kernel_unary_f32_f32_4_op=100_cnt=1",
+        "0x9e21eb100 | th_max = 1024 | th_width = 32",
+        "",
+        "sampling step 3/10",
+        "[DEBUG] tensor shapes ok",
+        "sampling step 4/10",
+    ])
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.readableLog({json.dumps(log)}, 4)));")
+    assert out == "loading model weights\nsampling step 3/10\nsampling step 4/10"

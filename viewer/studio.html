@@ -34,12 +34,13 @@
 
   <main class="col stage" id="stage" aria-label="3D viewer">
     <div class="hud tl"><div class="title" id="vTitle"></div><div class="meta" id="vMeta"></div></div>
+    <div class="progress" id="progress" hidden aria-live="polite"></div>
   </main>
 
   <aside class="col side" aria-label="Steps">
     <div class="side-head"><h2>Steps</h2><span class="side-right"><span class="meta" id="sideKind"></span>
       <button class="ghost small tip-left" id="hideBtn" data-tip="Hide from the Library. Nothing is deleted; turn on Show hidden to see it again." hidden>Hide</button></span></div>
-    <div class="scroll"><section class="chain" id="chain" hidden aria-live="polite"></section><ol class="steps" id="steps"></ol></div>
+    <div class="scroll"><ol class="steps" id="steps"></ol></div>
     <div class="side-foot"><a class="primary export" id="download" data-tip="Download this model as a GLB for Godot, Unity, Unreal, Blender or three.js." hidden download>Download GLB</a></div>
   </aside>
 </div>

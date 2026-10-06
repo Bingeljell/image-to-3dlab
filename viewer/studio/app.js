@@ -3,7 +3,7 @@
 
 import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets } from './library.js';
 import { createStudioViewer } from './viewer.js';
-import { readyEngines } from './jobs.js';
+import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
 import { STEP_LABELS } from './plan.js';
@@ -16,7 +16,8 @@ let base = '/output/';
 let assets = [];
 let filter = 'all', query = '', showHidden = false, limit = 30;
 let current = null;
-let engines = [], presets = [], recipes = null, busy = false, playNext = null, chainRunning = false;
+let engines = [], presets = [], recipes = null, busy = false, playNext = null;
+let making = null, viewingMaking = false;  // the asset Create is making right now
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
 
@@ -26,10 +27,10 @@ const fileName = (relative) => relative?.split('/').pop() ?? '';
 
 function renderLibrary() {
   const { rows: list, more, hiddenCount } = visibleAssets(assets, { filter, query, showHidden, limit });
-  $('assetList').innerHTML = (list.length ? list.map((asset) => {
+  $('assetList').innerHTML = makingRow() + (list.length ? list.map((asset) => {
     const pips = Array.from({ length: stepCount(asset) }, (_, i) => `<i class="${i < doneCount(asset) ? 'done' : ''}"></i>`).join('');
     const thumb = asset.picture ? `<img src="${url(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
-    return `<li><button class="asset${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" aria-current="${asset === current}">
+    return `<li><button class="asset${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" aria-current="${!viewingMaking && asset === current}">
       <span class="thumb">${thumb}</span>
       <span style="min-width:0"><span class="nm">${escape(asset.name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(statusText(asset))}</span></span>
     </button></li>`;
@@ -98,6 +99,8 @@ const ctx = {
 
 function show(asset) {
   current = asset;
+  viewingMaking = false;
+  $('progress').hidden = true;
   renderLibrary();
   $('vTitle').textContent = asset?.name ?? '';
   $('vMeta').textContent = asset ? statusText(asset) : '';
@@ -126,8 +129,9 @@ function show(asset) {
 $('assetList').addEventListener('click', (event) => {
   const button = event.target.closest('.asset');
   if (!button) return;  // the "Show more" row has its own handler
+  if (button.dataset.making != null) { showMaking(); return; }
   const asset = assets.find((a) => a.id === button.dataset.id);
-  if (asset && asset !== current) show(asset);
+  if (asset && (asset !== current || viewingMaking)) show(asset);
 });
 
 $('search').addEventListener('input', (event) => { query = event.target.value; limit = 30; renderLibrary(); });
@@ -170,6 +174,16 @@ async function loadLibrary(keepId = null) {
   }
 }
 
+async function refreshAssets() {
+  const response = await fetch('/api/assets');
+  const payload = await response.json();
+  if (!response.ok) return;
+  base = payload.base;
+  assets = payload.assets;
+  if (current) current = assets.find((a) => a.id === current.id) ?? current;
+  renderLibrary();
+}
+
 async function loadTools() {
   const [catalog, animate] = await Promise.all([
     fetch('/api/catalog').then((r) => r.json()).catch(() => null),
@@ -182,72 +196,104 @@ async function loadTools() {
 
 // ------------------------------------------------------------------ Create
 $('createBtn').addEventListener('click', () => {
-  if (chainRunning) { $('chain').scrollIntoView({ behavior: 'smooth' }); return; }
+  if (making && !making.failed && !making.finished) { showMaking(); return; }
   openCreate({ stage: $('stage'), recipes, engines, presets, onStart: (plan) => startChain(plan) });
 });
 
+const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+function makingRow() {
+  if (!making) return '';
+  const n = making.plan.steps.length, done = making.done.length;
+  const pips = making.plan.steps.map((s) => `<i class="${making.done.includes(s) ? 'done' : s === making.current ? (making.failed ? 'stop' : 'run') : ''}"></i>`).join('');
+  const thumb = making.made.picture ? `<img src="${url(making.made.picture)}" alt="">` : `<img class="mark glow" src="${LOGO}" alt="">`;
+  const status = making.failed ? `Stopped at ${STEP_LABELS[making.current]}` : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
+  return `<li><button class="asset making" data-making aria-current="${viewingMaking}">
+    <span class="thumb">${thumb}</span>
+    <span style="min-width:0"><span class="nm">${escape(making.title)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(status)}</span></span>
+  </button></li>`;
+}
+
+/** The viewer, Steps and Library while Create is making something. */
+function showMaking() {
+  if (!making) return;
+  viewingMaking = true;
+  renderLibrary();
+  $('vTitle').textContent = making.title;
+  $('vMeta').textContent = making.failed ? 'Stopped' : making.finished ? 'Done' : 'Making…';
+  $('hideBtn').hidden = true;
+  $('download').hidden = true;
+  $('sideKind').textContent = { character: 'Character', prop: 'Prop', set: 'Prop set', picture: 'Picture' }[making.plan.want] || '';
+  $('steps').innerHTML = making.plan.steps.map((step, i) => {
+    const state = making.done.includes(step) ? 'done' : step === making.current ? 'now' : 'later';
+    const dot = state === 'done' ? '✓' : making.failed && step === making.current ? '■' : i + 1;
+    const sum = state === 'done' ? 'Done' : state === 'now' ? (making.failed ? 'Stopped. The reason is in the viewer.' : 'Running now') : 'Waiting';
+    return `<li class="step ${state}"><header><span class="dot">${dot}</span><span><h3>${STEP_LABELS[step]}</h3><div class="sum">${sum}</div></span></header></li>`;
+  }).join('');
+  // show the newest result while the next step runs
+  const m = making.made;
+  viewer.setClips([]);
+  const shown = m.rigged || m.finished || m.model;
+  if (shown && making.shown !== shown) { viewer.load(url(shown), { label: making.title }); making.shown = shown; }
+  else if (!shown && m.picture && making.shown !== m.picture) { viewer.showImage(url(m.picture), ''); making.shown = m.picture; }
+  else if (!shown && !m.picture && making.shown !== 'empty') { viewer.showEmpty(''); making.shown = 'empty'; }
+  drawProgress();
+}
+
+function drawProgress() {
+  const box = $('progress');
+  if (!making || !viewingMaking) { box.hidden = true; return; }
+  const compact = !!(making.made.picture || making.made.model) && !making.failed && !making.finished;
+  box.hidden = false;
+  box.className = `progress${compact ? ' compact' : ''}${making.stalled ? ' stalled' : ''}${making.failed ? ' failed' : ''}`;
+  const list = making.plan.steps.map((s) => `<li class="${making.done.includes(s) ? 'done' : s === making.current ? (making.failed ? 'bad' : 'cur') : ''}"><b>${making.done.includes(s) ? '✓' : s === making.current ? (making.failed ? '■' : '●') : '○'}</b>${STEP_LABELS[s]}</li>`).join('');
+  const width = making.finished ? 100 : making.percent ?? 0;
+  const message = making.failed ? making.why : making.finished ? 'All done. It is in your Library.'
+    : `${making.message || 'Starting…'} · ${clock(Date.now() - making.stepStarted)}`;
+  const stall = making.stalled && !making.failed ? '<p class="stallnote">No news from this step for a few minutes. It may be stuck: keep waiting, or cancel.</p>' : '';
+  const buttons = making.failed ? '<button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>'
+    : making.finished ? '<button class="ghost" data-close>Close</button>' : '<button class="ghost" data-x>Cancel</button>';
+  box.innerHTML = compact
+    ? `<div class="pc"><span class="meta">${escape(STEP_LABELS[making.current] || '')}</span><div class="bigbar"><span class="${making.percent == null ? 'busy' : ''}" style="width:${width}%"></span></div><span class="job-msg">${escape(message)}</span>${buttons}</div>${stall}`
+    : `<div class="pcard">${making.failed || making.finished ? '' : `<img class="glow" src="${LOGO}" alt="">`}
+        <ol class="chain-steps">${list}</ol>
+        <div class="bigbar"><span class="${making.percent == null && !making.finished ? 'busy' : ''}" style="width:${width}%"></span></div>
+        <p class="job-msg">${escape(message)}</p>${stall}
+        ${making.log ? `<pre class="log">${escape(making.log)}</pre>` : ''}
+        <div class="row end">${buttons}</div></div>`;
+  box.querySelector('[data-x]')?.addEventListener('click', (e) => { e.target.disabled = true; making.cancel?.(); });
+  box.querySelector('[data-copy]')?.addEventListener('click', () => navigator.clipboard?.writeText(`${making.why}\n\n${making.fullLog || ''}`));
+  box.querySelector('[data-close]')?.addEventListener('click', () => { const keep = making.result; making = null; show(keep ?? current ?? assets[0] ?? null); });
+}
+
 async function startChain(plan) {
-  chainRunning = true;
+  making = { plan, title: plan.description || plan.file?.name || 'New asset', done: [], current: null, made: {},
+    percent: null, message: '', log: '', stepStarted: Date.now(), failed: false, finished: false, why: '', shown: null };
   ctx.onBusy(true);
-  const box = $('chain');
-  let cancel = null, startedAt = Date.now(), timer = null;
-  const title = plan.description || plan.file?.name || 'New asset';
-  const draw = (state = {}) => {
-    box.hidden = false;
-    box.innerHTML = `<header><span class="meta">MAKING</span><b>${escape(title)}</b></header>
-      <ol class="chain-steps">${plan.steps.map((s) => `<li class="${state.done?.includes(s) ? 'done' : s === state.current ? (state.failed ? 'bad' : 'cur') : ''}"><b>${state.done?.includes(s) ? '✓' : s === state.current ? (state.failed ? '■' : '●') : '○'}</b>${STEP_LABELS[s]}</li>`).join('')}</ol>
-      <div class="bigbar"><span></span></div><p class="job-msg"></p><pre class="log"></pre>
-      <div class="row end"><button class="ghost" data-x>Cancel</button></div>`;
-    box.querySelector('[data-x]').onclick = (e) => { e.target.disabled = true; cancel?.(); };
-  };
-  const state = { done: [], current: null, failed: false };
-  const tick = () => {
-    const s = Math.floor((Date.now() - startedAt) / 1000);
-    const msg = box.querySelector('.job-msg');
-    if (msg && !state.failed) msg.dataset.time = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  };
-  timer = setInterval(tick, 1000);
+  showMaking();
+  const timer = setInterval(() => { if (viewingMaking && !making?.failed && !making?.finished) drawProgress(); }, 1000);
   const ui = {
-    begin: () => draw(state),
-    step: (step) => { state.current = step; startedAt = Date.now(); draw(state); },
-    cancelWith: (fn) => { cancel = fn; },
+    begin: () => {},
+    step: (step) => { Object.assign(making, { current: step, percent: null, message: '', log: '', stepStarted: Date.now(), stalled: false }); renderLibrary(); if (viewingMaking) showMaking(); },
+    cancelWith: (fn) => { making.cancel = fn; },
     progress: ({ event, percent, log, stalled }) => {
-      const bar = box.querySelector('.bigbar span'), msg = box.querySelector('.job-msg');
-      if (percent != null) { bar.classList.remove('busy'); bar.style.width = `${percent}%`; } else bar.classList.add('busy');
-      msg.textContent = `${event.message || event.phase || 'Working…'}${msg.dataset.time ? ` · ${msg.dataset.time}` : ''}`;
-      box.querySelector('.log').textContent = (log || '').split('\n').slice(-5).join('\n');
-      box.classList.toggle('stalled', !!stalled);
+      Object.assign(making, { percent, message: event.message || event.phase || 'Working…', log: readableLog(log), fullLog: log, stalled });
+      if (viewingMaking) drawProgress();
     },
-    done: (step) => { state.done.push(step); },
-    fail: (step, why, log) => {
-      state.failed = true; draw(state);
-      box.querySelector('.job-msg').textContent = why;
-      box.querySelector('.log').textContent = (log || '').split('\n').slice(-12).join('\n');
-      const row = box.querySelector('.row');
-      row.innerHTML = '<button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>';
-      row.querySelector('[data-copy]').onclick = () => navigator.clipboard?.writeText(`${why}\n\n${log || ''}`);
-      row.querySelector('[data-close]').onclick = () => { box.hidden = true; };
+    done: (step, made) => { making.done.push(step); making.made = made; renderLibrary(); if (viewingMaking) showMaking(); },
+    fail: (step, why, log) => { Object.assign(making, { failed: true, why, log: readableLog(log, 12), fullLog: log }); renderLibrary(); if (viewingMaking) showMaking(); },
+    finish: (mine) => {
+      making.finished = true;
+      making.result = assets.find(mine) ?? null;
+      // land on the finished asset, playing its first move if it has one
+      if (viewingMaking && making.result) { playNext = making.plan.firstMove; const result = making.result; making = null; show(result); }
+      else renderLibrary();
     },
-    finish: () => {
-      state.current = null; draw(state);
-      box.querySelector('.job-msg').textContent = 'All done.';
-      box.querySelector('.bigbar span').style.width = '100%';
-      box.querySelector('.log').remove();
-      box.querySelector('.row').innerHTML = '<button class="ghost" data-close>Close</button>';
-      box.querySelector('[data-close]').onclick = () => { box.hidden = true; };
-    },
-  };
-  const reload = async (match) => {
-    const keep = assets.find(match)?.id;
-    await loadLibrary(keep);
-    const found = assets.find(match);
-    if (found && found !== current) show(found);
   };
   try {
-    await runChain(plan, { ui, ctx: { url, reload } });
+    await runChain(plan, { ui, ctx: { url, reload: async () => { await refreshAssets(); } } });
   } finally {
     clearInterval(timer);
-    chainRunning = false;
     ctx.onBusy(false);
   }
 }

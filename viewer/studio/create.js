@@ -168,9 +168,9 @@ export async function runChain(plan, { ui, ctx }) {
       return false;
     }
     record(step, final);
-    ui.done(step);
     await ctx.reload(mine);
+    ui.done(step, { ...made });
   }
-  ui.finish();
+  ui.finish(mine);
   return true;
 }

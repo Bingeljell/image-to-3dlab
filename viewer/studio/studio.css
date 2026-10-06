@@ -94,6 +94,7 @@ a { color: inherit; }
 .sv-picture figcaption { color: var(--ash); font-size: 13px; }
 .hud { position: absolute; z-index: 5; }
 .hud.tl { top: 14px; left: 14px; display: grid; gap: 4px; pointer-events: none; }
+.hud.tl .title { pointer-events: auto; justify-self: start; }
 .title { font: 800 18px/1.2 var(--f-display); letter-spacing: -.01em; }
 .sv-tools { position: absolute; top: 14px; right: 14px; z-index: 5; display: grid; justify-items: end; gap: 8px; }
 .sv-toolrow { display: flex; gap: 6px; }
@@ -261,3 +262,6 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .about .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .adds { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.5; }
 .pm { color: var(--ember); }
+#vTitle { cursor: text; }
+#vTitle:hover { text-decoration: underline dotted var(--line-hi); text-underline-offset: 6px; }
+.rename { font: inherit; color: inherit; background: var(--raise); border: 1px solid var(--line-hi); border-radius: 6px; padding: 2px 8px; width: min(520px, 100%); }

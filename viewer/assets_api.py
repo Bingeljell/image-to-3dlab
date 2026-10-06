@@ -290,9 +290,13 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             "updated": max((f.stat().st_mtime for f in files), default=0),
         })
     hashes.save()
-    hidden = set(_read_meta(output).get("hidden", []))
+    meta = _read_meta(output)
+    hidden = set(meta.get("hidden", []))
+    names = meta.get("names") if isinstance(meta.get("names"), dict) else {}
     for asset in assets:
         asset["hidden"] = asset["id"] in hidden
+        if isinstance(names.get(asset["id"]), str):
+            asset["name"] = names[asset["id"]]
     assets.sort(key=lambda a: a["updated"], reverse=True)
     return assets
 
@@ -316,6 +320,29 @@ def set_hidden(output: Path, asset_id: str, hidden: bool) -> None:
     ids.add(asset_id) if hidden else ids.discard(asset_id)
     meta["hidden"] = sorted(ids)
     (output / META_NAME).write_text(json.dumps(meta, indent=1))
+
+
+NAME_LIMIT = 80
+
+
+def set_name(output: Path, asset_id: str, name: str) -> str:
+    """Give an asset the name a person chose; an empty name goes back to the one made from its
+    prompt. Only the Library's label changes: no file is renamed or moved. Returns the name."""
+    if not ASSET_ID.fullmatch(asset_id or ""):
+        raise ValueError(f"not an asset id: {asset_id!r}")
+    found = {a["id"]: a for a in list_assets(output)}
+    if asset_id not in found:
+        raise ValueError(f"no such asset: {asset_id}")
+    clean = " ".join(str(name or "").split())[:NAME_LIMIT]
+    meta = _read_meta(output)
+    names = meta.get("names") if isinstance(meta.get("names"), dict) else {}
+    if clean:
+        names[asset_id] = clean
+    else:
+        names.pop(asset_id, None)
+    meta["names"] = names
+    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+    return clean or next(a["name"] for a in list_assets(output) if a["id"] == asset_id)
 
 
 def assets_payload(output: Path) -> dict[str, Any]:

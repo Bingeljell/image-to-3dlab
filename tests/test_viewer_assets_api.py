@@ -220,3 +220,16 @@ def test_thumbnails_are_small_made_once_and_never_reach_outside_output(tmp_path)
         aa.thumbnail(tmp_path / "sub", "../big.png")
     with pytest.raises(ValueError):
         aa.thumbnail(tmp_path, "missing.png")
+
+
+def test_a_rename_changes_only_the_label_and_an_empty_name_restores_the_old_one(output):
+    knight = _by_name(aa.list_assets(output))["a chunky knight"]
+    files_before = sorted(p for p in output.rglob("*") if p.is_file() and not p.name.startswith("."))
+    assert aa.set_name(output, knight["id"], "  Sir   Clank  ") == "Sir Clank"
+    renamed = {a["id"]: a for a in aa.list_assets(output)}[knight["id"]]
+    assert renamed["name"] == "Sir Clank" and renamed["rigged"] == knight["rigged"]
+    assert sorted(p for p in output.rglob("*") if p.is_file() and not p.name.startswith(".")) == files_before
+    assert aa.set_name(output, knight["id"], "") == "a chunky knight"
+    assert len(aa.set_name(output, knight["id"], "x" * 500)) == aa.NAME_LIMIT
+    with pytest.raises(ValueError):
+        aa.set_name(output, "../../etc", "nope")

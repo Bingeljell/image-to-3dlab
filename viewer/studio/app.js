@@ -310,6 +310,38 @@ async function resumeRunning() {
   } catch { /* an older server without runs: nothing to resume */ }
 }
 
+// rename: click the title, type, Enter (Escape keeps the old name). Only the Library's label
+// changes; files keep their names.
+$('vTitle').title = 'Click to rename';
+$('vTitle').addEventListener('click', () => {
+  if (!current || viewingMaking || $('vTitle').querySelector('input')) return;
+  const asset = current;
+  const input = document.createElement('input');
+  input.className = 'rename';
+  input.value = asset.name;
+  input.maxLength = 80;
+  input.setAttribute('aria-label', 'Name');
+  $('vTitle').replaceChildren(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    $('vTitle').textContent = asset.name;
+    if (!save || name === asset.name) return;
+    try {
+      const response = await fetch(`/api/assets/${asset.id}/name`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (!response.ok) throw new Error((await response.json()).error);
+      await refreshAssets();
+      if (current?.id === asset.id) $('vTitle').textContent = current.name;
+    } catch { $('vTitle').textContent = asset.name; }
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  input.addEventListener('blur', () => finish(true));
+});
+
 $('activityBtn').addEventListener('click', () => openActivity($('stage')));
 $('aboutBtn').addEventListener('click', () => openAbout($('stage')));
 

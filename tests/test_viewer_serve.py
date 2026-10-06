@@ -268,3 +268,17 @@ def test_auto_over_plain_ssh_stays_private_and_explains_the_tunnel():
     plan = serve.launch_plan({"SSH_CONNECTION": "1.2.3.4 5 6.7.8.9 22"}, port=8777)
     assert plan.host == "127.0.0.1" and plan.open_browser is False
     assert "ssh -L 8777:127.0.0.1:8777" in plan.message
+
+
+def test_a_dropped_connection_is_quiet_and_real_errors_still_print(capsys):
+    server = serve.ThreadingHTTPServer.__new__(serve.ThreadingHTTPServer)
+    try:
+        raise ConnectionResetError("peer closed")
+    except ConnectionResetError:
+        server.handle_error(None, ("127.0.0.1", 1))
+    assert capsys.readouterr().err == ""
+    try:
+        raise RuntimeError("a real bug")
+    except RuntimeError:
+        server.handle_error(None, ("127.0.0.1", 1))
+    assert "a real bug" in capsys.readouterr().err

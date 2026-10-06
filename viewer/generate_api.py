@@ -2210,7 +2210,17 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc), "advisory_only": True})
 
+    def list_directory(self, path):  # noqa: ANN001 - the stdlib signature
+        # Never list folders: the server's root is the whole repository.
+        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+        return None
+
     def do_GET(self) -> None:
+        if urlparse(self.path).path in ("", "/", "/viewer", "/viewer/"):
+            self.send_response(HTTPStatus.FOUND)  # the front door is the studio
+            self.send_header("Location", "/viewer/studio.html")
+            self.end_headers()
+            return
         parts = self._path_parts()
         if parts == ["api", "hf", "status"]:
             self._send_json(200, hf_api.status())

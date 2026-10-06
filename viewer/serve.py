@@ -42,6 +42,13 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address) -> None:
+        # A browser that closes a tab or cancels a download mid-response is normal, not an
+        # error: say nothing rather than print a traceback into the terminal.
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
+
 
 class StaticViewerHandler(http.server.SimpleHTTPRequestHandler):
     """Serve viewer assets only; no repository files or generation endpoints."""

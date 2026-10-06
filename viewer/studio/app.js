@@ -112,7 +112,9 @@ function show(asset) {
   renderSteps(asset);
   renderHideButton();
   if (asset.kind === 'character' && asset.clips.length) {
-    const index = Math.max(0, asset.clips.findIndex((c) => c.name === playNext));
+    // open on the move just made, else a calm one (idle, then walk), never alphabetically first ("death")
+    const prefer = [playNext, 'idle', 'walk'].map((name) => asset.clips.findIndex((c) => c.name === name)).find((i) => i >= 0);
+    const index = prefer ?? 0;
     playNext = null;
     viewer.setClips(asset.clips.map((c) => ({ name: c.name.replace(/_/g, ' '), url: url(c.file), file: c.file })), { restUrl: url(asset.rigged), index });
   } else if (asset.kind === 'prop set' && asset.props.length) {

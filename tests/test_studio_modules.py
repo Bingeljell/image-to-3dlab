@@ -244,3 +244,20 @@ def test_the_live_log_drops_engine_chatter():
     ])
     out = _run("jobs.js", f"console.log(JSON.stringify(m.readableLog({json.dumps(log)}, 4)));")
     assert out == "loading model weights\nsampling step 3/10\nsampling step 4/10"
+
+
+@needs_node
+def test_the_starting_camera_looks_at_the_middle_of_a_model_on_the_floor():
+    url = (REPO / "viewer" / "studio" / "floor.js").as_uri()
+    three = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    # floor.js imports 'three' by bare name (the page maps it); map it the same way here
+    program = f"""
+      import {{ register }} from 'node:module';
+      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{ return s === 'three' ? {{ url: {json.dumps(three)}, shortCircuit: true }} : n(s, c); }}`));
+      const m = await import({json.dumps(url)});
+      const h = m.homeView(2);
+      console.log(JSON.stringify(h));"""
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    out = json.loads(result.stdout)
+    assert out["target"] == [0, 1, 0]
+    assert out["position"] == [1.45, 1.35, 2.45]

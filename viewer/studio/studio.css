@@ -259,3 +259,5 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .act .log { grid-column: 1 / -1; margin: 6px 0 0; max-height: 240px; overflow: auto; }
 .credits li { line-height: 1.5; }
 .about .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.adds { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.5; }
+.pm { color: var(--ember); }

@@ -253,13 +253,13 @@ def test_the_menu_bar_stays_one_row():
 def test_auto_on_your_own_machine_stays_private_and_opens_the_browser():
     plan = serve.launch_plan({}, port=8777)
     assert plan.host == "127.0.0.1" and plan.open_browser is True
-    assert "http://127.0.0.1:8777/viewer/index.html" in plan.message
+    assert "http://127.0.0.1:8777/viewer/studio.html" in plan.message
 
 
 def test_auto_on_a_runpod_pod_listens_for_the_proxy_and_prints_its_link():
     plan = serve.launch_plan({"RUNPOD_POD_ID": "abc123"}, port=8777)
     assert plan.host == "0.0.0.0" and plan.open_browser is False
-    assert "https://abc123-8777.proxy.runpod.net/viewer/index.html" in plan.message
+    assert "https://abc123-8777.proxy.runpod.net/viewer/studio.html" in plan.message
     assert "8777" in plan.message and "HTTP port" in plan.message
 
 

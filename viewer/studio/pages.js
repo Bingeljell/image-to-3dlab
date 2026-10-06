@@ -93,9 +93,20 @@ export async function openAbout(stage) {
     <p>Make game-ready 3D characters and props on your own machine: from an idea, a picture or a model, to a rigged,
       moving character you can drop into Godot, Unity, Unreal or Blender. Nothing leaves this computer.</p>
     <p class="meta" data-version>AssetFurnace by Bingeljell</p>
+    <!-- ABOUT COPY: the "What AssetFurnace adds" list below is the part to edit -->
+    <h3>What AssetFurnace adds</h3>
+    <ul class="adds">
+      <li><b>One flow, start to finish.</b> Idea, picture, 3D model, clean-up, rig and moves, each step handing its result to the next.</li>
+      <li><b class="pm">Pixel Match</b> puts your picture's real pixels back on the model, so text, logos and faces stay sharp instead of coming back as garbled lookalikes.</li>
+      <li><b>Prop sheets.</b> Draw nine props on one sheet and get nine separate, game-ready models back.</li>
+      <li><b>Finish.</b> Lighter, cleaner meshes with proper textures, ready for a game engine.</li>
+      <li><b>Rigging and moves that fit.</b> Our own retargeting fits preset moves onto generated characters: straightened rest
+        poses, arms kept out of bodies and armour, feet on the floor.</li>
+      <li><b>Runs on your Mac.</b> Ports and fixes that make these models work on Apple Silicon, and on NVIDIA.</li>
+      <li><b>Licences you can trust.</b> Every asset carries a record of the models that made it and the licences that apply.</li>
+    </ul>
     <h3>Built on</h3>
-    <p class="meta">AssetFurnace trains no models of its own. It makes these run well on your machine and joins them into one flow.
-      Each model keeps its own licence, and every asset carries a record of the licences that apply to it.</p>
+    <p class="meta">Standing on the shoulders of these open models and the people who made them:</p>
     <ul class="credits">${CREDITS.map(([name, who, href, licence]) => `
       <li><a href="${href}" target="_blank" rel="noopener"><b>${escape(name)}</b></a> <span class="meta">${escape(who)} · ${escape(licence)}</span></li>`).join('')}
     </ul>

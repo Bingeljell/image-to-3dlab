@@ -93,11 +93,11 @@ def launch_plan(env: Mapping[str, str], port: int = 8777) -> LaunchPlan:
     plain SSH: still privately, with the tunnel command, because listening on a network by
     default would expose the whole repository to everyone on it.
     """
-    local = f"http://127.0.0.1:{port}/viewer/index.html"
+    local = f"http://127.0.0.1:{port}/viewer/studio.html"
     pod = env.get("RUNPOD_POD_ID")
     if pod:
         return LaunchPlan("0.0.0.0", False, (
-            f"Open https://{pod}-{port}.proxy.runpod.net/viewer/index.html\n"
+            f"Open https://{pod}-{port}.proxy.runpod.net/viewer/studio.html\n"
             f"(the pod needs HTTP port {port} exposed; add it in the pod's settings if not)"))
     if env.get("SSH_CONNECTION") or env.get("SSH_CLIENT"):
         return LaunchPlan("127.0.0.1", False, (
@@ -130,7 +130,7 @@ def main() -> int:
         parser.error("--static-only cannot serve repository paths passed with --open")
     url = compare_url(args.open, args.port, args.labels, host=args.host) if args.open else (
         f"http://{args.host}:{args.port}/index.html" if args.static_only
-        else f"http://{args.host}:{args.port}/viewer/index.html"
+        else f"http://{args.host}:{args.port}/viewer/studio.html"
     )
     print(url, flush=True)
 
@@ -163,7 +163,7 @@ def main() -> int:
         if plan is not None:
             print(plan.message, flush=True)
             if plan.open_browser and not args.no_browser:
-                webbrowser.open(f"http://127.0.0.1:{args.port}/viewer/index.html")
+                webbrowser.open(f"http://127.0.0.1:{args.port}/viewer/studio.html")
         print(f"serving {REPO} — ctrl-c to stop", flush=True)
         try:
             httpd.serve_forever()

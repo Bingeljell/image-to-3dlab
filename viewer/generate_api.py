@@ -83,6 +83,7 @@ from autorig_api import (
     source_record_for as animate_source_record,
     status_payload as animate_status_payload,
 )
+from assets_api import assets_payload
 from props_api import (
     PROPS_JOBS,
     cancel_job as cancel_props_job,
@@ -2171,6 +2172,12 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "catalog"]:
             self._send_json(200, catalog_payload())
+            return
+        if parts == ["api", "assets"]:
+            try:
+                self._send_json(200, assets_payload(OUTPUT_ROOT))
+            except Exception as exc:  # a broken run folder must not take the whole Library down
+                self._send_json(500, {"error": str(exc)})
             return
         if parts == ["api", "update-check"]:
             self._send_json(200, update_check())

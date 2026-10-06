@@ -112,6 +112,8 @@ function show(asset) {
   }
   renderSteps(asset);
   renderHideButton();
+  // only rigged files are turned: the skeleton is what says which way the feet point
+  viewer.setFacing(asset.rigged && (asset.clips.length || displayModel(asset) === asset.rigged) ? asset.facing : null);
   if (asset.kind === 'character' && asset.clips.length) {
     // open on the move just made, else a calm one (idle, then walk), never alphabetically first ("death")
     const prefer = [playNext, 'idle', 'walk'].map((name) => asset.clips.findIndex((c) => c.name === name)).find((i) => i >= 0);
@@ -225,6 +227,7 @@ function showMaking() {
   $('vTitle').textContent = making.title;
   $('vMeta').textContent = making.failed ? 'Stopped' : making.finished ? 'Done' : 'Making…';
   $('hideBtn').hidden = true;
+  viewer.setFacing(null);  // a run in progress shows its files as they come
   $('download').hidden = true;
   $('sideKind').textContent = { character: 'Character', prop: 'Prop', set: 'Prop set', picture: 'Picture' }[making.plan.want] || '';
   $('steps').innerHTML = making.plan.steps.map((step, i) => {

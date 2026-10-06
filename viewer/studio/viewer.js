@@ -7,7 +7,7 @@ import { setCameraView } from '../components/camera-view-controls.js';
 import { AnimationPlayer } from '../animation/player.js';
 import { projectAxes, AXES } from './gizmo.js';
 import { createBoneDisplay } from './bones.js';
-import { createFloor, standOnFloor, homeView } from './floor.js';
+import { createFloor, standOnFloor, homeView, facingAngle } from './floor.js';
 
 const ICON = {
   reset: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
@@ -192,7 +192,9 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
       onLoaded: (loaded) => {
         if (token !== loadToken) return;
         setOverlay('');
-        // stand the model on a floor with the origin marked, so it is not floating in limbo
+        // turn a rigged character to face the camera (its feet say which way is forward), then
+        // stand it on a floor with the origin marked, so it is not floating in limbo
+        loaded.root.rotation.y += facingAngle(facing);
         const height = standOnFloor(loaded.root);
         home = homeView(height);
         loaded.floor = createFloor();
@@ -253,6 +255,10 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   }
 
   /** Show a row of moves (or, with `still`, of props). `items` are {name, url}. */
+  // which way the next rigged character's feet point; null leaves models as they come
+  let facing = null;
+  function setFacing(forward) { facing = forward || null; }
+
   function setClips(items, { restUrl = null, index = 0, still = false } = {}) {
     clips = items;
     clipBar.hidden = !items.length && !restUrl;
@@ -314,5 +320,5 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   });
 
   drawGizmo();
-  return { load, showImage, showEmpty, setClips, snap, dispose };
+  return { load, showImage, showEmpty, setClips, setFacing, snap, dispose };
 }

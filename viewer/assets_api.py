@@ -78,22 +78,23 @@ class _Hashes:
         self.changed = True
         return self.index[rel]["sha256"]
 
-    def fits_moves(self, file: Path) -> bool | None:
-        """Whether a rig fits the preset moves (scripts/rig_check.py), cached like the hashes.
-        None when it cannot be told (the move list stays, as before)."""
+    def rig_facts(self, file: Path) -> dict[str, Any]:
+        """{"fits_moves": bool | None, "facing": [x, y, z] | None} for a rig (scripts/rig_check.py),
+        cached like the hashes. None when it cannot be told (the move list stays, as before)."""
         key = "fits:" + file.relative_to(self.output).as_posix()
         stat = file.stat()
         cached = self.index.get(key)
-        if cached and cached.get("size") == stat.st_size and cached.get("mtime") == stat.st_mtime:
-            return cached["humanoid"]
+        if cached and cached.get("size") == stat.st_size and cached.get("mtime") == stat.st_mtime and "facing" in cached:
+            return {"fits_moves": cached["humanoid"], "facing": cached["facing"]}
         try:
             import rig_check  # scripts/ is on the path (see the top of this module)
-            humanoid = bool(rig_check.check(file)["humanoid"])
+            result = rig_check.check(file)
         except Exception:  # noqa: BLE001 - an unreadable rig must not take the Library down
-            return None
-        self.index[key] = {"size": stat.st_size, "mtime": stat.st_mtime, "humanoid": humanoid}
+            return {"fits_moves": None, "facing": None}
+        humanoid, facing = bool(result["humanoid"]), result.get("forward")
+        self.index[key] = {"size": stat.st_size, "mtime": stat.st_mtime, "humanoid": humanoid, "facing": facing}
         self.changed = True
-        return humanoid
+        return {"fits_moves": humanoid, "facing": facing}
 
     def save(self) -> None:
         if not self.changed:
@@ -283,7 +284,7 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             "model": rel(model["file"]) if model else None,
             "finished": rel(fin["file"]) if fin else None,
             "rigged": rel(rig["file"]) if rig else None,
-            "fits_moves": hashes.fits_moves(rig["file"]) if rig else None,
+            **(hashes.rig_facts(rig["file"]) if rig else {"fits_moves": None, "facing": None}),
             "clips": [{"name": c["name"], "file": rel(c["file"])} for c in clips],
             "props": [{"name": p["name"], "file": rel(p["file"])} for p in (prop_set["props"] if prop_set else [])],
             "updated": max((f.stat().st_mtime for f in files), default=0),

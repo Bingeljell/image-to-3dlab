@@ -88,7 +88,8 @@ def skeleton(path: Path) -> tuple[dict[str, str | None], dict[str, np.ndarray]]:
 
 
 def check(path: Path) -> dict:
-    """{"humanoid": bool, "bones": n, "message": words for a person, "detail": why (for logs)}."""
+    """{"humanoid": bool, "bones": n, "message": words for a person, "detail": why (for logs)},
+    plus "forward" (glTF space, Y up) for a humanoid: the way its feet point."""
     try:
         parents, heads = skeleton(path)
     except LookupError:
@@ -99,10 +100,13 @@ def check(path: Path) -> dict:
         return {"humanoid": False, "bones": len(parents), "message": NOT_HUMANOID,
                 "detail": f"expected one root bone, found {len(roots)}"}
     try:
-        map_skintokens_to_soma(parents, heads, up=Y_UP)
+        _, frame = map_skintokens_to_soma(parents, heads, up=Y_UP)
     except (ValueError, KeyError, IndexError, StopIteration) as exc:
         return {"humanoid": False, "bones": len(parents), "message": NOT_HUMANOID, "detail": str(exc)}
-    return {"humanoid": True, "bones": len(parents), "message": "Rigged. Ready for moves.", "detail": ""}
+    # which way the feet point, on the ground: viewers turn the character to face the camera
+    forward = [round(float(v), 4) for v in frame[:, 2]]
+    return {"humanoid": True, "bones": len(parents), "message": "Rigged. Ready for moves.", "detail": "",
+            "forward": forward}
 
 
 def main() -> None:  # pragma: no cover - thin CLI

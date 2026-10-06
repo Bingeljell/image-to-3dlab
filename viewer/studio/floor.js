@@ -77,3 +77,11 @@ export function standOnFloor(root) {
   root.updateMatrixWorld(true);
   return box.max.y - box.min.y;
 }
+
+/** The turn about the up axis that makes a character whose feet point along `forward`
+ * ([x, y, z], glTF space) face +Z, towards the starting camera. 0 when unknown. */
+export function facingAngle(forward) {
+  if (!forward || forward.length < 3) return 0;
+  const [x, , z] = forward;
+  return Math.hypot(x, z) < 1e-6 ? 0 : -Math.atan2(x, z);
+}

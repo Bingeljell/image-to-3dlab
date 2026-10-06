@@ -55,6 +55,7 @@ def test_a_humanoid_skeleton_fits_the_preset_moves(tmp_path):
     nodes = _skeleton(legs=2)
     out = rc.check(_glb(tmp_path / "h.glb", nodes, list(range(len(nodes))), [0]))
     assert out["humanoid"] is True and out["bones"] == len(nodes)
+    assert out["forward"] == [0, 0, 1]  # the toes point along +Z
 
 
 def test_a_four_legged_skeleton_is_rigged_but_not_for_preset_moves(tmp_path):

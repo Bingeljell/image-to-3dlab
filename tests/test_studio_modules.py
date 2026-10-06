@@ -308,3 +308,24 @@ def test_activity_says_how_long_in_words_and_groups_by_day():
         g: m.byDay(recs, new Date('2026-10-06T23:30:00Z')).map((g) => [g.label, g.items.length]) }));""")
     assert out["d"] == ["38 s", "4 min 12 s", "1 h 3 min", "1 min"]
     assert out["g"] == [["Today", 2], ["Yesterday", 1], ["2026-09-30", 1]]
+
+
+@needs_node
+def test_a_character_is_turned_to_face_the_camera_whichever_way_its_feet_point():
+    url = (REPO / "viewer" / "studio" / "floor.js").as_uri()
+    three = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    program = f"""
+      import {{ register }} from 'node:module';
+      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{ return s === 'three' ? {{ url: {json.dumps(three)}, shortCircuit: true }} : n(s, c); }}`));
+      const m = await import({json.dumps(url)});
+      // turn each forward by the angle (about +Y) and report where it ends up
+      const turned = [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-0.03, 0, -1]].map(([x, y, z]) => {{
+        const a = m.facingAngle([x, y, z]);
+        return [x * Math.cos(a) + z * Math.sin(a), -x * Math.sin(a) + z * Math.cos(a)].map((v) => Math.round(v * 100) / 100);
+      }});
+      console.log(JSON.stringify({{ turned, none: m.facingAngle(null) }}));"""
+    out = json.loads(subprocess.run([NODE, "--input-type=module", "--eval", program], check=True,
+                                    capture_output=True, text=True).stdout)
+    assert out["none"] == 0
+    for x, z in out["turned"]:
+        assert abs(x) < 0.01 and z > 0.99  # everyone ends up facing +Z, the camera

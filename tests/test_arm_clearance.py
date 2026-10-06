@@ -93,11 +93,13 @@ def test_skin_radii_ignore_a_few_stray_vertices():
 
 def test_build_proxy_finds_body_and_arm_bones_by_role():
     mapping = {"b0": "Hips", "b1": "Chest", "b2": "Head", "b3": "LeftArm", "b4": "LeftForeArm",
-               "b5": "LeftHand", "b6": "LeftShoulder"}
+               "b5": "LeftHand", "b6": "LeftShoulder", "b7": "LeftLeg"}
     segments = {b: (V([0.0, 0, i]), V([0.0, 0, i + 0.5])) for i, b in enumerate(mapping)}
     points = np.array([[0.05, 0, i + 0.2] for i in range(len(mapping))])
     proxy = ac.build_proxy(mapping, points, list(mapping), segments, height=1.8)
-    assert set(proxy.body) == {"b0", "b1", "b2", "b6"}
+    # torso, neck, head and shoulders only: hanging hands rest beside the hips and thighs,
+    # and wide trousers there pushed every hanging arm outward (the bald sensei, 2026-10-06)
+    assert set(proxy.body) == {"b1", "b2", "b6"}
     assert proxy.arms["Left"]["fore"] == "b4" and "Right" not in proxy.arms
     assert proxy.side_shoulder["Left"] == "b6"
     assert proxy.margin == pytest.approx(0.018)
@@ -116,3 +118,10 @@ def test_smoothing_eases_in_and_never_shrinks_a_needed_swing():
 def test_log_and_exp_round_trip():
     v = V([0.3, -0.2, 0.5])
     assert np.allclose(ac._log(ac._exp(v)), v)
+
+
+def test_swing_degrees_reads_the_turn_of_a_rotation():
+    assert ac.swing_degrees(np.eye(3)) == 0.0
+    c, s_ = np.cos(np.radians(30)), np.sin(np.radians(30))
+    turn = np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1]])
+    assert round(ac.swing_degrees(turn), 6) == 30.0

@@ -331,6 +331,9 @@ def clear_arms(frames, rest, parents, order, tails, proxy) -> None:
         for side in sides:
             swings[side].append(arm_clearance.arm_swing(seg, proxy, side))
     for side in sides:
+        degrees = [arm_clearance.swing_degrees(r) for r in swings[side]]
+        if degrees:
+            print(f"arm clearance {side}: largest {max(degrees):.0f} deg, typical {float(np.median(degrees)):.0f} deg")
         arm = _subtree(proxy.arms[side]["upper"], parents)
         for (world_rot, _), swing in zip(frames, arm_clearance.smooth_swings(swings[side])):
             for b in arm:

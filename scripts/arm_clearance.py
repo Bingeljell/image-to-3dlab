@@ -18,9 +18,13 @@ from dataclasses import dataclass
 import numpy as np
 
 SIDES = ("Left", "Right")
-# SOMA roles that make up the body the arms must stay out of.
-BODY_ROLES = ("Hips", "Spine1", "Spine2", "Chest", "Neck1", "Neck2", "Head",
-              "LeftShoulder", "RightShoulder", "LeftLeg", "RightLeg")
+# SOMA roles that make up the body the arms must stay out of: the torso, neck and head,
+# where a forearm through a chest plate or a hand through a face shows. Hips and thighs are
+# left out on purpose: hanging hands rest beside them, and their outlines (wide trousers,
+# bulky legs) pushed every hanging arm 20-50 degrees outward on walks and idles (2026-10-06,
+# the bald sensei). A hand brushing a thigh reads far better than arms held out like wings.
+BODY_ROLES = ("Spine1", "Spine2", "Chest", "Neck1", "Neck2", "Head",
+              "LeftShoulder", "RightShoulder")
 ARM_ROLES = ("Arm", "ForeArm", "Hand")
 # How much of a bone's skin counts as its thickness. Below the maximum, so a stray vertex
 # (a spike of hair, a pauldron's rim) does not inflate the whole capsule.
@@ -160,6 +164,11 @@ def _exp(v: np.ndarray) -> np.ndarray:
     k = v / angle
     kx = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
     return np.eye(3) + np.sin(angle) * kx + (1 - np.cos(angle)) * kx @ kx
+
+
+def swing_degrees(rotation: np.ndarray) -> float:
+    """How far a swing turns the arm, in degrees."""
+    return float(np.degrees(np.arccos(np.clip((np.trace(rotation) - 1) / 2, -1.0, 1.0))))
 
 
 def smooth_swings(swings: list[np.ndarray], radius: int = 4) -> list[np.ndarray]:

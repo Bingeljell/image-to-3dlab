@@ -7,13 +7,25 @@ import { plainError } from './jobs.js';
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
 
+/**
+ * The picture job's settings from Create's choices. A new seed each time by default, so the
+ * same prompt gives fresh tries; a fixed seed gives the same picture back.
+ */
+export function pictureSettings({ size = 768, steps = 10, newEachTime = true, seed = 42 } = {}, random = Math.random) {
+  const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 768;
+  const count = Math.max(1, Math.min(50, Math.round(Number(steps)) || 10));
+  const fixed = Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : 42;
+  return { width: side, height: side, steps: count, seed: newEachTime ? Math.floor(random() * 2147483647) : fixed };
+}
+
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
 export function openCreate({ stage, recipes, engines, presets, onStart }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null,
-    engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id };
+    engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
+    pic: { size: 768, steps: 10, newEachTime: true, seed: 42 } };
   const close = () => sheet.remove();
 
   const render = () => {
@@ -42,6 +54,13 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
       <div class="q"><span class="qn">3</span><b>Steps</b><span class="hint">click a step to stop there</span></div>
       <div class="path">${plan.map((s, i) => `${i ? '<span class="arr">→</span>' : ''}<button type="button" class="pstep${active.includes(s) ? '' : ' skip'}" data-stop="${s}">${STEP_LABELS[s]}</button>`).join('')}</div>
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
+      ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
+        <div class="picset">
+          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768 (recommended)'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">10 is a good start; each extra step adds the same time again.</span></label>
+          <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
+          ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
+        </div></details>` : ''}
       ${active.includes('model') && engines.length > 1 ? `<details class="adv"><summary>Advanced: 3D engine</summary><label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label></details>` : ''}
       <p class="error" data-error hidden></p>
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ' · the picture uses Qwen-Image, run on this machine' : ''}</span><button type="submit" class="primary">Make it</button></div>
@@ -75,6 +94,11 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
     q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; });
+    sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
+      const key = el.dataset.pic;
+      state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
+      if (key === 'newEachTime') { render(); sheet.querySelector('.picset').closest('details').open = true; }  // show or hide the seed box
+    }));
     const picker = q('[data-file]'), drop = q('[data-drop]');
     if (drop) {
       drop.onclick = () => picker.click();
@@ -89,7 +113,8 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
       if (state.have !== 'idea' && !state.file) return fail(`Choose ${state.have === 'model' ? 'a GLB' : 'a picture'} first.`);
       close();
       onStart({ have: state.have, want: state.want, steps: active, file: state.file, engine: state.engine, firstMove: state.firstMove,
-        description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null });
+        description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
+        pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null });
     };
     text?.focus();
   }
@@ -133,6 +158,7 @@ export function planForm(plan, made = {}) {
   if (plan.prompt) form.append('prompt', plan.prompt);
   if (plan.engine) form.append('engine', plan.engine);
   if (plan.firstMove) form.append('first_move', plan.firstMove);
+  if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
   return form;

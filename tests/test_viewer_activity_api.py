@@ -153,3 +153,15 @@ def test_a_rig_that_does_not_fit_the_moves_ends_the_run_calmly_before_animate(tm
     assert chain.status == "done" and chain.done[-1] == "rigged"
     assert "humanoids only" in chain.to_dict()["note"]
     assert not any(p == "/api/animate/play" for _, p, _ in jobs.calls)
+
+
+def test_the_picture_step_sends_the_chosen_size_steps_and_seed(tmp_path):
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": json.dumps(["picture"]), "prompt": "a crate",
+                                "picture_settings": json.dumps({"width": 512, "height": 512, "steps": 8, "seed": 99, "evil": 1})}, {})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    assert chain.picture_settings == {"width": 512, "height": 512, "steps": 8, "seed": 99}
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image"))
+    assert sent == {"prompt": "a crate", "settings": {"width": 512, "height": 512, "steps": 8, "seed": 99}}

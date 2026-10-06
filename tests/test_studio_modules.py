@@ -340,3 +340,15 @@ def test_a_prop_sheet_splits_from_the_studio_not_the_classic_view():
     assert 'data-run="finished"' in out["sheet"] and "Split into props" in out["sheet"]
     assert "index.html" not in out["sheet"]
     assert "Split into props" not in out["character"]
+
+
+@needs_node
+def test_create_makes_a_fresh_picture_each_time_unless_a_seed_is_kept():
+    out = _run("create.js", """
+      const fresh = m.pictureSettings({ size: 1024, steps: 16 }, () => 0.5);
+      const kept = m.pictureSettings({ newEachTime: false, seed: 7, size: 999, steps: 900 });
+      const form = m.planForm({ steps: ['picture'], description: 'x', pictureSettings: kept });
+      console.log(JSON.stringify({ fresh, kept, sent: JSON.parse(form.get('picture_settings')) }));""")
+    assert out["fresh"] == {"width": 1024, "height": 1024, "steps": 16, "seed": 1073741823}
+    assert out["kept"] == {"width": 768, "height": 768, "steps": 50, "seed": 7}  # odd sizes fall back, steps are capped
+    assert out["sent"] == out["kept"]

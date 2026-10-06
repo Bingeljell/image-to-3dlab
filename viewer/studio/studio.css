@@ -265,3 +265,5 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 #vTitle { cursor: text; }
 #vTitle:hover { text-decoration: underline dotted var(--line-hi); text-underline-offset: 6px; }
 .rename { font: inherit; color: inherit; background: var(--raise); border: 1px solid var(--line-hi); border-radius: 6px; padding: 2px 8px; width: min(520px, 100%); }
+.picset { display: grid; gap: 10px; margin-top: 10px; }
+.picset input[type="number"] { background: #110d0b; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; color: var(--bone); font: inherit; }

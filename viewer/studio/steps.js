@@ -1,5 +1,5 @@
 // The Steps panel's actions: each step's settings, its start call, and its progress card.
-// The job APIs are the classic tabs' own; the studio sends them the asset's files.
+// The job APIs are the classic tabs' own; the studio sends them the asset's files. Prop sheets split here too.
 
 import { followJob, plainError, statusUrlFor } from './jobs.js';
 
@@ -31,6 +31,10 @@ export function stepBody(stepId, asset, ctx) {
         <p class="hint" data-k="licence">${esc(best.license)}</p>
       </details>
       <button class="primary" data-run="model">Make 3D model</button>`;
+  }
+  if (stepId === 'finished' && asset.kind === 'prop set') {
+    return `<p class="hint">Cuts the sheet into one model per prop, each cleaned up with lighter versions for far away. A few minutes.</p>
+      <button class="primary" data-run="finished">Split into props</button>`;
   }
   if (stepId === 'finished') {
     if (!asset.picture) return '<p class="hint">Finishing needs the picture the model was made from, and this asset has none on disk.</p>';
@@ -90,7 +94,8 @@ export function wireStep(card, stepId, asset, ctx) {
     };
     card.dataset.lastPreset = settings.preset || '';
     const run = { model: () => startModel(asset, ctx, settings.backend),
-      finished: () => startFinish(asset, ctx, { faces: settings.faces, skip_photo: !settings.photo, texture_size: settings.texture }),
+      finished: () => (asset.kind === 'prop set' ? startSplit(asset)
+        : startFinish(asset, ctx, { faces: settings.faces, skip_photo: !settings.photo, texture_size: settings.texture })),
       rigged: () => startRig(asset),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread) }[stepId];
     const note = button.dataset.humanoid === 'no'
@@ -113,6 +118,13 @@ async function startFinish(asset, ctx, settings) {
   form.append('image', await fileFrom(ctx.url(asset.picture), fileName(asset.picture)));
   form.append('settings', JSON.stringify(settings));
   return { kind: 'finish', start: await postStart('/api/finish', form) };
+}
+
+async function startSplit(asset) {
+  const form = new FormData();
+  form.append('generated', asset.model);
+  form.append('settings', JSON.stringify({}));
+  return { kind: 'props', start: await postStart('/api/props', form) };
 }
 
 async function startRig(asset) {

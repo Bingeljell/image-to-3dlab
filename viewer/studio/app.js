@@ -1,5 +1,5 @@
 // AssetFurnace studio: Library | one viewer | Steps.
-// Steps run here through the classic tabs' own job APIs; prop sheets still split in the classic Props tab.
+// Steps run here through the classic tabs' own job APIs, prop-sheet splitting included.
 
 import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets } from './library.js';
 import { createStudioViewer } from './viewer.js';
@@ -11,7 +11,6 @@ import { STEP_LABELS } from './plan.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
-const CLASSIC_TAB = { model: 'generate', finished: 'finish', rigged: 'animate', animated: 'animate', picture: 'generate-image' };
 
 let base = '/output/';
 let assets = [];
@@ -69,11 +68,8 @@ function renderSteps(asset) {
     if (i >= total) return `<li class="step na"><header><span class="dot">–</span><span><h3>${step.label}</h3><div class="sum">Not needed for props</div></span></header></li>`;
     const state = i < done ? 'done' : i === done ? 'now' : 'later';
     const dot = state === 'done' ? '✓' : i + 1;
-    const runsHere = !(asset.kind === 'prop set' && step.id === 'finished');
     const showBody = state === 'now' || (step.id === 'animated' && state === 'done');
-    const body = !showBody ? '' : runsHere
-      ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>`
-      : `<div class="body"><p class="hint">Splitting a prop sheet runs in the classic view for now.</p><a href="./index.html#${CLASSIC_TAB[step.id]}">Open Props</a></div>`;
+    const body = showBody ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
     return `<li class="step ${state}" data-step="${step.id}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}</div>` : ''}</span></header>${body}</li>`;
   }).join('');
   $('steps').querySelectorAll('.step').forEach((card) => {

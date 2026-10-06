@@ -329,3 +329,14 @@ def test_a_character_is_turned_to_face_the_camera_whichever_way_its_feet_point()
     assert out["none"] == 0
     for x, z in out["turned"]:
         assert abs(x) < 0.01 and z > 0.99  # everyone ends up facing +Z, the camera
+
+
+@needs_node
+def test_a_prop_sheet_splits_from_the_studio_not_the_classic_view():
+    out = _run("steps.js", """
+      const sheet = { kind: 'prop set', model: 'm/sheet.glb', props: [], clips: [] };
+      const ctx = { presets: [], engines: [] };
+      console.log(JSON.stringify({ sheet: m.stepBody('finished', sheet, ctx), character: m.stepBody('finished', { ...sheet, kind: 'character' }, ctx) }));""")
+    assert 'data-run="finished"' in out["sheet"] and "Split into props" in out["sheet"]
+    assert "index.html" not in out["sheet"]
+    assert "Split into props" not in out["character"]

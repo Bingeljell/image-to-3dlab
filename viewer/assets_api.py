@@ -22,8 +22,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))  # rig_check, for whether a rig fits the moves
 
 FINISH_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__finish__\d{8}-\d{6}(?:-\d+)?$")
 RIG_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__rig__\d{8}-\d{6}(?:-\d+)?$")
@@ -72,6 +77,23 @@ class _Hashes:
         self.index[rel] = {"size": stat.st_size, "mtime": stat.st_mtime, "sha256": digest.hexdigest()}
         self.changed = True
         return self.index[rel]["sha256"]
+
+    def fits_moves(self, file: Path) -> bool | None:
+        """Whether a rig fits the preset moves (scripts/rig_check.py), cached like the hashes.
+        None when it cannot be told (the move list stays, as before)."""
+        key = "fits:" + file.relative_to(self.output).as_posix()
+        stat = file.stat()
+        cached = self.index.get(key)
+        if cached and cached.get("size") == stat.st_size and cached.get("mtime") == stat.st_mtime:
+            return cached["humanoid"]
+        try:
+            import rig_check  # scripts/ is on the path (see the top of this module)
+            humanoid = bool(rig_check.check(file)["humanoid"])
+        except Exception:  # noqa: BLE001 - an unreadable rig must not take the Library down
+            return None
+        self.index[key] = {"size": stat.st_size, "mtime": stat.st_mtime, "humanoid": humanoid}
+        self.changed = True
+        return humanoid
 
     def save(self) -> None:
         if not self.changed:
@@ -261,10 +283,12 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             "model": rel(model["file"]) if model else None,
             "finished": rel(fin["file"]) if fin else None,
             "rigged": rel(rig["file"]) if rig else None,
+            "fits_moves": hashes.fits_moves(rig["file"]) if rig else None,
             "clips": [{"name": c["name"], "file": rel(c["file"])} for c in clips],
             "props": [{"name": p["name"], "file": rel(p["file"])} for p in (prop_set["props"] if prop_set else [])],
             "updated": max((f.stat().st_mtime for f in files), default=0),
         })
+    hashes.save()
     hidden = set(_read_meta(output).get("hidden", []))
     for asset in assets:
         asset["hidden"] = asset["id"] in hidden

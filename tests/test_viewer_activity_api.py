@@ -13,8 +13,8 @@ from viewer import activity_api as aa
 class FakeJobs:
     """Answers the job endpoints the way the real ones do; each job is done on its first status poll."""
 
-    def __init__(self, output: Path, fail: str | None = None, refuse: str | None = None):
-        self.output, self.fail, self.refuse = output, fail, refuse
+    def __init__(self, output: Path, fail: str | None = None, refuse: str | None = None, four_legged: bool = False):
+        self.output, self.fail, self.refuse, self.four_legged = output, fail, refuse, four_legged
         self.calls: list[tuple[str, str, bytes | None]] = []
         self.jobs: dict[str, str] = {}
 
@@ -40,6 +40,8 @@ class FakeJobs:
             (self.output / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.output / rel).write_bytes(b"x")
         event = {"phase": "done", "message": f"{kind} done", "overall_pct": 100}
+        if kind == "rigged" and self.four_legged:
+            event.update(humanoid=False, message="Rigged. Preset moves are for humanoids only for now.")
         if kind in ("finished", "rigged"):
             event["path"] = made[kind]
         return 200, {"status": "done", "last_event": event, "log_tail": f"{kind} ok",
@@ -142,3 +144,12 @@ def test_a_plan_sent_as_a_form_is_read_back_by_the_real_parser():
     assert chain.title == "sensei" and chain.steps == ["rigged", "animated"] and chain.first_move == "walk"
     assert chain.made == {"finished": "finish/f/x.glb"}           # only the known kinds are taken
     assert chain.upload == ("mine.glb", b"\x00GLB")
+
+
+def test_a_rig_that_does_not_fit_the_moves_ends_the_run_calmly_before_animate(tmp_path):
+    runner, jobs = _runner(tmp_path, four_legged=True)
+    chain = aa.Chain(title="griffin", steps=["picture", "model", "finished", "rigged", "animated"], prompt="g", first_move="walk")
+    runner.submit(chain, background=False)
+    assert chain.status == "done" and chain.done[-1] == "rigged"
+    assert "humanoids only" in chain.to_dict()["note"]
+    assert not any(p == "/api/animate/play" for _, p, _ in jobs.calls)

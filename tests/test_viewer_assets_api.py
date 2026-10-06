@@ -189,3 +189,19 @@ def test_the_recipes_endpoint_serves_the_shared_file():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_each_rig_says_whether_it_fits_the_moves_and_the_answer_is_cached(output, monkeypatch):
+    import rig_check
+    calls = []
+    monkeypatch.setattr(rig_check, "check", lambda f: calls.append(f) or {"humanoid": False})
+    knight = _by_name(aa.list_assets(output))["a chunky knight"]
+    assert knight["fits_moves"] is False
+    assert _by_name(aa.list_assets(output))["a chunky knight"]["fits_moves"] is False
+    assert len(calls) == 1  # the second listing read it from the cache
+    assert _by_name(aa.list_assets(output))["a lone fox"]["fits_moves"] is None  # no rig, no answer
+
+
+def test_an_unreadable_rig_leaves_the_moves_alone(output):
+    # the fixture's rig is not a real GLB: the check cannot tell, so nothing is hidden
+    assert _by_name(aa.list_assets(output))["a chunky knight"]["fits_moves"] is None

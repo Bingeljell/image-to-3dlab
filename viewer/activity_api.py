@@ -95,6 +95,7 @@ class Chain:
     last_change: float = field(default_factory=time.time)
     cancel_requested: bool = False
     job: tuple[str, str] | None = None                               # (kind, job id) of the running step
+    note: str = ""                                                   # why a run ended early, calmly
 
     def to_dict(self, now: float | None = None) -> dict[str, Any]:
         now = time.time() if now is None else now
@@ -102,7 +103,7 @@ class Chain:
             "id": self.id, "title": self.title, "want": self.want, "steps": self.steps, "status": self.status,
             "current": self.current, "done": self.done, "percent": self.percent, "message": self.message,
             "log": self.log, "full_log": self.full_log[-4000:], "error": self.error,
-            "made": {k: v for k, v in self.made.items() if v}, "first_move": self.first_move,
+            "made": {k: v for k, v in self.made.items() if v}, "first_move": self.first_move, "note": self.note,
             "elapsed": round(now - self.started, 1), "step_elapsed": round(now - self.step_started, 1),
             "stalled": self.status == "running" and now - self.last_change > STALL_SECONDS,
         }
@@ -158,6 +159,9 @@ class ChainRunner:
         for step in chain.steps:
             if chain.cancel_requested:
                 chain.status = "cancelled"
+                break
+            if step == "animated" and chain.note:
+                chain.status, chain.current = "done", None  # the rig does not fit the moves: a calm stop
                 break
             chain.current, chain.percent, chain.message, chain.log = step, None, "Starting…", ""
             chain.step_started = chain.last_change = self.now()
@@ -223,6 +227,8 @@ class ChainRunner:
             chain.made["finished"] = event.get("path")
         elif step == "rigged":
             chain.made["rigged"] = event.get("path")
+            if event.get("humanoid") is False:
+                chain.note = event.get("message") or "This rig does not fit the preset moves."
 
     # ------------------------------------------------------------------ starting each step
     def _file(self, relative: str) -> tuple[str, bytes]:

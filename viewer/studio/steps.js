@@ -49,6 +49,10 @@ export function stepBody(stepId, asset, ctx) {
       <div class="row"><button class="primary" data-run="rigged" data-humanoid="yes">Yes, rig it</button>
       <button class="ghost" data-run="rigged" data-humanoid="no" data-tip="Four-legged and other creatures can be rigged but not animated with the preset moves, and the rig may be wonky.">No, rig it anyway</button></div>`;
   }
+  if (stepId === 'animated' && asset.fits_moves === false) {
+    return `<p class="hint">Rigged. Preset moves are for humanoids only for now: four-legged and other creatures can be rigged,
+      not animated, and the rig may be wonky. Download it to animate in Blender.</p>`;
+  }
   if (stepId === 'animated') return movePicker(asset, ctx, asset.clips.length ? 'Add this move' : 'Animate');
   return '';
 }

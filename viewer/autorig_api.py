@@ -373,6 +373,17 @@ def _tick(job: AnimateJob, stop: threading.Event) -> None:
                   "message": "Fitting a skeleton" if job.kind == "rig" else "Playing the clip"})
 
 
+def rig_fit(glb: Path) -> dict[str, Any]:
+    """Whether the preset moves fit this rig (scripts/rig_check.py); never fails the rig itself."""
+    try:
+        if str(REPO / "scripts") not in sys.path:
+            sys.path.insert(0, str(REPO / "scripts"))
+        import rig_check
+        return rig_check.check(glb)
+    except Exception:  # noqa: BLE001 - a check that breaks must not undo a good rig
+        return {}
+
+
 def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
     stop = threading.Event()
     try:
@@ -410,8 +421,10 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
             job.result.with_suffix(".provenance.json").write_text(
                 json.dumps(job.record, indent=2))
             job.status = "done"
+            fit = rig_fit(job.result) if job.kind == "rig" else {}
             job.emit({"phase": "done", "overall_pct": 100,
-                      "message": "Rigged" if job.kind == "rig" else "Animated",
+                      "message": fit.get("message") or ("Rigged" if job.kind == "rig" else "Animated"),
+                      **({"humanoid": fit["humanoid"]} if "humanoid" in fit else {}),
                       "kind": job.kind,
                       "path": job.result.relative_to(REPO / "output").as_posix()
                       if REPO / "output" in job.result.parents else None,

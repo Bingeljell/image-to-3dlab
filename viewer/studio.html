@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="AssetFurnace by Bingeljell: make game-ready 3D characters and props on your own machine.">
+<title>AssetFurnace</title>
+<link rel="icon" href="./studio/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./studio/studio.css">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="./studio.html" aria-label="AssetFurnace"><img src="./studio/mark.svg" alt=""><b>Asset<span>Furnace</span></b></a>
+  <span class="spacer"></span>
+  <a class="ghost tip-left" href="./index.html#setup" data-tip="What's installed, how much disk it uses, and what you can add.">Setup</a>
+  <a class="ghost tip-left" href="./index.html" data-tip="The previous viewer, with every tool, while the studio is being finished.">Classic view</a>
+</header>
+
+<div class="studio">
+  <aside class="col lib" aria-label="Your assets">
+    <div class="lib-head">
+      <div class="seg" role="group" aria-label="Filter">
+        <button aria-pressed="true" data-filter="all">All</button>
+        <button aria-pressed="false" data-filter="characters">Characters</button>
+        <button aria-pressed="false" data-filter="props">Props</button>
+      </div>
+    </div>
+    <div class="scroll"><ul class="assets" id="assetList" aria-live="polite"></ul></div>
+    <div class="lib-foot" id="libFoot">Loading your assets…</div>
+  </aside>
+
+  <main class="col stage" id="stage" aria-label="3D viewer">
+    <div class="hud tl"><div class="title" id="vTitle"></div><div class="meta" id="vMeta"></div></div>
+  </main>
+
+  <aside class="col side" aria-label="Steps">
+    <div class="side-head"><h2>Steps</h2><span class="meta" id="sideKind"></span></div>
+    <div class="scroll"><ol class="steps" id="steps"></ol></div>
+    <div class="side-foot"><a class="primary export" id="download" data-tip="Download this model as a GLB for Godot, Unity, Unreal, Blender or three.js." hidden download>Download GLB</a></div>
+  </aside>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/"
+} }
+</script>
+<script type="module" src="./studio/app.js"></script>
+</body>
+</html>

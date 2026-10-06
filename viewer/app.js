@@ -70,6 +70,8 @@ const embedded = isEmbedded(location.search);
 const linked = linksAModel(location.search);
 document.documentElement.classList.toggle('embedded', embedded);
 setMode(landingMode({ embedded, linked, skipSetup: skipRequested() }));
+// The studio links here by tab name (index.html#setup); a known name wins over the landing tab.
+if (modes[location.hash.slice(1)]) setMode(location.hash.slice(1));
 if (!embedded) {
   welcomeOnArrival({ linked });
   checkForUpdates();

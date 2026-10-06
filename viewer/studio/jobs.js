@@ -22,7 +22,7 @@ export function statusUrlFor(kind, start) {
 
 /** A progress number from an event, if the step reports one (0-100), else null. */
 export function percentOf(event) {
-  for (const key of ['pct', 'percent', 'progress']) {
+  for (const key of ['overall_pct', 'pct', 'percent', 'progress']) {
     const value = Number(event?.[key]);
     if (Number.isFinite(value)) return Math.max(0, Math.min(100, value <= 1 && key === 'progress' ? value * 100 : value));
   }

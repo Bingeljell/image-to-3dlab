@@ -179,3 +179,51 @@ body.busy .step .body [data-run] { opacity: .5; pointer-events: none; }
 .ghost.small { padding: 3px 9px; font-size: 12px; }
 .side-right { display: inline-flex; align-items: center; gap: 10px; }
 .asset.is-hidden { opacity: .5; }
+
+/* Create sheet */
+.lib-head .primary { width: 100%; }
+.sheet { position: absolute; inset: 0; z-index: 20; background: #0c0a09; display: grid; place-items: start center; padding: 28px 24px; overflow-y: auto; }
+.sheet-card { width: min(680px, 100%); display: grid; gap: 14px; }
+.sheet-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.sheet-card h2 { margin: 0; font: 800 26px/1.15 var(--f-display); letter-spacing: -.01em; }
+.sheet-card h2 span { color: var(--ember); }
+.quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.qs { border: 1px solid var(--line); background: transparent; color: var(--ash); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+.qs:hover { color: var(--bone); } .qs.on { border-color: var(--ember); color: var(--bone); }
+.q { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.q b { font-size: 15px; } .q .hint { margin-left: auto; }
+.qn { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--ember); color: #1b0b02; font: 600 12px/1 var(--f-num); flex: none; }
+.tipsbtn { margin-left: auto; border: 1px solid var(--line); background: transparent; color: var(--flame); border-radius: 999px; padding: 5px 11px; font-size: 12.5px; }
+.tipsbtn[aria-expanded="true"] { border-color: var(--flame); }
+.tipsbox { border: 1px solid var(--line-hi); border-radius: 12px; background: #15100d; padding: 12px 14px; font-size: 13.5px; }
+.tipsbox ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 5px; color: var(--bone); }
+.tipsbox > b { color: var(--flame); font-weight: 600; }
+.haves { grid-template-columns: repeat(3, 1fr); }
+textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); border-radius: 9px; padding: 10px; color: var(--bone); resize: vertical; line-height: 1.45; }
+.addline { color: var(--ash); font-size: 12.5px; } .addline b { color: var(--bone); font-weight: 600; }
+.warning { margin: 0; font-size: 12.5px; color: #f6dfa4; background: rgb(242 193 78 / .08); border: 1px solid rgb(242 193 78 / .3); border-radius: 8px; padding: 7px 10px; }
+.warnings { display: grid; gap: 6px; }
+.drop { border: 1px dashed var(--line-hi); border-radius: 12px; padding: 18px; text-align: center; color: var(--ash); background: #110d0b; cursor: pointer; }
+.drop:hover { border-color: var(--ember); }
+.wants { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+@media (max-width: 760px) { .wants { grid-template-columns: repeat(2, 1fr); } }
+.kind { border: 1px solid var(--line); border-radius: 12px; background: var(--raise); padding: 12px; text-align: left; display: grid; gap: 4px; }
+.kind b { font-size: 14px; } .kind small { color: var(--ash); font-size: 12px; line-height: 1.4; }
+.kind[aria-pressed="true"] { border-color: var(--ember); box-shadow: 0 0 0 1px var(--ember); }
+.kind.off { opacity: .4; cursor: not-allowed; }
+.path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pstep { border: 1px solid var(--ember); background: rgb(253 109 20 / .12); color: var(--bone); border-radius: 9px; padding: 7px 11px; font-size: 13px; }
+.pstep.skip { border-color: var(--line); background: transparent; color: var(--ash); text-decoration: line-through; }
+.arr { color: var(--ash); }
+.error { margin: 0; color: #f6c0a8; font-size: 13px; }
+
+/* the chain card at the top of Steps */
+.chain { margin: 10px 10px 0; border: 1px solid var(--ember); border-radius: 12px; background: var(--raise); padding: 12px; display: grid; gap: 8px; }
+.chain header { display: grid; gap: 2px; }
+.chain header b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chain-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--ash); }
+.chain-steps li { display: inline-flex; gap: 5px; align-items: center; }
+.chain-steps li.done { color: var(--bone); } .chain-steps li.done b { color: var(--ok); }
+.chain-steps li.cur { color: var(--bone); font-weight: 600; } .chain-steps li.cur b { color: var(--flame); }
+.chain-steps li.bad b { color: #f07067; }
+.chain.stalled { border-color: #f2c14e; }

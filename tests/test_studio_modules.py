@@ -168,3 +168,64 @@ def test_library_search_hides_and_pages():
     assert out["search"] == [1, 0, 0]
     assert out["twoWords"] == [8, 0, 1]       # "4" anywhere: 4, 14, 24, 34, 40-44 (9); 40 is hidden
     assert out["props"] == [1, 0, 0]
+
+
+RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
+
+
+def test_every_goal_has_tips_and_the_3d_goals_add_wording():
+    goals = RECIPES["goals"]
+    assert set(goals) >= {"character", "prop", "set", "picture", "upload"}
+    assert all(goal["tips"] for goal in goals.values())
+    for key in ("character", "prop", "set"):
+        assert goals[key]["wording"]
+    assert "T-pose" in goals["character"]["wording"] and "empty hands" in goals["character"]["wording"]
+
+
+@needs_node
+def test_each_starting_point_gets_only_the_steps_it_needs():
+    out = _run("plan.js", """console.log(JSON.stringify({
+      ideaChar: m.planFor('idea', 'character'),
+      pictureProp: m.planFor('picture', 'prop'),
+      ideaSet: m.planFor('idea', 'set'),
+      ideaPicture: m.planFor('idea', 'picture'),
+      glbChar: m.planFor('model', 'character'),
+      glbCharFinish: m.planFor('model', 'character', { finishUpload: true }),
+      stop: m.stopAfter(m.planFor('idea', 'character'), 'model'),
+      reasons: [m.ALLOWED.model.picture, m.ALLOWED.picture.picture],
+    }));""")
+    assert out["ideaChar"] == ["picture", "model", "finished", "rigged", "animated"]
+    assert out["pictureProp"] == ["model", "finished"]
+    assert out["ideaSet"] == ["picture", "model", "split"]
+    assert out["ideaPicture"] == ["picture"]
+    assert out["glbChar"] == ["rigged", "animated"]
+    assert out["glbCharFinish"] == ["finished", "rigged", "animated"]
+    assert out["stop"] == ["picture", "model"]
+    assert all(isinstance(r, str) for r in out["reasons"])
+
+
+@needs_node
+def test_the_prompt_gets_the_goals_wording_and_warnings_for_trouble_words():
+    out = _run("plan.js", f"""
+      const r = {json.dumps(RECIPES)};
+      console.log(JSON.stringify({{
+        added: m.composePrompt('An orc blacksmith with short tusks.', 'character', r),
+        off: m.composePrompt('An orc blacksmith', 'character', r, false),
+        picture: m.composePrompt('A sunset over hills', 'picture', r),
+        warnCape: m.troubleFor('a knight with a red cape holding a sword', 'character', r).map(w => w.word),
+        propCape: m.troubleFor('a cape on a hook', 'prop', r).length,
+        notInside: m.troubleFor('a landscaper gnome', 'character', r).length,
+      }}));""")
+    assert out["added"].startswith("An orc blacksmith with short tusks, full body, standing in a T-pose")
+    assert out["off"] == "An orc blacksmith"
+    assert out["picture"] == "A sunset over hills"
+    assert out["warnCape"] == ["cape", "holding"]
+    assert out["propCape"] == 0            # capes are fine on a prop
+    assert out["notInside"] == 0           # "landscaper" is not "landscape"
+
+
+@needs_node
+def test_progress_is_read_from_whichever_field_a_step_uses():
+    out = _run("jobs.js", """console.log(JSON.stringify([
+      m.percentOf({ overall_pct: 55 }), m.percentOf({ percent: 40 }), m.percentOf({ progress: 0.25 }), m.percentOf({ phase: 'x' })]));""")
+    assert out == [55, 40, 25, None]

@@ -1944,7 +1944,11 @@ def _job_status_payload(job: Job) -> dict[str, Any]:
     Deliberately the same event shape _run_job's "done"/"error" events already carry, so
     the frontend can feed this straight into its existing applyGenerateProgress() renderer
     instead of a separate code path."""
-    return {"status": job.status, "last_event": job.events[-1] if job.events else None}
+    model = None
+    if job.status == "done" and OUTPUT_ROOT in job.output_path.parents and job.output_path.is_file():
+        # where the model landed, as the studio's Library names it, so a chain can carry on
+        model = job.output_path.relative_to(OUTPUT_ROOT).as_posix()
+    return {"status": job.status, "last_event": job.events[-1] if job.events else None, "model": model}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -2182,6 +2186,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "catalog"]:
             self._send_json(200, catalog_payload())
+            return
+        if parts == ["api", "recipes"]:
+            # what we know about prompting each goal; the CLI and MCP read the same file
+            try:
+                self._send_json(200, json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text()))
+            except (OSError, ValueError) as exc:
+                self._send_json(500, {"error": f"prompt recipes unreadable: {exc}"})
             return
         if parts == ["api", "assets"]:
             try:

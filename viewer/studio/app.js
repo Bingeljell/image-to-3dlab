@@ -5,6 +5,8 @@ import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visib
 import { createStudioViewer } from './viewer.js';
 import { readyEngines } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
+import { openCreate, runChain } from './create.js';
+import { STEP_LABELS } from './plan.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
@@ -14,7 +16,7 @@ let base = '/output/';
 let assets = [];
 let filter = 'all', query = '', showHidden = false, limit = 30;
 let current = null;
-let engines = [], presets = [], busy = false, playNext = null;
+let engines = [], presets = [], recipes = null, busy = false, playNext = null, chainRunning = false;
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
 
@@ -175,6 +177,79 @@ async function loadTools() {
   ]);
   engines = readyEngines(catalog);
   presets = animate?.installed ? animate.presets : [];
+  recipes = await fetch('/api/recipes').then((r) => r.json()).catch(() => null);
+}
+
+// ------------------------------------------------------------------ Create
+$('createBtn').addEventListener('click', () => {
+  if (chainRunning) { $('chain').scrollIntoView({ behavior: 'smooth' }); return; }
+  openCreate({ stage: $('stage'), recipes, engines, presets, onStart: (plan) => startChain(plan) });
+});
+
+async function startChain(plan) {
+  chainRunning = true;
+  ctx.onBusy(true);
+  const box = $('chain');
+  let cancel = null, startedAt = Date.now(), timer = null;
+  const title = plan.description || plan.file?.name || 'New asset';
+  const draw = (state = {}) => {
+    box.hidden = false;
+    box.innerHTML = `<header><span class="meta">MAKING</span><b>${escape(title)}</b></header>
+      <ol class="chain-steps">${plan.steps.map((s) => `<li class="${state.done?.includes(s) ? 'done' : s === state.current ? (state.failed ? 'bad' : 'cur') : ''}"><b>${state.done?.includes(s) ? '✓' : s === state.current ? (state.failed ? '■' : '●') : '○'}</b>${STEP_LABELS[s]}</li>`).join('')}</ol>
+      <div class="bigbar"><span></span></div><p class="job-msg"></p><pre class="log"></pre>
+      <div class="row end"><button class="ghost" data-x>Cancel</button></div>`;
+    box.querySelector('[data-x]').onclick = (e) => { e.target.disabled = true; cancel?.(); };
+  };
+  const state = { done: [], current: null, failed: false };
+  const tick = () => {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    const msg = box.querySelector('.job-msg');
+    if (msg && !state.failed) msg.dataset.time = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  timer = setInterval(tick, 1000);
+  const ui = {
+    begin: () => draw(state),
+    step: (step) => { state.current = step; startedAt = Date.now(); draw(state); },
+    cancelWith: (fn) => { cancel = fn; },
+    progress: ({ event, percent, log, stalled }) => {
+      const bar = box.querySelector('.bigbar span'), msg = box.querySelector('.job-msg');
+      if (percent != null) { bar.classList.remove('busy'); bar.style.width = `${percent}%`; } else bar.classList.add('busy');
+      msg.textContent = `${event.message || event.phase || 'Working…'}${msg.dataset.time ? ` · ${msg.dataset.time}` : ''}`;
+      box.querySelector('.log').textContent = (log || '').split('\n').slice(-5).join('\n');
+      box.classList.toggle('stalled', !!stalled);
+    },
+    done: (step) => { state.done.push(step); },
+    fail: (step, why, log) => {
+      state.failed = true; draw(state);
+      box.querySelector('.job-msg').textContent = why;
+      box.querySelector('.log').textContent = (log || '').split('\n').slice(-12).join('\n');
+      const row = box.querySelector('.row');
+      row.innerHTML = '<button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>';
+      row.querySelector('[data-copy]').onclick = () => navigator.clipboard?.writeText(`${why}\n\n${log || ''}`);
+      row.querySelector('[data-close]').onclick = () => { box.hidden = true; };
+    },
+    finish: () => {
+      state.current = null; draw(state);
+      box.querySelector('.job-msg').textContent = 'All done.';
+      box.querySelector('.bigbar span').style.width = '100%';
+      box.querySelector('.log').remove();
+      box.querySelector('.row').innerHTML = '<button class="ghost" data-close>Close</button>';
+      box.querySelector('[data-close]').onclick = () => { box.hidden = true; };
+    },
+  };
+  const reload = async (match) => {
+    const keep = assets.find(match)?.id;
+    await loadLibrary(keep);
+    const found = assets.find(match);
+    if (found && found !== current) show(found);
+  };
+  try {
+    await runChain(plan, { ui, ctx: { url, reload } });
+  } finally {
+    clearInterval(timer);
+    chainRunning = false;
+    ctx.onBusy(false);
+  }
 }
 
 loadTools().then(() => loadLibrary());

@@ -6,13 +6,13 @@ import { followJob, plainError, statusUrlFor } from './jobs.js';
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
 
-async function fileFrom(url, name) {
+export async function fileFrom(url, name) {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`could not read ${name} (${response.status})`);
   return new File([await response.blob()], name);
 }
 
-async function postStart(url, body) {
+export async function postStart(url, body) {
   const response = await fetch(url, { method: 'POST', body, ...(typeof body === 'string' ? { headers: { 'Content-Type': 'application/json' } } : {}) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `${response.status} ${response.statusText}`);

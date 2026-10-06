@@ -309,7 +309,14 @@ class ImageJob:
             "elapsed_seconds": round(time.monotonic() - self.started, 1),
             "result_url": f"/api/image/{self.id}/result.png"
             if self.status == "done" else None,
+            "last_event": self.events[-1] if self.events else None,
+            "log_tail": "\n".join(self.log_lines)[-4000:],
+            "picture": self.picture_path() if self.status == "done" else None,
         }
+
+    def picture_path(self) -> str:
+        """Where the picture sits relative to output/, as the studio's Library names it."""
+        return f"images/{self.directory.name}/{self.output_path.name}"
 
 
 class ImageJobManager:

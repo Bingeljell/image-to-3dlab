@@ -397,7 +397,19 @@ def test_job_status_payload_reports_last_event(tmp_path):
 def test_job_status_payload_handles_no_events_yet(tmp_path):
     job = api.Job("0" * 32, tmp_path, tmp_path / "a.png", tmp_path / "m.glb", {}, "trellis")
     payload = api._job_status_payload(job)
-    assert payload == {"status": "queued", "last_event": None}
+    assert payload == {"status": "queued", "last_event": None, "model": None}
+
+
+def test_job_status_payload_names_the_model_once_it_is_on_disk(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "OUTPUT_ROOT", tmp_path)
+    run = tmp_path / "commercial_conditional" / "knight__pixal3d__20261006-210000"
+    run.mkdir(parents=True)
+    glb = run / f"{run.name}.glb"
+    job = api.Job("0" * 32, run, tmp_path / "a.png", glb, {}, "pixal3d")
+    job.status = "done"
+    assert api._job_status_payload(job)["model"] is None      # done but no file yet
+    glb.write_bytes(b"glb")
+    assert api._job_status_payload(job)["model"] == f"commercial_conditional/{run.name}/{run.name}.glb"
 
 
 # --- backend registry ------------------------------------------------------------------

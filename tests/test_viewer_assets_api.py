@@ -171,3 +171,21 @@ def test_only_real_asset_ids_can_be_hidden(output):
         aa.set_hidden(output, "../../etc", True)
     with pytest.raises(ValueError):
         aa.set_hidden(output, "0123456789ab", True)  # well formed, but no such asset
+
+
+def test_the_recipes_endpoint_serves_the_shared_file():
+    import http.server
+    import threading
+    import urllib.request
+
+    import generate_api as api
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/recipes", timeout=30) as response:
+            recipes = json.loads(response.read())
+        assert "T-pose" in recipes["goals"]["character"]["wording"]
+    finally:
+        server.shutdown()
+        server.server_close()

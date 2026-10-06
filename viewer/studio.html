@@ -19,6 +19,7 @@
 <div class="studio">
   <aside class="col lib" aria-label="Your assets">
     <div class="lib-head">
+      <button class="primary tip-up" id="createBtn" data-tip="Describe what you want, drop a picture, or bring a GLB. AssetFurnace runs the steps for you.">+ Create</button>
       <input type="search" id="search" placeholder="Search your assets" aria-label="Search your assets" autocomplete="off">
       <div class="seg" role="group" aria-label="Filter">
         <button aria-pressed="true" data-filter="all">All</button>
@@ -38,7 +39,7 @@
   <aside class="col side" aria-label="Steps">
     <div class="side-head"><h2>Steps</h2><span class="side-right"><span class="meta" id="sideKind"></span>
       <button class="ghost small tip-left" id="hideBtn" data-tip="Hide from the Library. Nothing is deleted; turn on Show hidden to see it again." hidden>Hide</button></span></div>
-    <div class="scroll"><ol class="steps" id="steps"></ol></div>
+    <div class="scroll"><section class="chain" id="chain" hidden aria-live="polite"></section><ol class="steps" id="steps"></ol></div>
     <div class="side-foot"><a class="primary export" id="download" data-tip="Download this model as a GLB for Godot, Unity, Unreal, Blender or three.js." hidden download>Download GLB</a></div>
   </aside>
 </div>

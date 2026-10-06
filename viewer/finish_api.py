@@ -581,6 +581,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:
                 "record_url": f"/api/finish/{job.id}/record.json",
                 "size_bytes": job.result_glb.stat().st_size,
                 "directory": job.directory.name,
+                "path": library_path(job.result_glb),
                 "source_url": served_url(job.asset_path),
                 "pixal3d": (job.views_dir / "transforms.json").is_file(),
                 "note": photo_note(job, job.settings),
@@ -594,6 +595,14 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:
     finally:
         job.directory.joinpath("pid").unlink(missing_ok=True)
         manager.finish(job)
+
+
+def library_path(path: Path) -> str | None:
+    """A file's path inside output/, as the studio's Library names it (the next step's input)."""
+    try:
+        return path.relative_to(OUTPUT_ROOT.parent).as_posix()
+    except ValueError:
+        return None
 
 
 def cancel_job(job: FinishJob) -> None:

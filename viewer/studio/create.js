@@ -144,7 +144,7 @@ export async function runChain(plan, { ui, ctx }) {
     const event = final.last_event || {};
     if (step === 'picture') made.picture = final.picture;
     if (step === 'model') made.model = final.model;
-    if (step === 'finished') made.finished = (event.result_url || '').replace(/^\/output\//, '') || null;
+    if (step === 'finished') made.finished = event.path || null;  // result_url is a download link, not a path
     if (step === 'rigged') made.rigged = event.path || null;
   };
   const mine = (asset) => (made.picture && asset.picture === made.picture) || (made.model && asset.model === made.model)

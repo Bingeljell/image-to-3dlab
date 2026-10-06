@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="image-to-3dlab: local image-to-3D generation (TRELLIS.2, SF3D, Hunyuan3D-MLX) and a side-by-side GLB/OBJ comparison viewer.">
-<title>image-to-3dlab</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2314161a'/%3E%3Ctext x='32' y='41' font-family='ui-monospace,Menlo,monospace' font-size='20' font-weight='700' fill='%237eb4ef' text-anchor='middle'%3Ei%26gt;3d%3C/text%3E%3C/svg%3E">
+<meta name="description" content="AssetFurnace by Bingeljell: local image-to-3D generation, finishing and comparison, on your own machine.">
+<title>AssetFurnace</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23100d0c'/%3E%3Ctext x='32' y='42' font-family='Arial Black,Helvetica,sans-serif' font-size='26' font-weight='900' fill='%23ff9447' text-anchor='middle'%3EAF%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="./styles/base.css">
 <link rel="stylesheet" href="./styles/compare.css">
 <link rel="stylesheet" href="./styles/generate.css">
@@ -17,7 +17,7 @@
 </head>
 <body>
 <div id="mode-switch">
-  <button id="brand" class="brand" title="Welcome, and what's new">image-to-3dlab</button>
+  <button id="brand" class="brand" title="Welcome, and what's new"><span class="brand-word">AssetFurnace</span></button>
   <button id="mode-compare" class="mode on">Compare</button>
   <button id="mode-generate-image" class="mode" title="No source image? Write a prompt and make one">Generate Image</button>
   <button id="mode-generate" class="mode" title="Turn an image into a 3D mesh">Generate 3D</button>
@@ -364,7 +364,7 @@
         <div class="progress-track"><div id="generate-overall-bar"></div></div>
         <div id="generate-stages"></div>
       </div>
-      <div id="generate-duration" style="display:none; font-size:15px; color:#cfe3ff; margin-bottom:8px;"></div>
+      <div id="generate-duration" style="display:none; font-size:15px; color:#ffe2cc; margin-bottom:8px;"></div>
       <div id="generate-viewer"><iframe id="generate-frame" title="generated model viewer"></iframe></div>
       <div id="generate-downloads"><button id="generate-finish" type="button">Finish this model →</button><a id="generate-glb" download>Download GLB</a><a id="generate-manifest" download>Download manifest</a></div>
       <div id="generate-saved-note" style="display:none; margin-top:6px; font-size:11px; opacity:.6;"></div>
@@ -803,6 +803,16 @@
 <section id="about-view" hidden>
   <div class="credits-col">
     <div class="welcome-card" id="welcome">
+      <div class="embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <header class="brand-hero">
+        <p class="brand-hero-word">AssetFurnace</p>
+        <p class="brand-hero-by">by Bingeljell</p>
+        <p class="brand-hero-links">
+          <a id="brand-x" href="https://x.com/bingeljell" target="_blank" rel="noopener">X @bingeljell</a>
+          <a id="brand-github" href="https://github.com/Bingeljell" target="_blank" rel="noopener">GitHub Bingeljell</a>
+          <a href="https://github.com/Bingeljell/image-to-3dlab" target="_blank" rel="noopener">Source</a>
+        </p>
+      </header>
       <p class="welcome-kicker" id="welcome-kicker"></p>
       <h1 id="welcome-title">Welcome</h1>
       <p class="welcome-tagline" id="welcome-tagline"></p>
@@ -829,7 +839,7 @@
         <li><a href="https://github.com/Stability-AI/stable-fast-3d">Stability AI's Stable Fast 3D</a> (Stability AI Community License).</li>
         <li><a href="https://huggingface.co/Qwen/Qwen-Image-2.1">Qwen-Image 2.1</a> (Qwen Research License, non-commercial), run by <a href="https://github.com/leejet/stable-diffusion.cpp">leejet/stable-diffusion.cpp</a> (MIT). Built with Qwen.</li>
         <li><a href="https://github.com/VAST-AI-Research/SkinTokens">VAST-AI SkinTokens</a> (MIT) for the auto-rig, and <a href="https://github.com/nv-tlabs/kimodo">NVIDIA Kimodo</a> (NVIDIA Open Model License) for the preset animations.</li>
-        <li><a href="https://github.com/ml-explore/mlx">Apple MLX</a> (MIT), <a href="https://github.com/danielgatis/rembg">rembg</a> (MIT), <a href="https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M">TinyCLIP</a> (MIT) and <a href="https://threejs.org">three.js</a> (MIT).</li>
+        <li><a href="https://github.com/ml-explore/mlx">Apple MLX</a> (MIT), <a href="https://github.com/danielgatis/rembg">rembg</a> (MIT), <a href="https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M">TinyCLIP</a> (MIT) and <a href="https://threejs.org">three.js</a> (MIT). The AssetFurnace wordmark is set in <a href="https://github.com/googlefonts/unbounded">Unbounded</a> (SIL Open Font License).</li>
       </ul>
       <p><strong>Licences travel with the output.</strong> Qwen-Image's licence is a bit ambiguous: Qwen says your pictures are yours (<a href="https://x.com/QwenDevs/status/2101917379785838660" target="_blank" rel="noopener">statement</a>), the licence text says non-commercial. Check it if you plan to sell. The Hunyuan weights are not licensed in the EU, the UK or South Korea. Every run writes a <code>.provenance.json</code> saying which licences apply.</p>
     </div>

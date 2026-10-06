@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GLB. Auto-rig is set up from Setup & Status (~1.6 GB, asks first) and runs on Apple
   Silicon and NVIDIA. Every result records its licences.
 
+### Changed
+- **New name: AssetFurnace.** A darker ember look, a new wordmark, and links
+  to X and GitHub on the About page. The viewer, its tab title and the README carry the new
+  name. The repo keeps its name, so existing links and clones still work.
+
 ### Removed
 - **The Rig Edit and Pose tabs.** Animate replaces them; its Inspect skeleton panel keeps
   the bone viewer.

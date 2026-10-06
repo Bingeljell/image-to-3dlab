@@ -58,7 +58,7 @@
   color: #e6e9ee;
 }
 
-#image-prompt:focus { outline: 2px solid #7eb4ef; outline-offset: -1px; }
+#image-prompt:focus { outline: 2px solid #ff9447; outline-offset: -1px; }
 
 /* Two across, not three: three number fields in a 420px card clipped the last label. */
 .image-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -78,7 +78,7 @@
   background: #22262d; overflow: hidden;
 }
 #image-bar-fill {
-  height: 100%; width: 0%; background: #7eb4ef;
+  height: 100%; width: 0%; background: #ff9447;
   transition: width 220ms ease;
 }
 

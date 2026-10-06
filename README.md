@@ -1,4 +1,19 @@
-# Image to 3D Lab
+<!-- DRAFT: the user rewrites this header before the launch push. -->
+<h1 align="center">AssetFurnace</h1>
+
+<p align="center"><sub>by Bingeljell</sub></p>
+
+<p align="center"><b>Prompt or picture in, game-ready 3D out. On your own machine.</b><br>
+Image-to-3D, finishing and props on an Apple Silicon Mac or an NVIDIA card,
+with the licence of every asset written down.</p>
+
+<p align="center">
+  <a href="https://x.com/bingeljell">X @bingeljell</a> ·
+  <a href="https://github.com/Bingeljell">GitHub</a> ·
+  <a href="https://github.com/Bingeljell/image-to-3dlab/discussions">Discussions</a>
+</p>
+
+<p align="center"><sub>Formerly <i>Image to 3D Lab</i>. Same repo, new name.</sub></p>
 
 ![Three source images above the textured 3D models generated from them: a photoreal warrior bust, a stylised garden gnome, and a multi-object shoe-house diorama](docs/images/one-image-in-textured-model-out.jpg)
 

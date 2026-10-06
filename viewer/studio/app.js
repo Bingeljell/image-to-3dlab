@@ -30,7 +30,8 @@ function renderLibrary() {
   const { rows: list, more, hiddenCount } = visibleAssets(assets, { filter, query, showHidden, limit });
   $('assetList').innerHTML = makingRow() + (list.length ? list.map((asset) => {
     const pips = Array.from({ length: stepCount(asset) }, (_, i) => `<i class="${i < doneCount(asset) ? 'done' : ''}"></i>`).join('');
-    const thumb = asset.picture ? `<img src="${url(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
+    // a small server-made copy, not the full picture (often a megabyte each)
+    const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
     return `<li><button class="asset${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" aria-current="${!viewingMaking && asset === current}">
       <span class="thumb">${thumb}</span>
       <span style="min-width:0"><span class="nm">${escape(asset.name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(statusText(asset))}</span></span>

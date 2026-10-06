@@ -321,3 +321,27 @@ def set_hidden(output: Path, asset_id: str, hidden: bool) -> None:
 def assets_payload(output: Path) -> dict[str, Any]:
     """What `GET /api/assets` sends: the list, plus where its relative paths are served."""
     return {"base": "/output/", "stages": list(STAGES), "assets": list_assets(output)}
+
+
+THUMBS_DIR = ".thumbs"
+
+
+def thumbnail(output: Path, relative: str, size: int = 128) -> Path:
+    """A small copy of a picture in output/, for the Library list, made once and kept in
+    output/.thumbs (a new one when the picture changes). Raises ValueError for paths outside output/."""
+    from PIL import Image
+
+    source = (output / relative).resolve()
+    if output.resolve() not in source.parents or not source.is_file():
+        raise ValueError(f"not a picture in output/: {relative}")
+    stat = source.stat()
+    key = hashlib.sha1(f"{relative}|{stat.st_size}|{stat.st_mtime}|{size}".encode()).hexdigest()[:20]
+    target = output / THUMBS_DIR / f"{key}.png"
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(source) as image:
+            image.thumbnail((size, size))
+            partial = target.with_suffix(".part")
+            image.save(partial, format="PNG", optimize=True)
+            partial.replace(target)  # never leave half a thumbnail behind for the next request
+    return target

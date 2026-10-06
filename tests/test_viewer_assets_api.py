@@ -206,3 +206,17 @@ def test_each_rig_says_whether_it_fits_the_moves_and_the_answer_is_cached(output
 def test_an_unreadable_rig_leaves_the_moves_alone(output):
     # the fixture's rig is not a real GLB: the check cannot tell, so nothing is hidden
     assert _by_name(aa.list_assets(output))["a chunky knight"]["fits_moves"] is None
+
+
+def test_thumbnails_are_small_made_once_and_never_reach_outside_output(tmp_path):
+    from PIL import Image
+    Image.new("RGBA", (1024, 1024), (200, 80, 20, 255)).save(tmp_path / "big.png")
+    thumb = aa.thumbnail(tmp_path, "big.png")
+    with Image.open(thumb) as small:
+        assert max(small.size) == 128
+    made = thumb.stat().st_mtime_ns
+    assert aa.thumbnail(tmp_path, "big.png") == thumb and thumb.stat().st_mtime_ns == made  # kept, not remade
+    with pytest.raises(ValueError):
+        aa.thumbnail(tmp_path / "sub", "../big.png")
+    with pytest.raises(ValueError):
+        aa.thumbnail(tmp_path, "missing.png")

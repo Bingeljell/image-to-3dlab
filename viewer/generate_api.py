@@ -83,7 +83,7 @@ from autorig_api import (
     source_record_for as animate_source_record,
     status_payload as animate_status_payload,
 )
-from assets_api import assets_payload, set_hidden as set_asset_hidden
+from assets_api import assets_payload, set_hidden as set_asset_hidden, thumbnail as asset_thumbnail
 import activity_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from props_api import (
@@ -2234,6 +2234,19 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 3 and parts[:2] == ["api", "chains"]:
             chain = self._chains().chains.get(parts[2])
             self._send_json(200 if chain else 404, chain.to_dict() if chain else {"error": "no such run"})
+            return
+        if parts == ["api", "thumb"]:
+            relative = parse_qs(urlparse(self.path).query).get("path", [""])[0]
+            try:
+                data = asset_thumbnail(OUTPUT_ROOT, relative).read_bytes()
+            except (ValueError, OSError) as exc:
+                self._send_json(404, {"error": str(exc)})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
             return
         if parts == ["api", "activity"]:
             self._send_json(200, {"history": read_history(OUTPUT_ROOT)})

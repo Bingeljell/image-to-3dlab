@@ -248,3 +248,14 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .scrubber { display: inline-flex; align-items: center; gap: 10px; flex: 1 1 220px; min-width: 180px; margin-left: auto; }
 .scrub { flex: 1; accent-color: var(--ember); }
 .frame { white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
+/* Activity and About */
+.sheet-card h3 { margin: 10px 0 0; font: 600 12px/1.4 var(--f-num); letter-spacing: .08em; text-transform: uppercase; color: var(--ash); }
+.act-list, .credits { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.act { display: grid; grid-template-columns: 22px 1fr auto; gap: 4px 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.act-mark { font-weight: 700; color: var(--ash); text-align: center; }
+.act.done .act-mark { color: var(--ember); }
+.act-what { display: grid; gap: 2px; min-width: 0; }
+.act-why { color: var(--bone); opacity: .85; font-size: 13px; }
+.act .log { grid-column: 1 / -1; margin: 6px 0 0; max-height: 240px; overflow: auto; }
+.credits li { line-height: 1.5; }
+.about .row { display: flex; flex-wrap: wrap; gap: 8px; }

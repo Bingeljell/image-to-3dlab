@@ -84,6 +84,8 @@ from autorig_api import (
     status_payload as animate_status_payload,
 )
 from assets_api import assets_payload, set_hidden as set_asset_hidden
+import activity_api
+from activity_api import ChainRunner, chain_from_form, read_history
 from props_api import (
     PROPS_JOBS,
     cancel_job as cancel_props_job,
@@ -1980,8 +1982,37 @@ class Handler(SimpleHTTPRequestHandler):
     def _path_parts(self) -> list[str]:
         return [unquote(p) for p in urlparse(self.path).path.split("/") if p]
 
+    # one runner per server: it calls this server's own job endpoints, so a plan keeps going
+    # after the browser tab that started it is closed
+    _chain_runner: ClassVar[ChainRunner | None] = None
+
+    def _chains(self) -> ChainRunner:
+        cls = type(self)
+        if cls._chain_runner is None:
+            host, port = self.server.server_address[:2]
+            host = "127.0.0.1" if host in ("", "0.0.0.0") else host
+            cls._chain_runner = ChainRunner(OUTPUT_ROOT, activity_api.local_request(f"http://{host}:{port}"))
+        return cls._chain_runner
+
     def do_POST(self) -> None:
         parts = self._path_parts()
+        if parts == ["api", "chains"]:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
+                self._chains().submit(chain)
+            except RuntimeError as exc:
+                self._send_json(409, {"error": str(exc)})
+                return
+            except ValueError as exc:
+                self._send_json(400, {"error": str(exc)})
+                return
+            self._send_json(202, chain.to_dict())
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "chains"] and parts[3] == "cancel":
+            ok = self._chains().cancel(parts[2])
+            self._send_json(200 if ok else 404, {"cancelled": ok})
+            return
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()
             return
@@ -2193,6 +2224,19 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(200, json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text()))
             except (OSError, ValueError) as exc:
                 self._send_json(500, {"error": f"prompt recipes unreadable: {exc}"})
+            return
+        if parts == ["api", "chains"]:
+            # the plan running now, else the newest few (so a reopened tab can pick its run back up)
+            runner = self._chains()
+            self._send_json(200, {"running": (c.to_dict() if (c := runner.running()) else None),
+                                  "recent": [c.to_dict() for c in runner.recent(5)]})
+            return
+        if len(parts) == 3 and parts[:2] == ["api", "chains"]:
+            chain = self._chains().chains.get(parts[2])
+            self._send_json(200 if chain else 404, chain.to_dict() if chain else {"error": "no such run"})
+            return
+        if parts == ["api", "activity"]:
+            self._send_json(200, {"history": read_history(OUTPUT_ROOT)})
             return
         if parts == ["api", "assets"]:
             try:

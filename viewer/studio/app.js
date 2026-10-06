@@ -6,6 +6,7 @@ import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
+import { openActivity, openAbout } from './pages.js';
 import { STEP_LABELS } from './plan.js';
 
 const $ = (id) => document.getElementById(id);
@@ -268,7 +269,7 @@ function drawProgress() {
   box.querySelector('[data-close]')?.addEventListener('click', () => { const keep = making.result; making = null; show(keep ?? current ?? assets[0] ?? null); });
 }
 
-async function startChain(plan) {
+async function startChain(plan, attach = null) {
   making = { plan, title: plan.description || plan.file?.name || 'New asset', done: [], current: null, made: {},
     percent: null, message: '', log: '', stepStarted: Date.now(), failed: false, finished: false, why: '', shown: null };
   ctx.onBusy(true);
@@ -293,11 +294,23 @@ async function startChain(plan) {
     },
   };
   try {
-    await runChain(plan, { ui, ctx: { url, reload: async () => { await refreshAssets(); } } });
+    await runChain(plan, { ui, attach, ctx: { url, reload: async () => { await refreshAssets(); } } });
   } finally {
     clearInterval(timer);
     ctx.onBusy(false);
   }
 }
 
-loadTools().then(() => loadLibrary());
+// a run keeps going on the server after its tab closes: a reopened studio picks it back up
+async function resumeRunning() {
+  try {
+    const { running } = await (await fetch('/api/chains')).json();
+    if (!running || making) return;
+    startChain({ steps: running.steps, description: running.title, firstMove: running.first_move, want: running.want }, running.id);
+  } catch { /* an older server without runs: nothing to resume */ }
+}
+
+$('activityBtn').addEventListener('click', () => openActivity($('stage')));
+$('aboutBtn').addEventListener('click', () => openAbout($('stage')));
+
+loadTools().then(() => loadLibrary()).then(() => resumeRunning());

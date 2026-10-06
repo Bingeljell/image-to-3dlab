@@ -261,3 +261,50 @@ def test_the_starting_camera_looks_at_the_middle_of_a_model_on_the_floor():
     out = json.loads(result.stdout)
     assert out["target"] == [0, 1, 0]
     assert out["position"] == [1.45, 1.35, 2.45]
+
+
+@needs_node
+def test_a_server_run_becomes_the_progress_calls_the_view_understands():
+    out = _run("create.js", """
+      const a = { steps: ['picture', 'model'], status: 'running', current: 'picture', done: [], made: {}, percent: 10, message: 'Drawing', full_log: '', stalled: false };
+      const b = { ...a, current: 'model', done: ['picture'], made: { picture: 'images/p.png' }, percent: null, message: 'Shaping' };
+      const c = { ...b, status: 'error', error: 'This Mac ran out of memory.', full_log: 'Killed' };
+      console.log(JSON.stringify([m.chainEvents(null, a).map((e) => e[0]), m.chainEvents(a, b), m.chainEvents(b, c).map((e) => e[0]),
+                                  m.chainEvents(b, { ...b, status: 'done', done: ['picture', 'model'] }).map((e) => e[0])]));""")
+    first, second, failed, finished = out
+    assert first == ["step", "progress"]
+    assert second[0] == ["done", "picture", {"picture": "images/p.png"}] and second[1] == ["step", "model"]
+    assert failed == ["fail"]
+    assert finished == ["done", "finish"]
+
+
+@needs_node
+def test_the_page_follows_a_run_the_server_carries_and_lands_on_the_result():
+    out = _run("create.js", """
+      const snaps = [
+        { steps: ['rigged', 'animated'], status: 'running', current: 'rigged', done: [], made: {}, message: 'Rigging' },
+        { steps: ['rigged', 'animated'], status: 'done', current: null, done: ['rigged', 'animated'], made: { rigged: 'animate/r.glb' } },
+      ];
+      const calls = [];
+      let sent = null, poll = 0;
+      const fetchImpl = async (url, opts) => {
+        if (opts?.method === 'POST') { sent = Object.fromEntries(opts.body.entries()); return { ok: true, json: async () => ({ id: 'r1' }) }; }
+        return { json: async () => snaps[Math.min(poll++, snaps.length - 1)] };
+      };
+      const ui = new Proxy({}, { get: (_, k) => (...args) => calls.push(k) });
+      const ok = await m.runChain({ steps: ['rigged', 'animated'], description: 'sensei', firstMove: 'walk' },
+        { ui, ctx: { reload: async () => {} }, fetchImpl, interval: 0 });
+      console.log(JSON.stringify({ ok, calls, title: sent.title, steps: JSON.parse(sent.steps), move: sent.first_move }));""")
+    assert out["ok"] is True
+    assert out["title"] == "sensei" and out["steps"] == ["rigged", "animated"] and out["move"] == "walk"
+    assert out["calls"] == ["begin", "cancelWith", "step", "progress", "done", "done", "finish"]
+
+
+@needs_node
+def test_activity_says_how_long_in_words_and_groups_by_day():
+    out = _run("pages.js", """
+      const recs = [{ time: '2026-10-06T23:10:00' }, { time: '2026-10-06T09:00:00' }, { time: '2026-10-05T22:00:00' }, { time: '2026-09-30T10:00:00' }];
+      console.log(JSON.stringify({ d: [38, 252, 3780, 60].map(m.duration),
+        g: m.byDay(recs, new Date('2026-10-06T23:30:00Z')).map((g) => [g.label, g.items.length]) }));""")
+    assert out["d"] == ["38 s", "4 min 12 s", "1 h 3 min", "1 min"]
+    assert out["g"] == [["Today", 2], ["Yesterday", 1], ["2026-09-30", 1]]

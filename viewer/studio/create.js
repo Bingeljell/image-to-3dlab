@@ -2,8 +2,7 @@
 // thing through every step it needs, using the same job APIs as the Steps panel.
 
 import { HAVES, WANTS, ALLOWED, STEP_LABELS, planFor, stopAfter, composePrompt, troubleFor } from './plan.js';
-import { followJob, plainError, statusUrlFor } from './jobs.js';
-import { fileFrom, postStart } from './steps.js';
+import { plainError } from './jobs.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
@@ -103,74 +102,84 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
 }
 
 /**
- * Carry one thing through its steps. `ui` draws progress; `ctx.reload(match)` refreshes the
- * Library and selects the asset `match(asset)` finds. Stops at the first failure.
+ * What changed between two snapshots of a server-side run, as the calls the progress view
+ * understands: ['step', s], ['progress', u], ['done', s, made], ['fail', s, why, log], ['finish'].
  */
-export async function runChain(plan, { ui, ctx }) {
-  const made = { picture: null, model: null, finished: null, rigged: null };
-  const url = (rel) => ctx.url(rel);
-  const file = (rel) => fileFrom(url(rel), rel.split('/').pop());
-  const steps = {
-    picture: async () => ({ kind: 'image', start: await postStart('/api/image', JSON.stringify({ prompt: plan.prompt, settings: {} })) }),
-    model: async () => {
-      const form = new FormData();
-      form.append('image', made.picture ? await file(made.picture) : plan.file);
-      form.append('settings', JSON.stringify({ backend: plan.engine }));
-      return { kind: 'generate', start: await postStart('/api/generate', form) };
-    },
-    finished: async () => {
-      const form = new FormData();
-      form.append('asset', await file(made.model));
-      form.append('image', made.picture ? await file(made.picture) : plan.file);
-      form.append('settings', JSON.stringify({}));
-      return { kind: 'finish', start: await postStart('/api/finish', form) };
-    },
-    rigged: async () => {
-      const form = new FormData();
-      const source = made.finished || made.model;
-      if (source) form.append('model', source); else form.append('asset', plan.file);
-      return { kind: 'animate', start: await postStart('/api/animate/rig', form) };
-    },
-    animated: async () => ({ kind: 'animate', start: await postStart('/api/animate/play', JSON.stringify({ model: made.rigged, preset: plan.firstMove })) }),
-    split: async () => {
-      const form = new FormData();
-      form.append('generated', made.model);
-      form.append('settings', JSON.stringify({}));
-      return { kind: 'props', start: await postStart('/api/props', form) };
-    },
-  };
-  // what each finished step leaves behind, for the next one
-  const record = (step, final) => {
-    const event = final.last_event || {};
-    if (step === 'picture') made.picture = final.picture;
-    if (step === 'model') made.model = final.model;
-    if (step === 'finished') made.finished = event.path || null;  // result_url is a download link, not a path
-    if (step === 'rigged') made.rigged = event.path || null;
-  };
+export function chainEvents(before, after) {
+  const out = [];
+  const seen = new Set(before?.done || []);
+  for (const step of after.done) {
+    if (!seen.has(step)) { out.push(['done', step, after.made]); seen.add(step); }
+  }
+  const running = after.status === 'running';
+  if (after.current && after.current !== before?.current && running) out.push(['step', after.current]);
+  if (running && after.current) {
+    out.push(['progress', { event: { message: after.message }, percent: after.percent, log: after.full_log, stalled: after.stalled }]);
+  }
+  if (after.status === 'error' || after.status === 'cancelled') {
+    const why = after.status === 'cancelled' ? 'Cancelled. Everything finished before this step is kept.' : after.error;
+    out.push(['fail', after.current, why, after.full_log]);
+  }
+  if (after.status === 'done') out.push(['finish']);
+  return out;
+}
+
+/** The form a plan travels to the server in. */
+export function planForm(plan, made = {}) {
+  const form = new FormData();
+  form.append('title', plan.description || plan.file?.name || 'New asset');
+  form.append('steps', JSON.stringify(plan.steps));
+  form.append('want', plan.want || 'character');
+  if (plan.prompt) form.append('prompt', plan.prompt);
+  if (plan.engine) form.append('engine', plan.engine);
+  if (plan.firstMove) form.append('first_move', plan.firstMove);
+  form.append('made', JSON.stringify(made));
+  if (plan.file) form.append('file', plan.file);
+  return form;
+}
+
+/**
+ * Carry one thing through its steps. The run itself happens on the server (closing the tab
+ * does not stop it); this follows it. `ui` draws progress; `ctx.reload(match)` refreshes the
+ * Library and selects the asset `match(asset)` finds. Pass `attach` (a run id) to pick up a
+ * run that is already going, as a reopened tab does.
+ */
+export async function runChain(plan, { ui, ctx, attach = null, fetchImpl = fetch, interval = 1200 }) {
+  let made = {};
   const mine = (asset) => (made.picture && asset.picture === made.picture) || (made.model && asset.model === made.model)
     || (made.finished && asset.finished === made.finished) || (made.rigged && asset.rigged === made.rigged);
-
   ui.begin(plan);
-  for (const step of plan.steps) {
-    ui.step(step);
-    let started;
+  let id = attach;
+  if (!id) {
     try {
-      started = await steps[step]();
+      const response = await fetchImpl('/api/chains', { method: 'POST', body: planForm(plan) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `the server answered ${response.status}`);
+      id = payload.id;
     } catch (error) {
-      ui.fail(step, plainError(error.message), '');
+      ui.fail(plan.steps[0], plainError(error.message), '');
       return false;
     }
-    ui.cancelWith(() => fetch(`/api/${started.kind}/${started.start.job_id}/cancel`, { method: 'POST' }).catch(() => {}));
-    const job = followJob(statusUrlFor(started.kind, started.start), { onUpdate: (u) => ui.progress(u) });
-    const final = await job.done;
-    if (final.status !== 'done') {
-      ui.fail(step, final.status === 'cancelled' ? 'Cancelled. Everything finished before this step is kept.' : plainError(final.error || final.last_event?.message || final.log_tail || ''), final.log_tail || '');
-      return false;
-    }
-    record(step, final);
-    await ctx.reload(mine);
-    ui.done(step, { ...made });
   }
-  ui.finish(mine);
-  return true;
+  ui.cancelWith(() => fetchImpl(`/api/chains/${id}/cancel`, { method: 'POST' }).catch(() => {}));
+  let before = null;
+  for (;;) {
+    let after;
+    try {
+      after = await (await fetchImpl(`/api/chains/${id}`)).json();
+    } catch {
+      await new Promise((r) => setTimeout(r, interval));  // a missed poll is not a failure
+      continue;
+    }
+    if (!after?.steps) { ui.fail(plan.steps[0], 'This run is no longer known to the server (it was restarted). Anything finished is in your Library.', ''); return false; }
+    made = after.made || {};
+    for (const [kind, ...args] of chainEvents(before, after)) {
+      if (kind === 'done') { await ctx.reload(mine); ui.done(args[0], { ...made }); }
+      else if (kind === 'fail') { ui.fail(args[0], args[1], args[2] || ''); return false; }
+      else if (kind === 'finish') { await ctx.reload(mine); ui.finish(mine); return true; }
+      else ui[kind](...args);
+    }
+    before = after;
+    await new Promise((r) => setTimeout(r, interval));
+  }
 }

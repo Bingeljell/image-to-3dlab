@@ -201,7 +201,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
         snap('reset');
         if (loaded.rig.animations.length) {
           player = new AnimationPlayer(new THREE.AnimationMixer(loaded.modelRoot), {
-            onFrame: () => requestRender(),
+            onFrame: (time, duration) => { requestRender(); syncScrub(time, duration); },
             onStateChange: (playing) => syncPlayButton(playing),
           });
           player.select(loaded.rig.animations[0]);
@@ -262,12 +262,31 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
       <button class="tool" data-clip-act="play" data-tip="Play or pause" aria-label="Play or pause">${ICON.pause}</button>
       <button class="ghost" data-clip-act="rest" data-tip="Reset pose: stop and show the character in its rest pose">Reset pose</button>
       <span class="sep"></span>`) + `
-      ${items.map((clip, i) => `<button class="chip" data-clip="${i}" aria-pressed="${i === clipIndex}">${clip.name}</button>`).join('')}`;
+      ${items.map((clip, i) => `<button class="chip" data-clip="${i}" aria-pressed="${i === clipIndex}">${clip.name}</button>`).join('')}`
+      + (still ? '' : `<span class="scrubber"><input type="range" class="scrub" data-scrub min="0" max="1000" value="0" aria-label="Scrub through the move"><span class="meta frame" data-frame>frame 0</span></span>`);
     if (clipIndex >= 0) onClipChange?.(items[clipIndex]);
     clipBar.dataset.rest = restUrl || '';
     if (clipIndex >= 0) load(items[clipIndex].url, { label: items[clipIndex].name, autoplay: true });
     else if (restUrl) load(restUrl, { label: 'rest pose' });
   }
+
+  // the scrubber: shows where the move is; dragging pauses and moves to that moment
+  const FPS = 30;
+  function syncScrub(time = 0, duration = 0) {
+    const scrub = clipBar.querySelector('[data-scrub]'), label = clipBar.querySelector('[data-frame]');
+    if (!scrub || scrub.matches(':active')) return;
+    scrub.value = duration ? String(Math.round((time / duration) * 1000)) : '0';
+    label.textContent = `frame ${Math.round(time * FPS)} / ${Math.round(duration * FPS)}`;
+  }
+  clipBar.addEventListener('input', (event) => {
+    if (!event.target.matches('[data-scrub]') || !player) return;
+    player.pause();
+    syncPlayButton(false);
+    const t = (Number(event.target.value) / 1000) * player.duration;
+    player.seek(t);
+    clipBar.querySelector('[data-frame]').textContent = `frame ${Math.round(t * FPS)} / ${Math.round(player.duration * FPS)}`;
+    requestRender();
+  });
 
   clipBar.addEventListener('click', (event) => {
     const chip = event.target.closest('[data-clip]');

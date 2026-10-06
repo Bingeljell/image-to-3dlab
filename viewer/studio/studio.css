@@ -245,3 +245,6 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .asset .thumb img.mark.glow { opacity: .8; }
 .pips i.run { background: var(--flame); animation: doorglow 1.4s ease-in-out infinite; }
 .pips i.stop { background: #6b5448; }
+.scrubber { display: inline-flex; align-items: center; gap: 10px; flex: 1 1 220px; min-width: 180px; margin-left: auto; }
+.scrub { flex: 1; accent-color: var(--ember); }
+.frame { white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }

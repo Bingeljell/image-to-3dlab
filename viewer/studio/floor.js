@@ -1,5 +1,6 @@
-// A floor to stand on: a faint grid at height 0, Blender-style axis lines through the
-// origin (red X, blue Z), and a dot at 0,0,0. Models are lifted so their feet touch it.
+// A floor to stand on: a wide grid at height 0 that fades out with distance (no visible
+// edge to walk off), Blender-style axis lines through the origin (red X, blue Z), and a
+// dot at 0,0,0. Models are lifted so their feet touch it.
 
 import * as THREE from 'three';
 
@@ -11,22 +12,57 @@ export function homeView(height) {
   return { target, position: target.map((v, i) => v + HOME_OFFSET[i]) };
 }
 
-export function createFloor({ size = 4, divisions = 20 } = {}) {
+const GRID_VERTEX = `
+  varying vec3 vWorld;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }`;
+
+// Lines drawn per pixel from world position, so they stay crisp at any distance; a minor
+// grid every `cell`, a major one every 10 cells, the X and Z axes coloured, all fading out.
+const GRID_FRAGMENT = `
+  uniform float cell;
+  uniform float fadeFrom;
+  uniform float fadeTo;
+  varying vec3 vWorld;
+  float lines(vec2 p, float size) {
+    vec2 g = abs(fract(p / size - 0.5) - 0.5) / fwidth(p / size);
+    return 1.0 - min(min(g.x, g.y), 1.0);
+  }
+  void main() {
+    vec2 p = vWorld.xz;
+    float minor = lines(p, cell) * 0.35;
+    float major = lines(p, cell * 10.0) * 0.6;
+    float fade = 1.0 - smoothstep(fadeFrom, fadeTo, length(p));
+    vec3 colour = vec3(0.24, 0.19, 0.16);
+    float alpha = max(minor, major);
+    vec2 axis = abs(p) / fwidth(p);
+    if (axis.y < 1.0) { colour = vec3(0.886, 0.341, 0.298); alpha = 0.9; }      // X axis (z = 0): red
+    else if (axis.x < 1.0) { colour = vec3(0.357, 0.608, 0.941); alpha = 0.9; } // Z axis (x = 0): blue
+    alpha *= fade;
+    if (alpha < 0.01) discard;
+    gl_FragColor = vec4(colour, alpha);
+  }`;
+
+export function createFloor({ cell = 0.1, radius = 12 } = {}) {
   const group = new THREE.Group();
   group.name = 'studio-floor';
-  const grid = new THREE.GridHelper(size, divisions, 0x3a2d26, 0x2a201b);
-  grid.material.transparent = true;
-  grid.material.opacity = 0.9;
-  group.add(grid);
-  const line = (from, to, colour) => {
-    const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...from), new THREE.Vector3(...to)]);
-    const mesh = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity: 0.85 }));
-    mesh.position.y = 0.001;  // just above the grid, so it wins
-    return mesh;
-  };
-  const half = size / 2;
-  group.add(line([-half, 0, 0], [half, 0, 0], 0xe2574c));   // X: red, as in Blender
-  group.add(line([0, 0, -half], [0, 0, half], 0x5b9bf0));   // Z (three.js forward): blue
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(radius * 2, radius * 2).rotateX(-Math.PI / 2),
+    new THREE.ShaderMaterial({
+      vertexShader: GRID_VERTEX,
+      fragmentShader: GRID_FRAGMENT,
+      uniforms: { cell: { value: cell }, fadeFrom: { value: radius * 0.15 }, fadeTo: { value: radius * 0.6 } },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      extensions: { derivatives: true },
+    }),
+  );
+  plane.renderOrder = -1;
+  group.add(plane);
   const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf4e8de }));
   group.add(dot);
   return group;

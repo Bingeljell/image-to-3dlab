@@ -216,17 +216,18 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     }
   }
 
-  /** Show a row of moves. `items` are {name, url}; index -1 shows the rest pose. */
-  function setClips(items, { restUrl = null, index = 0 } = {}) {
+  /** Show a row of moves (or, with `still`, of props). `items` are {name, url}. */
+  function setClips(items, { restUrl = null, index = 0, still = false } = {}) {
     clips = items;
     clipBar.hidden = !items.length && !restUrl;
     if (clipBar.hidden) { clipBar.innerHTML = ''; return; }
     clipIndex = items.length ? index : -1;
-    clipBar.innerHTML = `
+    clipBar.innerHTML = (still ? '' : `
       <button class="tool" data-clip-act="play" data-tip="Play or pause" aria-label="Play or pause">${ICON.pause}</button>
       <button class="ghost" data-clip-act="rest" data-tip="Reset pose: stop and show the character in its rest pose">Reset pose</button>
-      <span class="sep"></span>
+      <span class="sep"></span>`) + `
       ${items.map((clip, i) => `<button class="chip" data-clip="${i}" aria-pressed="${i === clipIndex}">${clip.name}</button>`).join('')}`;
+    if (clipIndex >= 0) onClipChange?.(items[clipIndex]);
     clipBar.dataset.rest = restUrl || '';
     if (clipIndex >= 0) load(items[clipIndex].url, { label: items[clipIndex].name, autoplay: true });
     else if (restUrl) load(restUrl, { label: 'rest pose' });

@@ -1,8 +1,10 @@
 // AssetFurnace studio: Library | one viewer | Steps.
-// Phase 1: reads the Library and shows any asset. Steps run from the classic tabs for now.
+// Steps run here through the classic tabs' own job APIs; prop sheets still split in the classic Props tab.
 
 import { STEPS, stepCount, doneCount, statusText, filterAssets, displayModel, servedUrl } from './library.js';
 import { createStudioViewer } from './viewer.js';
+import { readyEngines } from './jobs.js';
+import { stepBody, wireStep } from './steps.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
@@ -12,8 +14,9 @@ let base = '/output/';
 let assets = [];
 let filter = 'all';
 let current = null;
+let engines = [], presets = [], busy = false, playNext = null;
 
-const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO });
+const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const url = (relative) => servedUrl(base, relative);
@@ -56,15 +59,35 @@ function renderSteps(asset) {
     if (i >= total) return `<li class="step na"><header><span class="dot">–</span><span><h3>${step.label}</h3><div class="sum">Not needed for props</div></span></header></li>`;
     const state = i < done ? 'done' : i === done ? 'now' : 'later';
     const dot = state === 'done' ? '✓' : i + 1;
-    const body = state === 'now'
-      ? `<div class="body">This step runs in the classic view for now. <a href="./index.html#${CLASSIC_TAB[step.id]}">Open ${step.label}</a></div>` : '';
-    return `<li class="step ${state}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}</div>` : ''}</span></header>${body}</li>`;
+    const runsHere = !(asset.kind === 'prop set' && step.id === 'finished');
+    const showBody = state === 'now' || (step.id === 'animated' && state === 'done');
+    const body = !showBody ? '' : runsHere
+      ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>`
+      : `<div class="body"><p class="hint">Splitting a prop sheet runs in the classic view for now.</p><a href="./index.html#${CLASSIC_TAB[step.id]}">Open Props</a></div>`;
+    return `<li class="step ${state}" data-step="${step.id}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}</div>` : ''}</span></header>${body}</li>`;
   }).join('');
-  const file = displayModel(asset);
+  $('steps').querySelectorAll('.step').forEach((card) => {
+    if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
+  });
+  setDownload(displayModel(asset));
+}
+
+function setDownload(file) {
   const download = $('download');
   download.hidden = !file;
   if (file) { download.href = url(file); download.setAttribute('download', fileName(file)); }
 }
+
+// what the step actions need from the page
+const ctx = {
+  get engines() { return engines; },
+  get presets() { return presets; },
+  url: (relative) => url(relative),
+  asset: () => current,
+  onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
+  // after a new move, open the asset on that move
+  onDone: async (stepId, { preset } = {}) => { playNext = preset; await loadLibrary(current?.id); },
+};
 
 function show(asset) {
   current = asset;
@@ -78,7 +101,11 @@ function show(asset) {
   }
   renderSteps(asset);
   if (asset.kind === 'character' && asset.clips.length) {
-    viewer.setClips(asset.clips.map((c) => ({ name: c.name.replace(/_/g, ' '), url: url(c.file) })), { restUrl: url(asset.rigged) });
+    const index = Math.max(0, asset.clips.findIndex((c) => c.name === playNext));
+    playNext = null;
+    viewer.setClips(asset.clips.map((c) => ({ name: c.name.replace(/_/g, ' '), url: url(c.file), file: c.file })), { restUrl: url(asset.rigged), index });
+  } else if (asset.kind === 'prop set' && asset.props.length) {
+    viewer.setClips(asset.props.map((p) => ({ name: p.name.replace(/[_-]/g, ' '), url: url(p.file), file: p.file })), { still: true });
   } else {
     viewer.setClips([]);
     const model = displayModel(asset);
@@ -103,18 +130,27 @@ document.querySelectorAll('.seg [data-filter]').forEach((button) => {
   };
 });
 
-async function loadLibrary() {
+async function loadLibrary(keepId = null) {
   try {
     const response = await fetch('/api/assets');
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
     base = payload.base;
     assets = payload.assets;
-    show(assets[0] ?? null);
+    show(assets.find((a) => a.id === keepId) ?? assets[0] ?? null);
   } catch (error) {
     $('libFoot').textContent = `The Library didn't load: ${error.message}`;
     viewer.showEmpty('The Library did not load. Is the viewer server running?');
   }
 }
 
-loadLibrary();
+async function loadTools() {
+  const [catalog, animate] = await Promise.all([
+    fetch('/api/catalog').then((r) => r.json()).catch(() => null),
+    fetch('/api/animate/models').then((r) => r.json()).catch(() => null),
+  ]);
+  engines = readyEngines(catalog);
+  presets = animate?.installed ? animate.presets : [];
+}
+
+loadTools().then(() => loadLibrary());

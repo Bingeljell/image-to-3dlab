@@ -87,3 +87,63 @@ def test_the_classic_viewer_opens_the_tab_named_in_its_address():
     app = (REPO / "viewer" / "app.js").read_text()
     landing = app.index("setMode(landingMode(")
     assert app.index("if (modes[location.hash.slice(1)]) setMode(location.hash.slice(1));") > landing
+
+
+@needs_node
+def test_best_ready_engine_comes_first_and_missing_weights_drop_out():
+    catalog = {"backends": [
+        {"id": "trellis", "kind": "3d", "rank": 3, "build_present": True, "weights": [{"present": True}], "license": {"name": "MIT"}},
+        {"id": "pixal3d", "kind": "3d", "rank": 1, "build_present": True, "weights": [{"present": True}], "license": {"name": "MIT"}},
+        {"id": "sf3d", "kind": "3d", "rank": 5, "build_present": True, "weights": [{"present": False}]},
+        {"id": "hunyuan-cuda", "kind": "3d", "rank": 2, "supported_here": False},
+        {"id": "autorig", "kind": "tool", "rank": 0},
+    ]}
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.readyEngines({json.dumps(catalog)}).map(e => e.id)));")
+    assert out == ["pixal3d", "trellis"]
+
+
+@needs_node
+def test_errors_are_put_in_plain_words():
+    out = _run("jobs.js", """console.log(JSON.stringify([
+      m.plainError('Blender: Error: Not enough memory for 4096 x 4096 bake'),
+      m.plainError('Pixal3D (C++/GGML) is not installed/ready'),
+      m.plainError('a generation is running; wait for it to finish'),
+      m.plainError('could not map skeleton to SOMA'),
+      m.plainError(''),
+    ]));""")
+    assert out[0].startswith("This Mac ran out of memory")
+    assert out[1].startswith("This engine is not installed")
+    assert out[2].startswith("Another job is running")
+    assert out[3].startswith("This doesn't look like a humanoid")
+    assert out[4].startswith("The step stopped without saying why")
+
+
+@needs_node
+def test_following_a_job_reports_progress_and_ends_on_a_terminal_status():
+    out = _run("jobs.js", """
+      const replies = [
+        { status: 'running', last_event: { phase: 'bake', pct: 40, message: 'Baking' }, log_tail: 'a' },
+        { status: 'running', last_event: { phase: 'bake', pct: 80, message: 'Baking' }, log_tail: 'ab' },
+        { status: 'done', last_event: { phase: 'done', result_url: '/x.glb' }, log_tail: 'abc' },
+      ];
+      let i = 0;
+      const fetchImpl = async () => ({ json: async () => replies[Math.min(i++, replies.length - 1)] });
+      const seen = [];
+      const job = m.followJob('/api/finish/1/status', { interval: 1, fetchImpl, onUpdate: (u) => seen.push([u.status, u.percent]) });
+      const final = await job.done;
+      console.log(JSON.stringify({ seen, final: final.status, url: final.last_event.result_url }));""")
+    assert out["seen"] == [["running", 40], ["running", 80], ["done", None]]
+    assert out["final"] == "done" and out["url"] == "/x.glb"
+
+
+@needs_node
+def test_a_job_with_no_news_for_three_minutes_is_flagged_as_stalled():
+    out = _run("jobs.js", """
+      let clock = 0;
+      const replies = [{ status: 'running', last_event: { phase: 'shape' } }, { status: 'running', last_event: { phase: 'shape' } }, { status: 'done', last_event: {} }];
+      let i = 0;
+      const fetchImpl = async () => { clock += 200000; return { json: async () => replies[Math.min(i++, 2)] }; };
+      const stalls = [];
+      await m.followJob('/s', { interval: 1, fetchImpl, now: () => clock, onUpdate: (u) => stalls.push(u.stalled) }).done;
+      console.log(JSON.stringify(stalls));""")
+    assert out == [False, True, False]

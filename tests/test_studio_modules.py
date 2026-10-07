@@ -82,13 +82,6 @@ def test_axis_map_looking_straight_down_does_not_break():
     assert out is True
 
 
-def test_the_classic_viewer_opens_the_tab_named_in_its_address():
-    # the studio's Setup link is index.html#setup; the hash must win after the landing tab
-    app = (REPO / "viewer" / "app.js").read_text()
-    landing = app.index("setMode(landingMode(")
-    assert app.index("if (modes[location.hash.slice(1)]) setMode(location.hash.slice(1));") > landing
-
-
 @needs_node
 def test_best_ready_engine_comes_first_and_missing_weights_drop_out():
     catalog = {"backends": [
@@ -238,6 +231,25 @@ def test_the_how_to_page_covers_every_button_in_the_top_bar():
     assert labels and all(label in out for label in labels if label != "How to use"), labels
     for must in ("+ Create", "Steps", "Download GLB", "Cancel", "close the tab"):
         assert must in out, must
+
+
+def test_the_classic_viewer_is_gone_and_old_links_land_in_the_studio():
+    viewer = REPO / "viewer"
+    assert not (viewer / "app.js").exists() and not (viewer / "modes").exists()
+    assert 'url=./studio.html' in (viewer / "index.html").read_text()
+    studio = (viewer / "studio.html").read_text()
+    assert "index.html" not in studio and "Classic" not in studio
+    assert 'href="./setup.html"' in studio
+
+
+def test_setup_has_a_way_back_to_the_studio_and_every_element_its_script_needs():
+    import re
+    page = (REPO / "viewer" / "setup.html").read_text()
+    assert page.count('href="./studio.html"') >= 2  # the logo, the Back button, the Done link
+    script = (REPO / "viewer" / "studio" / "setup.js").read_text()
+    ids = set(re.findall(r"s\('([a-z-]+)'\)", script)) - {"huggingface"}  # that one is a card it builds
+    missing = [i for i in ids if f'id="{i}"' not in page]
+    assert ids and not missing, missing
 
 
 RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())

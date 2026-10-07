@@ -523,13 +523,6 @@ def test_repaint_is_opt_in_so_finish_never_needs_the_hunyuan_paint_weights():
     assert finish.normalise_settings({"skip_paint": False})["skip_paint"] is False
 
 
-def test_the_finish_page_calls_it_pixel_match():
-    from pathlib import Path
-    html = Path("viewer/index.html").read_text()
-    assert "Pixel Match" in html
-    assert 'id="finish-repaint" type="checkbox" checked' not in html
-
-
 def test_a_skipped_pixel_match_is_said_plainly_and_stays_on_screen(tmp_path):
     # Seen on a real NVIDIA pod: Pixel Match stayed ticked, no stage ran, and the only word
     # about it was a start-up line replaced a second later. The note rides on the finished

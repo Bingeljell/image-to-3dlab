@@ -1,5 +1,5 @@
 // AssetFurnace studio: Library | one viewer | Steps.
-// Steps run here through the classic tabs' own job APIs, prop-sheet splitting included.
+// Steps run here through the server's job APIs, prop-sheet splitting included.
 
 import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets, openingView, isModelFile } from './library.js';
 import { createStudioViewer } from './viewer.js';

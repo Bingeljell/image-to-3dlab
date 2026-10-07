@@ -97,7 +97,7 @@ export async function openAbout(stage) {
       on <a href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">GitHub</a>, we’re on
       <a href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>, or you can tag me in a post on
       <a href="https://x.com/bingeljell" target="_blank" rel="noopener">X</a>. Most of all, we’d love contributions.</p>
-    <p>Make game-ready 3D characters and props on your own machine: from an idea, a picture or a model, to a rigged,
+    <p>The goal is to enable you to make game-ready 3D characters and props on your own machine: from an idea, a picture or a model, to a rigged,
       moving character you can drop into Godot, Unity, Unreal or Blender. Nothing leaves this computer.</p>
     <p class="meta" data-version>AssetFurnace by Bingeljell</p>
     <!-- ABOUT COPY: the "What AssetFurnace adds" list below is the part to edit -->
@@ -149,7 +149,6 @@ export const GUIDE = [
   ['Activity', 'Everything that has run, finished, stopped or failed, with logs when something breaks.'],
   ['Setup', 'Install engines and see disk use. Nothing downloads until you say yes, and each download says how big it is first.'],
   ['About', 'What AssetFurnace is, the open models it builds on, and their licences.'],
-  ['Classic view', 'The older viewer with every tool, including Compare, while the studio is being finished.'],
 ];
 
 export function openGuide(stage) {

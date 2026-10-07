@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Serve the repo so the mesh viewer can load GLBs by relative path.
+"""Serve the studio, and the repo so it can load GLBs by relative path.
 
-    python viewer/serve.py                      # http://127.0.0.1:8777
-    python viewer/serve.py --open A.glb B.glb   # and print/launch a compare URL
+    python viewer/serve.py                      # http://127.0.0.1:8777/viewer/studio.html
+    python viewer/serve.py --auto               # what ./lab runs: picks how to listen, opens the browser
     python viewer/serve.py --host 100.x.y.z      # explicit Tailscale/LAN interface
 
 Bound to 127.0.0.1 by default. An explicit --host exposes the whole repository, including
@@ -17,11 +17,9 @@ from __future__ import annotations
 
 import argparse
 import os
-import http.server
 import signal
 import socketserver
 import sys
-import urllib.parse
 import webbrowser
 from collections.abc import Mapping
 from pathlib import Path
@@ -48,42 +46,6 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, ConnectionAbortedError)):
             return
         super().handle_error(request, client_address)
-
-
-class StaticViewerHandler(http.server.SimpleHTTPRequestHandler):
-    """Serve viewer assets only; no repository files or generation endpoints."""
-
-    extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, **Handler.extensions_map}
-
-    def do_POST(self) -> None:
-        self.send_error(405, "Static viewer mode does not accept jobs")
-
-
-def compare_url(
-    assets: list[str],
-    port: int,
-    labels: list[str] | None = None,
-    *,
-    host: str = "127.0.0.1",
-) -> str:
-    """A viewer URL for up to three assets, paths relative to the repo root.
-
-    Absolute paths inside the repo are rewritten to relative; anything outside it would not
-    be served, so it is reported rather than silently 404ing in the browser.
-    """
-    params: dict[str, str] = {}
-    for index, asset in enumerate(assets[:4]):
-        path = Path(asset)
-        if path.is_absolute():
-            try:
-                path = path.relative_to(REPO)
-            except ValueError as exc:
-                raise ValueError(f"{asset} is outside the repo and cannot be served") from exc
-        key = "abcd"[index]
-        params[key] = str(path)
-        if labels and index < len(labels):
-            params["l" + key] = labels[index]
-    return f"http://{host}:{port}/viewer/index.html?" + urllib.parse.urlencode(params)
 
 
 class LaunchPlan(NamedTuple):
@@ -118,27 +80,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="127.0.0.1", help="interface address to bind")
     parser.add_argument("--port", type=int, default=8777)
-    parser.add_argument("--open", nargs="*", metavar="GLB", help="assets to compare")
-    parser.add_argument("--labels", nargs="*", help="captions, one per asset")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--auto", action="store_true",
                         help="pick how to listen for this machine (what ./lab uses)")
-    parser.add_argument(
-        "--static-only",
-        action="store_true",
-        help="serve only viewer assets and disable generation endpoints",
-    )
     args = parser.parse_args()
     plan = launch_plan(os.environ, args.port) if args.auto else None
     if plan is not None:
         args.host = plan.host
 
-    if args.static_only and args.open:
-        parser.error("--static-only cannot serve repository paths passed with --open")
-    url = compare_url(args.open, args.port, args.labels, host=args.host) if args.open else (
-        f"http://{args.host}:{args.port}/index.html" if args.static_only
-        else f"http://{args.host}:{args.port}/viewer/studio.html"
-    )
+    url = f"http://{args.host}:{args.port}/viewer/studio.html"
     print(url, flush=True)
 
     # A prior server life may have died mid-generation (crash, closed terminal) without
@@ -161,12 +111,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
 
     import functools
-    handler_class = StaticViewerHandler if args.static_only else Handler
-    directory = REPO / "viewer" if args.static_only else REPO
-    handler = functools.partial(handler_class, directory=str(directory))
+    handler = functools.partial(Handler, directory=str(REPO))
     with ThreadingHTTPServer((args.host, args.port), handler) as httpd:
-        if args.open and not args.no_browser:
-            webbrowser.open(url)
         if plan is not None:
             print(plan.message, flush=True)
             if plan.open_browser and not args.no_browser:

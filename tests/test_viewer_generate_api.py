@@ -6,7 +6,6 @@ import builtins
 import importlib.util
 import json
 import os
-import re
 import sys
 import types
 from pathlib import Path
@@ -467,12 +466,6 @@ def test_pixal3d_settings_reject_an_unavailable_resolution():
         with pytest.raises(ValueError):
             api._pixal3d_validate_settings({"res": res})
     assert api._pixal3d_validate_settings({"res": 1024})["res"] == 1024
-
-
-def test_pixal3d_page_offers_only_the_resolution_that_runs():
-    page = (Path(__file__).resolve().parents[1] / "viewer" / "index.html").read_text()
-    select = page.split('<select id="pixal3d-res">', 1)[1].split("</select>", 1)[0]
-    assert re.findall(r"<option[^>]*>(\d+)</option>", select) == ["1024"]
 
 
 def test_pixal3d_settings_reject_a_fov_given_in_degrees():
@@ -1251,37 +1244,11 @@ def test_nvidia_trellis_hides_the_mac_only_controls():
     assert api.trellis_spec(api.APPLE).hidden_fields == ()
 
 
-def test_hidden_fields_name_real_generate_controls():
-    html = (Path(api.__file__).parent / "index.html").read_text()
-    for field in api.trellis_spec(api.NVIDIA).hidden_fields:
-        assert f'id="{field}"' in html
-
-
-def test_hidden_rows_are_not_shown_anyway_by_their_own_display_rule():
-    # `.field { display: grid }` beat the hidden attribute, so the Mac-only controls the
-    # page had correctly marked hidden still showed on NVIDIA. Each row class used for a
-    # hidden field needs an explicit [hidden] rule.
-    css = (Path(api.__file__).parent / "styles" / "generate.css").read_text()
-    assert ".field[hidden]" in css and ".check[hidden]" in css
-
-
-def test_drop_prompt_follows_whether_the_route_needs_a_cut_out():
-    js = (Path(api.__file__).parent / "modes" / "generate.js").read_text()
-    assert "function updateDropPrompt()" in js
-    assert js.count("updateDropPrompt();") >= 2  # on metadata load and on backend change
-
-
 def test_catalog_names_the_setup_already_running(monkeypatch):
     monkeypatch.setattr(api, "running_payload", lambda: {"backend": "trellis"})
     assert api.catalog_payload()["running_setup"] == {"backend": "trellis"}
     monkeypatch.setattr(api, "running_payload", lambda: None)
     assert api.catalog_payload()["running_setup"] is None
-
-
-def test_backend_dropdown_takes_its_names_from_the_server():
-    # The option text was fixed in index.html, so NVIDIA showed "TRELLIS.2 (clean port)".
-    js = (Path(api.__file__).parent / "modes" / "generate.js").read_text()
-    assert "function applyBackendLabels()" in js and "applyBackendLabels();" in js
 
 
 def test_learned_timings_never_dirty_a_tracked_file(tmp_path, monkeypatch):
@@ -1385,14 +1352,6 @@ def test_hunyuan_cuda_is_not_ready_before_setup(tmp_path, monkeypatch):
     assert status["ready"] is False and "bootstrap_hunyuan_cuda.py" in status["build"]["hint"]
 
 
-def test_hunyuan_cuda_fields_exist_in_the_page():
-    html = (Path(api.__file__).parent / "index.html").read_text()
-    assert 'value="hunyuan-cuda"' in html and 'data-backend="hunyuan-cuda"' in html
-    for field in ("hycuda-seed", "hycuda-steps", "hycuda-octree", "hycuda-views",
-                  "hycuda-paint-res"):
-        assert f'id="{field}"' in html, field
-
-
 def test_progress_streams_tell_proxies_not_to_buffer():
     # Seen through RunPod's proxy: progress arrived in batches, minutes behind, because
     # proxies (nginx, Cloudflare, RunPod) hold event streams back unless told not to.
@@ -1413,16 +1372,6 @@ def test_progress_streams_tell_proxies_not_to_buffer():
     assert ("X-Accel-Buffering", "no") in sent and sent[-1] == ("end",)
 
 
-def test_generate_tab_rechecks_readiness_when_opened():
-    # Seen on a real pod: setup finished, the user opened Generate 3D, and it still said
-    # "not installed yet" with Generate greyed out until a reload, because readiness was
-    # only checked on page load and on a model change.
-    js = (Path(api.__file__).parent / "modes" / "generate.js").read_text()
-    listener = js[js.index("addEventListener('viewer:modechange'"):]
-    listener = listener[:listener.index("});")]
-    assert "'generate'" in listener and "refreshSetup()" in listener
-
-
 def test_backends_say_whether_they_run_on_this_machine(monkeypatch):
     # The Generate dropdown offered the Mac-only Hunyuan-MLX routes on an NVIDIA pod.
     monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.NVIDIA)
@@ -1431,11 +1380,6 @@ def test_backends_say_whether_they_run_on_this_machine(monkeypatch):
     monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.APPLE)
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
     assert here["hunyuan-mlx-xiong"] is True and here["hunyuan-cuda"] is False
-
-
-def test_dropdown_hides_routes_that_do_not_run_here():
-    js = (Path(api.__file__).parent / "modes" / "generate.js").read_text()
-    assert "option.hidden = meta.runs_here === false" in js
 
 
 def test_sign_in_answers_with_status_or_a_plain_error(monkeypatch):

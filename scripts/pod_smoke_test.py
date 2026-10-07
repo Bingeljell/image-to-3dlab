@@ -406,7 +406,7 @@ def run_smoke(pod: Pod, args, token: str, out: Path, results: list[dict]) -> lis
             except OSError as exc:
                 last = exc
             if last == 200:
-                return viewer.base + "/viewer/index.html"
+                return viewer.base + "/viewer/studio.html"
             time.sleep(6)
         raise RuntimeError(f"viewer never answered {viewer.base} (last: {last}): "
                            + pod.ssh("tail -20 ~/image-to-3dlab/lab.log"))

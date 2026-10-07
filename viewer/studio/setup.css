@@ -1,0 +1,92 @@
+/* Setup & Status in the studio's look. Colours are the studio's. */
+.setup-body { overflow: auto; }
+.setup-scroll { padding: 28px 24px 60px; }
+.bar .back { padding: 8px 14px; }
+.setup-done { margin-top: 24px; }
+.setup-page h2 { font-family: var(--f-display); font-size: 26px; color: var(--bone); }
+.setup-page a { color: var(--flame); }
+.setup-page a.primary { color: #1b0b02; }
+.setup-page button:not(.ghost):not(.setup-tab) { background: var(--ember); color: #1b0b02; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+.setup-page button:disabled { opacity: .5; cursor: default; }
+.setup-tab { background: var(--raise); border: 1px solid var(--line); color: var(--ash); padding: 7px 12px; }
+.setup-page input[type=password], .setup-page input[type=text] { background: var(--coal); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.progress-track { height: 9px; margin: 12px 0 16px; background: var(--coal); border-radius: 99px; overflow: hidden; }
+/* Every track's fill, not just Generate's: the Finish panel's bar was an id this rule
+   never named, so it sat empty for the whole run (found 2026-09-21). */
+.progress-track > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--ember), #ff9447); transition: width .2s; }
+.setup-page { max-width: 860px; margin: 0 auto; }
+.setup-head { display: flex; gap: 20px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.setup-head h2 { margin: 0 0 4px; }
+.setup-sub { font-size: 12px; opacity: .75; margin: 0; max-width: 54ch; }
+.setup-skip { flex: 0 0 auto; font-size: 12px; display: grid;
+  grid-template-columns: auto 1fr; align-items: baseline; gap: 4px 7px; }
+.setup-skip small { grid-column: 2; margin-top: 0; }
+.setup-skip small { display: block; opacity: .6; margin-top: 2px; }
+.setup-summary { margin: 16px 0 12px; padding: 10px 12px; border-radius: 8px;
+  background: #1b2130; font-size: 13px; }
+.setup-backends { display: grid; gap: 12px; }
+.setup-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  background: var(--panel); }
+.setup-card.ready { border-color: #2a4436; }
+.setup-card.partial { border-color: #4a4426; }
+.setup-card.elsewhere { opacity: .8; }
+.setup-hf-repos { font-size: 12px; margin: 6px 0; padding-left: 18px; }
+.setup-hf-form { display: flex; gap: 8px; margin-top: 8px; }
+.setup-hf-form input { flex: 1; }
+.setup-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 18px 0 10px; }
+.setup-tab { border-radius: 8px 8px 0 0; }
+.setup-tab[aria-selected="true"] { background: var(--raise); border-color: var(--ember); color: #fff; }
+/* A build with no percentage: a sliding band, so the bar never sits empty. */
+.progress-track.busy > div { width: 30% !important; animation: setup-busy 1.4s ease-in-out infinite; }
+@keyframes setup-busy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.setup-card-head { display: grid; grid-template-columns: 20px 1fr auto; gap: 10px;
+  align-items: start; }
+.setup-dot { font-size: 15px; line-height: 1.4; }
+.setup-dot.ok { color: #7fd6a0; }
+.setup-dot.warn { color: #e8c37a; }
+.setup-dot.off { color: #6b7280; }
+.setup-card-title strong { font-size: 14px; }
+.setup-card-state { font-size: 11px; opacity: .7; margin-top: 2px; }
+.setup-pill { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  background: #2b4a6f; color: #ffe2cc; padding: 2px 6px; border-radius: 99px;
+  margin-left: 6px; vertical-align: 2px; }
+.setup-ready { color: #7fd6a0; font-size: 12px; }
+/* Stated, not greyed out: a disabled-looking button invites clicking it again. */
+.setup-unavailable { color: #8a8f98; font-size: 12px; text-align: right; }
+/* Routes the viewer cannot install for you. The command is the whole point, so it is
+   selectable text rather than a tooltip on a dead button. */
+.setup-manual { color: #8a8f98; font-size: 12px; text-align: right; display: block; }
+.setup-manual code { color: #ffe2cc; user-select: all; word-break: break-all; }
+.setup-card-best { font-size: 12px; margin: 8px 0 2px; }
+.setup-card-trade { font-size: 12px; opacity: .7; margin: 0; }
+.setup-card-caveat { font-size: 12px; margin: 8px 0 0; padding: 7px 9px; border-radius: 6px;
+  background: #3a2f1c; color: #f0d9a8; }
+.setup-card-detail { margin-top: 10px; font-size: 12px; }
+.setup-card-detail summary { cursor: pointer; opacity: .75; }
+.setup-card-detail ul { margin: 8px 0; padding-left: 18px; }
+.setup-card-detail li { margin-bottom: 4px; }
+.setup-card-licence, .setup-card-extra { opacity: .7; margin: 6px 0 0; }
+.setup-run { margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: var(--panel);
+  border: 1px solid var(--line); }
+.setup-backends .setup-run { margin-top: 0; }
+.setup-run-head { display: flex; justify-content: space-between; align-items: center; }
+.setup-run-detail { font-size: 12px; opacity: .8; margin-top: 4px; }
+.setup-run pre { max-height: 220px; overflow: auto; font-size: 11px; opacity: .65;
+  margin: 10px 0 0; white-space: pre-wrap; }
+.setup-foot { font-size: 11px; opacity: .6; margin-top: 20px; }
+
+/* Generate keeps only a health line; the detail lives on the page above. */
+.health-strip { display: flex; align-items: center; gap: 9px; padding: 8px 12px;
+  border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-size: 12px;
+  margin-bottom: 12px; }
+.health-dot { font-size: 15px; }
+.health-dot.ok { color: #7fd6a0; }
+.health-dot.bad { color: #f0a9a0; }
+.health-dot.warn { color: #e8c37a; }
+.mode.needs-attention::after { content: '•'; color: #e8c37a; margin-left: 5px; }
+.setup-remove { margin-left: 8px; opacity: .65; }
+.setup-remove:hover { opacity: 1; }
+.setup-remove { margin-left: 8px; opacity: .55; border-color: #5a3038; color: #e0a9a9; }
+.setup-remove:hover { opacity: 1; background: #3a1f24; }
+.setup-summary { background: var(--raise); border: 1px solid var(--line); color: var(--bone); }
+.setup-pill { background: var(--raise); color: var(--flame); }

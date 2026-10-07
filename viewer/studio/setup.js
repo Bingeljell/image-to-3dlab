@@ -14,7 +14,6 @@
 import { showsCaveat } from '../components/gated-caveat.js';
 
 const s = (id) => document.getElementById(id);
-const SKIP_KEY = 'i2l.setup.skip';
 
 // `panelFor` is the backend whose download the progress panel shows. It outlives the run
 // so the finished result stays under the card that started it.
@@ -28,21 +27,6 @@ function placeRunPanel() {
   const card = state.panelFor
     && s('setup-backends').querySelector(`[data-backend="${CSS.escape(state.panelFor)}"]`);
   if (card) card.after(s('setup-run'));
-}
-
-/** Whether the user asked not to land here. Browser storage can throw; never block on it. */
-export function skipRequested() {
-  try {
-    return localStorage.getItem(SKIP_KEY) === '1';
-  } catch (_) {
-    return false;
-  }
-}
-
-function setSkip(value) {
-  try {
-    localStorage.setItem(SKIP_KEY, value ? '1' : '0');
-  } catch (_) { /* private window: the preference simply does not persist */ }
 }
 
 const STATE_META = {
@@ -659,11 +643,5 @@ export async function load() {
     s('setup-summary').textContent = `Could not read machine status: ${error.message}`;
   }
 }
-
-s('setup-skip').checked = skipRequested();
-s('setup-skip').onchange = (event) => setSkip(event.target.checked);
-document.addEventListener('viewer:modechange', (event) => {
-  if (event.detail.mode === 'setup') load();
-});
 
 load();

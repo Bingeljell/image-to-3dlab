@@ -1,5 +1,5 @@
 // The Steps panel's actions: each step's settings, its start call, and its progress card.
-// The job APIs are the classic tabs' own; the studio sends them the asset's files. Prop sheets split here too.
+// The job APIs live on the server; the studio sends them the asset's files. Prop sheets split here too.
 
 import { followJob, plainError, statusUrlFor, jobEnd } from './jobs.js';
 import { freshSeed } from './create.js';
@@ -25,7 +25,7 @@ export function stepBody(stepId, asset, ctx) {
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
     const [best, ...others] = ctx.engines;
-    if (!best) return '<p class="hint">No 3D engine is installed yet. <a href="./index.html#setup">Install one in Setup</a>.</p>';
+    if (!best) return '<p class="hint">No 3D engine is installed yet. <a href="./setup.html">Install one in Setup</a>.</p>';
     return `<p class="hint">Builds a textured 3D model from the picture. Takes a few minutes.</p>
       <details class="adv"><summary>Advanced</summary>
         <label class="field">Engine<select data-k="engine">${[best, ...others].map((e, i) => `<option value="${esc(e.id)}">${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>

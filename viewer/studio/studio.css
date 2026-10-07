@@ -133,7 +133,8 @@ a { color: inherit; }
 .step .body { padding: 0 12px 12px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--ash); }
 .side-foot { padding: 12px; border-top: 1px solid var(--line); display: grid; }
 
-@media (max-width: 980px) {
+/* stack before the viewer gets squeezed: three columns need ~1150 px to leave it room */
+@media (max-width: 1150px) {
   body { overflow: auto; }
   .studio { height: auto; grid-template-columns: 1fr; }
   .lib .scroll { max-height: 260px; }
@@ -271,3 +272,9 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .guide dl { margin: 6px 0 0; display: grid; gap: 4px 0; }
 .guide dt { font-weight: 600; color: var(--bone, #eee); margin-top: 12px; }
 .guide dd { margin: 2px 0 0; color: var(--ash, #aaa); line-height: 1.5; }
+
+/* narrow windows: the top bar wraps instead of pushing buttons off-screen */
+@media (max-width: 760px) {
+  .bar { height: auto; min-height: 52px; flex-wrap: wrap; padding: 8px 12px; row-gap: 6px; }
+  .bar .spacer { flex-basis: 100%; height: 0; }
+}

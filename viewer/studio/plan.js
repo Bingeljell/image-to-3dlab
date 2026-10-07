@@ -4,8 +4,8 @@
 export const HAVES = { idea: 'An idea', picture: 'A picture', model: 'A 3D model' };
 export const WANTS = {
   picture: { label: 'A picture', hint: 'Concept art, or the start of a 3D model later.' },
-  prop: { label: 'A prop', hint: 'One object, game-ready, with detail levels.' },
-  set: { label: 'A prop set', hint: 'Nine props from one 3×3 picture.' },
+  prop: { label: 'One prop', hint: 'One object, game-ready, with detail levels.' },
+  set: { label: 'Nine props', hint: 'A 3×3 sheet of props, cut into nine game-ready models.' },
   character: { label: 'A moving character', hint: 'Rigged and animated. Humanoids only for now.' },
 };
 

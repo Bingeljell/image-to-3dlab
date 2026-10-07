@@ -1,7 +1,8 @@
 // The Steps panel's actions: each step's settings, its start call, and its progress card.
 // The job APIs are the classic tabs' own; the studio sends them the asset's files. Prop sheets split here too.
 
-import { followJob, plainError, statusUrlFor } from './jobs.js';
+import { followJob, plainError, statusUrlFor, jobEnd } from './jobs.js';
+import { freshSeed } from './create.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -107,7 +108,7 @@ export function wireStep(card, stepId, asset, ctx) {
 async function startModel(asset, ctx, backend) {
   const form = new FormData();
   form.append('image', await fileFrom(ctx.url(asset.picture), fileName(asset.picture)));
-  form.append('settings', JSON.stringify({ backend }));
+  form.append('settings', JSON.stringify({ backend, seed: freshSeed() }));  // each try differs
   return { kind: 'generate', start: await postStart('/api/generate', form) };
 }
 
@@ -178,10 +179,12 @@ async function runInCard(card, starter, ctx, stepId, note) {
   const final = await job.done;
   ctx.onBusy?.(false);
   if (final.status === 'done') { ctx.onDone?.(stepId, { preset: stepId === 'animated' ? settingsOf(card) : null }); return; }
-  const why = final.status === 'cancelled' ? 'Cancelled. Everything finished before this step is kept.' : plainError(final.last_event?.message || final.log_tail || '');
-  show(`<div class="job failed"><p class="job-msg">${esc(why)}</p>
-    <details><summary class="hint">Show log</summary><pre class="log">${esc((final.log_tail || '').split('\n').slice(-30).join('\n'))}</pre></details>
+  const { cancelled, why, log: tail } = jobEnd(final);
+  show(cancelled
+    ? `<div class="job"><p class="job-msg">${esc(why)}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`
+    : `<div class="job failed"><p class="job-msg">${esc(why)}</p>
+    <details><summary class="hint">Show log</summary><pre class="log">${esc(tail.split('\n').slice(-30).join('\n'))}</pre></details>
     <div class="row end"><button class="ghost" data-copy>Copy details</button><button class="ghost" data-back>Back</button></div></div>`);
   body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
-  body.querySelector('[data-copy]').onclick = () => navigator.clipboard?.writeText(`${why}\n\n${final.log_tail || ''}`);
+  body.querySelector('[data-copy]')?.addEventListener('click', () => navigator.clipboard?.writeText(`${why}\n\n${tail}`));
 }

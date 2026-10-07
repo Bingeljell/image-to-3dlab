@@ -80,6 +80,7 @@ class Chain:
     engine: str | None = None
     first_move: str | None = None
     picture_settings: dict[str, Any] = field(default_factory=dict)  # size, steps, seed (the image job checks them)
+    model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -251,7 +252,10 @@ class ChainRunner:
             body = json.dumps({"prompt": chain.prompt or chain.title, "settings": chain.picture_settings}).encode()
             return kind, self._post("/api/image", body, "application/json")
         if step == "model":
-            body, ctype = multipart({"settings": json.dumps({"backend": chain.engine} if chain.engine else {})},
+            settings = {"backend": chain.engine} if chain.engine else {}
+            if chain.model_seed is not None:
+                settings["seed"] = chain.model_seed
+            body, ctype = multipart({"settings": json.dumps(settings)},
                                     {"image": self._picture(chain)})
             return kind, self._post("/api/generate", body, ctype)
         if step == "finished":
@@ -371,6 +375,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         prompt=text("prompt"), engine=text("engine"), first_move=text("first_move"),
         picture_settings={k: picture[k] for k in ("width", "height", "steps", "seed") if k in picture}
         if isinstance(picture, dict) else {},
+        model_seed=int(text("model_seed")) if (text("model_seed") or "").isdigit() else None,
         made={k: str(v) for k, v in made.items() if k in ("picture", "model", "finished", "rigged") and v},
         upload=(upload.get("filename") or "upload", upload["data"]) if upload and upload.get("filename") and upload.get("data") else None,
     )

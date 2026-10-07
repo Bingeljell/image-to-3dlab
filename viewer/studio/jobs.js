@@ -74,9 +74,19 @@ export function followJob(statusUrl, { onUpdate, interval = 1200, fetchImpl = fe
 }
 
 // engine chatter that means nothing to a person: kernel compiles, verbose/debug lines, blanks
-const NOISE = /\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+/i;
+// engine chatter, and the picture model's tokenizer dumps (<|im_start|>, token lists with Ġ/Ċ markers)
+const NOISE = /\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+|<\|im_(start|end)\|>|\btokens \[|[\u0120\u010a]/i;
 
 /** The last `count` lines of a log worth showing to a person. */
 export function readableLog(text, count = 4) {
   return String(text || '').split('\n').map((line) => line.trimEnd()).filter((line) => line && !NOISE.test(line)).slice(-count).join('\n');
+}
+
+/**
+ * How a finished step reads: a cancel is calm and has no log (nothing to debug); a failure
+ * says why in plain words and keeps its log.
+ */
+export function jobEnd(final) {
+  if (final.status === 'cancelled') return { cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '' };
+  return { cancelled: false, why: plainError(final.last_event?.message || final.log_tail || ''), log: final.log_tail || '' };
 }

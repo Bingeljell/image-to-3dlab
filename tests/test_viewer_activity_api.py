@@ -165,3 +165,25 @@ def test_the_picture_step_sends_the_chosen_size_steps_and_seed(tmp_path):
     runner.submit(chain, background=False)
     sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image"))
     assert sent == {"prompt": "a crate", "settings": {"width": 512, "height": 512, "steps": 8, "seed": 99}}
+
+
+def test_the_model_step_sends_the_fresh_seed_create_chose(tmp_path):
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": json.dumps(["model"]), "engine": "pixal3d", "model_seed": "12345"},
+                               {"file": ("boy.png", b"png")})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    assert chain.model_seed == 12345
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    sent = next(b for m, p, b in jobs.calls if p == "/api/generate")
+    assert b'{"backend": "pixal3d", "seed": 12345}' in sent
+
+
+def test_a_missing_or_bad_model_seed_leaves_the_engine_default():
+    from viewer.generate_api import parse_multipart
+    for seed in (None, "", "lots"):
+        fields = {"title": "x", "steps": json.dumps(["model"])}
+        if seed is not None:
+            fields["model_seed"] = seed
+        body, ctype = aa.multipart(fields, {})
+        assert aa.chain_from_form(parse_multipart(ctype, body)).model_seed is None

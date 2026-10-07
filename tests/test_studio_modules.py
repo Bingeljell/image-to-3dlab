@@ -184,6 +184,50 @@ def test_only_a_glb_opens_in_the_viewer():
     assert out == [True, True, False, False, False, False]
 
 
+@needs_node
+def test_a_cancelled_run_reads_as_cancelled_not_as_a_failure():
+    out = _run("create.js", """
+      const a = { steps: ['picture', 'model'], status: 'running', current: 'picture', done: [], made: {}, percent: 10, message: 'Drawing', full_log: 'x', stalled: false };
+      console.log(JSON.stringify(m.chainEvents(a, { ...a, status: 'cancelled' })));""")
+    assert out == [["cancel", "picture"]]
+
+
+@needs_node
+def test_a_cancelled_step_shows_no_log_and_a_failed_one_keeps_it():
+    out = _run("jobs.js", """
+      console.log(JSON.stringify([m.jobEnd({ status: 'cancelled', log_tail: 'noise' }), m.jobEnd({ status: 'error', last_event: { message: 'Killed' }, log_tail: 'a\\nb' })]));""")
+    cancelled, failed = out
+    assert cancelled == {"cancelled": True, "why": "Cancelled. Everything finished before this step is kept.", "log": ""}
+    assert failed["cancelled"] is False and failed["log"] == "a\nb" and failed["why"]
+
+
+@needs_node
+def test_the_log_drops_the_picture_models_tokenizer_chatter():
+    log = "\n".join([
+        "<|im_start|>user",
+        '" to 17 tokens ["<|im_start|>", "system", "\u010a", "Com", "preh", "end",',
+        '"\u0120and", "\u0120analyze", "\u0120the", "\u0120provided", "\u0120prompt", ".", "',
+        "<|im_end|>\", \"\u010a\", ]",
+        "denoising step 2/10",
+    ])
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.readableLog({json.dumps(log)}, 4)));")
+    assert out == "denoising step 2/10"
+
+
+@needs_node
+def test_every_3d_try_gets_a_fresh_seed():
+    out = _run("create.js", """
+      const form = m.planForm({ steps: ['model'], description: 'x', modelSeed: m.freshSeed(() => 0.5) });
+      console.log(JSON.stringify([m.freshSeed(() => 0.5), form.get('model_seed'), m.planForm({ steps: ['model'] }).get('model_seed')]));""")
+    assert out == [1073741823, "1073741823", None]
+
+
+@needs_node
+def test_one_prop_and_nine_props_are_told_apart_by_name():
+    out = _run("plan.js", "console.log(JSON.stringify([m.WANTS.prop.label, m.WANTS.set.label]));")
+    assert out == ["One prop", "Nine props"]
+
+
 RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
 
 

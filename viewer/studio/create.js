@@ -15,7 +15,12 @@ export function pictureSettings({ size = 768, steps = 10, newEachTime = true, se
   const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 768;
   const count = Math.max(1, Math.min(50, Math.round(Number(steps)) || 10));
   const fixed = Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : 42;
-  return { width: side, height: side, steps: count, seed: newEachTime ? Math.floor(random() * 2147483647) : fixed };
+  return { width: side, height: side, steps: count, seed: newEachTime ? freshSeed(random) : fixed };
+}
+
+/** A new random seed, so trying again gives a different result. */
+export function freshSeed(random = Math.random) {
+  return Math.floor(random() * 2147483647);
 }
 
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
@@ -114,7 +119,8 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
       close();
       onStart({ have: state.have, want: state.want, steps: active, file: state.file, engine: state.engine, firstMove: state.firstMove,
         description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
-        pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null });
+        pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
+        modelSeed: active.includes('model') ? freshSeed() : null });  // a new 3D try each time, like the picture
     };
     text?.focus();
   }
@@ -141,10 +147,8 @@ export function chainEvents(before, after) {
   if (running && after.current) {
     out.push(['progress', { event: { message: after.message }, percent: after.percent, log: after.full_log, stalled: after.stalled }]);
   }
-  if (after.status === 'error' || after.status === 'cancelled') {
-    const why = after.status === 'cancelled' ? 'Cancelled. Everything finished before this step is kept.' : after.error;
-    out.push(['fail', after.current, why, after.full_log]);
-  }
+  if (after.status === 'cancelled') out.push(['cancel', after.current]);
+  if (after.status === 'error') out.push(['fail', after.current, after.error, after.full_log]);
   if (after.status === 'done') out.push(['finish']);
   return out;
 }
@@ -159,6 +163,7 @@ export function planForm(plan, made = {}) {
   if (plan.engine) form.append('engine', plan.engine);
   if (plan.firstMove) form.append('first_move', plan.firstMove);
   if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
+  if (plan.modelSeed != null) form.append('model_seed', String(plan.modelSeed));
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
   return form;
@@ -202,6 +207,7 @@ export async function runChain(plan, { ui, ctx, attach = null, fetchImpl = fetch
     for (const [kind, ...args] of chainEvents(before, after)) {
       if (kind === 'done') { await ctx.reload(mine); ui.done(args[0], { ...made }); }
       else if (kind === 'fail') { ui.fail(args[0], args[1], args[2] || ''); return false; }
+      else if (kind === 'cancel') { ui.cancelled(args[0]); return false; }
       else if (kind === 'finish') { await ctx.reload(mine); ui.finish(mine); return true; }
       else ui[kind](...args);
     }

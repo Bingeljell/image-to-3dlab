@@ -212,9 +212,9 @@ const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s 
 function makingRow() {
   if (!making) return '';
   const n = making.plan.steps.length, done = making.done.length;
-  const pips = making.plan.steps.map((s) => `<i class="${making.done.includes(s) ? 'done' : s === making.current ? (making.failed ? 'stop' : 'run') : ''}"></i>`).join('');
+  const pips = making.plan.steps.map((s) => `<i class="${making.done.includes(s) ? 'done' : s === making.current && !making.cancelled ? (making.failed ? 'stop' : 'run') : ''}"></i>`).join('');
   const thumb = making.made.picture ? `<img src="${url(making.made.picture)}" alt="">` : `<img class="mark glow" src="${LOGO}" alt="">`;
-  const status = making.failed ? `Stopped at ${STEP_LABELS[making.current]}` : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
+  const status = making.cancelled ? 'Cancelled' : making.failed ? `Stopped at ${STEP_LABELS[making.current]}` : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
   return `<li><button class="asset making" data-making aria-current="${viewingMaking}">
     <span class="thumb">${thumb}</span>
     <span style="min-width:0"><span class="nm">${escape(making.title)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(status)}</span></span>
@@ -227,15 +227,15 @@ function showMaking() {
   viewingMaking = true;
   renderLibrary();
   $('vTitle').textContent = making.title;
-  $('vMeta').textContent = making.failed ? 'Stopped' : making.finished ? 'Done' : 'Making…';
+  $('vMeta').textContent = making.cancelled ? 'Cancelled' : making.failed ? 'Stopped' : making.finished ? 'Done' : 'Making…';
   $('hideBtn').hidden = true;
   viewer.setFacing(null);  // a run in progress shows its files as they come
   $('download').hidden = true;
   $('sideKind').textContent = { character: 'Character', prop: 'Prop', set: 'Prop set', picture: 'Picture' }[making.plan.want] || '';
   $('steps').innerHTML = making.plan.steps.map((step, i) => {
     const state = making.done.includes(step) ? 'done' : step === making.current ? 'now' : 'later';
-    const dot = state === 'done' ? '✓' : making.failed && step === making.current ? '■' : i + 1;
-    const sum = state === 'done' ? 'Done' : state === 'now' ? (making.failed ? 'Stopped. The reason is in the viewer.' : 'Running now') : 'Waiting';
+    const dot = state === 'done' ? '✓' : making.cancelled && step === making.current ? '–' : making.failed && step === making.current ? '■' : i + 1;
+    const sum = state === 'done' ? 'Done' : state === 'now' ? (making.cancelled ? 'Cancelled' : making.failed ? 'Stopped. The reason is in the viewer.' : 'Running now') : making.cancelled ? 'Not run' : 'Waiting';
     return `<li class="step ${state}"><header><span class="dot">${dot}</span><span><h3>${STEP_LABELS[step]}</h3><div class="sum">${sum}</div></span></header></li>`;
   }).join('');
   // show the newest result while the next step runs
@@ -253,13 +253,14 @@ function drawProgress() {
   if (!making || !viewingMaking) { box.hidden = true; return; }
   const compact = !!(making.made.picture || making.made.model) && !making.failed && !making.finished;
   box.hidden = false;
-  box.className = `progress${compact ? ' compact' : ''}${making.stalled ? ' stalled' : ''}${making.failed ? ' failed' : ''}`;
-  const list = making.plan.steps.map((s) => `<li class="${making.done.includes(s) ? 'done' : s === making.current ? (making.failed ? 'bad' : 'cur') : ''}"><b>${making.done.includes(s) ? '✓' : s === making.current ? (making.failed ? '■' : '●') : '○'}</b>${STEP_LABELS[s]}</li>`).join('');
+  box.className = `progress${compact ? ' compact' : ''}${making.stalled ? ' stalled' : ''}${making.failed && !making.cancelled ? ' failed' : ''}`;
+  const list = making.plan.steps.map((s) => `<li class="${making.done.includes(s) ? 'done' : s === making.current && !making.cancelled ? (making.failed ? 'bad' : 'cur') : ''}"><b>${making.done.includes(s) ? '✓' : s === making.current ? (making.cancelled ? '–' : making.failed ? '■' : '●') : '○'}</b>${STEP_LABELS[s]}</li>`).join('');
   const width = making.finished ? 100 : making.percent ?? 0;
   const message = making.failed ? making.why : making.finished ? 'All done. It is in your Library.'
     : `${making.message || 'Starting…'} · ${clock(Date.now() - making.stepStarted)}`;
   const stall = making.stalled && !making.failed ? '<p class="stallnote">No news from this step for a few minutes. It may be stuck: keep waiting, or cancel.</p>' : '';
-  const buttons = making.failed ? '<button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>'
+  const buttons = making.cancelled ? '<button class="ghost" data-close>Close</button>'
+    : making.failed ? '<button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>'
     : making.finished ? '<button class="ghost" data-close>Close</button>' : '<button class="ghost" data-x>Cancel</button>';
   box.innerHTML = compact
     ? `<div class="pc"><span class="meta">${escape(STEP_LABELS[making.current] || '')}</span><div class="bigbar"><span class="${making.percent == null ? 'busy' : ''}" style="width:${width}%"></span></div><span class="job-msg">${escape(message)}</span>${buttons}</div>${stall}`
@@ -289,6 +290,7 @@ async function startChain(plan, attach = null) {
       if (viewingMaking) drawProgress();
     },
     done: (step, made) => { making.done.push(step); making.made = made; renderLibrary(); if (viewingMaking) showMaking(); },
+    cancelled: () => { Object.assign(making, { failed: true, cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '', fullLog: '' }); renderLibrary(); if (viewingMaking) showMaking(); },
     fail: (step, why, log) => { Object.assign(making, { failed: true, why, log: readableLog(log, 12), fullLog: log }); renderLibrary(); if (viewingMaking) showMaking(); },
     finish: (mine) => {
       making.finished = true;

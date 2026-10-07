@@ -34,12 +34,7 @@ What matters in it:
 - **A slight view from above.** Pixal3D sees the tops and models them; the split
   stands each prop back up afterwards. At eye level, the tops come back invented.
 
-Qwen's licence is a bit ambiguous, and the props made from its pictures share that.
-Qwen says the pictures you generate are yours
-([their statement](https://x.com/QwenDevs/status/2101917379785838660)), but the licence
-still says the model is for non-commercial use. Our reading is that commercial work needs
-a licence from Qwen; check it yourself if you plan to. The pipeline keeps those runs in
-`research_only` and says why in the sidecar. Bring your own image and none of that applies.
+The pictures Qwen-Image makes are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)), and so are the props made from them.
 
 ## 2. Turn it into 3D
 

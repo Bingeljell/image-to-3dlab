@@ -36,7 +36,7 @@ def test_announcement_names_backend_route_size_and_licence():
     assert "Qwen-Image 2.1" in text
     assert "stable-diffusion.cpp" in text
     assert "13.4 GB" in text
-    assert "NON-COMMERCIAL" in text
+    assert "Qwen Research License" in text
     assert "Built with Qwen" in text
 
 

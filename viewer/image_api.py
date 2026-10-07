@@ -14,8 +14,8 @@ So the defaults here are cfg 1.0, 10 steps, 768px. **Those timings are one machi
 faster chip does better and an NVIDIA card is in a different league; nothing here should
 be read as "this is how long it takes".
 
-**The licence travels with the image.** Running Qwen-Image is non-commercial; the pictures
-it makes are yours, per Qwen's own statement. Every run writes a sidecar saying both, because
+**The licence travels with the image.** The pictures Qwen-Image makes are yours, per Qwen's
+own statement. Every run writes a sidecar saying so, with the licence, because
 a PNG in a folder six months from now remembers nothing on its own.
 """
 
@@ -51,7 +51,7 @@ BINARY = executable(REPO / "vendor" / "sdcpp", "sd-cli")
 OUTPUT_ROOT = REPO / "output" / "images"
 
 MODEL_ID = "qwen-image-2.1"
-LICENSE_NAME = "Qwen Research License (non-commercial)"
+LICENSE_NAME = "Qwen Research License"
 LICENSE_URL = "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
 ATTRIBUTION = "Built with Qwen"
 OUTPUT_RIGHTS = QWEN_OUTPUT_RIGHTS

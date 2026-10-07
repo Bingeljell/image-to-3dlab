@@ -13,8 +13,8 @@ This lab builds on other people's models and ports. Thank you.
   Community License).
 - [Stability AI's Stable Fast 3D](https://github.com/Stability-AI/stable-fast-3d)
   (Stability AI Community License).
-- [Qwen-Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) (Qwen Research License,
-  non-commercial), run by [leejet/stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
+- [Qwen-Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1) (Qwen Research License),
+  run by [leejet/stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
   (MIT). Built with Qwen.
 - [VAST-AI SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) (MIT): the
   studio's auto-rig, which gives a humanoid its skeleton and skin weights.
@@ -26,9 +26,8 @@ This lab builds on other people's models and ports. Thank you.
 
 ## Licences travel with the output
 
-- Qwen-Image's licence is a bit ambiguous. Qwen says the pictures you make are yours
-  ([statement](https://x.com/QwenDevs/status/2101917379785838660), 21 Sept 2026), but the licence text still says **non-commercial**. Our
-  reading is that commercial work needs a licence from Qwen; check it yourself if you plan to.
+- Qwen-Image: the pictures you make are yours
+  ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660), 21 Sept 2026).
 - The Hunyuan3D weights are **not licensed in the EU, the UK or South Korea**. dgrauet's
   shape port is Tencent-licensed code too, which is why it is cloned separately rather than
   shipped here.

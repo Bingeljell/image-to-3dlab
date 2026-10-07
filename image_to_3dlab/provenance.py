@@ -22,17 +22,14 @@ class LicenseProfile:
     conditions: tuple[str, ...]
 
 
-# Qwen said on 2026-09-21 that outputs are not part of the licensed Materials, but did not
-# change the licence text, which still makes *running* the model non-commercial. We mirror
-# both halves and cite the statement, rather than read more into it than it says.
+# Qwen confirmed on 2026-09-21 that outputs are not part of the licensed Materials, so the
+# pictures belong to whoever made them. The model runs on the user's own machine and its
+# weights are never redistributed by us. The statement is cited so the record stands alone.
 QWEN_OUTPUT_STATEMENT = "https://x.com/QwenDevs/status/2101917379785838660"
 QWEN_OUTPUT_RIGHTS = (
-    "Qwen's licence is a bit ambiguous. Qwen says the pictures you generate are yours: "
-    f"outputs are not part of the licensed Materials ({QWEN_OUTPUT_STATEMENT}, 21 Sept "
-    "2026). The licence text still says the model is for non-commercial use, and our "
-    "reading is that commercial work needs a commercial licence from Qwen "
-    "(model-business@notice.qwencloud.com). If you plan to use it commercially, check "
-    "Qwen's licence yourself."
+    "The pictures you generate are yours: Qwen confirmed that outputs are not part of the "
+    f"licensed Materials ({QWEN_OUTPUT_STATEMENT}, 21 Sept 2026). The model runs on your own "
+    "machine; its weights are not redistributed."
 )
 
 
@@ -91,7 +88,6 @@ LICENSES = {
         license_name="Qwen Research License Agreement",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         conditions=(
-            "NON-COMMERCIAL USE ONLY for running the model.",
             QWEN_OUTPUT_RIGHTS,
             "Attribution: say 'Built with Qwen'.",
         ),

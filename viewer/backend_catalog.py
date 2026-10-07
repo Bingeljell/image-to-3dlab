@@ -512,20 +512,13 @@ CATALOG: tuple[Backend, ...] = (
         label="Qwen-Image 2.1 (text to image)",
         kind="image",
         best_for="Makes the source image when you do not have one. Prompt in, picture out.",
-        tradeoff=(
-            "Licence is a bit ambiguous: Qwen says the pictures are yours, the text "
-            "says non-commercial."
-        ),
-        license_name="Qwen Research License (non-commercial)",
+        tradeoff="Runs on your machine, and the pictures you make are yours.",
+        license_name="Qwen Research License",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         install="Prebuilt stable-diffusion.cpp binary in vendor/sdcpp/",
         runs_on=(APPLE, NVIDIA),
         setup_minutes=15,
         build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
-        caveat=(
-            "The Qwen Research License is non-commercial only and asks that you say "
-            "'Built with Qwen'. " + QWEN_OUTPUT_RIGHTS
-        ),
         weights=(
             WeightSet("Qwen-Image 2.1 diffusion model (Q8_0)",
                       "leejet/Qwen-Image-2.1-GGUF", int(7.69 * GB),

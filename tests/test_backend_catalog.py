@@ -185,12 +185,12 @@ def test_a_single_file_counts_as_present_by_its_own_size(tmp_path):
     assert bc._dir_state(model) == (True, 5)
 
 
-def test_the_image_route_states_its_non_commercial_licence():
-    """Running the model is non-commercial; the pictures are yours, per Qwen's statement."""
+def test_the_image_route_names_its_licence_and_says_the_pictures_are_yours():
+    """Qwen confirmed outputs are the user's; the card names the licence, with no warning box."""
     entry = next(b for b in bc.catalog_status()["backends"] if b["id"] == "qwen-image")
-    assert "non-commercial" in entry["license"]["name"].lower()
-    assert "non-commercial" in entry["caveat"].lower()
-    assert "yours" in entry["caveat"] and "inherits" not in entry["caveat"]
+    assert entry["license"]["name"] == "Qwen Research License"
+    assert not entry.get("caveat")
+    assert "yours" in entry["tradeoff"]
 
 
 def test_sizes_are_stated_before_anything_is_fetched():

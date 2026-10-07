@@ -143,16 +143,14 @@ def test_provenance_records_the_non_commercial_restriction():
     json.dumps(record)  # must survive being written to the sidecar
 
 
-def test_provenance_says_the_output_is_yours_but_the_model_is_not():
-    """Qwen stated on 2026-09-21 that outputs are not licensed Materials, but the licence
-    text still makes running the model non-commercial. The sidecar must say both, and cite
-    the statement, because a tweet is not the licence."""
+def test_provenance_says_the_output_is_yours_and_cites_qwen():
+    """Qwen stated on 2026-09-21 that outputs are not licensed Materials. The sidecar says
+    the picture is yours and cites the statement, so the record stands on its own."""
     note = api.provenance("a fox", api.clean_settings({}), 1.0, Path("/o/f.png"))[
         "license"]["inherited_by_derivatives"]
     assert note == api.OUTPUT_RIGHTS
-    assert "yours" in note and "commercial licence" in note
+    assert "yours" in note and "non-commercial" not in note.lower()
     assert "https://x.com/QwenDevs/status/2101917379785838660" in note
-    assert "inherits the non-commercial" not in note
 
 
 def test_output_goes_to_the_images_folder():

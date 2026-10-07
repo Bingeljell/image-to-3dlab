@@ -31,15 +31,14 @@ def test_qwen_image_is_classified_research_only():
     profile = LICENSES["qwen-image-2.1"]
     assert profile.classification == "research-only"
     assert profile.folder == "research_only"
-    assert any("NON-COMMERCIAL" in c for c in profile.conditions)
     assert any("Built with Qwen" in c for c in profile.conditions)
 
 
-def test_qwen_outputs_are_yours_but_running_it_commercially_is_not():
-    """Mirrors Qwen's 2026-09-21 statement without going past the licence text."""
+def test_qwen_outputs_are_yours_and_the_statement_is_cited():
+    """Qwen confirmed on 2026-09-21 that outputs are not licensed Materials."""
     conditions = " ".join(LICENSES["qwen-image-2.1"].conditions)
     assert "https://x.com/QwenDevs/status/2101917379785838660" in conditions
-    assert "commercial licence" in conditions
+    assert "are yours" in conditions
     assert "inherits the restriction" not in conditions
 
 
@@ -77,11 +76,9 @@ def test_research_only_still_needs_allow_conditional():
         )
 
 
-def test_qwen_wording_is_candid_about_the_ambiguity():
-    """We do not overrule Qwen either way: we give our reading and send people to the
-    licence, so nobody is scared off generating and nobody is told to go ham."""
+def test_qwen_wording_says_the_pictures_are_yours_without_warnings():
+    """Qwen confirmed outputs are the user's (2026-09-21); the record says so plainly."""
     from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
 
-    assert "ambiguous" in QWEN_OUTPUT_RIGHTS
-    assert "our reading" in QWEN_OUTPUT_RIGHTS
-    assert "check Qwen's licence yourself" in QWEN_OUTPUT_RIGHTS
+    assert "are yours" in QWEN_OUTPUT_RIGHTS
+    assert "ambiguous" not in QWEN_OUTPUT_RIGHTS and "non-commercial" not in QWEN_OUTPUT_RIGHTS.lower()

@@ -37,7 +37,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_sf3d.py` | Install Stable Fast 3D: its code and compiled extensions, then its gated weights. |
 | `bootstrap_pixal3d.py` | Install Pixal3D (raven38/pixal3d.cpp): a `trellis-cli` build plus its Q8_0 weights. |
 | `bootstrap_blender.py` | Install Blender 4.2 LTS for Finish on Linux, from blender.org. |
-| `bootstrap_gltfpack.py` | Install gltfpack for the Props tab, from meshoptimizer's GitHub release. |
+| `bootstrap_gltfpack.py` | Install gltfpack for split props, from meshoptimizer's GitHub release. |
 | `bootstrap_matte.py` | Install BiRefNet-lite, the background remover every backend uses once it is present. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac or an NVIDIA card. |
@@ -180,6 +180,12 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `blender_rebind_weights.py` | Voxel-proxy weight transfer used by the headless rig rebind worker. |
 | `blender_export_rig_binding.py` | Prepare an open Blender metarig scene and export its browser rig sidecar. |
 | `rignet_infer.py` | Run vendored RigNet inference on one of our own generated meshes. |
+| `arm_clearance.py` | Keep a retargeted character's arms out of its own body. |
+| `bootstrap_autorig.py` | Install the auto-rigger: SkinTokens (VAST-AI, MIT), which gives a humanoid mesh a skeleton and skin weights. |
+| `pack_kimodo_clip.py` | Shrink a Kimodo motion clip to what `kimodo_retarget.py` reads, about 12x smaller. |
+| `clean_skin_weights.py` | Drop skin weights that come from bones far away in the skeleton, then rebalance. |
+| `kimodo_retarget.py` | Play a Kimodo text-to-motion clip on a SkinTokens-rigged humanoid and export an animated GLB. |
+| `rig_check.py` | Say whether a rigged GLB fits the preset moves (a humanoid), read without Blender. |
 | `attack_pose.py` | Pose curves for a quadruped slam attack, as pure functions. |
 | `rigify_walk_pose.py` | Pose curves for a quadruped trot on a Rigify-generated rig, as pure functions. |
 | `blender_walk_cycle.py` | Author a looping quadruped gait cycle on the rigged fox in the live Blender scene. |
@@ -205,6 +211,7 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `patch_pixal3d_model_subset.py` | Let Pixal3D load only the checkpoints a run actually needs. |
 | `patch_pixal3d_low_vram.py` | Make Pixal3D's low-VRAM mode reachable, via `PIXAL3D_LOW_VRAM=1`. |
 | `patch_pixal3d_steps.py` | Let Pixal3D (pixal3d.cpp) run fewer sampling steps, via `PIXAL3D_STEPS=N`. |
+| `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |
 | `patch_trellis_no_bria.py` | Disable TRELLIS' configured background model for license-controlled runs. |
 | `patch_trellis_cuda_no_bria.py` | Stop the NVIDIA TRELLIS.2 checkout loading BRIA RMBG-2.0, before it ever downloads it. |

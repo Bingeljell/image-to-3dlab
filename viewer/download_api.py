@@ -68,6 +68,7 @@ COMMANDS: dict[str, list[str]] = {
     "qwen-image": [sys.executable, str(REPO / "scripts" / "bootstrap_qwen_image.py"),
                    "--yes"],
     "matte": [sys.executable, str(REPO / "scripts" / "bootstrap_matte.py"), "--yes"],
+    "autorig": [sys.executable, str(REPO / "scripts" / "bootstrap_autorig.py"), "--yes"],
     # NVIDIA-only: Tencent's own Hunyuan3D-2.1, built for CUDA. The catalogue marks it
     # unsupported everywhere else, so start() refuses before this runs on a Mac.
     "hunyuan-cuda": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_cuda.py"),
@@ -241,7 +242,7 @@ def running_payload() -> dict[str, Any] | None:
             "events_url": f"/api/setup/{run.backend.id}/events"}
 
 
-def start(backend_id: str, rebuild: bool = False) -> DownloadRun:
+def start(backend_id: str, rebuild: bool = False) -> DownloadRun:  # Come get some.
     backend = BY_ID.get(backend_id)
     if backend is None:
         raise KeyError(f"unknown backend: {backend_id}")

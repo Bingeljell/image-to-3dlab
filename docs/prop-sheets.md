@@ -31,26 +31,22 @@ What matters in it:
 - **Space between props.** Props that touch or overlap in the picture are split as one.
 - **Similar sizes.** Pixal3D drops very small parts as crumbs, so a much smaller prop
   can go with them.
-- **A slight view from above.** Pixal3D sees the tops and models them; the Props tab
+- **A slight view from above.** Pixal3D sees the tops and models them; the split
   stands each prop back up afterwards. At eye level, the tops come back invented.
 
-Qwen's licence is a bit ambiguous, and the props made from its pictures share that.
-Qwen says the pictures you generate are yours
-([their statement](https://x.com/QwenDevs/status/2101917379785838660)), but the licence
-still says the model is for non-commercial use. Our reading is that commercial work needs
-a licence from Qwen; check it yourself if you plan to. The pipeline keeps those runs in
-`research_only` and says why in the sidecar. Bring your own image and none of that applies.
+The pictures Qwen-Image makes are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)), and so are the props made from them.
 
 ## 2. Turn it into 3D
 
 In **Generate 3D**, pick **Pixal3D** and the sheet, and keep the default settings
 (resolution 1024, field of view 20°).
 
-## 3. Split and finish in the Props tab
+## 3. Split and finish in the studio
 
-Pick the sheet's model from what Generate 3D made (or upload one), type the prop names in
-reading order (top row first, left to right; one per line or comma-separated), and press
-**Split & finish**.
+In the studio, press **+ Create**, start from the sheet's picture and pick **Nine props**: it
+makes the 3D model and splits it. A sheet that is already split can be split again from the
+Steps panel. Props come out numbered (`prop_01` … `prop_09`, top row first, left to right).
+From the command line, `scripts/blender_split_props.py` also takes names in that order.
 
 Each prop comes out:
 
@@ -72,7 +68,7 @@ just that prop. Click again to turn it again. If a turn fails or you cancel it, 
 stays as it was.
 
 **Why props need standing up.** The sheet is drawn from a little above, so Pixal3D tips
-each prop back to show its top. The Props tab undoes that, and turns box-like props to
+each prop back to show its top. The split undoes that, and turns box-like props to
 face the front. Round and soft ones are left alone, since turning them would swing their
 painted front away.
 

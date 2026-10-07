@@ -425,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
     except GatedAccess as exc:
         print(gated_help(str(exc)))
         return 1
-    print("\nDone. Pick TRELLIS.2 in the viewer's Generate 3D tab, or run:\n"
+    print("\nDone. Pick TRELLIS.2 in the studio (Create, Advanced: 3D engine), or run:\n"
           "    vendor/trellis-cuda/.venv/bin/python scripts/trellis_cuda_generate.py "
           "input.png output.glb")
     return 0

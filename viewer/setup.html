@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup &amp; Status · AssetFurnace</title>
+<link rel="icon" href="./studio/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./studio/studio.css">
+<link rel="stylesheet" href="./studio/setup.css">
+</head>
+<body class="setup-body">
+<header class="bar">
+  <a class="brand" href="./studio.html" aria-label="AssetFurnace studio"><img src="./studio/mark.svg" alt=""><b>Asset<span>Furnace</span></b></a>
+  <span class="spacer"></span>
+  <a class="primary back" href="./studio.html">← Back to the studio</a>
+</header>
+
+<main class="setup-scroll">
+  <div class="setup-page">
+    <header class="setup-head">
+      <div>
+        <h2>Setup &amp; Status</h2>
+        <p class="setup-sub">
+          Everything runs on your machine, so the models have to live here too. Nothing is
+          downloaded until you pick one and confirm. Sizes are what you should expect to give
+          up on disk.
+        </p>
+      </div>
+    </header>
+
+    <div id="setup-tabs" class="setup-tabs" role="tablist"></div>
+    <div id="setup-summary" class="setup-summary">checking…</div>
+    <div id="setup-backends" class="setup-backends"></div>
+
+    <div id="setup-run" class="setup-run" hidden>
+      <div class="setup-run-head">
+        <span id="setup-run-title">Downloading</span>
+        <button id="setup-run-cancel" class="ghost">Cancel</button>
+      </div>
+      <div class="progress-track"><div id="setup-run-bar"></div></div>
+      <div id="setup-run-detail" class="setup-run-detail"></div>
+      <pre id="setup-log"></pre>
+    </div>
+
+    <p class="setup-foot">
+      Licences belong to the projects these models come from, and each one is linked above.
+      Read the licence that applies to what you download; it governs what you may do with
+      what comes out.
+    </p>
+    <p class="setup-done"><a class="primary" href="./studio.html">Done: back to the studio</a></p>
+  </div>
+</main>
+
+<script type="module" src="./studio/setup.js"></script>
+</body>
+</html>

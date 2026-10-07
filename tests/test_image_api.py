@@ -134,25 +134,23 @@ def test_slug_survives_a_prompt_with_nothing_usable():
     assert api.slug("!!!???") == "image"
 
 
-def test_provenance_records_the_non_commercial_restriction():
+def test_provenance_records_the_licence_and_its_class():
     """A PNG in a folder six months from now remembers nothing on its own."""
     record = api.provenance("a fox", api.clean_settings({}), 262.3, Path("/o/fox.png"))
-    assert record["license"]["classification"] == "research-only"
+    assert record["license"]["classification"] == "commercial-conditional"
     assert "Built with Qwen" == record["license"]["attribution"]
     assert record["prompt"] == "a fox"
     json.dumps(record)  # must survive being written to the sidecar
 
 
-def test_provenance_says_the_output_is_yours_but_the_model_is_not():
-    """Qwen stated on 2026-09-21 that outputs are not licensed Materials, but the licence
-    text still makes running the model non-commercial. The sidecar must say both, and cite
-    the statement, because a tweet is not the licence."""
+def test_provenance_says_the_output_is_yours_and_cites_qwen():
+    """Qwen stated on 2026-09-21 that outputs are not licensed Materials. The sidecar says
+    the picture is yours and cites the statement, so the record stands on its own."""
     note = api.provenance("a fox", api.clean_settings({}), 1.0, Path("/o/f.png"))[
         "license"]["inherited_by_derivatives"]
     assert note == api.OUTPUT_RIGHTS
-    assert "yours" in note and "commercial licence" in note
+    assert "yours" in note and "non-commercial" not in note.lower()
     assert "https://x.com/QwenDevs/status/2101917379785838660" in note
-    assert "inherits the non-commercial" not in note
 
 
 def test_output_goes_to_the_images_folder():
@@ -190,6 +188,22 @@ def test_job_describe_hides_the_result_until_it_exists(tmp_path):
     assert job.describe()["result_url"] is None
     job.status = "done"
     assert job.describe()["result_url"].endswith("/result.png")
+
+
+def test_job_describe_reports_progress_log_and_where_the_picture_lands(tmp_path):
+    # the studio follows every step the same way: status, last event, log tail, and the file it made
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a knight", api.clean_settings({}))
+    job.emit({"phase": "sampling", "percent": 40.0})
+    job.log_lines.append("step 4/10")
+    described = job.describe()
+    assert described["last_event"]["percent"] == 40.0
+    assert described["log_tail"] == "step 4/10"
+    assert described["picture"] is None            # nothing on disk yet
+    job.status = "done"
+    picture = api.ImageJob.picture_path(job)
+    assert picture == f"images/{job.directory.name}/{job.output_path.name}"
+    assert job.describe()["picture"] == picture
 
 
 def test_sidecar_names_each_weight_file_readably():

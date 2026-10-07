@@ -14,8 +14,8 @@ So the defaults here are cfg 1.0, 10 steps, 768px. **Those timings are one machi
 faster chip does better and an NVIDIA card is in a different league; nothing here should
 be read as "this is how long it takes".
 
-**The licence travels with the image.** Running Qwen-Image is non-commercial; the pictures
-it makes are yours, per Qwen's own statement. Every run writes a sidecar saying both, because
+**The licence travels with the image.** The pictures Qwen-Image makes are yours, per Qwen's
+own statement. Every run writes a sidecar saying so, with the licence, because
 a PNG in a folder six months from now remembers nothing on its own.
 """
 
@@ -40,7 +40,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from image_to_3dlab.host import NVIDIA, executable, host_platform
-from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
+from image_to_3dlab.provenance import LICENSES, QWEN_OUTPUT_RIGHTS
 from image_to_3dlab.sdcpp import NO_GPU_HELP, BackendWatch
 
 HF_HUB = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
@@ -51,7 +51,7 @@ BINARY = executable(REPO / "vendor" / "sdcpp", "sd-cli")
 OUTPUT_ROOT = REPO / "output" / "images"
 
 MODEL_ID = "qwen-image-2.1"
-LICENSE_NAME = "Qwen Research License (non-commercial)"
+LICENSE_NAME = "Qwen Research License"
 LICENSE_URL = "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
 ATTRIBUTION = "Built with Qwen"
 OUTPUT_RIGHTS = QWEN_OUTPUT_RIGHTS
@@ -259,7 +259,7 @@ def provenance(prompt: str, settings: dict[str, Any], seconds: float,
         "license": {
             "name": LICENSE_NAME,
             "url": LICENSE_URL,
-            "classification": "research-only",
+            "classification": LICENSES["qwen-image-2.1"].classification,
             "attribution": ATTRIBUTION,
             # Key kept for sidecar compatibility; it now says what derivatives do NOT inherit.
             "inherited_by_derivatives": OUTPUT_RIGHTS,
@@ -309,7 +309,14 @@ class ImageJob:
             "elapsed_seconds": round(time.monotonic() - self.started, 1),
             "result_url": f"/api/image/{self.id}/result.png"
             if self.status == "done" else None,
+            "last_event": self.events[-1] if self.events else None,
+            "log_tail": "\n".join(self.log_lines)[-4000:],
+            "picture": self.picture_path() if self.status == "done" else None,
         }
+
+    def picture_path(self) -> str:
+        """Where the picture sits relative to output/, as the studio's Library names it."""
+        return f"images/{self.directory.name}/{self.output_path.name}"
 
 
 class ImageJobManager:

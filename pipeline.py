@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Image-to-3D Lab command-line entry point."""
 
+# ✝︎ b'tzelem Elohim
+
 # This must be set before torch/SF3D is imported.
 import os
 

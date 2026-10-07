@@ -23,7 +23,7 @@ export function createModelViewport({ pane, spec, slotIndex = null, onChange, on
   pane.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x14161a);
+  scene.background = new THREE.Color(0x100d0c);
   const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
   camera.position.set(0, 0.3, 3);
 

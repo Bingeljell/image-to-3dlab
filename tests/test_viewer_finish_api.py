@@ -523,13 +523,6 @@ def test_repaint_is_opt_in_so_finish_never_needs_the_hunyuan_paint_weights():
     assert finish.normalise_settings({"skip_paint": False})["skip_paint"] is False
 
 
-def test_the_finish_page_calls_it_pixel_match():
-    from pathlib import Path
-    html = Path("viewer/index.html").read_text()
-    assert "Pixel Match" in html
-    assert 'id="finish-repaint" type="checkbox" checked' not in html
-
-
 def test_a_skipped_pixel_match_is_said_plainly_and_stays_on_screen(tmp_path):
     # Seen on a real NVIDIA pod: Pixel Match stayed ticked, no stage ran, and the only word
     # about it was a start-up line replaced a second later. The note rides on the finished
@@ -564,3 +557,11 @@ def test_no_install_offered_once_blender_is_found(tmp_path):
     found = finish.capabilities("nvidia", find=lambda: exe, version=lambda _: (4, 2),
                                 installable=lambda: True)
     assert found["blender_installable"] is False
+
+
+def test_a_finished_model_is_named_by_its_path_in_output(tmp_path, monkeypatch):
+    # Create hands this to the next step; the done event's result_url is a download link, not a path
+    monkeypatch.setattr(finish, "OUTPUT_ROOT", tmp_path / "output" / "finish")
+    glb = tmp_path / "output" / "finish" / "knight__finish__20261006-220000" / "knight_40k.glb"
+    assert finish.library_path(glb) == "finish/knight__finish__20261006-220000/knight_40k.glb"
+    assert finish.library_path(tmp_path / "elsewhere.glb") is None

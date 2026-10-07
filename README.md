@@ -1,27 +1,43 @@
-# Image to 3D Lab
+<!-- DRAFT for 0.4.0 (Claude's draft, the user edits before the launch push). Hero image: swap in the reveal GIF. -->
+<h1 align="center">AssetFurnace</h1>
+
+<p align="center"><sub>by Bingeljell</sub></p>
+
+<p align="center"><b>You can just make stuff. For free. Locally.</b><br>
+One sentence in, a rigged, animated game character out. On your own Apple Silicon Mac or
+NVIDIA PC, with the licence of every asset written down.</p>
+
+<p align="center">
+  <a href="https://assetfurnace.com">assetfurnace.com</a> ·
+  <a href="https://x.com/bingeljell">X @bingeljell</a> ·
+  <a href="https://github.com/Bingeljell/image-to-3dlab/discussions">Discussions</a>
+</p>
+
+<p align="center"><sub>Formerly <i>Image to 3D Lab</i>. Same repo, new name.</sub></p>
 
 ![Three source images above the textured 3D models generated from them: a photoreal warrior bust, a stylised garden gnome, and a multi-object shoe-house diorama](docs/images/one-image-in-textured-model-out.jpg)
 
-**Turn a single image into a textured 3D model on your own machine (an Apple Silicon
-Mac, or Linux with an NVIDIA card), with a license-provenance record for every result.**
+Type a sentence, drop a picture, or bring your own model. AssetFurnace makes the picture,
+builds the 3D model, cleans it up for games, adds a skeleton and animates it. Nothing is
+uploaded anywhere, there are no credits, and you can try as many times as you like.
 
-Apple Silicon deserves more love in the 3D and Imagen community. So this is an attempt at that. 
-
-
-Drop in a picture of a character or object; get back a textured `.glb`, ready for your
-game or whatever else you're up to. Nothing is uploaded to a cloud service.
+Apple Silicon deserves more love in the 3D and Image generation community. So this is an attempt at that.
 
 **What you get**
 
+- **Rigged, moving characters.** Describe a humanoid or drop its picture; get back a
+  textured model with a skeleton and moves picked from 21 presets (walk, run, jump, dance, kicks and more), as a GLB
+  for Godot, Unity, Unreal, Blender or three.js. New in 0.4.0.
+- **The studio.** Your Library, one 3D viewer and a Steps panel. **Create** runs every
+  step for you, and you can stop after any of them. Close the tab and the run carries on.
 - **Low poly, high quality.** Pixel Match puts your picture's real pixels back on the
   model, so text, logos and faces stay sharp even after it is cut to ~5k faces.
   [More](#finishing-an-asset)
 - **One prompt, nine game-ready props.** Prop sheets turn one picture into a set of
-  separate, named props with LODs, ready to drop into your game.
+  separate props with LODs, ready to drop into your game.
   [More](#prop-sheets-many-props-from-one-image)
-- **Your pick of models, all local.** Pixal3D, TRELLIS.2 and Hunyuan3D behind one browser
-  viewer and one CLI.
-- **No picture? Make one.** Type a prompt in the Generate Image tab and get a source image.
+- **Your pick of models, all local.** Pixal3D, TRELLIS.2 and Hunyuan3D behind one studio
+  and one CLI.
 - **Game-size files.** Finish turns a heavy, 30 MB generated model into a light, compressed
   one. [More](#finishing-an-asset)
 - **Know what you can ship.** Every file carries a record of the licences behind it.
@@ -40,7 +56,7 @@ default for Pixal3D models; other backends are next. [How Finish works](#finishi
 
 **Prop sheets: one prompt, nine game-ready props.** Making props one at a time means a
 picture, a 3D run and a clean-up for every barrel. Instead, generate one picture holding a
-grid of props and turn the whole sheet into 3D in a single run. The **Props** tab splits it
+grid of props and turn the whole sheet into 3D in a single run. In the studio, **Create → Nine props** splits it
 into separate, upright, named props, each with three levels of detail (LODs) and compressed
 textures, ready for a game engine. [How it works](#prop-sheets-many-props-from-one-image).
 
@@ -55,17 +71,17 @@ Prop sheets were built and contributed by [@AdrielSantana](https://github.com/Ad
 
 **Mac (Apple Silicon) or Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.sh | bash
+curl -fsSL https://assetfurnace.com/install.sh | bash
 ```
 
 **Windows** (limited testing, more testers wanted: tell us how it goes):
 ```powershell
-irm https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.ps1 | iex
+irm https://assetfurnace.com/install.ps1 | iex
 ```
 
 The installer is short, so [read it](install.sh) before you run it
 ([Windows version](install.ps1)). It checks your machine, installs the code and
-Python 3.11, then starts the lab and opens it in your browser. On a RunPod pod it prints
+Python 3.11, then starts the studio and opens it in your browser. On a RunPod pod it prints
 the pod's link instead; over plain SSH it prints the tunnel command. Start it again any
 time with `./lab` in the install folder. It downloads **no model weights**: you choose
 those in **Setup & Status**, which states each size and licence and asks first. To update,
@@ -74,18 +90,14 @@ run the same line again.
 For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
 (`--dry-run` shows what it would do).
 
-**No picture to start from?** The **Generate Image** tab makes one. Type a prompt, get a
-source image, hand it to **Generate 3D**. It runs Qwen-Image 2.1 on your own machine.
+**No picture to start from?** Press **+ Create** in the studio and type a sentence: it makes
+the picture first, then carries on to 3D. It runs Qwen-Image 2.1 on your own machine.
 
 ![Three creatures generated from text prompts on a laptop, about four and a half minutes each](docs/images/prompt-to-source-image.jpg)
 
-Built with Qwen. Candidly, Qwen's licence is a bit ambiguous. Qwen says the pictures you
-generate are yours ([their statement](https://x.com/QwenDevs/status/2101917379785838660)), but the [licence](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE) still says the model
-is for non-commercial use. Our reading is that commercial work needs a licence from Qwen,
-so check it yourself if you plan to. The pipeline keeps those runs in
-their own folder and says so in the sidecar. Bring your own image and none of that applies.
+Built with Qwen. The pictures you make are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)).
 
-Six backends, one Generate 3D page. Sadly life is full of trade-offs, so pick the tradeoff you want (lol):
+Six backends, one studio. Sadly life is full of trade-offs, so pick the tradeoff you want (lol):
 
 | Backend | Best for | Runs on | Setup | License |
 |---|---|---|---|---|
@@ -262,7 +274,7 @@ comparable rather than each one being tuned by hand.
 ## Prop sheets: many props from one image
 
 Generate one picture holding a grid of props (barrels, crates, a chest), turn the whole
-sheet into 3D in a single Pixal3D run, and the viewer's **Props** tab splits it into
+sheet into 3D in a single Pixal3D run, and the studio (**Create → Nine props**) splits it into
 separate, upright, named props, each with three levels of detail (LODs) baked from the
 original. Install the optional gltfpack from Setup & Status and each LOD also comes as a
 much smaller web-ready file. The prompt that works and what was measured are in
@@ -290,7 +302,7 @@ character with these tools.
 | Linux + NVIDIA: CUDA toolkit matching PyTorch's CUDA | compiles TRELLIS.2's CUDA extensions (not needed on RTX 50-series) and Hunyuan3D-2.1's rasterizer (CUDA 12) |
 | macOS: full Xcode | compiles the Metal kernels for Pixal3D and TRELLIS |
 | Blender 4.2+ | Finish (low-poly clean-up, Pixel Match) and rigging. Install it yourself from [blender.org](https://www.blender.org/download/); Setup & Status shows whether it was found |
-| gltfpack (optional) | smaller web-ready files from the Props tab; one click in Setup & Status, under 2 MB |
+| gltfpack (optional) | smaller web-ready files for split props; one click in Setup & Status, under 2 MB |
 | `uv` | builds the reproducible Python environments |
 | Python 3.11 (TRELLIS) / 3.12 (Hunyuan3D-MLX) | pinned by each backend's own setup |
 | ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights (auto-downloaded once) |

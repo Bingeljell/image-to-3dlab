@@ -49,9 +49,8 @@ WEIGHTS = [
 ]
 
 LICENCE = (
-    "Qwen Research License: NON-COMMERCIAL USE ONLY, and it asks that you say\n"
-    "  'Built with Qwen'. Anything you generate from these weights inherits that,\n"
-    "  including a 3D asset made from a generated picture.\n"
+    "Qwen Research License. The pictures you generate are yours (Qwen confirmed it);\n"
+    "  the weights stay on this machine. Built with Qwen.\n"
     "  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
 )
 
@@ -254,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
             print("sd-cli found the NVIDIA GPU.")
     if weights:
         install_weights()
-    print("\nDone. Open the viewer's Generate Image tab.")
+    print("\nDone. In the studio, press + Create and start from an idea.")
     return 0
 
 

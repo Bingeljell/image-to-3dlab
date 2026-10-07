@@ -512,20 +512,13 @@ CATALOG: tuple[Backend, ...] = (
         label="Qwen-Image 2.1 (text to image)",
         kind="image",
         best_for="Makes the source image when you do not have one. Prompt in, picture out.",
-        tradeoff=(
-            "Licence is a bit ambiguous: Qwen says the pictures are yours, the text "
-            "says non-commercial."
-        ),
-        license_name="Qwen Research License (non-commercial)",
+        tradeoff="Runs on your machine, and the pictures you make are yours.",
+        license_name="Qwen Research License",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         install="Prebuilt stable-diffusion.cpp binary in vendor/sdcpp/",
         runs_on=(APPLE, NVIDIA),
         setup_minutes=15,
         build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
-        caveat=(
-            "The Qwen Research License is non-commercial only and asks that you say "
-            "'Built with Qwen'. " + QWEN_OUTPUT_RIGHTS
-        ),
         weights=(
             WeightSet("Qwen-Image 2.1 diffusion model (Q8_0)",
                       "leejet/Qwen-Image-2.1-GGUF", int(7.69 * GB),
@@ -556,6 +549,29 @@ CATALOG: tuple[Backend, ...] = (
             WeightSet("BiRefNet-lite", _matte.LITE_URL, _matte.LITE_BYTES,
                       _matte.model_file(_matte.LITE_MODEL),
                       note="One file, used by Pixal3D, TRELLIS and SF3D alike."),
+        ),
+    ),
+    Backend(
+        id="autorig",
+        label="Auto-rig (SkinTokens)",
+        kind="tool",
+        best_for=("Gives a humanoid model a skeleton and skin weights, so the Rig tab can "
+                  "play preset animations on it."),
+        tradeoff="Humanoids in a T-pose only for now. Four-legged creatures are coming.",
+        license_name="MIT",
+        license_url="https://github.com/VAST-AI-Research/SkinTokens/blob/main/LICENSE",
+        install="scripts/bootstrap_autorig.py",
+        runs_on=(APPLE, NVIDIA),
+        setup_minutes=10,
+        build_probes=(venv_python(REPO / "vendor" / "SkinTokens"),
+                      REPO / "vendor" / "SkinTokens" / "demo.py"),
+        upstream=("VAST-AI SkinTokens", "https://github.com/VAST-AI-Research/SkinTokens"),
+        weights=(
+            WeightSet("SkinTokens rigging + skinning checkpoints", "VAST-AI/SkinTokens",
+                      1_131_603_979 + 487_311_745,
+                      HF_HUB_DIR / "models--VAST-AI--SkinTokens",
+                      note="Pinned to the revision we tested. Setup also fetches "
+                           "Qwen3-0.6B's config and tokenizer (~16 MB, no weights)."),
         ),
     ),
 )

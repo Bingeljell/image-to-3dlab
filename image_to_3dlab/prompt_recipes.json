@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "about": "What we have learned about prompting for each goal. The studio adds `wording` to a description, shows `tips`, and warns about `trouble` words. The CLI and MCP server read this same file.",
+  "goals": {
+    "character": {
+      "label": "A moving character",
+      "wording": "full body, standing in a T-pose, arms straight out to the sides, palms down, fingers spread, empty hands, no cape or loose cloth, plain light grey background, soft even studio lighting",
+      "tips": [
+        "One character, whole body, standing in a <b>T-pose</b>: arms straight out to the sides.",
+        "<b>Empty hands.</b> Make swords and shields as separate props.",
+        "Skip capes, long coats, robes and aprons. Loose cloth tears when it moves.",
+        "Describe the look and materials (\"rusty iron armour\", \"leather boots\"), not a scene.",
+        "Plain light background, soft even light, no dramatic shadows."
+      ]
+    },
+    "prop": {
+      "label": "A prop",
+      "wording": "single object, whole object in view, centred, plain light grey background, soft even studio lighting",
+      "tips": [
+        "<b>One object</b>, all of it in view, in the middle of the picture.",
+        "Say what it is made of: oak, iron, glass, stone.",
+        "Plain light background. No smoke, glow trails or motion blur: the 3D step needs one clean shape."
+      ]
+    },
+    "set": {
+      "label": "A prop set",
+      "wording": "a 3x3 grid of nine separate objects, same art style, clear gaps between them, each object whole and centred in its cell, plain light grey background",
+      "tips": [
+        "Ask for a <b>3×3 grid</b> of nine separate objects in one style.",
+        "Leave clear gaps between them so they can be cut apart.",
+        "Name the nine things in reading order (top row first) so each prop gets the right name."
+      ]
+    },
+    "picture": {
+      "label": "A picture",
+      "wording": "",
+      "tips": [
+        "Anything goes for a picture you only want to look at.",
+        "If you might turn it into 3D later, follow the Character or Prop tips now."
+      ]
+    },
+    "upload": {
+      "label": "Your own picture",
+      "wording": "",
+      "tips": [
+        "A <b>plain or cut-out background</b> works best.",
+        "The whole subject in view, front or three-quarter angle.",
+        "At least 768 px, with no text or logos over it.",
+        "For characters you want to animate: a T-pose with empty hands."
+      ]
+    }
+  },
+  "trouble": [
+    {"words": ["cape", "cloak", "robe", "long coat", "trench coat", "apron", "gown", "dress", "skirt"], "goals": ["character"],
+     "message": "Loose cloth can tear or stretch when the character moves. Leave it out for the cleanest rig."},
+    {"words": ["holding", "wielding", "sword in hand", "with a sword", "with a shield", "carrying", "staff in hand"], "goals": ["character"],
+     "message": "Held items get rigged as part of the hand. Make them as separate props instead."},
+    {"words": ["running", "jumping", "action pose", "fighting pose", "sitting", "crouching", "dynamic pose"], "goals": ["character"],
+     "message": "A pose other than a T-pose makes rigging harder. The T-pose wording is added for you."},
+    {"words": ["long hair", "flowing hair", "tentacles", "tail", "wings"], "goals": ["character"],
+     "message": "Long hair, tails and wings may not rig well yet."},
+    {"words": ["glowing", "smoke", "fire", "motion blur", "sparkles", "magic aura"], "goals": ["character", "prop", "set"],
+     "message": "Effects like glow, smoke or fire don't turn into clean 3D. Describe the object, not the effect."},
+    {"words": ["scene", "background of", "landscape", "room", "in a forest", "in a city"], "goals": ["character", "prop", "set"],
+     "message": "A scene behind the subject confuses the 3D step. Ask for a plain background (added for you)."}
+  ]
+}

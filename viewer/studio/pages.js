@@ -90,6 +90,13 @@ const CREDITS = [
 export async function openAbout(stage) {
   const el = sheet(stage, `<div class="sheet-card about">
     <div class="sheet-top"><h2>About <span>AssetFurnace</span></h2><button type="button" class="ghost" data-close>Close</button></div>
+    <p>Hi, I’m Bingeljell. I love building stuff, specially in and around the vicinity of video games. AssetFurnace is my
+      attempt at trying to empower game devs to be able to do more and better.</p>
+    <p>This is a young new project and will only survive when people like you use it, critique it, share feedback and most
+      of all spread the word. So if you use this and like it, share it with a friend. If you have feedback, write up an issue
+      on <a href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">GitHub</a>, we’re on
+      <a href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>, or you can tag me in a post on
+      <a href="https://x.com/bingeljell" target="_blank" rel="noopener">X</a>. Most of all, we’d love contributions.</p>
     <p>Make game-ready 3D characters and props on your own machine: from an idea, a picture or a model, to a rigged,
       moving character you can drop into Godot, Unity, Unreal or Blender. Nothing leaves this computer.</p>
     <p class="meta" data-version>AssetFurnace by Bingeljell</p>

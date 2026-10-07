@@ -171,3 +171,10 @@ def test_speed_defaults_to_the_presets_own_and_can_be_overridden(tmp_path, motio
         assert job.record["motion"]["speed"] == float(expected)
     with pytest.raises(ValueError, match="between"):
         aa.AnimateJobManager(tmp_path / "animate", motions).create_animation(rigged, "walk", 0, 5)
+
+
+def test_the_shipped_preset_moves_are_all_in_the_repo():
+    """The moves live in git: a fresh clone with an empty motions folder offers no moves."""
+    shipped = aa.presets()
+    assert len(shipped) >= 42, len(shipped)  # 21 moves, takes A and B
+    assert {"idle", "walk", "run", "dance"} <= {p["id"] for p in shipped}

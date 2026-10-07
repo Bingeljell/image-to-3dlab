@@ -7,20 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-08
+
+The headline: **rig and animate humanoids, on your own machine.** Type a sentence or drop
+a picture, and get back a textured, rigged character with moves, ready for a game engine.
+Free, local, no account.
+
 ### Added
-- **Animate tab: rig and animate a humanoid in a few clicks.** Pick a model from your runs
-  (or upload one), press Auto-rig, choose a preset animation, and download the animated
-  GLB. Auto-rig is set up from Setup & Status (~1.6 GB, asks first) and runs on Apple
+- **Rig and animate humanoids locally.** Auto-rig adds a skeleton (SkinTokens), and preset
+  moves from Kimodo are fitted onto it: rest pose straightened, arms kept out of the body
+  and armour, feet on the floor. Download the animated GLB for Godot, Unity, Unreal,
+  Blender or three.js. Set up from Setup & Status (~1.6 GB, asks first); runs on Apple
   Silicon and NVIDIA. Every result records its licences.
+- **The studio: the new home of AssetFurnace.** Your Library on the left, one 3D viewer in
+  the middle, and a Steps panel on the right that shows what is done and runs the next
+  step. `./lab` opens it. **Setup & Status** is its own page in the same look, with a way
+  back to the studio.
+- **Create: from an idea, a picture or a GLB to a finished asset in one go.** Pick what you
+  want (a picture, One prop, Nine props from a 3×3 sheet, or a moving character), press
+  Make it, and every step runs in order. Click any step to stop there. Progress shows in
+  the viewer.
+- **Runs carry on when you close the tab.** Reopen the studio and it picks the run back
+  up. An **Activity** page lists everything that ran, with logs when something fails.
+- **Open GLB:** look at any GLB from your computer, or drop one on the page. Nothing is
+  copied into the Library.
+- **How to use:** a short page in the studio that walks through each part.
+- Rename an asset by clicking its title; hide assets without deleting them.
 
 ### Changed
-- **New name: AssetFurnace.** A darker ember look, a new wordmark, and links
-  to X and GitHub on the About page. The viewer, its tab title and the README carry the new
-  name. The repo keeps its name, so existing links and clones still work.
+- **New name: AssetFurnace.** A darker ember look and a new wordmark. The repo keeps its
+  name, so existing links and clones still work.
+- **Each try is a new try.** Pictures and 3D models now get a fresh random seed every
+  time, so trying again gives a different result. The run record keeps the seed, so any
+  result can be repeated.
+- **Qwen-Image pictures are yours, plainly.** Qwen confirmed that what you generate is
+  yours, so Setup, the run records and the docs say that instead of a licence warning.
 
 ### Removed
-- **The Rig Edit and Pose tabs.** Animate replaces them; its Inspect skeleton panel keeps
-  the bone viewer.
+- **The classic viewer and its tabs** (Generate, Generate Image, Finish, Props, Animate,
+  Rig Edit, Pose, Rig Review, Compare). The studio does all of it except side-by-side
+  Compare, which returns in the studio soon. Old links to the classic viewer open the
+  studio. Want the classic viewer? It is in release 0.3.9.
+- `serve.py --open`, `--labels` and `--static-only`, which served the classic viewer.
 
 ## [0.3.9] - 2026-10-04
 

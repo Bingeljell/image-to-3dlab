@@ -79,3 +79,8 @@ export function visibleAssets(assets, { filter = 'all', query = '', showHidden =
 export function openingView(running) {
   return running ? 'running' : 'create';
 }
+
+/** Whether a file can be opened in the viewer. GLB only: a .gltf points at files beside it that a dropped file doesn't bring. */
+export function isModelFile(name) {
+  return /.\.glb$/i.test(name || '');
+}

@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the classic tabs' own job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets, openingView } from './library.js';
+import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets, openingView, isModelFile } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -352,6 +352,48 @@ $('vTitle').addEventListener('click', () => {
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
   input.addEventListener('blur', () => finish(true));
+});
+
+// ------------------------------------------------------------------ Open a GLB
+// look at any GLB from this computer: view only, nothing is copied into the Library
+let openedUrl = null;
+
+function openFile(file) {
+  if (!file) return;
+  $('stage').querySelector('.sheet')?.remove();
+  current = null;
+  viewingMaking = false;
+  $('progress').hidden = true;
+  renderLibrary();
+  $('hideBtn').hidden = true;
+  $('download').hidden = true;
+  $('sideKind').textContent = '';
+  $('vTitle').textContent = file.name;
+  if (!isModelFile(file.name)) {
+    $('vMeta').textContent = '';
+    $('steps').innerHTML = '';
+    viewer.setClips([]);
+    viewer.showEmpty('Only GLB files open here. To make a picture into 3D, use + Create.');
+    return;
+  }
+  $('vMeta').textContent = 'Opened from your computer · not in your Library';
+  $('steps').innerHTML = '<li class="hint opened-note">Just looking. To rig, animate or finish this model, use + Create and start from "3D model".</li>';
+  if (openedUrl) URL.revokeObjectURL(openedUrl);
+  openedUrl = URL.createObjectURL(file);
+  viewer.setFacing(null);
+  viewer.setClips([]);
+  viewer.load(openedUrl, { label: file.name, autoplay: true });
+}
+
+$('openBtn').addEventListener('click', () => $('openFile').click());
+$('openFile').addEventListener('change', (event) => { openFile(event.target.files[0]); event.target.value = ''; });
+// a file dropped anywhere opens in the viewer, instead of the browser downloading it.
+// Create's sheet takes its own drops first (and marks them handled).
+window.addEventListener('dragover', (event) => event.preventDefault());
+window.addEventListener('drop', (event) => {
+  if (event.defaultPrevented) return;
+  event.preventDefault();
+  openFile(event.dataTransfer?.files?.[0]);
 });
 
 $('activityBtn').addEventListener('click', () => openActivity($('stage')));

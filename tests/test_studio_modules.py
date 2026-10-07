@@ -177,6 +177,13 @@ def test_the_studio_opens_on_create_unless_a_run_is_going():
     assert out == ["create", "running", "create"]
 
 
+@needs_node
+def test_only_a_glb_opens_in_the_viewer():
+    out = _run("library.js", """
+      console.log(JSON.stringify(['cart.glb', 'KNIGHT.GLB', 'scene.gltf', 'boy.png', 'glb', ''].map(m.isModelFile)));""")
+    assert out == [True, True, False, False, False, False]
+
+
 RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
 
 

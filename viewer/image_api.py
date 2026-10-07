@@ -40,7 +40,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from image_to_3dlab.host import NVIDIA, executable, host_platform
-from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
+from image_to_3dlab.provenance import LICENSES, QWEN_OUTPUT_RIGHTS
 from image_to_3dlab.sdcpp import NO_GPU_HELP, BackendWatch
 
 HF_HUB = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
@@ -259,7 +259,7 @@ def provenance(prompt: str, settings: dict[str, Any], seconds: float,
         "license": {
             "name": LICENSE_NAME,
             "url": LICENSE_URL,
-            "classification": "research-only",
+            "classification": LICENSES["qwen-image-2.1"].classification,
             "attribution": ATTRIBUTION,
             # Key kept for sidecar compatibility; it now says what derivatives do NOT inherit.
             "inherited_by_derivatives": OUTPUT_RIGHTS,

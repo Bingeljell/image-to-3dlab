@@ -83,8 +83,10 @@ LICENSES = {
         ),
     ),
     "qwen-image-2.1": LicenseProfile(
-        classification="research-only",
-        folder="research_only",
+        # Qwen confirmed the outputs are the user's, and the model runs on their own machine;
+        # the one condition left is the credit, so it sits with the other conditional models.
+        classification="commercial-conditional",
+        folder="conditional",
         license_name="Qwen Research License Agreement",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         conditions=(

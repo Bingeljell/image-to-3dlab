@@ -134,10 +134,10 @@ def test_slug_survives_a_prompt_with_nothing_usable():
     assert api.slug("!!!???") == "image"
 
 
-def test_provenance_records_the_non_commercial_restriction():
+def test_provenance_records_the_licence_and_its_class():
     """A PNG in a folder six months from now remembers nothing on its own."""
     record = api.provenance("a fox", api.clean_settings({}), 262.3, Path("/o/fox.png"))
-    assert record["license"]["classification"] == "research-only"
+    assert record["license"]["classification"] == "commercial-conditional"
     assert "Built with Qwen" == record["license"]["attribution"]
     assert record["prompt"] == "a fox"
     json.dumps(record)  # must survive being written to the sidecar

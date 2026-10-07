@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the classic tabs' own job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets } from './library.js';
+import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets, openingView } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -35,7 +35,7 @@ function renderLibrary() {
       <span class="thumb">${thumb}</span>
       <span style="min-width:0"><span class="nm">${escape(asset.name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(statusText(asset))}</span></span>
     </button></li>`;
-  }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing matches.' : 'No assets yet. Make one in the classic view, and it shows up here.'}</li>`)
+  }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing matches.' : 'No assets yet. Press + Create to make your first.'}</li>`)
     + (more ? `<li><button class="ghost more" id="showMore">Show ${Math.min(more, 30)} more of ${more}</button></li>` : '');
   const shown = assets.filter((a) => !a.hidden).length;
   $('libFoot').textContent = `${shown} asset${shown === 1 ? '' : 's'} · saved in output/ on this machine`;
@@ -162,14 +162,14 @@ document.querySelectorAll('.seg [data-filter]').forEach((button) => {
   };
 });
 
-async function loadLibrary(keepId = null) {
+async function loadLibrary(keepId = null, { pick = true } = {}) {
   try {
     const response = await fetch('/api/assets');
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
     base = payload.base;
     assets = payload.assets;
-    show(assets.find((a) => a.id === keepId) ?? assets[0] ?? null);
+    show(pick ? assets.find((a) => a.id === keepId) ?? assets[0] ?? null : null);
   } catch (error) {
     $('libFoot').textContent = `The Library didn't load: ${error.message}`;
     viewer.showEmpty('The Library did not load. Is the viewer server running?');
@@ -197,9 +197,14 @@ async function loadTools() {
 }
 
 // ------------------------------------------------------------------ Create
+function openCreateSheet() {
+  $('stage').querySelector('.sheet')?.remove();
+  openCreate({ stage: $('stage'), recipes, engines, presets, onStart: (plan) => startChain(plan) });
+}
+
 $('createBtn').addEventListener('click', () => {
   if (making && !making.failed && !making.finished) { showMaking(); return; }
-  openCreate({ stage: $('stage'), recipes, engines, presets, onStart: (plan) => startChain(plan) });
+  openCreateSheet();
 });
 
 const clock = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -302,12 +307,19 @@ async function startChain(plan, attach = null) {
 }
 
 // a run keeps going on the server after its tab closes: a reopened studio picks it back up
-async function resumeRunning() {
-  try {
-    const { running } = await (await fetch('/api/chains')).json();
-    if (!running || making) return;
-    startChain({ steps: running.steps, description: running.title, firstMove: running.first_move, want: running.want }, running.id);
-  } catch { /* an older server without runs: nothing to resume */ }
+async function runningChain() {
+  try { return (await (await fetch('/api/chains')).json()).running ?? null; }
+  catch { return null; }  // an older server without runs: nothing to resume
+}
+
+// open on a run still going, else on Create; the Library beside it holds the recent work
+async function boot() {
+  await loadTools();
+  await loadLibrary(null, { pick: false });
+  const running = await runningChain();
+  if (openingView(running) === 'running') {
+    if (!making) startChain({ steps: running.steps, description: running.title, firstMove: running.first_move, want: running.want }, running.id);
+  } else openCreateSheet();
 }
 
 // rename: click the title, type, Enter (Escape keeps the old name). Only the Library's label
@@ -345,4 +357,4 @@ $('vTitle').addEventListener('click', () => {
 $('activityBtn').addEventListener('click', () => openActivity($('stage')));
 $('aboutBtn').addEventListener('click', () => openAbout($('stage')));
 
-loadTools().then(() => loadLibrary()).then(() => resumeRunning());
+boot();

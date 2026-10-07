@@ -170,6 +170,13 @@ def test_library_search_hides_and_pages():
     assert out["props"] == [1, 0, 0]
 
 
+@needs_node
+def test_the_studio_opens_on_create_unless_a_run_is_going():
+    out = _run("library.js", """
+      console.log(JSON.stringify([m.openingView(null), m.openingView({ id: 'r1' }), m.openingView(undefined)]));""")
+    assert out == ["create", "running", "create"]
+
+
 RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
 
 

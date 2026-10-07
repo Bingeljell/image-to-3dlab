@@ -71,3 +71,11 @@ export function visibleAssets(assets, { filter = 'all', query = '', showHidden =
   const pool = showHidden ? matching : matching.filter((a) => !a.hidden);
   return { rows: pool.slice(0, limit), more: Math.max(0, pool.length - limit), hiddenCount };
 }
+
+/**
+ * What the studio shows when it opens: a run still going on the server, else Create. Never the
+ * last asset: most visits are to make something, and the Library beside it is one click away.
+ */
+export function openingView(running) {
+  return running ? 'running' : 'create';
+}

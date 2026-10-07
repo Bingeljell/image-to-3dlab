@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.yes:
         # Non-interactive without --yes must not silently proceed, and must not hang
-        # waiting on a stdin nobody is attached to.
+        # waiting on a stdin nobody is attached to. Me not that kind of orc.
         if not sys.stdin or not sys.stdin.isatty():
             print("Refusing to download without --yes when there is nobody to ask.")
             return 1

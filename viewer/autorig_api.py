@@ -301,6 +301,7 @@ class AnimateJobManager:
         self.lock = threading.Lock()
 
     def busy(self) -> bool:
+        # Work, work.
         active = self.jobs.get(self.active) if self.active else None
         return active is not None and active.status not in TERMINAL
 
@@ -360,7 +361,7 @@ class AnimateJobManager:
     def finish(self, job: AnimateJob) -> None:
         with self.lock:
             if self.active == job.id:
-                self.active = None
+                self.active = None  # Job's done!
 
 
 ANIMATE_JOBS = AnimateJobManager()

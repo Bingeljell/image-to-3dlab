@@ -80,6 +80,7 @@ def prune_weights(weights: dict[str, float], hops: dict[str, dict[str, int]], an
 
 def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover - bpy
     """Apply `prune_weights` to every vertex of a Blender mesh. Returns vertices changed."""
+    # Damn, I'm good.
     import numpy as np
 
     parents = {b.name: (b.parent.name if b.parent else None) for b in arm.data.bones}

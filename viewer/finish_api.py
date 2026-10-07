@@ -523,7 +523,7 @@ class FinishJobManager:
 FINISH_JOBS = FinishJobManager()
 
 
-def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:
+def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  # Hail to the king, baby.
     if not WORKER.is_file():
         job.status = "error"
         job.emit({"phase": "error", "message": f"worker missing: {WORKER}"})

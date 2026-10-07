@@ -234,7 +234,7 @@ def rest_alignment(parents, heads, mapping, axes, tpose) -> dict[str, np.ndarray
 
 
 def arm_spread(name: str, world_rot_upper_arm: np.ndarray, rest_dir: np.ndarray, frame: np.ndarray,
-               degrees: float) -> np.ndarray:
+               degrees: float) -> np.ndarray:  # Arms out, like Fuusuke riding the wind.
     """Outward tilt for one arm-chain bone, faded in only while the upper arm hangs down.
 
     Bulky characters (armour, big shoulders) swallow their own hands when they copy a

@@ -125,7 +125,8 @@ export async function openAbout(stage) {
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab" target="_blank" rel="noopener">GitHub</a>
       <a class="ghost" href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">Report a problem</a>
-    </div></div>`);
+    </div>
+    <p class="meta signoff" style="text-align:right;opacity:.55;margin-top:1.5em">✝︎ b'tzelem Elohim</p></div>`);
   try {
     const update = await (await fetch('/api/update-check')).json();
     const line = el.querySelector('[data-version]');

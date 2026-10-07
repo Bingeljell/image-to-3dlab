@@ -29,6 +29,11 @@ ARM_ROLES = ("Arm", "ForeArm", "Hand")
 # How much of a bone's skin counts as its thickness. Below the maximum, so a stray vertex
 # (a spike of hair, a pauldron's rim) does not inflate the whole capsule.
 BODY_PERCENTILE = 85
+# A skull is never much wider than the torso; anything past that is hair, a helmet or a hat,
+# which a fist in a guard may overlap. Spiky hair made one head 1.5x a plain head and flung
+# guard fists out beside it (2026-10-07), so the head counts as at most this x the torso.
+HEAD_TO_TORSO = 1.1
+TORSO_ROLES = ("Spine1", "Spine2", "Chest")
 ARM_PERCENTILE = 60
 
 
@@ -55,6 +60,14 @@ def skin_radii(points: np.ndarray, owners: list[str], segments: dict[str, tuple]
     return radii
 
 
+def limit_head(radii: dict[str, float], head_bones: set[str], torso_bones: set[str]) -> dict[str, float]:
+    """The radii with each head bone no wider than HEAD_TO_TORSO x the widest torso bone."""
+    torso = max((r for b, r in radii.items() if b in torso_bones), default=None)
+    if torso is None:
+        return dict(radii)
+    return {b: min(r, torso * HEAD_TO_TORSO) if b in head_bones else r for b, r in radii.items()}
+
+
 @dataclass
 class Proxy:
     body: dict[str, float]       # rig bone -> capsule radius
@@ -78,7 +91,10 @@ def build_proxy(mapping: dict[str, str], points: np.ndarray, owners: list[str],
                       "radius": {b: radius.get(b, 0.0) for b in bones}}
     if not arms:
         return None
-    return Proxy(body=skin_radii(points, owners, segments, body_bones, BODY_PERCENTILE),
+    body = limit_head(skin_radii(points, owners, segments, body_bones, BODY_PERCENTILE),
+                      head_bones={by_role["Head"]} if "Head" in by_role else set(),
+                      torso_bones={by_role[r] for r in TORSO_ROLES if r in by_role})
+    return Proxy(body=body,
                  arms=arms,
                  side_shoulder={s: by_role.get(f"{s}Shoulder") for s in SIDES},
                  margin=0.01 * height)

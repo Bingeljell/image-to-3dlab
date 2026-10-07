@@ -125,3 +125,15 @@ def test_swing_degrees_reads_the_turn_of_a_rotation():
     c, s_ = np.cos(np.radians(30)), np.sin(np.radians(30))
     turn = np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1]])
     assert round(ac.swing_degrees(turn), 6) == 30.0
+
+
+def test_hair_or_a_helmet_does_not_widen_the_head_past_the_torso():
+    """Spiky hair made a fighter's head 1.5x a plain head, so guard fists by the chin were
+    flung out beside it, hands up as if held at gunpoint (2026-10-07). The head counts as
+    no wider than the torso (plus a little); a plain head is left alone."""
+    capped = ac.limit_head({"spine": 0.08, "chest": 0.083, "head": 0.137, "neck": 0.05},
+                           head_bones={"head"}, torso_bones={"spine", "chest"})
+    assert capped["head"] == pytest.approx(0.083 * ac.HEAD_TO_TORSO)
+    assert capped["chest"] == 0.083 and capped["neck"] == 0.05
+    plain = {"spine": 0.075, "chest": 0.089, "head": 0.09}
+    assert ac.limit_head(plain, head_bones={"head"}, torso_bones={"spine", "chest"}) == plain

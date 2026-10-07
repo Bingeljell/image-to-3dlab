@@ -254,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             print("sd-cli found the NVIDIA GPU.")
     if weights:
         install_weights()
-    print("\nDone. Open the viewer's Generate Image tab.")
+    print("\nDone. In the studio, press + Create and start from an idea.")
     return 0
 
 

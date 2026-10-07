@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
                   "  2. Run `hf auth login` with a token from that account\n"
                   "  3. Run this again with --weights-only")
             return 1
-    print("\nDone. Pick Stable Fast 3D in the viewer's Generate 3D tab.")
+    print("\nDone. Pick Stable Fast 3D in the studio (Create, Advanced: 3D engine).")
     return 0
 
 

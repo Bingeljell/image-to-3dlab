@@ -17,8 +17,8 @@ This lab builds on other people's models and ports. Thank you.
   non-commercial), run by [leejet/stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)
   (MIT). Built with Qwen.
 - [VAST-AI SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) (MIT): the
-  Animate tab's auto-rig, which gives a humanoid its skeleton and skin weights.
-- [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo): the Animate tab's preset clips were
+  studio's auto-rig, which gives a humanoid its skeleton and skin weights.
+- [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo): the studio's preset moves were
   made with it. Code Apache-2.0; model under the NVIDIA Open Model License.
 - [Apple MLX](https://github.com/ml-explore/mlx), [rembg](https://github.com/danielgatis/rembg),
   [TinyCLIP](https://huggingface.co/wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M) and

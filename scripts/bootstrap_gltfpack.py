@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install gltfpack for the Props tab, from meshoptimizer's GitHub release.
+"""Install gltfpack for split props, from meshoptimizer's GitHub release.
 
     python scripts/bootstrap_gltfpack.py          # says what it will fetch, then asks
     python scripts/bootstrap_gltfpack.py --yes    # non-interactive (the viewer's button)
@@ -73,7 +73,7 @@ def target_dir(repo: Path = REPO) -> Path:
 
 
 def announcement(asset: Asset) -> str:
-    return (f"gltfpack {VERSION} for the Props tab (MIT, from meshoptimizer by Arseny Kapoulkine)\n"
+    return (f"gltfpack {VERSION} for split props (MIT, from meshoptimizer by Arseny Kapoulkine)\n"
             f"  from   {RELEASES}{asset.zip}\n"
             f"  size   {asset.size / 1024 ** 2:.1f} MB download\n"
             f"  to     vendor/gltfpack/{asset.binary}")
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     if not first or "gltfpack" not in first[0]:
         print(f"gltfpack is in {binary} but did not start: {first}", flush=True)
         return 1
-    print(f"Done: {first[0]} in {binary.parent}. The Props tab will compress LODs now.",
+    print(f"Done: {first[0]} in {binary.parent}. Split props will be compressed now.",
           flush=True)
     return 0
 

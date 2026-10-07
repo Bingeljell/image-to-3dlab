@@ -377,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     if weights:
         install_weights()
         install_background_remover()
-    print("\nDone. Pick Hunyuan3D-2.1 (NVIDIA) in the viewer's Generate 3D tab, or run:\n"
+    print("\nDone. Pick Hunyuan3D-2.1 (NVIDIA) in the studio (Create, Advanced: 3D engine), or run:\n"
           "    vendor/hunyuan-cuda/.venv/bin/python scripts/hunyuan_cuda_generate.py "
           "input.png output.glb")
     return 0

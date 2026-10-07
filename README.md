@@ -43,6 +43,16 @@ Apple Silicon deserves more love in the 3D and Image generation community. So th
 - **Know what you can ship.** Every file carries a record of the licences behind it.
   [More](#licensing--provenance-non-negotiable)
 
+**Rig and animate, on your machine.** Press **Rig** and SkinTokens fits a skeleton and
+skin weights to your humanoid. Then pick a move: 21 presets, each fitted to your character
+so arms stay out of the body and feet stay on the floor. Download the animated GLB for
+your engine.
+
+<p align="center">
+  <img src="docs/images/auto-rig-then-dance.gif" width="720"
+       alt="Left: a generated anime martial artist, see-through, with the orange skeleton auto-rig gave him. Right: the same character dancing">
+</p>
+
 **Pixel Match: your picture's real pixels, on the model.** Image-to-3D models redraw your
 picture, so text, logos and faces come back as garbled lookalikes. Pixel Match, in the
 **Finish** step, copies the real pixels from your source image back onto every surface the

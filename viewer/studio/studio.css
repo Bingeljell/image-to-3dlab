@@ -268,3 +268,6 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .picset { display: grid; gap: 10px; margin-top: 10px; }
 .picset input[type="number"] { background: #110d0b; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; color: var(--bone); font: inherit; }
 .opened-note { list-style: none; padding: 14px 16px; line-height: 1.5; }
+.guide dl { margin: 6px 0 0; display: grid; gap: 4px 0; }
+.guide dt { font-weight: 600; color: var(--bone, #eee); margin-top: 12px; }
+.guide dd { margin: 2px 0 0; color: var(--ash, #aaa); line-height: 1.5; }

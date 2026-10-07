@@ -128,3 +128,25 @@ export async function openAbout(stage) {
     }
   } catch { /* the version line just stays without a number */ }
 }
+
+// How to use: one short walk through the studio. Each entry is [title, text]; keep it brief.
+export const GUIDE = [
+  ['1. Make something', 'Press + Create. Start from an idea (type a sentence), a picture, or a 3D model, then pick what you want: a picture, One prop, Nine props (a 3×3 sheet), or a moving character. Press Make it.'],
+  ['2. Stop early if you like', 'In Create, click any step in the row to stop there, say after the 3D model. You can carry on later from the Steps panel.'],
+  ['3. Watch it run', 'Progress shows in the middle. Each step takes a few minutes. Cancel stops it and keeps what is done. You can close the tab: the run carries on, and the studio picks it up when you come back.'],
+  ['4. Your Library', 'Everything you make is listed on the left, newest first. Search, filter by Characters or Props, and click to open. Click a title to rename it. Hide tucks an asset away without deleting it.'],
+  ['5. Next steps', 'The Steps panel on the right shows what is done and what comes next: 3D model, Finish (a lighter, cleaner mesh, with Pixel Match keeping your picture sharp), Rig (adds a skeleton) and Animate (add moves). Rig and Animate are for humanoids: two arms, two legs, standing up.'],
+  ['6. Look around', 'Drag to orbit, scroll to zoom, right-drag to pan. The buttons top right reset the view and show wireframe, floor grid or skeleton. Click an axis on the gizmo to look from that side.'],
+  ['7. Take it into your game', 'Download GLB saves the model, or the move that is playing. It opens in Godot, Unity, Unreal, Blender and three.js.'],
+  ['Open GLB', 'Look at any GLB from your computer, or drop one anywhere on the page. View only: nothing is copied into your Library.'],
+  ['Activity', 'Everything that has run, finished, stopped or failed, with logs when something breaks.'],
+  ['Setup', 'Install engines and see disk use. Nothing downloads until you say yes, and each download says how big it is first.'],
+  ['About', 'What AssetFurnace is, the open models it builds on, and their licences.'],
+  ['Classic view', 'The older viewer with every tool, including Compare, while the studio is being finished.'],
+];
+
+export function openGuide(stage) {
+  sheet(stage, `<div class="sheet-card guide">
+    <div class="sheet-top"><h2>How to use <span>AssetFurnace</span></h2><button type="button" class="ghost" data-close>Close</button></div>
+    <dl>${GUIDE.map(([title, text]) => `<dt>${escape(title)}</dt><dd>${escape(text)}</dd>`).join('')}</dl></div>`);
+}

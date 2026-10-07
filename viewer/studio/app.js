@@ -6,7 +6,7 @@ import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
-import { openActivity, openAbout } from './pages.js';
+import { openActivity, openAbout, openGuide } from './pages.js';
 import { STEP_LABELS } from './plan.js';
 
 const $ = (id) => document.getElementById(id);
@@ -398,6 +398,7 @@ window.addEventListener('drop', (event) => {
   openFile(event.dataTransfer?.files?.[0]);
 });
 
+$('guideBtn').addEventListener('click', () => openGuide($('stage')));
 $('activityBtn').addEventListener('click', () => openActivity($('stage')));
 $('aboutBtn').addEventListener('click', () => openAbout($('stage')));
 

@@ -228,6 +228,18 @@ def test_one_prop_and_nine_props_are_told_apart_by_name():
     assert out == ["One prop", "Nine props"]
 
 
+@needs_node
+def test_the_how_to_page_covers_every_button_in_the_top_bar():
+    html = (REPO / "viewer" / "studio.html").read_text()
+    import re
+    bar = html.split('<header class="bar">')[1].split("</header>")[0]
+    labels = [re.sub(r"<[^>]+>", "", m).strip() for m in re.findall(r'class="ghost[^"]*"[^>]*>([^<]+)<', bar)]
+    out = _run("pages.js", "console.log(JSON.stringify(m.GUIDE.map(([title, text]) => title + ' ' + text).join(' ')));")
+    assert labels and all(label in out for label in labels if label != "How to use"), labels
+    for must in ("+ Create", "Steps", "Download GLB", "Cancel", "close the tab"):
+        assert must in out, must
+
+
 RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
 
 

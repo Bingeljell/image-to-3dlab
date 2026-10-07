@@ -81,3 +81,46 @@ def test_catalogue_and_setup_command_agree_with_the_installer():
     assert set(backend.runs_on) == {backend_catalog.APPLE, backend_catalog.NVIDIA}
     command = download_api.COMMANDS["autorig"]
     assert command[1].endswith("bootstrap_autorig.py") and "--yes" in command
+
+
+def test_mac_gets_pypi_torch():
+    assert ba.torch_index("macos", nvidia=False, driver=None) is None
+
+
+def test_nvidia_torch_matches_the_driver_not_pypi():
+    # The 0.4.0 pod check had a CUDA 13 driver, so PyPI's cu130 torch passed; the common
+    # 570-series driver (CUDA 12.8) cannot run it.
+    assert ba.torch_index("linux", nvidia=True, driver=(12, 8)).endswith("/cu128")
+    assert ba.torch_index("linux", nvidia=True, driver=(13, 0)).endswith("/cu130")
+    assert ba.torch_index("windows", nvidia=True, driver=(12, 9)).endswith("/cu128")
+
+
+def test_driver_too_old_stops_with_a_reason():
+    try:
+        ba.torch_index("linux", nvidia=True, driver=(12, 4))
+    except SystemExit as stop:
+        assert "CUDA 12.4" in str(stop) and "12.8" in str(stop)
+    else:
+        raise AssertionError("an unusable driver must stop setup")
+
+
+def test_torch_installs_first_from_its_index(tmp_path):
+    first, second = ba.pip_commands("uv", tmp_path / "python", tmp_path, "https://x/cu128")
+    assert first[-4:] == ["torch", "torchvision", "--index-url", "https://x/cu128"]
+    assert "torch" not in second and second[-2:] == ["-r", str(tmp_path / "requirements.txt")]
+    mac_torch, _ = ba.pip_commands("uv", tmp_path / "python", tmp_path, None)
+    assert "--index-url" not in mac_torch
+
+
+def test_install_packages_runs_the_planned_commands(tmp_path, monkeypatch):
+    root = tmp_path / "SkinTokens"
+    (root / ".venv").mkdir(parents=True)
+    (root / ".venv" / "pyvenv.cfg").write_text("version_info = 3.11.9\n")
+    monkeypatch.setattr(ba.shutil, "which", lambda name: "/bin/uv")
+    monkeypatch.setattr(ba.host, "os_family", lambda: "linux")
+    monkeypatch.setattr(ba.host, "has_nvidia_gpu", lambda: True)
+    monkeypatch.setattr(ba.host, "driver_cuda_version", lambda: (12, 8))
+    ran = []
+    ba.install_packages(root, runner=ran.append)
+    assert ran == ba.pip_commands("/bin/uv", ba.venv_python(root), root,
+                                  ba.host.TORCH_INDEX + "cu128")

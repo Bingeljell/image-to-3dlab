@@ -262,6 +262,165 @@ def test_metal_build_passes_no_cuda_flags():
     assert not any("CUDA" in f for f in boot.cmake_flags("metal-source"))
 
 
+# --- AMD: HIP, compiled here, because upstream ships no AMD prebuilt ----------------------
+# GGML_HIP is ggml's own switch; HIPBLAS is the math library underneath it. Neither is CUDA
+# on an AMD card, so a build that passes either would compile nothing that can run.
+HIPCC = "/opt/rocm/bin/hipcc"
+
+
+@pytest.mark.parametrize("hipcc,gfx,expected", [
+    (HIPCC, ["gfx1100"], "hip-source"),
+    # The compiler without the card would build for an ISA nobody has.
+    (HIPCC, [], None),
+    (HIPCC, None, None),
+    # A card with no ROCm toolchain: the machine can be named AMD and still have no route.
+    (None, ["gfx1100"], None),
+])
+def test_amd_compiles_with_hip_when_both_halves_are_there(hipcc, gfx, expected):
+    assert boot.build_kind("linux-amd", None, None, None, False, hipcc, gfx) == expected
+
+
+def test_amd_ignores_the_nvidia_answer():
+    """An AMD box with an old NVIDIA driver left in the machine must not be sent down the
+    prebuilt route: it has no AMD prebuilt."""
+    assert boot.build_kind("linux-amd", (12, 9), None, None, False, HIPCC,
+                           ["gfx1100"]) == "hip-source"
+
+
+def test_the_hip_build_is_given_rocms_clang_not_the_hipcc_wrapper(monkeypatch, tmp_path):
+    """CMake refuses hipcc outright ("CMAKE_HIP_COMPILER is set to the hipcc wrapper ... This
+    is not supported"), so naming it makes configure fail on every AMD machine. It is the
+    Clang beside it that goes in the flag."""
+    monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    monkeypatch.setattr(boot.Path, "exists",
+                        lambda self: str(self).endswith(("llvm/bin/clang++",)))
+    assert boot.hip_compiler(HIPCC) == "/opt/rocm/llvm/bin/clang++"
+    flags = boot.cmake_flags("hip-source", hipcc=HIPCC, gfx=["gfx1100"])
+    compiler = next(f for f in flags if f.startswith("-DCMAKE_HIP_COMPILER="))
+    assert compiler == "-DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++"
+
+
+def test_no_rocm_clang_means_no_compiler_flag_at_all(monkeypatch, tmp_path):
+    """Better an absent flag CMake can resolve itself than a wrong one. This is the shape
+    of the failure: the HIP SDK without its compiler, which is what a partial ROCm install
+    gives you."""
+    monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    monkeypatch.setattr(boot.Path, "exists", lambda self: False)
+    assert boot.hip_compiler(HIPCC) is None
+    assert not any("HIP_COMPILER" in f
+                   for f in boot.cmake_flags("hip-source", hipcc=HIPCC, gfx=["gfx1100"]))
+
+
+def test_no_rocm_at_all_means_no_compiler(monkeypatch):
+    monkeypatch.setattr(boot, "find_hipcc", lambda: None)
+    assert boot.hip_compiler() is None
+
+
+def test_hip_build_names_the_card_in_both_spellings():
+    """ggml reads AMDGPU_TARGETS and CMake's HIP language reads CMAKE_HIP_ARCHITECTURES.
+    ggml only falls back to the first when the second is unset, so both get the list."""
+    flags = boot.cmake_flags("hip-source", hipcc=HIPCC, gfx=["gfx1100"])
+    assert "-DGGML_HIP=ON" in flags
+    assert "-DCMAKE_HIP_ARCHITECTURES=gfx1100" in flags
+    assert "-DAMDGPU_TARGETS=gfx1100" in flags
+    assert not any("CUDA" in f for f in flags)
+
+
+def test_hip_build_points_cmake_at_rocm():
+    """Without ROCm's own directory, CMake's HIP support cannot find the runtime."""
+    flags = boot.cmake_flags("hip-source", hipcc=HIPCC, gfx=["gfx1100"])
+    assert any("CMAKE_PREFIX_PATH" in f for f in flags)
+    assert any(f.startswith("-DROCM_PATH=") for f in flags)
+
+
+def test_two_cards_compile_for_both():
+    flags = boot.cmake_flags("hip-source", hipcc=HIPCC, gfx=["gfx1100", "gfx1200"])
+    assert "-DAMDGPU_TARGETS=gfx1100;gfx1200" in flags
+
+
+def test_extra_cmake_flags_come_from_the_environment():
+    """A card ROCm needs help with (a HIPBLASLt build, say) must not need a fork of this
+    script to pass one flag."""
+    assert boot.extra_cmake_flags({}) == []
+    env = {boot.EXTRA_CMAKE_FLAGS: "-DGGML_HIPBLASLT=ON -DGGML_VMM=OFF"}
+    assert boot.extra_cmake_flags(env) == ["-DGGML_HIPBLASLT=ON", "-DGGML_VMM=OFF"]
+
+
+def test_amd_announces_a_hip_compile_and_its_size(monkeypatch):
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    monkeypatch.setattr(boot, "gfx_targets", lambda: ["gfx1100"])
+    text = boot.announcement()
+    assert "HIP" in text and "8.4 GB" in text and "MIT" in text
+    # The 10-20 minutes is the thing a user needs to know before agreeing to it.
+    assert "10-20 minutes" in text
+
+
+def test_amd_without_the_hip_sdk_is_told_which_package_installs_it(monkeypatch, capsys):
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "find_hipcc", lambda: None)
+    monkeypatch.setattr(boot, "build_present", lambda: False)
+    monkeypatch.setattr(boot, "install_build", lambda *a: pytest.fail("built"))
+    monkeypatch.setattr(boot, "install_weights", lambda *a: pytest.fail("downloaded"))
+    assert boot.main(["--yes"]) == 1
+    out = capsys.readouterr().out
+    assert "rocm-hip-sdk" in out and "Nothing downloaded" in out
+
+
+def test_amd_with_a_compiler_but_no_readable_card_can_be_told_the_target(monkeypatch, capsys):
+    """rocminfo can be missing from a container that has the SDK. Refusing outright would
+    strand it, so the answer is how to name the card by hand."""
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    monkeypatch.setattr(boot, "gfx_targets", list)
+    monkeypatch.setattr(boot, "build_present", lambda: False)
+    monkeypatch.setattr(boot, "install_build", lambda *a: pytest.fail("built"))
+    monkeypatch.setattr(boot, "install_weights", lambda *a: pytest.fail("downloaded"))
+    assert boot.main(["--yes"]) == 1
+    out = capsys.readouterr().out
+    assert "PIXAL3D_CMAKE_FLAGS" in out and "gfx1100" in out
+
+
+def test_an_unreadable_amd_card_does_not_reach_the_weights(monkeypatch):
+    """The one case that must never fall through: hipcc present, no gfx target, so CMake
+    would pick an ISA of its own choosing and the binary would miss every kernel."""
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    monkeypatch.setattr(boot, "gfx_targets", list)
+    monkeypatch.setattr(boot, "build_present", lambda: False)
+    monkeypatch.setattr(boot, "install_build", lambda *a: pytest.fail("built"))
+    monkeypatch.setattr(boot, "install_weights", lambda *a: pytest.fail("downloaded"))
+    assert boot.main(["--yes"]) == 1
+
+
+def test_the_hip_build_says_hip_not_cuda_on_its_progress_line(monkeypatch, capsys):
+    """A 20-minute compile that announces CUDA on an AMD machine is a user who stops and
+    assumes the tool picked the wrong card."""
+    ran = []
+    monkeypatch.setattr(boot.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(boot, "fetch_source", lambda ref: None)
+    monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
+    monkeypatch.setattr(boot, "gfx_targets", lambda: ["gfx1100"])
+    monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    monkeypatch.setattr(boot, "build_present", lambda: True)
+    monkeypatch.setattr(boot.subprocess, "run",
+                        lambda command, **kw: ran.append(command))
+    boot.build_from_source("hip-source")
+    assert "Building (HIP)" in capsys.readouterr().out
+    configure = next(c for c in ran if c[0] == "cmake")
+    assert "-DGGML_HIP=ON" in configure
+    assert not any("CUDA" in flag for flag in configure)
+
+
+def test_the_hip_build_fetches_the_tested_commit():
+    """The same commit the CUDA build pins, so AMD and NVIDIA run the same code."""
+    assert boot.source_ref("hip-source") == boot.PREBUILT_COMMIT
+
+
+def test_a_hip_build_rebuilds_in_place_like_any_other_source_build():
+    assert boot.build_decision(True, True, "hip-source") == "rebuild"
+
+
 def test_the_build_command_names_a_job_count():
     """A bare `-j` is unbounded: dozens of nvcc jobs on a 96-CPU, 31 GB pod got OOM-killed."""
     command = boot.build_command(jobs=10)

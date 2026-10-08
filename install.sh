@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install or update image-to-3dlab on a Mac (Apple Silicon) or Linux (NVIDIA).
+# Install or update image-to-3dlab on a Mac (Apple Silicon) or Linux (NVIDIA or AMD).
 #
 #   curl -fsSL https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/main/install.sh | bash
 #
@@ -64,13 +64,17 @@ case "$OS/$ARCH" in
   Linux/x86_64)
     if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L 2>/dev/null | grep -q GPU; then
       MACHINE="Linux with an NVIDIA GPU"
+    elif [ -n "$(ls -A "${I3D_KFD_NODES:-/sys/class/kfd/kfd/topology/nodes}" 2>/dev/null)" ]; then
+      # The same test image_to_3dlab/host.py uses: one directory per AMD card the kernel
+      # driver has bound. I3D_KFD_NODES exists for the test suite, the way I3D_UNAME does.
+      MACHINE="Linux with an AMD GPU"
     else
-      MACHINE="Linux without an NVIDIA GPU"
-      say "No NVIDIA GPU found (nvidia-smi lists none). The viewer will install, but no"
-      say "generation route will run here until one is."
+      MACHINE="Linux without a supported GPU"
+      say "No NVIDIA or AMD GPU found. The viewer will install, but no generation route"
+      say "will run here until one is."
     fi ;;
   Darwin/*) die "This Mac has an Intel chip. The lab needs Apple Silicon (M1 or newer)." ;;
-  *) die "Unsupported machine: $OS/$ARCH. The lab runs on Apple Silicon Macs and x86-64 Linux with an NVIDIA GPU. On Windows, use install.ps1." ;;
+  *) die "Unsupported machine: $OS/$ARCH. The lab runs on Apple Silicon Macs and x86-64 Linux with an NVIDIA or AMD GPU. On Windows, use install.ps1." ;;
 esac
 say "Machine: $MACHINE"
 

@@ -49,7 +49,7 @@ def candidates(family: str, home: Path | None = None) -> list[Path]:
 
 
 def find_blender(env: dict[str, str] | None = None, which: Callable = shutil.which,
-                 family: str | None = None, home: Path | None = None) -> Path | None:
+                 family: str | None = None, home: Path | None = None, system_ok: bool = True) -> Path | None:
     """The Blender executable to use, or None when there is none."""
     env = os.environ if env is None else env
     configured = env.get(ENV_VAR)
@@ -57,9 +57,13 @@ def find_blender(env: dict[str, str] | None = None, which: Callable = shutil.whi
         path = Path(configured).expanduser()
         return path if path.is_file() else None
     on_path = which("blender")
-    if on_path:
+    if on_path and system_ok:
         return Path(on_path)
-    return next((p for p in candidates(family or os_family(), home) if p.is_file()), None)
+    # When system_ok is False, skip PATH and also skip standard system locations
+    candidates_list = candidates(family or os_family(), home)
+    if not system_ok:
+        candidates_list = [p for p in candidates_list if not p.as_posix().startswith(('/usr', '/snap', '/var/lib/flatpak'))]
+    return next((p for p in candidates_list if p.is_file()), None)
 
 
 def parse_version(text: str) -> tuple[int, int] | None:

@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import image_api
 from image_to_3dlab import processes
 from image_to_3dlab.blender import find_blender, missing_help as blender_missing_help
+from image_to_3dlab.gpu_memory import gpu_busy_note
 from image_to_3dlab.host import executable  # image_api put the repo on sys.path
 from rig_api import (
     ARTIFACTS as RIG_ARTIFACTS,
@@ -266,9 +267,28 @@ class BackendSpec:
     hidden_fields: tuple[str, ...] = ()
     """Element ids of Generate-tab controls this spec ignores, so the page hides them
     (the Mac-only attention and rembg options mean nothing on the NVIDIA route)."""
+    gpu_memory_wanted: int | None = None
+    """Free VRAM this backend needs before it is worth starting, in bytes.
+
+    None for a backend that runs on the CPU or whose peak is unknowable in advance. Set
+    only to a floor a run genuinely cannot go below, because the check refuses rather than
+    warns: an over-stated figure would lock out a machine that would have succeeded.
+    Measured on an RX 7900 XTX, where Pixal3D asked for an 11.1 GB block in one piece."""
 
 
 BACKENDS: dict[str, BackendSpec] = {}
+
+
+def gpu_busy_check(spec: BackendSpec) -> str | None:
+    """Why this backend cannot start right now, or None if it can.
+
+    Every backend goes through here, and a backend with no declared `gpu_memory_wanted` gets
+    a `None` without the GPU being asked at all — a CPU route must never be refused for
+    having no card.
+    """
+    if spec.gpu_memory_wanted is None:
+        return None
+    return gpu_busy_note(spec.gpu_memory_wanted)
 
 
 def clean_port_build_present() -> bool:
@@ -1153,6 +1173,25 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
 _LOG_NOISE = re.compile(r"^(\[rss |Sampling |Loading |Pipeline loaded|\s*$)|\|\s*\d+/\d+ \[")
 
 
+def out_of_memory_reason(log_lines) -> str | None:
+    """What a run that died of GPU memory shortage should be told, or None if it did not.
+
+    ggml announces the shortage and then dies the way C++ dies: `std::terminate`, a signal,
+    and -- because the binary links a crash handler -- forty lines of GDB backtrace. The one
+    line that explains anything is near the top of that, and `failure_reason` reads from the
+    bottom, so the user got "trellis-cli exited with code -6" (which is the wrapper restating
+    the signal, not a cause) and the actual sentence about the card was never shown.
+    """
+    for line in reversed(list(log_lines)):
+        text = line.rstrip()
+        if "out of memory" in text and ("allocat" in text or "Malloc" in text):
+            return (
+                f"{text} The GPU did not have enough free memory. Another program using "
+                f"the card is the usual cause -- Close it and run this again."
+            )
+    return None
+
+
 def failure_reason(log_lines, limit: int = 6) -> str | None:
     """The generator's own last words, or None if it said nothing but progress.
 
@@ -1171,6 +1210,11 @@ def failure_reason(log_lines, limit: int = 6) -> str | None:
         reason.append(text)
         if len(reason) >= limit:
             break
+    # A shortage of GPU memory has a cause and a remedy, and neither is in the trailing
+    # block: ggml aborts, so the last words are a backtrace and the wrapper's exit code.
+    shortage = out_of_memory_reason(log_lines)
+    if shortage:
+        return shortage
     return "\n".join(reversed(reason)) or None
 
 
@@ -1784,6 +1828,12 @@ def trellis_spec(host: str | None = None) -> BackendSpec:
 
     One id, two installs. The NVIDIA spec mattes images itself with our remover, so it
     does not demand a transparent upload the way the Mac port does.
+
+    There is no AMD install. Microsoft's route needs flash-attn, nvdiffrast, nvdiffrec,
+    CuMesh and FlexGEMM, all NVIDIA-only, and nothing upstream ships an ROCm build of them.
+    A third spec would be a lie about what is installed, so an AMD machine is given the Mac
+    port's spec and the catalogue's `runs_on` keeps the route out of its dropdown. What an
+    AMD user gets instead is Pixal3D, which does build with HIP.
     """
     if (host or host_platform()) == NVIDIA:
         return BackendSpec(
@@ -1919,6 +1969,10 @@ BACKENDS.update({
         stage_labels=PIXAL3D_STAGE_LABELS, requires_alpha=False,
         validate_settings=_pixal3d_validate_settings, build_args=_pixal3d_build_args,
         parse_line=_pixal3d_parse_line, readiness=_pixal3d_readiness,
+        # The one block it could not allocate on a busy 24 GB card, rounded up: 11.1 GB at
+        # res 1024. Without this the run reaches the texture stage -- two minutes in --
+        # and aborts with a backtrace instead of a sentence.
+        gpu_memory_wanted=12 * 1024 ** 3,
     ),
     # Same stage names and progress lines as the MLX Hunyuan routes, so it shares their parser.
     "hunyuan-cuda": BackendSpec(
@@ -2483,6 +2537,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if not spec.readiness()["ready"]:
                 self._send_json(503, {"error": f"{spec.label} is not installed/ready"})
+                return
+            # Free card memory is asked here, not discovered two minutes in by the GPU
+            # refusing an allocation. A run that cannot fit is refused before it costs
+            # anything; one that might is always allowed through, because a generator's
+            # real peak comes and goes.
+            busy = gpu_busy_check(spec)
+            if busy is not None:
+                self._send_json(409, {"error": f"{spec.label}: {busy}"})
                 return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})

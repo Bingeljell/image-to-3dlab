@@ -47,7 +47,8 @@ Apple Silicon deserves more love in the 3D and Image generation community. So th
 **Rig and animate, on your machine.** Press **Rig** and SkinTokens fits a skeleton and
 skin weights to your humanoid. Then pick a move: 21 presets, each fitted to your character
 so arms stay out of the body and feet stay on the floor. Download the animated GLB for
-your engine.
+your engine. Runs on Apple Silicon, NVIDIA and AMD (ROCm) alike — SkinTokens is pure
+PyTorch, so on an AMD card it needs no NVIDIA-only build.
 
 <p align="center">
   <img src="docs/images/auto-rig-then-dance.gif" width="720"
@@ -112,7 +113,7 @@ Six backends, one studio. Sadly life is full of trade-offs, so pick the tradeoff
 
 | Backend | Best for | Runs on | Setup | License |
 |---|---|---|---|---|
-| **Pixal3D (C++/GGML)** ⭐ | Best results we have; one pass, no repaint needed | Mac, NVIDIA | Setup & Status, or `scripts/bootstrap_pixal3d.py` (8.4 GB weights) | MIT (code + flow weights); DINOv3 License (bundled encoder) |
+| **Pixal3D (C++/GGML)** ⭐ | Best results we have; one pass, no repaint needed | Mac, NVIDIA, AMD (Linux + ROCm) | Setup & Status, or `scripts/bootstrap_pixal3d.py` (8.4 GB weights) | MIT (code + flow weights); DINOv3 License (bundled encoder) |
 | **Hunyuan3D-MLX (Xiong, full pipeline)** | Fast, clean results | Mac (NVIDIA: the row below) | Code is in this repo; weights download separately | MIT (code); Tencent Community License (weights) |
 | **Hunyuan3D-MLX (dgrauet shape + Xiong paint)** | The cleanest shapes, at the cost of manual setup | Mac (NVIDIA: the row below) | Cloned separately, manual | Tencent Community License (code + weights) |
 | **Hunyuan3D-2.1 (NVIDIA)** | Tencent's own shape + PBR paint, one run | NVIDIA (Linux; not Windows yet), 24 GB+ | Setup & Status, or `scripts/bootstrap_hunyuan_cuda.py` (~19.5 GB weights) | Tencent Community License (code + weights) |
@@ -124,6 +125,20 @@ TRELLIS.2 often needs a separate repaint.
 
 TRELLIS.2 and Hunyuan3D are built for NVIDIA upstream. On a Mac this lab runs their Apple
 Silicon ports; on Linux + NVIDIA it runs Microsoft's and Tencent's own code.
+
+On Linux with an **AMD** card, Pixal3D is the 3D route. It is C++/GGML, and ggml builds for
+HIP, so there is no NVIDIA-only extension anywhere in it. There is no prebuilt, so the
+first setup compiles it (10-20 minutes) — that is all it needs ROCm for
+(`sudo apt install rocm-hip-sdk`). TRELLIS.2 and Hunyuan3D-2.1 are not offered there: both
+need NVIDIA-only compiled extensions (flash-attn, nvdiffrast, CuMesh, FlexGEMM, spconv) and
+upstream ships no ROCm build of them. Qwen-Image, the background remover and auto-rig all
+work.
+
+Proved on two machines: an **RX 7900 XTX** (gfx1100, discrete, ROCm 7.2.4, 24 GB) and a
+**Ryzen AI Max+ 395** (Radeon 8060S, gfx1151, an APU with no discrete card, ROCm 10.2.0,
+124 GB shared RAM). RDNA3 and newer is the safe assumption; older cards may work but are
+untested, and setup reads your card's gfx target and refuses rather than guessing if it
+cannot find one.
 
 <p align="center">
   <img src="docs/images/turntable-pixal3d-warrior.webp" width="360"
@@ -310,6 +325,7 @@ character with these tools.
 |---|---|
 | Apple Silicon Mac (M-series), 32 GB recommended | Every route |
 | **or** Linux with an NVIDIA card (24 GB VRAM tested; Pixal3D's authors run it on 16 GB) | Pixal3D, Generate Image, TRELLIS.2, Hunyuan3D-2.1 |
+| **or** Linux with an AMD card and ROCm (RX 7900 XTX and Ryzen AI Max+ 395 tested) | Pixal3D, Generate Image, Auto-rig. 3D needs the HIP compile, which takes 10-20 minutes once |
 | Linux + NVIDIA: CUDA toolkit matching PyTorch's CUDA | compiles TRELLIS.2's CUDA extensions (not needed on RTX 50-series) and Hunyuan3D-2.1's rasterizer (CUDA 12) |
 | macOS: full Xcode | compiles the Metal kernels for Pixal3D and TRELLIS |
 | Blender 4.2+ | Finish (low-poly clean-up, Pixel Match) and rigging. Install it yourself from [blender.org](https://www.blender.org/download/); Setup & Status shows whether it was found |

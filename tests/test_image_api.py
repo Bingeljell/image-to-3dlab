@@ -217,15 +217,48 @@ def test_sidecar_names_each_weight_file_readably():
         assert "(" not in weights[key]["cache_dir"]
 
 
-def _fake_sd_cli(tmp_path: Path, lines: list[str], then_sleep: float) -> list[str]:
+def _fake_sd_cli(tmp_path: Path, lines: list[str], then_sleep: float,
+                 exit_code: int = 0) -> list[str]:
     script = tmp_path / "fake_sd_cli.py"
     script.write_text(
         "import sys, time\n"
         f"for line in {lines!r}:\n"
         "    print(line, flush=True)\n"
         f"time.sleep({then_sleep})\n"
+        f"sys.exit({exit_code})\n"
     )
     return [sys.executable, str(script)]
+
+
+def test_a_failed_run_says_why_not_just_the_exit_code(tmp_path, monkeypatch):
+    """'sd-cli exited with code 2' is a riddle; the binary's own last line -- here a
+    rejected flag, because vendor/sdcpp once held a LocalAI backend that only speaks
+    -addr -- is the reason, and the image tab has no log panel to find it in."""
+    command = _fake_sd_cli(tmp_path, [
+        "load_backend: loaded CPU backend from /x/libggml-cpu.so",
+        "|=====>    | 3/10 - 1.5s/it",
+        "flag provided but not defined: -diffusion-model",
+    ], then_sleep=0, exit_code=2)
+    monkeypatch.setattr(api, "host_platform", lambda: "amd")
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "error"
+    assert "code 2" in job.error
+    assert "flag provided but not defined: -diffusion-model" in job.error
+
+
+def test_a_failed_run_with_only_progress_says_just_the_code(tmp_path, monkeypatch):
+    """When the tail is nothing but progress chatter, there is no reason to quote."""
+    command = _fake_sd_cli(tmp_path, ["|=====>    | 3/10 - 1.5s/it"],
+                           then_sleep=0, exit_code=2)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "error"
+    assert job.error == "sd-cli exited with code 2"
 
 
 def test_a_cpu_only_run_on_an_nvidia_machine_is_stopped_with_the_fix(tmp_path, monkeypatch):

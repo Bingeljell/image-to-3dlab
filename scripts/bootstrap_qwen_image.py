@@ -3,8 +3,9 @@
 
 Two halves, the same way the viewer tracks every other backend. The **build** is a
 prebuilt `stable-diffusion.cpp` release binary. Nothing is compiled: upstream publishes a
-Metal build for Apple Silicon, a CUDA build for Windows and a Vulkan build for Linux, which
-runs on NVIDIA cards. The **weights** are three files totalling about 13.4 GB.
+Metal build for Apple Silicon, a CUDA build for Windows, a Vulkan build for Linux that
+runs on NVIDIA cards, and a ROCm build for AMD cards on Linux. The **weights** are three
+files totalling about 13.4 GB.
 
 `AGENTS.md`: a download path must name the backend, name the route, state the size, and
 require an affirmative answer. This prints all of that and stops, unless `--yes` is given
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import stat
 import subprocess
@@ -33,7 +35,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import host
-from image_to_3dlab.sdcpp import NO_GPU_HELP, gpu_found
+from image_to_3dlab.sdcpp import NO_AMD_GPU_HELP, NO_GPU_HELP, gpu_found
 
 VENDOR = REPO / "vendor" / "sdcpp"
 BINARY = host.executable(VENDOR, "sd-cli")
@@ -108,6 +110,11 @@ BUILDS = {
     # NVIDIA card; the NVIDIA driver ships the Vulkan support it needs.
     "linux-nvidia": Build("Vulkan on Linux (NVIDIA)", "~40 MB",
                           (("linux", "x86_64", "vulkan"),)),
+    # An AMD card with ROCm on it gets the native HIP build rather than the Vulkan one:
+    # same weights, faster sampling. The size is much bigger because the archive carries
+    # its own GPU libraries.
+    "linux-amd": Build("ROCm on Linux (AMD)", "~278 MB",
+                       (("linux", "x86_64", "rocm"),)),
 }
 
 
@@ -138,8 +145,8 @@ def install_binary(destination: Path = VENDOR) -> Path:
     if build is None:
         raise SystemExit(
             "There is no prebuilt stable-diffusion.cpp for this machine. Supported: an "
-            "Apple Silicon Mac, or Linux/Windows with an NVIDIA card. Otherwise build it "
-            f"from source and put sd-cli in {destination}."
+            "Apple Silicon Mac, or Linux/Windows with an NVIDIA card, or Linux with an "
+            f"AMD card and ROCm. Otherwise build it from source and put sd-cli in {destination}."
         )
     print("Finding the latest stable-diffusion.cpp release...")
     try:
@@ -161,8 +168,30 @@ def install_binary(destination: Path = VENDOR) -> Path:
         urllib.request.urlretrieve(asset["browser_download_url"], archive)
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(destination)
+            restore_symlinks(bundle, destination)
         archive.unlink(missing_ok=True)
     return finish_install(destination)
+
+
+def restore_symlinks(bundle: zipfile.ZipFile, destination: Path) -> None:
+    """Turn extracted symlink entries back into real links.
+
+    `zipfile` writes a stored symlink as a plain text file holding its target, and the
+    dynamic loader then dies with "file too short" on the first versioned library in the
+    chain (`libggml.so` -> `.so.0` -> `.so.0.25.3`). The link target is relative to the
+    link's own directory, so entries are fixed where they were extracted, before any
+    flattening moves them.
+    """
+    for info in bundle.infolist():
+        if (info.external_attr >> 28) != 0xA:
+            continue
+        target = bundle.read(info.filename).decode("utf-8").strip()
+        path = destination / info.filename
+        if path.is_symlink() or not path.exists():
+            continue
+        if path.is_file() and path.read_bytes().decode("utf-8", "replace").strip() == target:
+            path.unlink()
+            os.symlink(target, path)
 
 
 def finish_install(destination: Path) -> Path:
@@ -176,6 +205,12 @@ def finish_install(destination: Path) -> Path:
         # catalogue probes is the path that exists.
         for item in found.parent.iterdir():
             shutil.move(str(item), str(destination / item.name))
+        # rmdir what the move left behind, innermost first.
+        for leftover in (found.parent, found.parent.parent):
+            try:
+                leftover.rmdir()
+            except OSError:
+                break
     # zipfile drops the executable bit, and a Linux build also needs it on sd-server.
     for name in ("sd-cli", "sd-server"):
         path = host.executable(destination, name)
@@ -244,13 +279,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\nsd-cli is already installed at {BINARY}, leaving it alone.")
         else:
             install_binary()
-        # The NVIDIA builds load their GPU backend at run time and fall back to the CPU
-        # without a word if it cannot reach the driver. Catch that now, not 13 GB later.
-        if target() in ("linux-nvidia", "windows-nvidia"):
+        # The Linux/Windows builds load their GPU backend at run time and fall back to
+        # the CPU without a word if it cannot reach the driver. Catch that now, not
+        # 13 GB later.
+        help_text = NO_AMD_GPU_HELP if target() == "linux-amd" else NO_GPU_HELP
+        if target() in ("linux-nvidia", "windows-nvidia", "linux-amd"):
             if not gpu_found(probe_gpu()):
-                print("\n" + NO_GPU_HELP + "\nThe weights were not downloaded.")
+                print("\n" + help_text + "\nThe weights were not downloaded.")
                 return 1
-            print("sd-cli found the NVIDIA GPU.")
+            print("sd-cli found the GPU.")
     if weights:
         install_weights()
     print("\nDone. In the studio, press + Create and start from an idea.")

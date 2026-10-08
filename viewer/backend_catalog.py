@@ -34,7 +34,7 @@ if str(REPO) not in sys.path:
 
 from image_to_3dlab import host as _host
 from image_to_3dlab import matte as _matte
-from image_to_3dlab.host import APPLE, NVIDIA
+from image_to_3dlab.host import AMD, APPLE, NVIDIA
 from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
 
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
@@ -44,11 +44,12 @@ GB = 1024 ** 3
 # Which machines a backend can run on is per-backend data rather than one "is this a
 # Mac?" test, so a route gains NVIDIA support by adding a string to its `runs_on`. The
 # detection itself lives in `image_to_3dlab.host`, shared with the bootstraps.
-PLATFORM_LABELS = {APPLE: "an Apple Silicon Mac", NVIDIA: "an NVIDIA GPU"}
-# Setup page tabs, in order. AMD has a tab before it has a backend, so its users find out
-# it is coming instead of reading NVIDIA instructions.
-TAB_LABELS = {APPLE: "Mac (Apple Silicon)", NVIDIA: "NVIDIA (Linux)", "amd": "AMD"}
-VIEW_PLATFORMS = (APPLE, NVIDIA)
+PLATFORM_LABELS = {APPLE: "an Apple Silicon Mac", NVIDIA: "an NVIDIA GPU",
+                   AMD: "an AMD GPU with ROCm"}
+# Setup page tabs, in order. Every tab names the backends its machine can run.
+TAB_LABELS = {APPLE: "Mac (Apple Silicon)", NVIDIA: "NVIDIA (Linux)",
+              AMD: "AMD (ROCm, Linux)"}
+VIEW_PLATFORMS = (APPLE, NVIDIA, AMD)
 
 
 def venv_python(project: Path) -> Path:
@@ -64,7 +65,7 @@ def venv_python(project: Path) -> Path:
 
 
 def host_platform() -> str:
-    """What this machine is: APPLE, NVIDIA or "other". See `image_to_3dlab.host`.
+    """What this machine is: APPLE, NVIDIA, AMD or "other". See `image_to_3dlab.host`.
 
     Kept as a name here because the viewer and its tests reach for it on this module.
     """
@@ -173,6 +174,12 @@ class Backend:
     # A separate route in this catalogue that does the same job on NVIDIA (the MLX Hunyuan
     # ports -> Tencent's own Hunyuan3D-2.1). Named in the note an NVIDIA machine sees.
     nvidia_route: str | None = None
+    # Why an AMD machine cannot run this route, when the honest reason is specific.
+    # TRELLIS.2 and Hunyuan3D-2.1 need NVIDIA-only compiled extensions; Stable Fast 3D is
+    # Apple-only because its pins broke the lab's shared environment, which is a different
+    # sentence entirely. Without this field every blocked route borrows the extension
+    # excuse, and SF3D ends up claiming an NVIDIA-only extension it does not have.
+    amd_blocked_reason: str | None = None
 
     @property
     def bytes_expected(self) -> int:
@@ -206,6 +213,14 @@ class Backend:
         if excluded:
             return (f"{self.label} is not supported on {excluded.capitalize()} yet. "
                     f"On an NVIDIA card it runs under Linux.")
+        # AMD comes before the generic notes below, because both of those talk about
+        # NVIDIA and an AMD reader has no NVIDIA machine to act on.
+        if (host or host_platform()) == AMD and AMD not in self.runs_on:
+            reason = self.amd_blocked_reason or (
+                f"{self.label} needs NVIDIA-only compiled extensions, and upstream ships no "
+                f"ROCm build of them, so a download here would end in a failed build.")
+            return (f"Not on AMD yet. {reason} Pixal3D runs on this card and needs nothing "
+                    f"NVIDIA-only.")
         # The "use the official version" advice is only true while this lab cannot run it
         # on NVIDIA itself; once a route lists NVIDIA, the plain note is the honest one.
         twin = BY_ID.get(self.nvidia_route) if self.nvidia_route else None
@@ -282,18 +297,21 @@ CATALOG: tuple[Backend, ...] = (
         best_for="Best results we have. One pass, no repaint needed.",
         tradeoff=(
             "On a Mac it compiles locally and needs full Xcode for the Metal compiler. "
-            "On NVIDIA it downloads a ready-made CUDA build; no compiling."
+            "On NVIDIA it downloads a ready-made CUDA build; no compiling. On AMD it "
+            "compiles with HIP; no prebuilt is published."
         ),
         overrides_by_host={
             APPLE: {"tradeoff": "Compiles on your Mac, and needs full Xcode for the Metal "
                                 "compiler."},
             NVIDIA: {"tradeoff": "Downloads a ready-made CUDA build, no compiling "
                                  "(driver 575 or newer)."},
+            AMD: {"tradeoff": "Compiles on your machine with HIP, which needs ROCm's "
+                              "hipcc. Expect 10-20 minutes of compiling, once."},
         },
         license_name="MIT (code + flow weights); DINOv3 License (bundled encoder)",
         license_url="https://huggingface.co/raven38/pixal3d-sv-q8_0-v1",
         install="scripts/bootstrap_pixal3d.py",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=20,
         build_probes=(_host.executable(REPO / "vendor" / "pixal3d-cpp" / "build", "trellis-cli"),),
         weights=(
@@ -323,6 +341,13 @@ CATALOG: tuple[Backend, ...] = (
         install="uv sync + hunyuan_mlx/download_weights.py",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
+        # Neither half of Hunyuan reaches an AMD card: this port is Apple Silicon, and
+        # Tencent's own is NVIDIA-only. Saying so beats the generic note, which would
+        # point an AMD reader at a machine they do not have.
+        amd_blocked_reason=(
+            "Hunyuan is not available on AMD in any form: this port is Apple Silicon, and "
+            "Tencent's own needs NVIDIA-only compiled extensions."
+        ),
         setup_minutes=25,
         build_probes=(venv_python(REPO / "hunyuan_mlx" / "shape"),
                       venv_python(REPO / "hunyuan_mlx" / "paint")),
@@ -391,6 +416,10 @@ CATALOG: tuple[Backend, ...] = (
         install="Manual: clone dgrauet's port into vendor/hunyuan-mlx, then uv sync",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
+        amd_blocked_reason=(
+            "Hunyuan is not available on AMD in any form: this port is Apple Silicon, and "
+            "Tencent's own needs NVIDIA-only compiled extensions."
+        ),
         automated_setup=False,
         setup_minutes=40,
         build_probes=(REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python",
@@ -426,6 +455,13 @@ CATALOG: tuple[Backend, ...] = (
         # Not NVIDIA: SF3D's pins (old huggingface-hub, rembg) broke the lab's shared
         # environment there, and TRELLIS.2, Hunyuan3D-2.1 and Pixal3D beat it anyway.
         runs_on=(APPLE,),
+        # Not the NVIDIA-only-extension story the other blocked routes use. SF3D is plain
+        # PyTorch; it is Apple-only here because of those pins, not because of the card.
+        amd_blocked_reason=(
+            "Stable Fast 3D is Apple-only in this lab: its pinned huggingface-hub and rembg "
+            "break the shared environment, so it was left out of the Linux routes rather "
+            "than given its own 2 GB of packages to fight over them."
+        ),
         setup_minutes=20,
         build_probes=(REPO / "vendor" / "stable-fast-3d" / "sf3d" / "system.py",),
         caveat=(
@@ -516,7 +552,7 @@ CATALOG: tuple[Backend, ...] = (
         license_name="Qwen Research License",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         install="Prebuilt stable-diffusion.cpp binary in vendor/sdcpp/",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=15,
         build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
         weights=(
@@ -543,7 +579,7 @@ CATALOG: tuple[Backend, ...] = (
         license_name="MIT",
         license_url="https://github.com/ZhengPeng7/BiRefNet",
         install="scripts/bootstrap_matte.py",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=2,
         weights=(
             WeightSet("BiRefNet-lite", _matte.LITE_URL, _matte.LITE_BYTES,
@@ -558,10 +594,15 @@ CATALOG: tuple[Backend, ...] = (
         best_for=("Gives a humanoid model a skeleton and skin weights, so the Rig tab can "
                   "play preset animations on it."),
         tradeoff="Humanoids in a T-pose only for now. Four-legged creatures are coming.",
+        overrides_by_host={
+            AMD: {"tradeoff": "Humanoids in a T-pose only for now, and attention comes "
+                              "from PyTorch rather than flash-attn, which has no ROCm "
+                              "wheel: a little slower and a little heavier on memory."},
+        },
         license_name="MIT",
         license_url="https://github.com/VAST-AI-Research/SkinTokens/blob/main/LICENSE",
         install="scripts/bootstrap_autorig.py",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=10,
         build_probes=(venv_python(REPO / "vendor" / "SkinTokens"),
                       REPO / "vendor" / "SkinTokens" / "demo.py"),

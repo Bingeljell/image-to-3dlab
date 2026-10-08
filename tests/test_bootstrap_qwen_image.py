@@ -8,7 +8,9 @@ that a non-interactive run cannot silently spend someone's bandwidth.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -84,6 +86,8 @@ def test_yes_proceeds_without_asking(monkeypatch):
     monkeypatch.setattr(boot, "install_binary", lambda *a, **k: called.append("build"))
     monkeypatch.setattr(boot, "install_weights", lambda *a, **k: called.append("weights"))
     monkeypatch.setattr(boot, "binary_present", lambda: False)
+    # The probe runs on whatever machine this test happens to be on; answer as a GPU box.
+    monkeypatch.setattr(boot, "probe_gpu", lambda *a: "ggml_vulkan: Found 1 Vulkan devices:")
     monkeypatch.setattr("builtins.input", lambda *_: pytest.fail("should not ask"))
     assert boot.main(["--yes"]) == 0
     assert called == ["build", "weights"]
@@ -103,6 +107,8 @@ def test_an_existing_binary_is_not_redownloaded(monkeypatch, capsys):
     monkeypatch.setattr(boot, "install_binary", lambda *a, **k: pytest.fail("redownloaded"))
     monkeypatch.setattr(boot, "install_weights", lambda *a, **k: None)
     monkeypatch.setattr(boot, "binary_present", lambda: True)
+    # The probe still runs on a re-run (the binary may have been swapped for a dud).
+    monkeypatch.setattr(boot, "probe_gpu", lambda *a: "ggml_vulkan: Found 1 Vulkan devices:")
     assert boot.main(["--yes"]) == 0
     assert "already installed" in capsys.readouterr().out
 
@@ -126,6 +132,9 @@ RELEASE = [{"name": n} for n in (
     ("windows-nvidia", ["sd-master-28b454b-bin-win-cuda12-x64.zip",
                         "cudart-sd-bin-win-cu12-x64.zip"]),
     ("linux-nvidia", ["sd-master-28b454b-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip"]),
+    # The ROCm build, not the Vulkan one: this target means an AMD card with ROCm on it,
+    # and native HIP is faster than going through Vulkan for that hardware.
+    ("linux-amd", ["sd-master-28b454b-bin-Linux-Ubuntu-24.04-x86_64-rocm-7.14.0.zip"]),
 ])
 def test_each_machine_gets_its_own_build_from_a_real_release(key, expected):
     picked = boot.pick_assets(RELEASE, boot.BUILDS[key])
@@ -159,6 +168,13 @@ def test_announcement_states_this_machines_download_size(monkeypatch):
     assert "CUDA 12 on Windows" in text and "~850 MB" in text
 
 
+def test_announcement_on_an_amd_machine_names_the_rocm_build(monkeypatch):
+    """An AMD Linux box gets the native ROCm build named with its size, not a refusal."""
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    text = boot.announcement(weights=False)
+    assert "ROCm on Linux (AMD)" in text and "~278 MB" in text
+
+
 def test_announcement_on_an_unsupported_machine_offers_no_build(monkeypatch):
     monkeypatch.setattr(boot, "target", lambda: None)
     text = boot.announcement(weights=False)
@@ -179,10 +195,46 @@ def test_finish_install_flattens_and_marks_executable(tmp_path, monkeypatch):
     nested.mkdir(parents=True)
     (nested / "sd-cli").write_text("")
     (nested / "libstable-diffusion.so").write_text("")
+    os.symlink("libstable-diffusion.so", nested / "libsd.so")
     binary = boot.finish_install(tmp_path)
     assert binary == tmp_path / "sd-cli"
     assert (tmp_path / "libstable-diffusion.so").exists()
+    # The flatten must carry real links as links, not turn them into text files.
+    assert (tmp_path / "libsd.so").is_symlink()
     assert binary.stat().st_mode & 0o111
+    assert not (tmp_path / "build").exists()
+
+
+def test_symlinks_in_the_release_are_restored(tmp_path):
+    """zipfile extracts a stored symlink as a text file holding its target, and the
+    dynamic loader then dies with 'file too short' on the first versioned .so. The
+    installer must put real links back before anything runs."""
+    archive = tmp_path / "release.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("build/bin/libfoo.so.1", b"real library bytes")
+        link = zipfile.ZipInfo("build/bin/libfoo.so")
+        link.external_attr = 0xA0000000 | (0o755 << 16)
+        bundle.writestr(link, "libfoo.so.1")
+    destination = tmp_path / "dest"
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(destination)
+        boot.restore_symlinks(bundle, destination)
+    link = destination / "build" / "bin" / "libfoo.so"
+    assert link.is_symlink()
+    assert link.read_bytes() == b"real library bytes"  # follows the link
+
+
+def test_restore_symlinks_leaves_real_files_alone(tmp_path):
+    """A regular file that happens to contain a path must not become a link."""
+    destination = tmp_path / "dest"
+    (destination / "build" / "bin").mkdir(parents=True)
+    (destination / "build" / "bin" / "ggml.txt").write_text("libfoo.so.1\n")
+    archive = tmp_path / "release.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("build/bin/ggml.txt", "libfoo.so.1\n")
+    with zipfile.ZipFile(archive) as bundle:
+        boot.restore_symlinks(bundle, destination)
+    assert not (destination / "build" / "bin" / "ggml.txt").is_symlink()
 
 
 def _nvidia_linux(monkeypatch):
@@ -204,6 +256,32 @@ def test_nvidia_install_stops_before_the_weights_if_the_gpu_is_unreachable(
 def test_nvidia_install_continues_when_the_gpu_answers(monkeypatch):
     _nvidia_linux(monkeypatch)
     monkeypatch.setattr(boot, "probe_gpu", lambda *a: "ggml_vulkan: Found 1 Vulkan devices:")
+    fetched = []
+    monkeypatch.setattr(boot, "install_weights", lambda: fetched.append(1))
+    assert boot.main(["--yes"]) == 0
+    assert fetched == [1]
+
+
+def _amd_linux(monkeypatch):
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "binary_present", lambda: True)
+
+
+def test_amd_install_stops_before_the_weights_if_the_gpu_is_unreachable(
+        monkeypatch, capsys):
+    """Same rule as NVIDIA: a binary that will only run on the CPU is no use before 13 GB
+    of weights have been fetched for it."""
+    _amd_linux(monkeypatch)
+    monkeypatch.setattr(boot, "probe_gpu", lambda *a: "load_backend: loaded CPU backend")
+    monkeypatch.setattr(boot, "install_weights", lambda: pytest.fail("downloaded"))
+    assert boot.main(["--yes"]) == 1
+    assert "rocminfo" in capsys.readouterr().out
+
+
+def test_amd_install_continues_when_the_gpu_answers(monkeypatch):
+    _amd_linux(monkeypatch)
+    monkeypatch.setattr(boot, "probe_gpu",
+                        lambda *a: "ggml_cuda_init: found 2 ROCm devices (Total VRAM: 55486 MiB):")
     fetched = []
     monkeypatch.setattr(boot, "install_weights", lambda: fetched.append(1))
     assert boot.main(["--yes"]) == 0

@@ -64,9 +64,12 @@ def fake_bin(tmp_path: Path) -> Path:
     return bin_dir
 
 
-def run(tmp_path: Path, path: Path, *args: str, machine=("Darwin", "arm64")):
+def run(tmp_path: Path, path: Path, *args: str, machine=("Darwin", "arm64"), env=None):
     env = {"PATH": str(path), "HOME": str(tmp_path / "home"),
-           "I3D_UNAME_S": machine[0], "I3D_UNAME_M": machine[1]}
+           "I3D_UNAME_S": machine[0], "I3D_UNAME_M": machine[1],
+           # The test machine has no card of any kind, whatever the host running the suite
+           # has: I3D_KFD_NODES points the AMD check somewhere empty by default.
+           "I3D_KFD_NODES": str(tmp_path / "no-kfd-nodes"), **(env or {})}
     # A new session has no controlling terminal, like a CI job or an agent.
     return subprocess.run([BASH, str(SCRIPT), *args], env=env, capture_output=True,
                           text=True, stdin=subprocess.DEVNULL, start_new_session=True,
@@ -164,9 +167,23 @@ def test_unsupported_machines_are_refused_by_name(tmp_path, upstream, fake_bin,
 
 def test_linux_without_a_gpu_installs_but_says_so(tmp_path, upstream, fake_bin):
     done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"),
-               machine=("Linux", "x86_64"))
+               machine=("Linux", "x86_64"), env={"I3D_KFD_NODES": str(tmp_path / "none")})
     assert done.returncode == 0, done.stderr
-    assert "No NVIDIA GPU found" in done.stdout
+    assert "No NVIDIA or AMD GPU found" in done.stdout
+
+
+def test_linux_with_an_amd_card_is_named_as_one(tmp_path, upstream, fake_bin):
+    """The installer has to recognise the machine, or it warns a user who has a perfectly
+    good card that no route will run."""
+    nodes = tmp_path / "nodes"
+    # One directory per bound card is what the kernel driver leaves behind, so an empty
+    # directory means no card.
+    (nodes / "0").mkdir(parents=True)
+    done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"),
+               machine=("Linux", "x86_64"), env={"I3D_KFD_NODES": str(nodes)})
+    assert done.returncode == 0, done.stderr
+    assert "Machine: Linux with an AMD GPU" in done.stdout
+    assert "No NVIDIA or AMD GPU found" not in done.stdout
 
 
 def test_it_never_mentions_downloading_weights_itself():

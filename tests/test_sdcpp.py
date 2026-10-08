@@ -24,6 +24,10 @@ def test_backend_lines_are_classified():
     assert sdcpp.backend_of(VULKAN_OK[2]) == "gpu"
     assert sdcpp.backend_of("load_backend: loaded CUDA backend from C:/sd/ggml-cuda.dll") == "gpu"
     assert sdcpp.backend_of("ggml_cuda_init: found 1 CUDA devices:") == "gpu"
+    # The ROCm build reuses the CUDA log prefix for its device enumeration.
+    assert sdcpp.backend_of(
+        "ggml_cuda_init: found 2 ROCm devices (Total VRAM: 55486 MiB):") == "gpu"
+    assert sdcpp.backend_of("load_backend: loaded ROCm backend from /x/libggml-hip.so") == "gpu"
     assert sdcpp.backend_of(CPU_ONLY[1]) == "cpu"
     assert sdcpp.backend_of("[DEBUG] loading model") is None
 
@@ -48,3 +52,8 @@ def test_watch_flags_a_cpu_fallback_only_when_the_gpu_never_showed_up():
 def test_the_help_names_the_fix_that_worked():
     assert "sudo apt install libegl1 libgl1" in sdcpp.NO_GPU_HELP
     assert "nvidia-smi" in sdcpp.NO_GPU_HELP
+
+
+def test_the_amd_help_points_at_rocm_and_the_vulkan_fallback():
+    assert "rocminfo" in sdcpp.NO_AMD_GPU_HELP
+    assert "vulkan" in sdcpp.NO_AMD_GPU_HELP.lower()

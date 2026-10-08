@@ -224,6 +224,7 @@ def test_trellis_input_advisor_runs_in_backend_environment(monkeypatch, tmp_path
         path.write_bytes(b"x")
     monkeypatch.setattr(api, "PYTHON", interpreter)
     monkeypatch.setattr(api, "TINYCLIP_ADVISOR", script)
+    monkeypatch.setattr(api, "host_platform", lambda: "apple-silicon")
 
     class Result:
         stdout = json.dumps({"verdict": "likely_flat", "flat_risk": 0.91}) + "\n"
@@ -256,13 +257,14 @@ def test_trellis_input_advisor_rejects_malformed_output(monkeypatch, tmp_path):
         stdout = "not-json\n"
 
     monkeypatch.setattr(api.subprocess, "run", lambda *args, **kwargs: Result())
-    with pytest.raises(RuntimeError, match="invalid JSON"):
+    with pytest.raises(RuntimeError, match="invalid JSON|TRELLIS environment"):
         api.run_trellis_input_advisor(image)
 
 
 # --- setup runner (bootstrap via the web UI) ---
 def test_setup_available_reports_missing_uv(monkeypatch):
     monkeypatch.setattr(api.shutil, "which", lambda name: None if name == "uv" else "/usr/bin/uv")
+    monkeypatch.setattr(api, "host_platform", lambda: api.APPLE)
     ok, reason = api.setup_available()
     assert ok is False and "uv" in reason
 
@@ -270,6 +272,7 @@ def test_setup_available_reports_missing_uv(monkeypatch):
 def test_setup_available_reports_missing_bootstrap(monkeypatch, tmp_path):
     monkeypatch.setattr(api.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
     monkeypatch.setattr(api, "REPO", tmp_path)
+    monkeypatch.setattr(api, "host_platform", lambda: api.APPLE)
     ok, reason = api.setup_available()
     assert ok is False and "bootstrap" in reason
 
@@ -1053,6 +1056,73 @@ def test_failure_reason_returns_the_generators_last_words():
     assert "rss" not in reason and "Sampling" not in reason
 
 
+# --- GPU memory shortage: said once, in a sentence, instead of after a GDB backtrace ------
+# What an actual Pixal3D run on an RX 7900 XTX left behind (2026-10-07) while ComfyUI-3D
+# held 13.7 GB of the card. ggml aborts, so the last words are a backtrace and the wrapper
+# restating the signal; the one line that explains anything is 40 lines up.
+OOM_LOG = [
+    "[5/6] texture SLAT flow (HR 1024, NAF@1024) + PBR decode",
+    "[trellis] using ROCm0 (24560 MB) [auto]",
+    ("ggml_backend_cuda_buffer_type_alloc_buffer: allocating 11329.27 MiB on device 0: "
+     "cudaMalloc failed: out of memory"),
+    "ggml_gallocr_reserve_n_impl: failed to allocate ROCm0 buffer of size 11879596032",
+    "#7  0x00005639cd310495 in trellis::naf_upsample_ggml()",
+    "terminate called after throwing an instance of 'std::runtime_error'",
+    "  what():  naf_upsample_ggml: graph alloc failed",
+    "[rss 0.32 GB]",
+    "trellis-cli exited with code -6",
+    "generator exited with code 1",
+]
+
+
+def test_a_gpu_that_ran_out_of_memory_says_so_instead_of_the_signal():
+    """-6 is SIGABRT and means nothing to a user. 'The GPU did not have enough free
+    memory' means everything, and it was in the log all along."""
+    reason = api.failure_reason(OOM_LOG)
+    assert reason is not None
+    assert "out of memory" in reason
+    assert "free memory" in reason
+    assert "Close it and run this again" in reason
+    # The backtrace and the bare exit code are what it replaced.
+    assert "GDB" not in reason and "naf_upsample_ggml() " not in reason
+    assert "exited with code" not in reason
+
+
+def test_a_normal_failure_still_reads_as_the_generator_spoke_it():
+    """The memory message must not swallow every other failure's own words."""
+    log = ["[rss 0.1 GB]", "RuntimeError: weights missing", "generator exited with code 1"]
+    reason = api.failure_reason(log)
+    assert reason is not None and "weights missing" in reason
+
+
+def test_out_of_memory_is_only_called_when_the_log_says_so():
+    assert api.out_of_memory_reason(["all fine", "generator exited with code 0"]) is None
+
+
+def test_a_backend_with_no_declared_need_never_asks_the_gpu(monkeypatch):
+    """A CPU route must not be refused for having no card."""
+    monkeypatch.setattr(api, "gpu_busy_note", lambda *a, **k: pytest.fail("asked the GPU"))
+    assert api.gpu_busy_check(api.BACKENDS["trellis"]) is None
+
+
+def test_a_backend_that_declares_a_need_is_checked():
+    spec = api.BACKENDS["pixal3d"]
+    assert spec.gpu_memory_wanted is not None
+    assert api.gpu_busy_check(spec) is None or "GPU has" in api.gpu_busy_check(spec)
+
+
+def test_a_run_that_cannot_fit_is_refused_before_it_starts(monkeypatch):
+    monkeypatch.setattr(api, "gpu_busy_note", lambda wanted: "the GPU has 2.0 GB free")
+    assert api.gpu_busy_check(api.BACKENDS["pixal3d"]) == "the GPU has 2.0 GB free"
+
+
+def test_every_backend_answers_the_check_without_raising():
+    """The check runs on every generate request, so a backend that forgot to declare a need
+    must get a plain None rather than an AttributeError at click time."""
+    for name, spec in api.BACKENDS.items():
+        assert api.gpu_busy_check(spec) is None or "GPU has" in api.gpu_busy_check(spec), name
+
+
 def test_failure_reason_is_none_when_only_progress_noise():
     log = ["[rss 0.13 GB]", "Sampling shape SLat: 100%|##########| 12/12 [02:49<00:00]",
            "Loading TRELLIS.2 pipeline (load_rembg=False)...", "generator exited with code 1"]
@@ -1144,13 +1214,35 @@ def test_trellis_on_a_mac_keeps_the_metal_port():
 
 
 def test_trellis_on_nvidia_runs_the_cuda_generator():
-    spec = api.trellis_spec(api.NVIDIA)
+    spec = api.trellis_spec(api.backend_catalog.NVIDIA)
     assert spec.id == "trellis"
     assert spec.wrapper == api.TRELLIS_CUDA_WRAPPER and spec.wrapper.is_file()
     assert spec.interpreter == api.TRELLIS_CUDA_PYTHON
     # It mattes with our own remover, so an opaque upload is fine.
     assert spec.requires_alpha is False
     assert spec.readiness is api.cuda_setup_status
+
+
+AMD = api.backend_catalog.AMD
+
+
+def test_trellis_is_not_offered_on_an_amd_card(monkeypatch):
+    """Microsoft's route needs flash-attn, nvdiffrast, nvdiffrec, CuMesh and FlexGEMM, all
+    NVIDIA-only. Handing an AMD machine that spec means a download of 15 GB of weights that
+    can never build, so the catalogue has to be the thing that keeps it out of the
+    dropdown. The spec itself is the Mac one: only a Mac can run it, and the dropdown is
+    what decides, not this function."""
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: AMD)
+    here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
+    assert here["trellis"] is False
+    assert api.trellis_spec(AMD).interpreter == api.PYTHON
+
+
+def test_pixal3d_runs_on_an_amd_card(monkeypatch):
+    """The one 3D route with an AMD install, so the Generate dropdown must keep it there."""
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: AMD)
+    here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
+    assert here["pixal3d"] is True
 
 
 def test_cuda_args_drop_the_mac_only_flags(tmp_path):
@@ -1212,7 +1304,7 @@ def test_bria_patch_probe_reads_the_real_checkout_rule(tmp_path):
 
 
 def test_the_old_mac_setup_runner_refuses_other_machines():
-    ok, reason = api.setup_available(api.NVIDIA)
+    ok, reason = api.setup_available(api.backend_catalog.NVIDIA)
     assert ok is False and "Setup & Status" in reason
 
 
@@ -1240,7 +1332,7 @@ def test_cleanup_keeps_pixal3d_licence_record_and_camera(tmp_path):
 
 
 def test_nvidia_trellis_hides_the_mac_only_controls():
-    assert set(api.trellis_spec(api.NVIDIA).hidden_fields) == {"generate-attention", "generate-rembg"}
+    assert set(api.trellis_spec(api.backend_catalog.NVIDIA).hidden_fields) == {"generate-attention", "generate-rembg"}
     assert api.trellis_spec(api.APPLE).hidden_fields == ()
 
 
@@ -1374,7 +1466,7 @@ def test_progress_streams_tell_proxies_not_to_buffer():
 
 def test_backends_say_whether_they_run_on_this_machine(monkeypatch):
     # The Generate dropdown offered the Mac-only Hunyuan-MLX routes on an NVIDIA pod.
-    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.NVIDIA)
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.backend_catalog.NVIDIA)
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
     assert here["hunyuan-cuda"] is True and here["hunyuan-mlx-xiong"] is False
     monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.APPLE)

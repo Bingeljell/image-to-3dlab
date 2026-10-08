@@ -224,6 +224,22 @@ def parse_progress(line: str) -> dict[str, Any] | None:
     return None
 
 
+def failure_reason(log_lines) -> str | None:
+    """sd-cli's last meaningful words, or None if it said nothing but progress.
+
+    A failed run used to surface as "sd-cli exited with code 2" while the actual
+    explanation -- a rejected flag, a missing file -- sat unread in the log tail, and
+    the image tab has no log panel to find it in. So the one line that matters goes
+    into the error itself; it is shown as plain text, hence one line only.
+    """
+    for line in reversed(list(log_lines)):
+        text = line.strip()
+        if not text or PROGRESS.search(text):
+            continue
+        return text
+    return None
+
+
 def slug(prompt: str, limit: int = 40) -> str:
     """A short folder-safe name taken from the prompt's first few words."""
     words = re.sub(r"[^a-z0-9\s-]", "", prompt.lower()).split()
@@ -409,7 +425,10 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
         elif code != 0 or not job.output_path.exists():
+            reason = failure_reason(job.log_lines)
             job.error = f"sd-cli exited with code {code}"
+            if reason:
+                job.error += f": {reason}"
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
         else:

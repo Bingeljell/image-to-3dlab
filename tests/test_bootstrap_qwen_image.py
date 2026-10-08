@@ -237,6 +237,29 @@ def test_restore_symlinks_leaves_real_files_alone(tmp_path):
     assert not (destination / "build" / "bin" / "ggml.txt").is_symlink()
 
 
+@pytest.mark.parametrize("target", ["/etc/passwd", "../../../outside", "../../../../etc/passwd"])
+def test_a_link_pointing_out_of_the_install_is_not_restored(tmp_path, target):
+    """The archive picks where its links point; one aimed outside the folder stays the
+    harmless text file zipfile wrote, so nothing later writes or chmods through it."""
+    archive = tmp_path / "release.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        link = zipfile.ZipInfo("build/bin/sd-cli")
+        link.external_attr = 0xA0000000 | (0o755 << 16)
+        bundle.writestr(link, target)
+    destination = tmp_path / "dest"
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(destination)
+        boot.restore_symlinks(bundle, destination)
+    assert not (destination / "build" / "bin" / "sd-cli").is_symlink()
+
+
+def test_a_link_to_a_sibling_stays_inside(tmp_path):
+    destination = tmp_path / "dest"
+    link = destination / "build" / "bin" / "libfoo.so"
+    assert boot.link_stays_inside(link, "libfoo.so.1", destination)
+    assert boot.link_stays_inside(link, "../lib/libfoo.so.1", destination)
+
+
 def _nvidia_linux(monkeypatch):
     monkeypatch.setattr(boot, "target", lambda: "linux-nvidia")
     monkeypatch.setattr(boot, "binary_present", lambda: True)

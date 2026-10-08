@@ -10,6 +10,8 @@ from pathlib import Path
 
 from image_to_3dlab import blender as bl
 
+original_candidates = bl.candidates
+
 
 def _exe(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,11 +38,33 @@ def test_the_path_comes_before_install_folders(tmp_path):
                            family="linux", home=tmp_path) == Path("/somewhere/blender")
 
 
-def test_a_blender_org_tarball_in_the_home_folder_is_found_on_linux(tmp_path):
+def test_a_blender_org_tarball_in_the_home_folder_is_found_on_linux(tmp_path, monkeypatch):
     unpacked = _exe(tmp_path / "blender-5.2.0-linux-x64" / "blender")
-    # Avoid finding system-installed Blender
+    # Only home-folder candidates exist in the test: a machine with a distro Blender would
+    # otherwise find /usr/bin/blender first and fail for reasons that are not the code's.
+    monkeypatch.setattr(bl, "candidates", lambda family, home=None: [
+        p for p in original_candidates(family, home) if str(p).startswith(str(tmp_path))])
     assert bl.find_blender(env={}, which=lambda _: None, family="linux",
-                           home=tmp_path, system_ok=False) == unpacked
+                           home=tmp_path) == unpacked
+
+
+def test_the_blender_setup_installed_outranks_the_path(tmp_path):
+    """A distro Blender on PATH must not win over the one the user installed from Setup."""
+    installed = _exe(tmp_path / "blender-lts" / "blender")
+    assert bl.find_blender(env={}, which=lambda _: "/usr/bin/blender", family="linux",
+                           home=tmp_path) == installed
+
+
+def test_the_setup_blender_is_a_linux_idea_only(tmp_path):
+    _exe(tmp_path / "blender-lts" / "blender")
+    assert bl.ours("macos", home=tmp_path) is None
+
+
+def test_the_environment_variable_still_beats_the_setup_blender(tmp_path):
+    _exe(tmp_path / "blender-lts" / "blender")
+    chosen = _exe(tmp_path / "mine" / "blender")
+    assert bl.find_blender(env={bl.ENV_VAR: str(chosen)}, family="linux",
+                           home=tmp_path) == chosen
 
 
 def test_linux_looks_in_the_usual_places():

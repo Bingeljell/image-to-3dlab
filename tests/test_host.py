@@ -116,7 +116,8 @@ ROCMINFO_CPU_ONLY = """
 
 
 def test_nvidia_gpu_needs_a_listed_gpu():
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
     listed = "GPU 0: NVIDIA GeForce RTX 4090 (UUID: GPU-abc)\n"
     assert host.has_nvidia_gpu(which=which, run=_smi(0, listed)) is True
     # A driver installed with no card, or a container without the GPU mounted.
@@ -125,7 +126,8 @@ def test_nvidia_gpu_needs_a_listed_gpu():
 
 
 def test_nvidia_smi_that_hangs_or_vanishes_means_no_gpu():
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
 
     def hangs(*a, **k):
         raise subprocess.TimeoutExpired("nvidia-smi", 5)
@@ -157,20 +159,23 @@ def test_no_node_and_no_rocm_tools_is_not_an_amd_box(tmp_path: Path):
 def test_an_amd_cpu_on_its_own_is_not_an_amd_gpu(tmp_path: Path):
     """The Ryzen 9800X3D in the test box reports itself as a CPU agent; calling that a GPU
     would offer a download for a machine with no card."""
-    which = lambda _: "/opt/rocm/bin/rocminfo"
+    def which(_):
+        return "/opt/rocm/bin/rocminfo"
     assert host.has_amd_gpu(which=which, run=_smi(0, ROCMINFO_CPU_ONLY),
                             nodes=tmp_path) is False
 
 
 def test_rocminfo_finds_the_card_when_sysfs_is_hidden(tmp_path: Path):
     """A container can expose ROCm's tools without the driver's topology nodes."""
-    which = lambda _: "/opt/rocm/bin/rocminfo"
+    def which(_):
+        return "/opt/rocm/bin/rocminfo"
     assert host.has_amd_gpu(which=which, run=_smi(0, ROCMINFO_DISCRETE),
                             nodes=tmp_path) is True
 
 
 def test_rocminfo_that_hangs_or_fails_is_not_a_gpu(tmp_path: Path):
-    which = lambda _: "/opt/rocm/bin/rocminfo"
+    def which(_):
+        return "/opt/rocm/bin/rocminfo"
 
     def hangs(*a, **k):
         raise subprocess.TimeoutExpired("rocminfo", 20)
@@ -187,12 +192,14 @@ def test_rocminfo_that_hangs_or_fails_is_not_a_gpu(tmp_path: Path):
 def test_the_gfx_target_comes_from_the_card_not_the_generic_isa():
     """`gfx11-generic` is what a card's KFD node reports on some ROCm versions; a compiler
     is given the real target, or every second kernel it emits is wrong for the card."""
-    which = lambda _: "/opt/rocm/bin/rocminfo"
+    def which(_):
+        return "/opt/rocm/bin/rocminfo"
     assert host.rocm_gfx_targets(which=which, run=_smi(0, ROCMINFO_DISCRETE)) == ["gfx1100"]
 
 
 def test_an_integrated_gpu_stands_in_when_it_is_the_only_card():
-    which = lambda _: "/opt/rocm/bin/rocminfo"
+    def which(_):
+        return "/opt/rocm/bin/rocminfo"
     assert host.rocm_gfx_targets(which=which, run=_smi(0, ROCMINFO_APU_ONLY)) == ["gfx1036"]
 
 
@@ -238,8 +245,10 @@ def test_an_unreadable_rocm_version_falls_back_to_hipconfig(tmp_path: Path):
     # An install that is not at /opt/rocm -- a versioned directory with no symlink -- has
     # no version file. Refusing setup there would turn away a machine with a good ROCm.
     missing = tmp_path / "version"
-    which = lambda name: "/opt/rocm-6.4.2/bin/hipconfig" if name == "hipconfig" else None
-    run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "7.2.53211-3d9ef42\n", "")
+    def which(name):
+        return "/opt/rocm-6.4.2/bin/hipconfig" if name == "hipconfig" else None
+    def run(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 0, "7.2.53211-3d9ef42\n", "")
     assert host.rocm_version(missing, which=which, run=run) == (7, 2)
 
 
@@ -321,7 +330,8 @@ SMI_HEADER = """
 
 
 def test_driver_cuda_version_is_read_from_the_smi_header():
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
     assert host.driver_cuda_version(which=which, run=_smi(0, SMI_HEADER)) == (12, 8)
 
 
@@ -335,20 +345,23 @@ SMI_HEADER_610 = """
 
 
 def test_driver_cuda_version_reads_the_driver_610_spelling():
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
     assert host.driver_cuda_version(which=which, run=_smi(0, SMI_HEADER_610)) == (13, 3)
 
 
 def test_driver_cuda_version_is_none_without_a_driver_or_a_header():
     assert host.driver_cuda_version(which=lambda _: None) is None
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
     assert host.driver_cuda_version(which=which, run=_smi(0, "no header here")) is None
     assert host.driver_cuda_version(which=which, run=_smi(9, SMI_HEADER)) is None
 
 
 def test_compute_capability_drops_the_dot():
     """CMake wants `89`, nvidia-smi says `8.9`."""
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
     assert host.compute_capability(which=which, run=_smi(0, "8.9\n")) == "89"
     assert host.compute_capability(which=which, run=_smi(0, "garbage")) is None
     assert host.compute_capability(which=lambda _: None) is None
@@ -437,7 +450,8 @@ def test_an_older_driver_or_no_driver_gets_no_cuda_build():
 
 
 def test_the_installer_command_prints_the_index_for_this_driver(capsys):
-    which = lambda _: "/usr/bin/nvidia-smi"
+    def which(_):
+        return "/usr/bin/nvidia-smi"
     code = host.main(["torch-index"], which=which, run=_smi(0, SMI_HEADER_610))
     assert code == 0
     assert capsys.readouterr().out.strip() == "https://download.pytorch.org/whl/cu130"

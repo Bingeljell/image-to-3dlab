@@ -271,8 +271,8 @@ class BackendSpec:
     """Free VRAM this backend needs before it is worth starting, in bytes.
 
     None for a backend that runs on the CPU or whose peak is unknowable in advance. Set
-    only to a floor a run genuinely cannot go below, because the check refuses rather than
-    warns: an over-stated figure would lock out a machine that would have succeeded.
+    only to a floor a run genuinely cannot go below. The check warns and never refuses, so
+    an over-stated figure costs a needless heads-up, not a run that would have worked.
     Measured on an RX 7900 XTX, where Pixal3D asked for an 11.1 GB block in one piece."""
 
 
@@ -280,15 +280,20 @@ BACKENDS: dict[str, BackendSpec] = {}
 
 
 def gpu_busy_check(spec: BackendSpec) -> str | None:
-    """Why this backend cannot start right now, or None if it can.
+    """Why this backend may not fit on the card right now, or None if it should.
 
     Every backend goes through here, and a backend with no declared `gpu_memory_wanted` gets
-    a `None` without the GPU being asked at all — a CPU route must never be refused for
+    a `None` without the GPU being asked at all — a CPU route must never be warned about
     having no card.
     """
     if spec.gpu_memory_wanted is None:
         return None
     return gpu_busy_note(spec.gpu_memory_wanted)
+
+
+def gpu_busy_warning(note: str | None) -> str | None:
+    """The busy note as a heads-up the run carries, never a reason to stop it."""
+    return f"Heads up: {note} This run may fail." if note else None
 
 
 def clean_port_build_present() -> bool:
@@ -2539,13 +2544,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(503, {"error": f"{spec.label} is not installed/ready"})
                 return
             # Free card memory is asked here, not discovered two minutes in by the GPU
-            # refusing an allocation. A run that cannot fit is refused before it costs
-            # anything; one that might is always allowed through, because a generator's
-            # real peak comes and goes.
+            # refusing an allocation. It warns rather than refuses: the floor is measured on
+            # one card, and a shared-memory chip (an AMD APU) can report a small VRAM figure
+            # while the GPU borrows system RAM, so a refusal would lock out runs that work.
             busy = gpu_busy_check(spec)
-            if busy is not None:
-                self._send_json(409, {"error": f"{spec.label}: {busy}"})
-                return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is running; wait for it to finish"})
                 return
@@ -2615,9 +2617,13 @@ class Handler(SimpleHTTPRequestHandler):
             provisional_image.replace(final_image)
             provisional.rmdir()
             job.image_path = final_image
+            warning = gpu_busy_warning(busy)
+            if warning:
+                job.append_log(warning)
             threading.Thread(target=_run_job, args=(job,), daemon=True).start()
             self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
-                                  "output_dir": str(job.directory.relative_to(REPO))})
+                                  "output_dir": str(job.directory.relative_to(REPO)),
+                                  "warning": warning})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 

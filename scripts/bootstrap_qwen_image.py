@@ -187,11 +187,26 @@ def restore_symlinks(bundle: zipfile.ZipFile, destination: Path) -> None:
             continue
         target = bundle.read(info.filename).decode("utf-8").strip()
         path = destination / info.filename
+        if not link_stays_inside(path, target, destination):
+            continue
         if path.is_symlink() or not path.exists():
             continue
         if path.is_file() and path.read_bytes().decode("utf-8", "replace").strip() == target:
             path.unlink()
             os.symlink(target, path)
+
+
+def link_stays_inside(link: Path, target: str, destination: Path) -> bool:
+    """Whether a link at `link` pointing to `target` resolves inside `destination`.
+
+    The archive decides where its links point, so one aimed at `/etc` or `../../..` is
+    left as the plain file zipfile wrote rather than turned into a way out of the folder.
+    """
+    if os.path.isabs(target):
+        return False
+    resolved = Path(os.path.normpath(link.parent / target))
+    root = Path(os.path.normpath(destination))
+    return resolved == root or root in resolved.parents
 
 
 def finish_install(destination: Path) -> Path:

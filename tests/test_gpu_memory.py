@@ -73,7 +73,8 @@ def test_a_tool_that_fails_or_prints_nonsense_means_unknown():
 
 
 def test_amd_is_asked_when_there_is_no_nvidia():
-    which = lambda name: "/opt/rocm/bin/rocm-smi" if name == "rocm-smi" else None
+    def which(name):
+        return "/opt/rocm/bin/rocm-smi" if name == "rocm-smi" else None
     assert gpu.free_vram_bytes(which=which, run=ROCM_SMI) == 25753026560 - 15960199168
 
 
@@ -108,7 +109,8 @@ def test_the_program_holding_the_card_is_named():
 
 def test_nvidia_processes_are_read_when_there_is_no_rocm():
     out = "94051, python3, 13054\n"
-    which = lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None
+    def which(name):
+        return "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None
     rows = gpu.gpu_processes(which=which, run=_runner(out))
     assert rows == [(94051, "python3", 13054 * 1024 * 1024)]
 

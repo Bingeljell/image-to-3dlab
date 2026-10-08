@@ -12,7 +12,8 @@ What it does, in order:
    flash-attn.
 3. Makes a Python 3.11 venv there (Blender's `bpy` needs 3.11) with torch and upstream's
    requirements, about 2 GB of packages. On NVIDIA, torch is the CUDA build the driver
-   can run, not PyPI's newest.
+   can run, not PyPI's newest; on AMD it is the ROCm build, because PyPI's Linux torch is
+   a CUDA one and would not see the card at all.
 4. Fetches the two checkpoints (~1.6 GB) at a pinned revision into the shared Hugging Face
    cache, links them where upstream looks, and fetches Qwen3-0.6B's config and tokenizer
    (~16 MB, no weights: SkinTokens trains its own).
@@ -20,6 +21,11 @@ What it does, in order:
 Nothing is fetched without an explicit yes: AGENTS.md forbids weight downloads the user
 has not chosen. The checkpoints are pickles, which can run code when loaded, so the
 revision is pinned to the one we tested rather than whatever is newest.
+
+SkinTokens is pure PyTorch with no compiled extension, so it runs on an AMD card as well
+as on NVIDIA. There is no flash-attn wheel for ROCm and none is needed: the portable
+patch falls back to PyTorch's own attention (SDPA), which is a little slower and uses a
+little more memory than flash-attn but needs nothing built.
 """
 
 from __future__ import annotations
@@ -114,22 +120,40 @@ def venv_needs_rebuild(root: Path = VENDOR) -> bool:
     return f"version_info = {PYTHON_VERSION}" not in cfg.read_text()
 
 
-def torch_index(family: str, nvidia: bool, driver: tuple[int, int] | None) -> str | None:
+def torch_index(family: str, nvidia: bool, driver: tuple[int, int] | None,
+                amd: bool = False, rocm: tuple[int, int] | None = None) -> str | None:
     """Where torch comes from. None means PyPI's default, which is right on a Mac.
 
     On NVIDIA, PyPI's torch is built for the newest CUDA, which an older driver cannot run:
     torch then sees no GPU and the patched SkinTokens falls through to "mps" and crashes.
-    So pick the build the driver runs, as the TRELLIS and Hunyuan installers do."""
-    if family == "macos" or not nvidia:
+    So pick the build the driver runs, as the TRELLIS and Hunyuan installers do.
+
+    On AMD the same thing with ROCm: PyPI's Linux torch is a CUDA build, so it sees no card
+    at all and the run dies looking for a device. ROCm's torch reports its card through
+    `torch.cuda` like any other, so the portable patch needs no further change there.
+    """
+    if family == "macos":
         return None
-    index = host.torch_cuda_index(driver)
-    if index is None:
-        found = f"CUDA {driver[0]}.{driver[1]}" if driver else "no CUDA version"
-        oldest = host.TORCH_CUDA_BUILDS[-1][0]
-        raise SystemExit(f"Your NVIDIA driver reports {found}; auto-rig needs one that "
-                         f"supports CUDA {oldest[0]}.{oldest[1]} or newer. Update the "
-                         "driver, then run setup again.")
-    return index
+    if nvidia:
+        index = host.torch_cuda_index(driver)
+        if index is None:
+            found = f"CUDA {driver[0]}.{driver[1]}" if driver else "no CUDA version"
+            oldest = host.TORCH_CUDA_BUILDS[-1][0]
+            raise SystemExit(f"Your NVIDIA driver reports {found}; auto-rig needs one that "
+                             f"supports CUDA {oldest[0]}.{oldest[1]} or newer. Update the "
+                             "driver, then run setup again.")
+        return index
+    if amd:
+        index = host.torch_rocm_index(rocm)
+        if index is None:
+            found = f"ROCm {rocm[0]}.{rocm[1]}" if rocm else "no readable ROCm version"
+            oldest = host.TORCH_ROCM_BUILDS[-1][0]
+            raise SystemExit(f"Your machine reports {found}; auto-rig needs ROCm "
+                             f"{oldest[0]}.{oldest[1]} or newer, and a PyTorch ROCm build for "
+                             "it. Install ROCm from https://rocm.docs.amd.com/ and run setup "
+                             "again.")
+        return index
+    return None
 
 
 def pip_commands(uv: str, python: Path, root: Path, index: str | None) -> list[list[str]]:
@@ -144,7 +168,8 @@ def install_packages(root: Path = VENDOR, runner=run) -> None:
     uv = shutil.which("uv")
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
-    index = torch_index(host.os_family(), host.has_nvidia_gpu(), host.driver_cuda_version())
+    index = torch_index(host.os_family(), host.has_nvidia_gpu(), host.driver_cuda_version(),
+                        amd=host.has_amd_gpu(), rocm=host.rocm_version())
     if venv_needs_rebuild(root):
         shutil.rmtree(root / ".venv", ignore_errors=True)
         runner([uv, "venv", str(root / ".venv"), "--python", PYTHON_VERSION])

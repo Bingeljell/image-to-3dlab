@@ -78,13 +78,36 @@ def test_venv_on_the_wrong_python_is_rebuilt(tmp_path):
 def test_catalogue_and_setup_command_agree_with_the_installer():
     backend = backend_catalog.BY_ID["autorig"]
     assert backend.bytes_expected == ba.WEIGHT_BYTES
-    assert set(backend.runs_on) == {backend_catalog.APPLE, backend_catalog.NVIDIA}
+    # SkinTokens is pure PyTorch with no compiled extension, so AMD is a real route and
+    # not an aspiration: the catalogue must not leave it out or setup would be refused.
+    assert set(backend.runs_on) == {backend_catalog.APPLE, backend_catalog.NVIDIA,
+                                    backend_catalog.AMD}
     command = download_api.COMMANDS["autorig"]
     assert command[1].endswith("bootstrap_autorig.py") and "--yes" in command
 
 
 def test_mac_gets_pypi_torch():
     assert ba.torch_index("macos", nvidia=False, driver=None) is None
+
+
+def test_amd_gets_the_rocm_build_not_pypi_s_cuda_one():
+    # PyPI's Linux torch is a CUDA build: on an AMD card it reports no device at all, so
+    # without this the run would install happily and then die looking for a GPU.
+    assert ba.torch_index("linux", nvidia=False, driver=None,
+                          amd=True, rocm=(7, 2)).endswith("/rocm7.2")
+
+
+def test_a_linux_box_with_no_gpu_at_all_still_gets_pypi_torch():
+    assert ba.torch_index("linux", nvidia=False, driver=None) is None
+
+
+def test_an_amd_card_with_an_unusable_rocm_stops_with_a_reason():
+    try:
+        ba.torch_index("linux", nvidia=False, driver=None, amd=True, rocm=None)
+    except SystemExit as stop:
+        assert "ROCm" in str(stop) and "6.2" in str(stop)
+    else:
+        raise AssertionError("an AMD card with no ROCm must stop setup, not guess")
 
 
 def test_nvidia_torch_matches_the_driver_not_pypi():
@@ -124,3 +147,18 @@ def test_install_packages_runs_the_planned_commands(tmp_path, monkeypatch):
     ba.install_packages(root, runner=ran.append)
     assert ran == ba.pip_commands("/bin/uv", ba.venv_python(root), root,
                                   ba.host.TORCH_INDEX + "cu128")
+
+
+def test_install_packages_on_amd_installs_the_rocm_torch(tmp_path, monkeypatch):
+    """The whole point on AMD: torch must come from the ROCm index, or torch sees no card."""
+    root = tmp_path / "SkinTokens"
+    (root / ".venv").mkdir(parents=True)
+    (root / ".venv" / "pyvenv.cfg").write_text("version_info = 3.11.9\n")
+    monkeypatch.setattr(ba.shutil, "which", lambda name: "/bin/uv")
+    monkeypatch.setattr(ba.host, "os_family", lambda: "linux")
+    monkeypatch.setattr(ba.host, "has_nvidia_gpu", lambda: False)
+    monkeypatch.setattr(ba.host, "has_amd_gpu", lambda: True)
+    monkeypatch.setattr(ba.host, "rocm_version", lambda: (7, 2))
+    ran = []
+    ba.install_packages(root, runner=ran.append)
+    assert ran[0][-1] == ba.host.TORCH_INDEX + "rocm7.2"

@@ -14,6 +14,10 @@ machine:
 - **Linux, driver too old for the prebuilt, CUDA toolkit present:** compiled locally for
   this card instead. `--compile` asks for that even when the prebuilt would run. With
   neither, it says which driver to install and stops.
+- **Linux with an AMD card:** compiled locally with HIP, upstream's own CUDA prebuilts
+  being NVIDIA-only. ROCm's `hipcc` is the compiler, so ROCm's HIP SDK has to be
+  installed; with none, it says which package that is and stops. `PIXAL3D_CMAKE_FLAGS`
+  adds flags for cards ROCm needs help with (a HIPBLASLt build, say).
 
 The **weights** are the single-view Q8_0 set plus the BiRefNet matting model, 8.4 GB, and
 BiRefNet-lite (224 MB), the background remover Pixal3D's cut-out uses. Without lite the
@@ -80,6 +84,10 @@ PREBUILTS = {
     "windows-nvidia": ("trellis-cuda12-windows-x64.zip", "~610 MB"),
 }
 
+# What the "Building (...)" line says, so a compile that runs for 20 minutes names the
+# backend it is on.
+BUILD_LABELS = {"metal-source": "Metal", "cuda-source": "CUDA", "hip-source": "HIP"}
+
 LICENCE = (
     "MIT (code and flow weights); the bundled image encoder is under the\n"
     "  DINOv3 License. https://huggingface.co/raven38/pixal3d-sv-q8_0-v1"
@@ -90,21 +98,34 @@ target = host.build_target
 driver_cuda = host.driver_cuda_version
 find_nvcc = host.find_nvcc
 nvcc_cuda = host.nvcc_cuda_version
+find_hipcc = host.find_hipcc
+gfx_targets = host.rocm_gfx_targets
+
+# A compile on an unfamiliar card sometimes needs one flag the script should not guess
+# (`-DGGML_HIPBLASLT=ON`, say). Space-separated, passed straight to CMake.
+EXTRA_CMAKE_FLAGS = "PIXAL3D_CMAKE_FLAGS"
 
 
 def build_kind(key: str | None, cuda: tuple[int, int] | None, nvcc: str | None,
-               nvcc_cuda: tuple[int, int] | None = None,
-               prefer_compile: bool = False) -> str | None:
-    """`prebuilt`, `cuda-source`, `metal-source`, or None when nothing will run here.
+               nvcc_cuda: tuple[int, int] | None = None, prefer_compile: bool = False,
+               hipcc: str | None = None, gfx: list[str] | None = None) -> str | None:
+    """`prebuilt`, `cuda-source`, `metal-source`, `hip-source`, or None when nothing here runs.
 
     The prebuilt wins on NVIDIA whenever the driver can run it: a minute to install, where
     a compile took 15 minutes on a 9-vCPU A40 pod (2026-10-02). The compile is faster per
     model (about 190 s against 390 s on a 4090) but that was never worth the wait. It is
     the fallback for an old driver, and cannot run when the toolkit is newer than the
     driver; an unreadable toolkit version is tried, not refused.
+
+    AMD has one route: HIP, compiled here, because upstream publishes no AMD prebuilt and
+    ggml's own kernels are CUDA. Both halves are needed before it is offered — the
+    compiler, and the card to compile for. Without the gfx target CMake picks an ISA of
+    its own choosing, and the resulting binary is missing every kernel the card has.
     """
     if key == "macos-arm64":
         return "metal-source"
+    if key == "linux-amd":
+        return "hip-source" if hipcc and gfx else None
     prebuilt_runs = key in PREBUILTS and cuda is not None and cuda >= PREBUILT_MIN_CUDA
     # A Windows source build is a Visual Studio project of its own; not offered.
     compile_runs = (key == "linux-nvidia" and bool(nvcc)
@@ -118,8 +139,11 @@ def build_kind(key: str | None, cuda: tuple[int, int] | None, nvcc: str | None,
 
 def current_kind(key: str | None, prefer_compile: bool = False) -> str | None:
     nvcc = find_nvcc() if key == "linux-nvidia" else None
+    hipcc = find_hipcc() if key == "linux-amd" else None
+    # Only the compiler is asked about the card when there is no compiler to use.
+    gfx = gfx_targets() if key == "linux-amd" and hipcc else None
     return build_kind(key, driver_cuda() if key in PREBUILTS else None, nvcc,
-                      nvcc_cuda(nvcc) if nvcc else None, prefer_compile)
+                      nvcc_cuda(nvcc) if nvcc else None, prefer_compile, hipcc, gfx)
 
 
 def route_and_size(key: str | None,
@@ -130,16 +154,31 @@ def route_and_size(key: str | None,
     if kind == "cuda-source":
         return ("compiled locally with CUDA for this card",
                 "10+ minutes of compiling, once, with the CUDA toolkit")
+    if kind == "hip-source":
+        return ("compiled locally with HIP for this card",
+                "10-20 minutes of compiling, once, with ROCm's hipcc")
     if kind == "prebuilt":
         name, size = PREBUILTS[key]
         return f"CUDA 12 prebuilt ({name}, {PREBUILT_RELEASE})", size
     return None
 
 
-def no_route_message(key: str | None) -> str:
+def no_route_message(key: str | None, hipcc: str | None = None) -> str:
+    if key == "linux-amd":
+        if not (find_hipcc() if hipcc is None else hipcc):
+            return ("Pixal3D builds with HIP on an AMD card, and ROCm's compiler is not "
+                    "installed. Install ROCm (https://rocm.docs.amd.com/) and its HIP "
+                    "SDK:\n  Ubuntu and Debian: sudo apt install rocm-hip-sdk\n"
+                    "Nothing downloaded.")
+        return ("ROCm's compiler is installed but the card could not be read, so there is "
+                "no gfx target to compile for. Install ROCm's runtime tools (rocminfo), "
+                "or name the card yourself:\n"
+                "  PIXAL3D_CMAKE_FLAGS=-DAMDGPU_TARGETS=gfx1100 python "
+                "scripts/bootstrap_pixal3d.py\nNothing downloaded.")
     if key not in PREBUILTS:
         return ("Pixal3D needs an Apple Silicon Mac, or Linux/Windows with an NVIDIA card "
-                "(nvidia-smi must list it). Nothing downloaded.")
+                "(nvidia-smi must list it), or Linux with an AMD card and ROCm. "
+                "Nothing downloaded.")
     cuda = driver_cuda()
     have = f"{cuda[0]}.{cuda[1]}" if cuda else "unknown"
     need = f"{PREBUILT_MIN_CUDA[0]}.{PREBUILT_MIN_CUDA[1]}"
@@ -252,14 +291,62 @@ def install_prebuilt(key: str) -> Path:
     return cli
 
 
-def cmake_flags(kind: str, nvcc: str | None = None, arch: str | None = None) -> list[str]:
+def hip_compiler(hipcc: str | None = None) -> str | None:
+    """The Clang CMake must be given for a HIP build — never the `hipcc` wrapper.
+
+    CMake refuses the wrapper outright (CMakeDetermineHIPCompiler.cmake: "CMAKE_HIP_COMPILER
+    is set to the hipcc wrapper ... This is not supported"), because hipcc is a shell script
+    that injects flags of its own and CMake needs to control them. The Clang inside ROCm is
+    the same compiler underneath, so that is what gets named instead. Seen failing on ROCm 7
+    with CMake 3.28 against gfx1100, which is why this is not left to be discovered.
+    """
+    compiler = hipcc or find_hipcc()
+    if not compiler:
+        return None
+    # From the ROCm install, not from hipcc's own directory: hipcc lives in
+    # /opt/rocm/bin, and its Clang is a sibling of that, not a child.
+    roots = [host.rocm_root(compiler)]
+    roots.append(Path(compiler).resolve().parent.parent)
+    for root in roots:
+        llvm = root / "llvm" / "bin"
+        for name in ("clang++", "clang"):
+            if (llvm / name).exists():
+                return str(llvm / name)
+    return None
+
+
+def cmake_flags(kind: str, nvcc: str | None = None, arch: str | None = None,
+                hipcc: str | None = None, gfx: list[str] | None = None) -> list[str]:
+    """The flags a local build needs, and nothing a machine does not.
+
+    The gfx target goes in twice on purpose: ggml reads `AMDGPU_TARGETS`, CMake's own HIP
+    language reads `CMAKE_HIP_ARCHITECTURES`, and ggml only falls back to the first when
+    the second is unset. Same list, both spellings, so the build does not depend on which
+    version of ggml got vendored.
+    """
     flags = ["-DCMAKE_BUILD_TYPE=Release"]
     if kind == "cuda-source":
         flags += ["-DGGML_CUDA=ON",
                   # `native` asks the card at configure time; a known arch skips that.
                   f"-DCMAKE_CUDA_ARCHITECTURES={arch or 'native'}",
                   f"-DCMAKE_CUDA_COMPILER={nvcc}"]
+    if kind == "hip-source":
+        targets = ";".join(gfx or ())
+        root = host.rocm_root(hipcc)
+        clang = hip_compiler(hipcc)
+        flags += ["-DGGML_HIP=ON",
+                  f"-DCMAKE_HIP_ARCHITECTURES={targets}",
+                  f"-DAMDGPU_TARGETS={targets}"]
+        if clang is not None:
+            flags.append(f"-DCMAKE_HIP_COMPILER={clang}")
+        if root is not None:
+            flags += [f"-DCMAKE_PREFIX_PATH={root}", f"-DROCM_PATH={root}"]
     return flags
+
+
+def extra_cmake_flags(env: dict[str, str] | None = None) -> list[str]:
+    """Flags the user asked for, from `PIXAL3D_CMAKE_FLAGS`. Space-separated."""
+    return (env if env is not None else os.environ).get(EXTRA_CMAKE_FLAGS, "").split()
 
 
 def build_command(jobs: int) -> list[str]:
@@ -306,13 +393,13 @@ def apply_steps_patch(runner=subprocess.run) -> bool:
 
 
 def source_ref(kind: str) -> str:
-    """The Mac build has always tracked upstream's default branch; the CUDA build pins the
-    commit the prebuilts come from, which is the one tested on NVIDIA."""
+    """The Mac build has always tracked upstream's default branch; the CUDA and HIP builds
+    pin the commit the prebuilts come from, which is the one tested on NVIDIA."""
     return "HEAD" if kind == "metal-source" else PREBUILT_COMMIT
 
 
 def build_from_source(kind: str) -> Path:
-    """Clone and compile: Metal on a Mac, CUDA on Linux with the toolkit installed."""
+    """Clone and compile: Metal on a Mac, CUDA or HIP on Linux, with the toolkit installed."""
     needed = ("cmake", "ninja", "git") if kind == "metal-source" else ("cmake", "git")
     for tool in needed:
         if shutil.which(tool) is None:
@@ -328,11 +415,22 @@ def build_from_source(kind: str) -> Path:
             "xcodebuild -downloadComponent MetalToolchain\n"
             "then re-run this script with DEVELOPER_DIR set."
         )
+    hipcc = find_hipcc() if kind == "hip-source" else None
+    if kind == "hip-source" and not hipcc:
+        raise SystemExit("ROCm's compiler (hipcc) is not on PATH and is not in "
+                         "/opt/rocm/bin. Install ROCm's HIP SDK and run this again.")
+    if kind == "hip-source" and hip_compiler(hipcc) is None:
+        raise SystemExit(
+            f"ROCm's Clang was not found next to {hipcc}. CMake cannot drive hipcc, and "
+            "the Clang in the same ROCm install is what it needs. Install ROCm's HIP SDK "
+            "with its compiler, or point PIXAL3D_CMAKE_FLAGS at a clang that works.")
     fetch_source(source_ref(kind))
     apply_steps_patch()
-    flags = cmake_flags(kind, find_nvcc(), host.compute_capability())
+    flags = [*cmake_flags(kind, find_nvcc(), host.compute_capability(), hipcc,
+                          gfx_targets() if hipcc else None),
+             *extra_cmake_flags()]
     generator = ["-G", "Ninja"] if shutil.which("ninja") else []
-    print(f"Building ({'Metal' if kind == 'metal-source' else 'CUDA'})", flush=True)
+    print(f"Building ({BUILD_LABELS[kind]})", flush=True)
     subprocess.run(["cmake", "-S", str(VENDOR), "-B", str(BUILD), *generator, *flags],
                    check=True)
     subprocess.run(build_command(host.build_jobs()), check=True)
@@ -424,8 +522,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Recompile an existing source build so it picks up this "
                              "repo's patches (e.g. the 8-step default). No downloads.")
     parser.add_argument("--compile", action="store_true",
-                        help="Compile for this card with nvcc (Linux) even when the "
-                             "prebuilt would run: ~2x faster per model, 15+ minutes once.")
+                        help="Compile for this card with nvcc even when the prebuilt would "
+                             "run: ~2x faster per model, 15+ minutes once. AMD already "
+                             "compiles; there is no prebuilt to skip.")
     args = parser.parse_args(argv)
 
     key = target()

@@ -96,6 +96,18 @@ def test_ordinary_output_is_not_a_stage():
     assert px.stage_from_banner("ggml_metal_library_compile_pipeline: loaded kernel") is None
 
 
+def test_kernel_chatter_is_dropped_on_every_backend():
+    """ggml names its kernels after the backend, and a run emits hundreds of these lines.
+    Left in, they bury the six stage banners the progress panel reads."""
+    for line in ("ggml_metal_library_compile_pipeline: loaded kernel",
+                 "ggml_hip_init: found 1 devices",
+                 "ggml_cuda_init: found 1 CUDA devices",
+                 "  loaded kernel flash_attn_ext"):
+        assert px.kernel_noise(line) is True
+    for line in ("[3/6] flow (sampling)", "done in 349.9s -> out.glb", ""):
+        assert px.kernel_noise(line) is False
+
+
 def test_stage_zero_is_not_a_stage():
     """`[0/6]` is the banner echoing its input, before any work happens."""
     assert px.stage_from_banner("[0/6] Pixal3D single view: fox.png") is None
@@ -447,14 +459,53 @@ def test_out_of_range_steps_are_refused(tmp_path):
     assert "1 to 50" in px.steps_problem(0, tmp_path / "x", tmp_path / "y")
 
 
-def test_the_env_carries_steps_only_when_asked():
+@pytest.fixture
+def no_rocm(monkeypatch):
+    """Pretend this machine has no ROCm, so the AMD loader path stays out of the way. The
+    real box running these tests is an AMD one, and asserting on an env without it would
+    pass or fail depending on which machine the suite ran on."""
+    monkeypatch.setattr(px, "_rocm_root", lambda: None)
+
+
+def test_the_env_carries_steps_only_when_asked(no_rocm):
     assert px.run_env(8, {"PATH": "/bin"}) == {"PATH": "/bin", "PIXAL3D_STEPS": "8"}
     assert px.run_env(None, {"PATH": "/bin"}) == {"PATH": "/bin"}
 
 
-def test_a_stray_steps_variable_in_the_shell_is_dropped():
+def test_a_stray_steps_variable_in_the_shell_is_dropped(no_rocm):
     """Otherwise a run labelled 12 steps in its manifest could quietly be an 8-step one."""
     assert px.run_env(None, {"PIXAL3D_STEPS": "4"}) == {}
+
+
+def test_a_hip_build_gets_rocm_on_the_loader_path(tmp_path, monkeypatch):
+    """A HIP trellis-cli links against ROCm's own libamdhip64.so. Without it the process
+    dies at load time complaining about a missing library, which says nothing about the GPU
+    and sends the user looking in the wrong place."""
+    root = tmp_path / "rocm"
+    (root / "lib").mkdir(parents=True)
+    monkeypatch.setattr(px, "_rocm_root", lambda: root)
+    assert px.run_env(None, {"PATH": "/bin"})["LD_LIBRARY_PATH"] == str(root / "lib")
+
+
+def test_an_existing_loader_path_is_kept_in_front(tmp_path, monkeypatch):
+    root = tmp_path / "rocm"
+    (root / "lib").mkdir(parents=True)
+    monkeypatch.setattr(px, "_rocm_root", lambda: root)
+    env = px.run_env(None, {"LD_LIBRARY_PATH": "/my/lib"})
+    assert env["LD_LIBRARY_PATH"] == f"{root / 'lib'}:/my/lib"
+
+
+def test_rocm_is_not_added_twice(tmp_path, monkeypatch):
+    root = tmp_path / "rocm"
+    (root / "lib").mkdir(parents=True)
+    monkeypatch.setattr(px, "_rocm_root", lambda: root)
+    env = px.run_env(None, {"LD_LIBRARY_PATH": str(root / "lib")})
+    assert env["LD_LIBRARY_PATH"] == str(root / "lib")
+
+
+def test_a_rocm_without_a_lib_directory_changes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(px, "_rocm_root", lambda: tmp_path)
+    assert px.run_env(None, {"PATH": "/bin"}) == {"PATH": "/bin"}
 
 
 def test_a_flow_starting_without_the_override_stops_the_run():

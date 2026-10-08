@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""End-to-end Pixal3D generation: image -> textured GLB, on a Mac or an NVIDIA card.
+"""End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD.
 
     python scripts/pixal3d_generate.py input.png output.glb [--res 1024] [--seed 42]
 
 Wraps `trellis-cli` from `vendor/pixal3d-cpp` (raven38/pixal3d.cpp), a C++/GGML runtime
-with Metal kernels on a Mac and CUDA on NVIDIA. Install it with
+with Metal kernels on a Mac, CUDA on NVIDIA and HIP on AMD. Install it with
 `scripts/bootstrap_pixal3d.py`.
 
 **Why this port and not the PyTorch one.** `pawel-mazurkiewicz/Pixal3D-mac` loads ~22 GB of
@@ -261,12 +261,39 @@ def resolve_steps(requested: int | None, source: Path = FLOW_SOURCE,
     return requested, f"steps={requested}"
 
 
+def rocm_library_path(base: dict[str, str], root: Path | None = None) -> str | None:
+    """ROCm's library directory, to put on the loader's path when it is not already there.
+
+    A HIP `trellis-cli` links against ROCm's own `libamdhip64.so` and friends. CMake records
+    that path in the binary at build time on most systems, so this is only the safety net for
+    one where it did not — without it the process dies at load time with a message about a
+    missing library rather than anything about the GPU.
+    """
+    found = root or _rocm_root()
+    if found is None:
+        return None
+    directory = found / "lib"
+    if not directory.is_dir():
+        return None
+    return None if str(directory) in base.get("LD_LIBRARY_PATH", "").split(":") else directory
+
+
+def _rocm_root() -> Path | None:
+    from image_to_3dlab import host
+
+    return host.rocm_root()
+
+
 def run_env(steps: int | None, base: dict[str, str] | None = None) -> dict[str, str]:
     """The CLI's environment. `PIXAL3D_STEPS` is set only when asked for, and a stray one
     in the caller's shell is dropped, so the manifest's step count is always the truth."""
     env = {k: v for k, v in (os.environ if base is None else base).items() if k != STEPS_ENV}
     if steps is not None and steps != DEFAULT_STEPS:
         env[STEPS_ENV] = str(steps)
+    rocm = rocm_library_path(env)
+    if rocm is not None:
+        existing = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = f"{rocm}:{existing}" if existing else str(rocm)
     return env
 
 
@@ -276,6 +303,17 @@ def steps_not_applied(line: str, steps: int | None, seen_override: bool) -> bool
     if steps is None or steps == DEFAULT_STEPS or seen_override:
         return False
     return "[flow] [" in line
+
+
+def kernel_noise(line: str) -> bool:
+    """True for ggml's own kernel chatter, on every backend it has.
+
+    Metal names its pipelines `ggml_metal_*`, HIP its kernels `ggml_hip_*`, and CUDA says
+    `ggml_cuda_init` and friends. A 6-minute run emits hundreds of these lines, and they
+    bury the six `[n/6]` stage banners the progress panel reads, so they are dropped rather
+    than printed. Anything else, including a line that merely mentions a kernel, is kept.
+    """
+    return line.startswith(("ggml_metal", "ggml_hip", "ggml_cuda")) or "loaded kernel" in line
 
 
 def stage_from_banner(line: str) -> tuple[str, int] | None:
@@ -406,10 +444,8 @@ def main() -> int:
             process.kill()
             raise SystemExit(f"trellis-cli ignored {STEPS_ENV}; stopped before wasting "
                              "the run. Re-apply scripts/patch_pixal3d_steps.py and rebuild")
-        # ggml logs every Metal pipeline it compiles; that is hundreds of lines of noise.
-        if line.startswith("ggml_metal") or "loaded kernel" in line:
-            continue
-        print(line, flush=True)
+        if not kernel_noise(line):
+            print(line, flush=True)
     code = process.wait()
     if code != 0:
         raise SystemExit(f"trellis-cli exited with code {code}")

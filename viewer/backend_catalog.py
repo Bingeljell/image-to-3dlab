@@ -174,6 +174,12 @@ class Backend:
     # A separate route in this catalogue that does the same job on NVIDIA (the MLX Hunyuan
     # ports -> Tencent's own Hunyuan3D-2.1). Named in the note an NVIDIA machine sees.
     nvidia_route: str | None = None
+    # Why an AMD machine cannot run this route, when the honest reason is specific.
+    # TRELLIS.2 and Hunyuan3D-2.1 need NVIDIA-only compiled extensions; Stable Fast 3D is
+    # Apple-only because its pins broke the lab's shared environment, which is a different
+    # sentence entirely. Without this field every blocked route borrows the extension
+    # excuse, and SF3D ends up claiming an NVIDIA-only extension it does not have.
+    amd_blocked_reason: str | None = None
 
     @property
     def bytes_expected(self) -> int:
@@ -207,6 +213,14 @@ class Backend:
         if excluded:
             return (f"{self.label} is not supported on {excluded.capitalize()} yet. "
                     f"On an NVIDIA card it runs under Linux.")
+        # AMD comes before the generic notes below, because both of those talk about
+        # NVIDIA and an AMD reader has no NVIDIA machine to act on.
+        if (host or host_platform()) == AMD and AMD not in self.runs_on:
+            reason = self.amd_blocked_reason or (
+                f"{self.label} needs NVIDIA-only compiled extensions, and upstream ships no "
+                f"ROCm build of them, so a download here would end in a failed build.")
+            return (f"Not on AMD yet. {reason} Pixal3D runs on this card and needs nothing "
+                    f"NVIDIA-only.")
         # The "use the official version" advice is only true while this lab cannot run it
         # on NVIDIA itself; once a route lists NVIDIA, the plain note is the honest one.
         twin = BY_ID.get(self.nvidia_route) if self.nvidia_route else None
@@ -218,13 +232,6 @@ class Backend:
             return (f"This lab runs the Apple Silicon port. {self.upstream[0]} itself is "
                     f"built for NVIDIA: on an NVIDIA machine, use the official version "
                     f"for now. Built into this lab later.")
-        # TRELLIS.2 and Hunyuan3D-2.1, seen from an AMD machine. "Needs an NVIDIA GPU" is
-        # true but leaves the reader guessing whether this is a card problem or a port
-        # problem, and the answer is the second: the compiled extensions are NVIDIA-only.
-        if (host or host_platform()) == AMD and AMD not in self.runs_on:
-            return (f"Not on AMD yet. {self.label} needs NVIDIA-only compiled extensions, and "
-                    f"upstream ships no ROCm build of them, so a download here would end in "
-                    f"a failed build. Pixal3D runs on this card and needs nothing NVIDIA-only.")
         return (f"Needs {runs_on_phrase(self)}. Setting it up on this machine would "
                 f"download gigabytes and then fail, so the button is off.")
 
@@ -334,6 +341,13 @@ CATALOG: tuple[Backend, ...] = (
         install="uv sync + hunyuan_mlx/download_weights.py",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
+        # Neither half of Hunyuan reaches an AMD card: this port is Apple Silicon, and
+        # Tencent's own is NVIDIA-only. Saying so beats the generic note, which would
+        # point an AMD reader at a machine they do not have.
+        amd_blocked_reason=(
+            "Hunyuan is not available on AMD in any form: this port is Apple Silicon, and "
+            "Tencent's own needs NVIDIA-only compiled extensions."
+        ),
         setup_minutes=25,
         build_probes=(venv_python(REPO / "hunyuan_mlx" / "shape"),
                       venv_python(REPO / "hunyuan_mlx" / "paint")),
@@ -402,6 +416,10 @@ CATALOG: tuple[Backend, ...] = (
         install="Manual: clone dgrauet's port into vendor/hunyuan-mlx, then uv sync",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
+        amd_blocked_reason=(
+            "Hunyuan is not available on AMD in any form: this port is Apple Silicon, and "
+            "Tencent's own needs NVIDIA-only compiled extensions."
+        ),
         automated_setup=False,
         setup_minutes=40,
         build_probes=(REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python",
@@ -437,6 +455,13 @@ CATALOG: tuple[Backend, ...] = (
         # Not NVIDIA: SF3D's pins (old huggingface-hub, rembg) broke the lab's shared
         # environment there, and TRELLIS.2, Hunyuan3D-2.1 and Pixal3D beat it anyway.
         runs_on=(APPLE,),
+        # Not the NVIDIA-only-extension story the other blocked routes use. SF3D is plain
+        # PyTorch; it is Apple-only here because of those pins, not because of the card.
+        amd_blocked_reason=(
+            "Stable Fast 3D is Apple-only in this lab: its pinned huggingface-hub and rembg "
+            "break the shared environment, so it was left out of the Linux routes rather "
+            "than given its own 2 GB of packages to fight over them."
+        ),
         setup_minutes=20,
         build_probes=(REPO / "vendor" / "stable-fast-3d" / "sf3d" / "system.py",),
         caveat=(

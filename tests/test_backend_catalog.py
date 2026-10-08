@@ -546,6 +546,25 @@ def test_the_amd_note_does_not_leak_into_other_tabs():
     assert "AMD" not in trellis._platform_note(bc.NVIDIA)
 
 
+def test_a_blocked_route_says_its_own_reason_not_the_usual_one():
+    """Every blocked route once borrowed the NVIDIA-only-extension sentence. SF3D is plain
+    PyTorch and is Apple-only because its pins break the shared environment, so claiming
+    an extension it does not have sends an AMD user hunting for a build problem."""
+    note = bc.BY_ID["sf3d"]._platform_note(bc.AMD)
+    assert "NVIDIA-only compiled extensions" not in note
+    assert "huggingface-hub" in note and "AMD" in note
+
+
+def test_an_amd_user_is_not_sent_to_an_nvidia_machine_they_do_not_have():
+    """The MLX ports point at Tencent's own route as the alternative. That is true and
+    useless here: it is NVIDIA-only too, so the note has to say Hunyuan is out, not offer
+    a machine the reader is not on."""
+    for backend_id in ("hunyuan_xiong", "hunyuan-mlx"):
+        note = bc.BY_ID[backend_id]._platform_note(bc.AMD)
+        assert "on an NVIDIA machine, use" not in note
+        assert "AMD" in note and "Pixal3D" in note
+
+
 def test_a_tab_describes_its_own_machine():
     views = bc.catalog_status(bc.NVIDIA)["views"]
     trellis_mac = next(b for b in views[bc.APPLE] if b["id"] == "trellis")

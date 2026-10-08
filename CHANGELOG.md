@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Auto-rig on AMD Linux.** SkinTokens is pure PyTorch with no compiled extension, so it
+  had no reason to be NVIDIA-only and does not need to be: the bootstrap now asks the same
+  questions of ROCm as it does of a CUDA driver and installs the matching PyTorch ROCm
+  build. Before, an AMD box was handed PyPI's Linux torch, which is a CUDA build and would
+  not see the card at all. Attention comes from PyTorch's own SDPA, as it already does on a
+  Mac, because flash-attn has no ROCm wheel and needs a long compile.
+
+  Verified end to end on an RX 7900 XTX (gfx1100, ROCm 7.2.4): `torch 2.14.1+rocm7.2` sees
+  the card, a 40k-face stylized anime character comes back with a 25-joint skeleton and skin
+  weights, and all 21 preset moves fit onto it. Attention is SDPA, which costs a little
+  memory against flash-attn and needs nothing built.
+- **Text to image on AMD Linux.** The Qwen-Image bootstrap now installs upstream's
+  native ROCm build (~278 MB) for machines with an AMD card and ROCm, and probes the
+  GPU before fetching weights, like the NVIDIA path. Before, an AMD box had no prebuilt
+  route at all.
+- **Generate 3D on AMD Linux.** Pixal3D is now offered on AMD cards and compiles itself
+  with HIP for the card it finds (`-DGGML_HIP=ON`, the gfx target read from `rocminfo`).
+  Upstream publishes no AMD prebuilt, so the first setup pays 10-20 minutes of compiling
+  once; that needs ROCm's `hipcc`, and the installer says which package installs it when
+  it is missing. Pixal3D is C++/GGML with no NVIDIA-only extension, so nothing else had
+  to change. The viewer's Setup page gets an AMD tab, and its AMD wording names HIP
+  rather than repeating the NVIDIA instructions.
+
+  Verified end to end on an RX 7900 XTX (gfx1100, ROCm 7.2.4, CMake 3.28, 16 CPUs): `trellis-cli`
+  links `libamdhip64.so.7`, reports `found 2 ROCm devices` with the 7900 XTX first, and
+  generated a textured model in **167 s** — 167 of those seconds on the GPU, sampling the
+  shape flow in 41 s and the texture flow in 24 s, at `--res 1024`. Result: 716,946
+  vertices / 932,746 faces, signed volume +0.00452, winding consistent, atlas 4096².
+  CMake is given ROCm's own `clang++`, never the `hipcc` wrapper, which it refuses outright.
+
+  For scale, the same build on the NVIDIA pod takes 190-390 s per model, so an RX 7900 XTX
+  is in the same league as a 4090 rather than a fallback.
+- **The AMD card is detected before ROCm is asked anything.** A machine is "AMD" when the
+  amdgpu driver has bound a card (`/sys/class/kfd/kfd/topology/nodes`), with `rocminfo` as
+  the fallback for containers without sysfs. An AMD *processor* on its own is not a GPU,
+  which the old `lspci` test got wrong — it read every Ryzen as an AMD card.
+- **AMD targets for a HIP compile.** `rocm_gfx_targets` reports what to compile for and
+  leaves out an integrated GPU when a discrete card is present, so a box with both does
+  not compile twice. A machine with no readable card is refused rather than being handed
+  an ISA CMake picked by itself, and can name its own target with
+  `PIXAL3D_CMAKE_FLAGS=-DAMDGPU_TARGETS=gfx1100`.
+- **`PIXAL3D_CMAKE_FLAGS`** adds CMake flags to a local build, for a card that needs more
+  than the defaults (a HIPBLASLt build, say).
+
+### Changed
+- **SF3D device picking no longer pretends ROCm is a separate device.** A ROCm PyTorch
+  build reports its card through `torch.cuda` and takes the device string `cuda`, so the
+  extra `rocm` branch could only ever be right by accident. Its GPU memory is also
+  released through the CUDA allocator now, which is the one HIP shares.
+- **`pipeline.py` no longer forces `HSA_OVERRIDE_GFX_VERSION=11.0.0`.** It tells the
+  driver to pretend a card is a different one, which is a last resort for a card ROCm's
+  runtime does not know; a wrong guess emits kernels the hardware cannot run. It is still
+  honoured if you set it yourself, and `PYTORCH_HIP_ALLOC_CONF` keeps its default.
+
+### Fixed
+- **A run that cannot fit on the card is refused before it starts, naming what to close.**
+  Two Pixal3D runs on an RX 7900 XTX while ComfyUI-3D held 13.7 GB of the 24 GB card died
+  at the texture stage with `cudaMalloc failed: out of memory`. The card's free memory is
+  now read before a run (`image_to_3dlab/gpu_memory.py`, `rocm-smi` or `nvidia-smi`), and a
+  run that cannot fit is turned away in one sentence that names the process using the card.
+  A backend with no declared need is never asked, and a card whose free memory cannot be
+  read is never refused: unknown is not zero.
+- **A GPU that ran out of memory says so, instead of "exited with code -6".** ggml aborts,
+  so the last words in the log were a GDB backtrace and the wrapper restating the signal,
+  with the one sentence that explains anything forty lines above them. The Generate tab now
+  reads that line and puts it first.
+
+### Not offered
+- **TRELLIS.2 and Hunyuan3D-2.1 on AMD.** Both need NVIDIA-only compiled extensions
+  (flash-attn, nvdiffrast, nvdiffrec, CuMesh, FlexGEMM, spconv) and upstream ships no ROCm
+  build of them. The Setup page now says so instead of leaving the tabs looking identical
+  to the NVIDIA ones.
+
+### Fixed
+- **The image tab says why a run failed.** A failed sd-cli run surfaced as only
+  "sd-cli exited with code N"; the binary's last meaningful line -- a rejected flag, a
+  missing file -- now travels with the error, because the tab has no log panel.
+- **Releases that store symlinks install correctly.** `zipfile` extracts a stored
+  symlink as a text file holding its target, which broke the versioned library chain
+  (`libggml.so -> .so.0 -> ...`) so sd-cli died with "file too short". The installer
+  now restores real links after extraction.
+
 ## [0.4.0] - 2026-10-08
 
 The headline: **rig and animate humanoids, on your own machine.** Type a sentence or drop

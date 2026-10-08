@@ -19,10 +19,19 @@ NO_GPU_HELP = (
     "NVIDIA_DRIVER_CAPABILITIES=all."
 )
 
+NO_AMD_GPU_HELP = (
+    "stable-diffusion.cpp could not reach the AMD GPU and would run on the CPU, which "
+    "takes many minutes per picture. Check that `rocminfo` lists your card's gfx target "
+    "and that ROCm is installed. Without a ROCm install, use the Vulkan build from the "
+    "same release (the ...-vulkan.zip); it runs on the Mesa driver instead."
+)
+
+# The ROCm build announces itself through the CUDA log prefix ("ggml_cuda_init: found 2
+# ROCm devices") and a "ROCm backend" line; both were observed on an RX 7900 XTX, 2026-10-07.
 _GPU = re.compile(
     r"ggml_vulkan: Found [1-9]"
     r"|ggml_cuda_init: found [1-9]"
-    r"|load_backend: loaded (?:Vulkan|CUDA) backend"
+    r"|load_backend: loaded (?:Vulkan|CUDA|ROCm) backend"
 )
 _CPU = re.compile(r"load_backend: loaded CPU backend")
 

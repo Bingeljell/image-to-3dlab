@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-08
+
 ### Added
 - **AMD support on Linux (ROCm)**, contributed by [@dlm21](https://github.com/dlm21) in
   #92. An AMD card is now detected, and Setup & Status has an AMD tab. Three routes run

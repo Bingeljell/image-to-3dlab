@@ -8,7 +8,8 @@ One sentence in, a rigged, animated game character out. On your own Apple Silico
 NVIDIA PC, with the licence of every asset written down.</p>
 
 <p align="center">
-  <a href="https://assetfurnace.com">assetfurnace.com</a> ·
+  <a href="https://assetfurnace.com"><b>assetfurnace.com</b></a> ·
+  <a href="https://discord.gg/3D4bcEhGx"><b>Join the Discord</b></a> ·
   <a href="https://x.com/bingeljell">X @bingeljell</a> ·
   <a href="https://github.com/Bingeljell/image-to-3dlab/discussions">Discussions</a>
 </p>

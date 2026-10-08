@@ -91,13 +91,21 @@ def _run(
     finally:
         del model
         gc.collect()
-        if torch.backends.mps.is_available():
+        # ROCm shares the CUDA allocator, so `cuda` here means either vendor's GPU.
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        elif device == "mps":
             torch.mps.empty_cache()
     return output_path
 
 
 def pick_device(forced_cpu: bool, cuda: bool, mps: bool) -> str:
-    """CUDA on an NVIDIA card, MPS on a Mac, else CPU; `SF3D_USE_CPU=1` forces CPU."""
+    """CUDA on NVIDIA, ROCm on AMD, MPS on Mac, else CPU; `SF3D_USE_CPU=1` forces CPU.
+
+    There is no "rocm" device: a PyTorch ROCm build reports its card through
+    `torch.cuda` and takes the device string "cuda", so an AMD card arrives here as
+    `cuda=True` and needs nothing else.
+    """
     if forced_cpu:
         return "cpu"
     if cuda:

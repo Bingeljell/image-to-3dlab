@@ -134,9 +134,11 @@ need NVIDIA-only compiled extensions (flash-attn, nvdiffrast, CuMesh, FlexGEMM, 
 upstream ships no ROCm build of them. Qwen-Image, the background remover and auto-rig all
 work.
 
-Proved on an **RX 7900 XTX** (gfx1100, RDNA3), ROCm 7.2.4, 24 GB. RDNA3 and newer is the
-safe assumption; older cards may work but are untested here, and setup reads your card's
-gfx target and refuses rather than guessing if it cannot find one.
+Proved on two machines: an **RX 7900 XTX** (gfx1100, discrete, ROCm 7.2.4, 24 GB) and a
+**Ryzen AI Max+ 395** (Radeon 8060S, gfx1151, an APU with no discrete card, ROCm 10.2.0,
+124 GB shared RAM). RDNA3 and newer is the safe assumption; older cards may work but are
+untested, and setup reads your card's gfx target and refuses rather than guessing if it
+cannot find one.
 
 <p align="center">
   <img src="docs/images/turntable-pixal3d-warrior.webp" width="360"
@@ -323,7 +325,7 @@ character with these tools.
 |---|---|
 | Apple Silicon Mac (M-series), 32 GB recommended | Every route |
 | **or** Linux with an NVIDIA card (24 GB VRAM tested; Pixal3D's authors run it on 16 GB) | Pixal3D, Generate Image, TRELLIS.2, Hunyuan3D-2.1 |
-| **or** Linux with an AMD card and ROCm (RX 7900 XTX tested, 24 GB) | Pixal3D, Generate Image, Auto-rig. 3D needs the HIP compile, which takes 10-20 minutes once |
+| **or** Linux with an AMD card and ROCm (RX 7900 XTX and Ryzen AI Max+ 395 tested) | Pixal3D, Generate Image, Auto-rig. 3D needs the HIP compile, which takes 10-20 minutes once |
 | Linux + NVIDIA: CUDA toolkit matching PyTorch's CUDA | compiles TRELLIS.2's CUDA extensions (not needed on RTX 50-series) and Hunyuan3D-2.1's rasterizer (CUDA 12) |
 | macOS: full Xcode | compiles the Metal kernels for Pixal3D and TRELLIS |
 | Blender 4.2+ | Finish (low-poly clean-up, Pixel Match) and rigging. Install it yourself from [blender.org](https://www.blender.org/download/); Setup & Status shows whether it was found |

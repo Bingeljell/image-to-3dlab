@@ -15,10 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not see the card at all. Attention comes from PyTorch's own SDPA, as it already does on a
   Mac, because flash-attn has no ROCm wheel and needs a long compile.
 
-  Verified end to end on an RX 7900 XTX (gfx1100, ROCm 7.2.4): `torch 2.14.1+rocm7.2` sees
-  the card, a 40k-face stylized anime character comes back with a 25-joint skeleton and skin
-  weights, and all 21 preset moves fit onto it. Attention is SDPA, which costs a little
-  memory against flash-attn and needs nothing built.
+  Verified end to end on two machines: an RX 7900 XTX (gfx1100, discrete, ROCm 7.2.4), where
+  a 40k-face stylized anime character comes back with a 25-joint skeleton and all 21 preset
+  moves fit onto it; and a Ryzen AI Max+ 395 (Radeon 8060S, gfx1151, an APU with no discrete
+  card, ROCm 10.2.0), where a 40k-face character comes back with 52 joints. Attention is
+  SDPA, which costs a little memory against flash-attn and needs nothing built.
 - **Text to image on AMD Linux.** The Qwen-Image bootstrap now installs upstream's
   native ROCm build (~278 MB) for machines with an AMD card and ROCm, and probes the
   GPU before fetching weights, like the NVIDIA path. Before, an AMD box had no prebuilt
@@ -31,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to change. The viewer's Setup page gets an AMD tab, and its AMD wording names HIP
   rather than repeating the NVIDIA instructions.
 
-  Verified end to end on an RX 7900 XTX (gfx1100, ROCm 7.2.4, CMake 3.28, 16 CPUs): `trellis-cli`
+  Verified end to end on an RX 7900 XTX (gfx1100, ROCm 7.2.4), and again on a Ryzen AI
+  Max+ 395 (Radeon 8060S, gfx1151, an APU with no discrete card, ROCm 10.2.0): `trellis-cli`
   links `libamdhip64.so.7`, reports `found 2 ROCm devices` with the 7900 XTX first, and
   generated a textured model in **167 s** — 167 of those seconds on the GPU, sampling the
   shape flow in 41 s and the texture flow in 24 s, at `--res 1024`. Result: 716,946

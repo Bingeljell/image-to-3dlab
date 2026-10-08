@@ -42,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is in the same league as a 4090 rather than a fallback.
 - **The AMD card is detected before ROCm is asked anything.** A machine is "AMD" when the
   amdgpu driver has bound a card (`/sys/class/kfd/kfd/topology/nodes`), with `rocminfo` as
-  the fallback for containers without sysfs. An AMD *processor* on its own is not a GPU,
-  which the old `lspci` test got wrong — it read every Ryzen as an AMD card.
+  the fallback for containers without sysfs. An AMD *processor* on its own is not a GPU:
+  a bound card has a node and a processor does not, so a Ryzen is not read as a card.
 - **AMD targets for a HIP compile.** `rocm_gfx_targets` reports what to compile for and
   leaves out an integrated GPU when a discrete card is present, so a box with both does
   not compile twice. A machine with no readable card is refused rather than being handed
@@ -64,10 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **A run that cannot fit on the card is refused before it starts, naming what to close.**
-  Two Pixal3D runs on an RX 7900 XTX while ComfyUI-3D held 13.7 GB of the 24 GB card died
-  at the texture stage with `cudaMalloc failed: out of memory`. The card's free memory is
-  now read before a run (`image_to_3dlab/gpu_memory.py`, `rocm-smi` or `nvidia-smi`), and a
-  run that cannot fit is turned away in one sentence that names the process using the card.
+  A run needs VRAM another process may already be holding, and the failure lands deep
+  inside a backend as `cudaMalloc failed: out of memory` rather than as anything the user
+  can act on. The card's free memory is now read before a run
+  (`image_to_3dlab/gpu_memory.py`, `rocm-smi` or `nvidia-smi`), and a run that cannot fit
+  is turned away in one sentence that names the process using the card.
   A backend with no declared need is never asked, and a card whose free memory cannot be
   read is never refused: unknown is not zero.
 - **A GPU that ran out of memory says so, instead of "exited with code -6".** ggml aborts,

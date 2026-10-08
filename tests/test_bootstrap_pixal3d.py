@@ -402,6 +402,9 @@ def test_the_hip_build_says_hip_not_cuda_on_its_progress_line(monkeypatch, capsy
     monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
     monkeypatch.setattr(boot, "gfx_targets", lambda: ["gfx1100"])
     monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
+    # ROCm's Clang is looked up on disk; this test is about the label, not the lookup,
+    # and must pass on a machine with no ROCm installed.
+    monkeypatch.setattr(boot, "hip_compiler", lambda hipcc=None: "/opt/rocm/llvm/bin/clang++")
     monkeypatch.setattr(boot, "build_present", lambda: True)
     monkeypatch.setattr(boot.subprocess, "run",
                         lambda command, **kw: ran.append(command))

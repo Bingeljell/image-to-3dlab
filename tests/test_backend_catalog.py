@@ -501,8 +501,8 @@ def test_setup_fetch_flag_is_answered_per_machine():
 # --- Setup page tabs: one per machine family, so nobody reads another machine's cards ---
 def test_catalog_offers_a_tab_per_machine_family():
     tabs = bc.catalog_status(bc.NVIDIA)["platforms"]
-    assert [t["id"] for t in tabs] == [bc.APPLE, bc.NVIDIA, "amd"]
-    assert next(t for t in tabs if t["id"] == "amd")["coming"] is True
+    assert [t["id"] for t in tabs] == [bc.APPLE, bc.NVIDIA, bc.AMD]
+    assert all(t["coming"] is False for t in tabs)
 
 
 def test_each_tab_lists_only_what_runs_on_that_machine():
@@ -514,6 +514,38 @@ def test_each_tab_lists_only_what_runs_on_that_machine():
     assert {"pixal3d", "trellis"} <= nvidia & apple
 
 
+def test_amd_gets_a_3d_route_and_the_image_one():
+    """An AMD box must be able to generate 3D, not only pictures: Pixal3D compiles with
+    HIP, Qwen-Image has a prebuilt ROCm build, and the cut-out runs on the CPU."""
+    amd = {b["id"] for b in bc.catalog_status(bc.AMD)["views"][bc.AMD]}
+    assert {"pixal3d", "qwen-image", "matte"} <= amd
+
+
+def test_amd_is_not_offered_the_nvidia_only_routes():
+    """TRELLIS.2 and Hunyuan3D-2.1 both need NVIDIA-only compiled extensions, so offering
+    them on an AMD card means a download that cannot finish. Pixal3D is the 3D route there."""
+    assert bc.AMD not in bc.BY_ID["trellis"].runs_on
+    assert bc.AMD not in bc.BY_ID["hunyuan-cuda"].runs_on
+    assert bc.BY_ID["pixal3d"].runs_here(bc.AMD) is True
+
+
+@pytest.mark.parametrize("backend_id", ["trellis", "hunyuan-cuda"])
+def test_an_amd_user_is_told_why_not_and_what_to_use_instead(backend_id):
+    """"Needs an NVIDIA GPU" is true of an AMD machine and explains nothing: it reads as a
+    card problem rather than a port problem, and sends the user off to check their drivers.
+    The note has to say what is missing and name the route that does work here."""
+    note = bc.BY_ID[backend_id]._platform_note(bc.AMD)
+    assert "AMD" in note
+    assert "Pixal3D" in note
+    assert "download gigabytes" not in note
+
+
+def test_the_amd_note_does_not_leak_into_other_tabs():
+    trellis = bc.BY_ID["trellis"]
+    assert "AMD" not in trellis._platform_note(bc.APPLE)
+    assert "AMD" not in trellis._platform_note(bc.NVIDIA)
+
+
 def test_a_tab_describes_its_own_machine():
     views = bc.catalog_status(bc.NVIDIA)["views"]
     trellis_mac = next(b for b in views[bc.APPLE] if b["id"] == "trellis")
@@ -523,6 +555,14 @@ def test_a_tab_describes_its_own_machine():
     pixal_nv = next(b for b in views[bc.NVIDIA] if b["id"] == "pixal3d")
     assert "Xcode" in pixal_mac["tradeoff"] and "NVIDIA" not in pixal_mac["tradeoff"]
     assert "CUDA" in pixal_nv["tradeoff"] and "Xcode" not in pixal_nv["tradeoff"]
+
+
+def test_the_amd_tab_names_hip_and_not_cuda():
+    """The wording has to match what the installer does, or a user reads "CUDA" and waits
+    for a download that never comes."""
+    pixal_amd = next(b for b in bc.catalog_status(bc.AMD)["views"][bc.AMD]
+                     if b["id"] == "pixal3d")
+    assert "HIP" in pixal_amd["tradeoff"] and "CUDA" not in pixal_amd["tradeoff"]
 
 
 def test_a_routes_removable_bytes_leave_out_shared_files():

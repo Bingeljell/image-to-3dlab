@@ -34,7 +34,7 @@ if str(REPO) not in sys.path:
 
 from image_to_3dlab import host as _host
 from image_to_3dlab import matte as _matte
-from image_to_3dlab.host import APPLE, NVIDIA
+from image_to_3dlab.host import AMD, APPLE, NVIDIA
 from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
 
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
@@ -44,11 +44,12 @@ GB = 1024 ** 3
 # Which machines a backend can run on is per-backend data rather than one "is this a
 # Mac?" test, so a route gains NVIDIA support by adding a string to its `runs_on`. The
 # detection itself lives in `image_to_3dlab.host`, shared with the bootstraps.
-PLATFORM_LABELS = {APPLE: "an Apple Silicon Mac", NVIDIA: "an NVIDIA GPU"}
-# Setup page tabs, in order. AMD has a tab before it has a backend, so its users find out
-# it is coming instead of reading NVIDIA instructions.
-TAB_LABELS = {APPLE: "Mac (Apple Silicon)", NVIDIA: "NVIDIA (Linux)", "amd": "AMD"}
-VIEW_PLATFORMS = (APPLE, NVIDIA)
+PLATFORM_LABELS = {APPLE: "an Apple Silicon Mac", NVIDIA: "an NVIDIA GPU",
+                   AMD: "an AMD GPU with ROCm"}
+# Setup page tabs, in order. Every tab names the backends its machine can run.
+TAB_LABELS = {APPLE: "Mac (Apple Silicon)", NVIDIA: "NVIDIA (Linux)",
+              AMD: "AMD (ROCm, Linux)"}
+VIEW_PLATFORMS = (APPLE, NVIDIA, AMD)
 
 
 def venv_python(project: Path) -> Path:
@@ -64,7 +65,7 @@ def venv_python(project: Path) -> Path:
 
 
 def host_platform() -> str:
-    """What this machine is: APPLE, NVIDIA or "other". See `image_to_3dlab.host`.
+    """What this machine is: APPLE, NVIDIA, AMD or "other". See `image_to_3dlab.host`.
 
     Kept as a name here because the viewer and its tests reach for it on this module.
     """
@@ -217,6 +218,13 @@ class Backend:
             return (f"This lab runs the Apple Silicon port. {self.upstream[0]} itself is "
                     f"built for NVIDIA: on an NVIDIA machine, use the official version "
                     f"for now. Built into this lab later.")
+        # TRELLIS.2 and Hunyuan3D-2.1, seen from an AMD machine. "Needs an NVIDIA GPU" is
+        # true but leaves the reader guessing whether this is a card problem or a port
+        # problem, and the answer is the second: the compiled extensions are NVIDIA-only.
+        if (host or host_platform()) == AMD and AMD not in self.runs_on:
+            return (f"Not on AMD yet. {self.label} needs NVIDIA-only compiled extensions, and "
+                    f"upstream ships no ROCm build of them, so a download here would end in "
+                    f"a failed build. Pixal3D runs on this card and needs nothing NVIDIA-only.")
         return (f"Needs {runs_on_phrase(self)}. Setting it up on this machine would "
                 f"download gigabytes and then fail, so the button is off.")
 
@@ -282,18 +290,21 @@ CATALOG: tuple[Backend, ...] = (
         best_for="Best results we have. One pass, no repaint needed.",
         tradeoff=(
             "On a Mac it compiles locally and needs full Xcode for the Metal compiler. "
-            "On NVIDIA it downloads a ready-made CUDA build; no compiling."
+            "On NVIDIA it downloads a ready-made CUDA build; no compiling. On AMD it "
+            "compiles with HIP; no prebuilt is published."
         ),
         overrides_by_host={
             APPLE: {"tradeoff": "Compiles on your Mac, and needs full Xcode for the Metal "
                                 "compiler."},
             NVIDIA: {"tradeoff": "Downloads a ready-made CUDA build, no compiling "
                                  "(driver 575 or newer)."},
+            AMD: {"tradeoff": "Compiles on your machine with HIP, which needs ROCm's "
+                              "hipcc. Expect 10-20 minutes of compiling, once."},
         },
         license_name="MIT (code + flow weights); DINOv3 License (bundled encoder)",
         license_url="https://huggingface.co/raven38/pixal3d-sv-q8_0-v1",
         install="scripts/bootstrap_pixal3d.py",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=20,
         build_probes=(_host.executable(REPO / "vendor" / "pixal3d-cpp" / "build", "trellis-cli"),),
         weights=(
@@ -516,7 +527,7 @@ CATALOG: tuple[Backend, ...] = (
         license_name="Qwen Research License",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         install="Prebuilt stable-diffusion.cpp binary in vendor/sdcpp/",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=15,
         build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
         weights=(
@@ -543,7 +554,7 @@ CATALOG: tuple[Backend, ...] = (
         license_name="MIT",
         license_url="https://github.com/ZhengPeng7/BiRefNet",
         install="scripts/bootstrap_matte.py",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=2,
         weights=(
             WeightSet("BiRefNet-lite", _matte.LITE_URL, _matte.LITE_BYTES,
@@ -558,10 +569,15 @@ CATALOG: tuple[Backend, ...] = (
         best_for=("Gives a humanoid model a skeleton and skin weights, so the Rig tab can "
                   "play preset animations on it."),
         tradeoff="Humanoids in a T-pose only for now. Four-legged creatures are coming.",
+        overrides_by_host={
+            AMD: {"tradeoff": "Humanoids in a T-pose only for now, and attention comes "
+                              "from PyTorch rather than flash-attn, which has no ROCm "
+                              "wheel: a little slower and a little heavier on memory."},
+        },
         license_name="MIT",
         license_url="https://github.com/VAST-AI-Research/SkinTokens/blob/main/LICENSE",
         install="scripts/bootstrap_autorig.py",
-        runs_on=(APPLE, NVIDIA),
+        runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=10,
         build_probes=(venv_python(REPO / "vendor" / "SkinTokens"),
                       REPO / "vendor" / "SkinTokens" / "demo.py"),

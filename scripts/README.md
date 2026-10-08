@@ -40,7 +40,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_gltfpack.py` | Install gltfpack for split props, from meshoptimizer's GitHub release. |
 | `bootstrap_matte.py` | Install BiRefNet-lite, the background remover every backend uses once it is present. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
-| `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac or an NVIDIA card. |
+| `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
 | `hunyuan_cuda_generate.py` | Full image -> textured GLB through Tencent's own Hunyuan3D-2.1 on an NVIDIA card. |

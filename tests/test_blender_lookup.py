@@ -38,8 +38,9 @@ def test_the_path_comes_before_install_folders(tmp_path):
 
 def test_a_blender_org_tarball_in_the_home_folder_is_found_on_linux(tmp_path):
     unpacked = _exe(tmp_path / "blender-5.2.0-linux-x64" / "blender")
+    # Avoid finding system-installed Blender
     assert bl.find_blender(env={}, which=lambda _: None, family="linux",
-                           home=tmp_path) == unpacked
+                           home=tmp_path, system_ok=False) == unpacked
 
 
 def test_linux_looks_in_the_usual_places():

@@ -1111,9 +1111,29 @@ def test_a_backend_that_declares_a_need_is_checked():
     assert api.gpu_busy_check(spec) is None or "GPU has" in api.gpu_busy_check(spec)
 
 
-def test_a_run_that_cannot_fit_is_refused_before_it_starts(monkeypatch):
+def test_a_run_that_may_not_fit_is_flagged_before_it_starts(monkeypatch):
     monkeypatch.setattr(api, "gpu_busy_note", lambda wanted: "the GPU has 2.0 GB free")
     assert api.gpu_busy_check(api.BACKENDS["pixal3d"]) == "the GPU has 2.0 GB free"
+
+
+def test_a_busy_card_is_a_heads_up_not_a_refusal():
+    """An AMD APU can report a small VRAM figure while borrowing system RAM, so a busy note
+    must ride along with the run rather than stop it."""
+    warning = api.gpu_busy_warning("the GPU has 2.0 GB free.")
+    assert warning.startswith("Heads up: the GPU has 2.0 GB free.")
+    assert "may fail" in warning
+
+
+def test_no_busy_note_means_no_warning():
+    assert api.gpu_busy_warning(None) is None
+
+
+def test_the_generate_handler_never_refuses_for_a_busy_card():
+    """The handler used to answer 409 on a busy card; it must now start the run."""
+    import inspect
+    source = inspect.getsource(api.Handler)
+    assert "gpu_busy_warning(busy)" in source
+    assert '{"error": f"{spec.label}: {busy}"}' not in source
 
 
 def test_every_backend_answers_the_check_without_raising():

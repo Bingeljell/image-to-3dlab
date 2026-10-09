@@ -222,6 +222,47 @@ def test_one_prop_and_nine_props_are_told_apart_by_name():
 
 
 @needs_node
+def test_a_sheet_is_put_away_so_the_viewer_under_it_can_be_seen():
+    """Create, Activity, How to use and About are opaque sheets over the viewer. Anything that
+    shows a model has to take one away first, or the click loads the model behind it and looks
+    like nothing happened (2026-10-09)."""
+    out = _run("pages.js", """
+      // a stage with sheets in it, in document order, like the real one
+      const stage = { sheets: [] };
+      stage.querySelector = (selector) => (selector === '.sheet' ? stage.sheets[0] ?? null : null);
+      const open = (name) => stage.sheets.push({
+        className: 'sheet', name,
+        remove() { stage.sheets.splice(stage.sheets.indexOf(this), 1); },
+      });
+      const names = () => JSON.stringify(stage.sheets.map((s) => s.name));
+      open('create');
+      m.closeSheet(stage);
+      const afterCreate = names();
+      open('activity');
+      m.closeSheet(stage);
+      m.closeSheet(stage);                            // closing nothing is not an error
+      console.log(JSON.stringify({ afterCreate, afterActivity: names(), bare: names() }));""")
+    assert out["afterCreate"] == "[]"
+    assert out["afterActivity"] == out["bare"] == "[]"
+
+
+def test_everything_the_studio_shows_in_the_viewer_puts_a_sheet_away_first():
+    """Both routes into the viewer -- picking a Library asset, and watching a run -- have to
+    clear the sheet. Opening a GLB already did; the other two did not."""
+    app = (REPO / "viewer" / "studio" / "app.js").read_text()
+
+    def body(name: str) -> str:
+        start = app.index(f"function {name}(")
+        return app[start:app.index("\n}", start)]
+
+    for name in ("show", "showMaking", "openCreateSheet", "openFile"):
+        assert "closeSheet(" in body(name), name
+    assert "closeSheet" in next(line for line in app.splitlines() if line.startswith("import")) or \
+           "closeSheet" in "".join(line for line in app.splitlines() if line.startswith("import ")), \
+        "closeSheet is not imported"
+
+
+@needs_node
 def test_the_how_to_page_covers_every_button_in_the_top_bar():
     html = (REPO / "viewer" / "studio.html").read_text()
     import re

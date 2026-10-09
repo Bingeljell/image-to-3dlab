@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Clicking a model in the Library now really shows it. The studio opens on Create, whose
+  sheet covers the whole viewer, and picking an asset loaded the model behind that sheet:
+  nothing appeared to happen. Create, Activity, How to use and About are now put away as
+  soon as something else wants the viewer. Opening a GLB already did this, which is why
+  it looked like the only way in.
+
 ## [0.4.1] - 2026-10-08
 
 ### Added

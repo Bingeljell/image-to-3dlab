@@ -6,7 +6,7 @@ import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
-import { openActivity, openAbout, openGuide } from './pages.js';
+import { openActivity, openAbout, openGuide, closeSheet } from './pages.js';
 import { STEP_LABELS } from './plan.js';
 
 const $ = (id) => document.getElementById(id);
@@ -96,6 +96,7 @@ const ctx = {
 };
 
 function show(asset) {
+  closeSheet($('stage'));   // Create/Activity/How to use/About cover the viewer; get them out of the way
   current = asset;
   viewingMaking = false;
   $('progress').hidden = true;
@@ -198,7 +199,7 @@ async function loadTools() {
 
 // ------------------------------------------------------------------ Create
 function openCreateSheet() {
-  $('stage').querySelector('.sheet')?.remove();
+  closeSheet($('stage'));
   openCreate({ stage: $('stage'), recipes, engines, presets, onStart: (plan) => startChain(plan) });
 }
 
@@ -224,6 +225,7 @@ function makingRow() {
 /** The viewer, Steps and Library while Create is making something. */
 function showMaking() {
   if (!making) return;
+  closeSheet($('stage'));
   viewingMaking = true;
   renderLibrary();
   $('vTitle').textContent = making.title;
@@ -362,7 +364,7 @@ let openedUrl = null;
 
 function openFile(file) {
   if (!file) return;
-  $('stage').querySelector('.sheet')?.remove();
+  closeSheet($('stage'));
   current = null;
   viewingMaking = false;
   $('progress').hidden = true;

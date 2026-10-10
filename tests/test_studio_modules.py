@@ -477,6 +477,14 @@ def test_create_makes_a_fresh_picture_each_time_unless_a_seed_is_kept():
 
 
 @needs_node
+def test_create_asks_for_the_same_picture_steps_the_server_defaults_to():
+    """Create sends its own steps, so a default changed only on the server never reaches the studio."""
+    from viewer import image_api
+    out = _run("create.js", "console.log(JSON.stringify(m.pictureSettings({}, () => 0)));")
+    assert out["steps"] == image_api.DEFAULTS["steps"]
+
+
+@needs_node
 def test_every_finished_step_can_be_downloaded_on_its_own():
     """The raw model stays downloadable after Finish (asked for by a user who lost it)."""
     out = _run("library.js", f"""

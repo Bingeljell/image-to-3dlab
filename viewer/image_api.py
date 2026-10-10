@@ -10,7 +10,8 @@ Two things are deliberate:
 says `--cfg-scale 6.0`, which makes it do two passes per step for nothing, because
 Qwen-Image 2.1 does not use guidance. Measured on one Mac on 2026-09-22: cfg 6.0 at 1024px
 took 17 minutes, cfg 1.0 took 11, and 768px at 10 steps took 4m22s for the same picture.
-So the defaults here are cfg 1.0, 10 steps, 768px. **Those timings are one machine.** A
+So the defaults here are cfg 1.0, 768px and 8 steps: 8 was then tested by eye against 10
+and lost nothing visible (2026-10). **Those timings are one machine.** A
 faster chip does better and an NVIDIA card is in a different league; nothing here should
 be read as "this is how long it takes".
 
@@ -66,7 +67,7 @@ WEIGHT_FILES = {
 DEFAULTS: dict[str, Any] = {
     "width": 768,
     "height": 768,
-    "steps": 10,
+    "steps": 8,
     "cfg_scale": 1.0,
     "sampler": "euler",
     "seed": 42,

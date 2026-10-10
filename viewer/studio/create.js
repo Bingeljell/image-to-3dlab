@@ -11,7 +11,7 @@ const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
  * The picture job's settings from Create's choices. A new seed each time by default, so the
  * same prompt gives fresh tries; a fixed seed gives the same picture back.
  */
-export function pictureSettings({ size = 768, steps = 10, newEachTime = true, seed = 42 } = {}, random = Math.random) {
+export function pictureSettings({ size = 768, steps = 8, newEachTime = true, seed = 42 } = {}, random = Math.random) {
   const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 768;
   const count = Math.max(1, Math.min(50, Math.round(Number(steps)) || 10));
   const fixed = Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : 42;
@@ -30,7 +30,7 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
   stage.appendChild(sheet);
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 10, newEachTime: true, seed: 42 } };
+    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 } };
   const close = () => sheet.remove();
 
   const render = () => {

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Keep everything** in Create (Advanced: 3D model): the 3D step keeps its textures,
+  in-between meshes and resume files instead of tidying them away, for digging into a bad
+  result. Off by default; it takes a lot more disk.
 - A docs page for **Pixel Match**: how it works, when it runs, and what to check when a
   result looks wrong ([docs/pixel-match.md](docs/pixel-match.md)). Written by @MylesLandais (#101).
 - Two new views in the studio: **Clay** (plain grey, to judge the shape without the paint) and

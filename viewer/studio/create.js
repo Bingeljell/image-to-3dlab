@@ -30,7 +30,7 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
   stage.appendChild(sheet);
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 } };
+    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false };
   const close = () => sheet.remove();
 
   const render = () => {
@@ -66,7 +66,7 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
         </div></details>` : ''}
-      ${active.includes('model') && engines.length > 1 ? `<details class="adv"><summary>Advanced: 3D engine</summary><label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label></details>` : ''}
+      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
       <p class="error" data-error hidden></p>
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ' · the picture uses Qwen-Image, run on this machine' : ''}</span><button type="submit" class="primary">Make it</button></div>
     </form>`;
@@ -99,6 +99,7 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
     q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; });
+    q('[data-k="keep"]')?.addEventListener('change', (e) => { state.keep = e.target.checked; });
     sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
       const key = el.dataset.pic;
       state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
@@ -120,7 +121,8 @@ export function openCreate({ stage, recipes, engines, presets, onStart }) {
       onStart({ have: state.have, want: state.want, steps: active, file: state.file, engine: state.engine, firstMove: state.firstMove,
         description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
-        modelSeed: active.includes('model') ? freshSeed() : null });  // a new 3D try each time, like the picture
+        modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture
+        keepEverything: active.includes('model') && state.keep });
     };
     text?.focus();
   }
@@ -164,6 +166,7 @@ export function planForm(plan, made = {}) {
   if (plan.firstMove) form.append('first_move', plan.firstMove);
   if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
   if (plan.modelSeed != null) form.append('model_seed', String(plan.modelSeed));
+  if (plan.keepEverything) form.append('keep_everything', '1');
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
   return form;

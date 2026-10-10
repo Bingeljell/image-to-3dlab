@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-10
+
 ### Added
 - Every finished step in the Steps panel has its own **Download GLB** link, so the raw
   3D model from before Finish and Pixel Match is one click away. Asked for by MeAndVR.
@@ -23,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Setting up Hunyuan3D-MLX (Xiong) from Setup & Status now builds both of its Python
   environments before fetching weights. It used to fetch only the weights, so it said
   "done" and the route still showed "not installed" (#97).
+
+### Removed
+- `--allow-rembg` on `scripts/trellis_space_generate.py`. It loaded BRIA RMBG-2.0; cut the
+  picture out first instead (the studio does it for you).
 
 ## [0.4.1] - 2026-10-08
 

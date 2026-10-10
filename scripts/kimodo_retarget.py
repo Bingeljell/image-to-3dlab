@@ -211,7 +211,7 @@ def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.n
 
     for arm in arms:
         lr = "Left" if side[arm] > 0 else "Right"
-        ch = _limb(arm, kids, lambda x, lr=lr: abs(float((heads[x] - heads[chest]) @ left_axis)), 4)
+        ch = _limb(arm, kids, lambda x: abs(float((heads[x] - heads[chest]) @ left_axis)), 4)
         # A hand with one finger chain does not fork, so the walk runs on into it: the
         # arm is the first four bones, anything past the hand is that one finger.
         ch, past_hand = ch[:4], ch[4:]

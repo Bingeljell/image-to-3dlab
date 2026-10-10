@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - A docs page for **Pixel Match**: how it works, when it runs, and what to check when a
-  result looks wrong ([docs/pixel-match.md](docs/pixel-match.md)).
+  result looks wrong ([docs/pixel-match.md](docs/pixel-match.md)). Written by @MylesLandais (#101).
 - Two new views in the studio: **Clay** (plain grey, to judge the shape without the paint) and
   **Normals** (surface direction as colour, so dents, lumps and flipped faces stand out).
   The face count now shows bottom left of the viewer.
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sheet covers the whole viewer, and picking an asset loaded the model behind that sheet:
   nothing appeared to happen. Create, Activity, How to use and About are now put away as
   soon as something else wants the viewer. Opening a GLB already did this, which is why
-  it looked like the only way in.
+  it looked like the only way in. Fixed by @dlm21 (#98).
 
 ## [0.4.2] - 2026-10-10
 

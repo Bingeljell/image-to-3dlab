@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own remover first, as the NVIDIA route already did. The old "allow rembg" switch went
   with the classic viewer, and it loaded BRIA RMBG-2.0 (non-commercial, and it crashed on
   a Mac asking for an NVIDIA card), so it is gone for good. Reported by MeAndVR.
+- Humanoids with hair, a cape, a skirt or a sword are no longer called "not a humanoid"
+  and refused preset moves. The skeleton check wanted an exact bone layout, so one extra
+  bone on the hips or chest failed it. Extra bones now just follow the body part they
+  hang from. Four-legged creatures are still turned away. Reported by MeAndVR.
 
 ## [0.4.1] - 2026-10-08
 

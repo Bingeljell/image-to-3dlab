@@ -103,43 +103,115 @@ def character_frame(heads: dict[str, np.ndarray], toes: list[str], feet: list[st
     return np.stack([left, up, f], axis=1)
 
 
+def _subtree_high(b: str, kids, heads, up) -> float:
+    return max([float(heads[b] @ up)] + [_subtree_high(c, kids, heads, up) for c in kids[b]])
+
+
+def _limb(start: str, kids, score, length: int) -> list[str]:
+    """Like `_chain`, but a fork before `length` bones (a sword, a sleeve, a knee pad) is
+    passed by following the child that scores highest, instead of ending the limb there."""
+    out = [start]
+    while kids[out[-1]]:
+        options = kids[out[-1]]
+        if len(options) == 1:
+            out.append(options[0])
+        elif len(out) < length:
+            out.append(max(options, key=score))
+        else:
+            break
+    return out
+
+
+def _subtree_bones(b: str, kids) -> list[str]:
+    out = [b]
+    for c in kids[b]:
+        out += _subtree_bones(c, kids)
+    return out
+
+
+def _find_chest(start: str, kids, heads, up, left_axis, reach: float, knee: float):
+    """Walk up the spine to the first bone that forks into a neck and two arms.
+
+    Arms are the two children reaching furthest out to each side; anything else on the
+    way (a cape, a scabbard, hair, a tail) is passed. Arms that reach the floor are front
+    legs, not arms, so a four-legged creature is still turned away.
+    """
+    b = start
+    path = [b]
+    while kids[b]:
+        if len(kids[b]) >= 3:
+            def side_reach(c, sign):
+                return max(sign * float((heads[x] - heads[b]) @ left_axis) for x in _subtree_bones(c, kids))
+            left = max(kids[b], key=lambda c: side_reach(c, 1))
+            right = max(kids[b], key=lambda c: side_reach(c, -1))
+            rest = [c for c in kids[b] if c not in (left, right)]
+            wide = left != right and side_reach(left, 1) > reach and side_reach(right, -1) > reach
+            if wide and max(_subtree_low(a, kids, heads, up) for a in (left, right)) <= knee:
+                raise ValueError(f"{b} stands on front legs {left}, {right}: a four-legged body")
+            # an arm is shoulder, upper arm, forearm at least; ears and horns are shorter
+            arms_ok = wide and min(len(_subtree_bones(a, kids)) for a in (left, right)) >= 3
+            if arms_ok and rest:
+                neck = max(rest, key=lambda c: _subtree_high(c, kids, heads, up))
+                if _subtree_high(neck, kids, heads, up) > float(heads[b] @ up):
+                    return path, neck, [left, right]
+        b = max(kids[b], key=lambda c: _subtree_high(c, kids, heads, up))
+        path.append(b)
+    raise ValueError(f"no bone above the hips forks into a neck and two arms (walked {path})")
+
+
 def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.ndarray],
                            up=Z_UP) -> tuple[dict[str, str], np.ndarray]:
     """Return ({rig bone: SOMA joint}, character frame) for a SkinTokens humanoid.
 
     `parents` maps bone -> parent bone (None for the root); `heads` maps bone -> rest
     joint position in one shared space (armature or world) with `up` as the up axis.
+
+    Extra bones (hair, a cape, a skirt, a tail, a weapon) do not stop it: the body is
+    found by shape, and each extra bone follows the nearest body bone above it.
     """
     kids = _children(parents)
     root = next(b for b, p in parents.items() if p is None)
-    # Legs are the root's children whose subtree reaches the ground; the rest is spine.
+    root_h = float(heads[root] @ up)
+    # The spine is the root child reaching highest (the head); the legs are the two of the
+    # rest reaching lowest, and both must go below the hips.
+    high = {c: _subtree_high(c, kids, heads, up) for c in kids[root]}
     low = {c: _subtree_low(c, kids, heads, up) for c in kids[root]}
-    legs = [c for c in kids[root] if low[c] < heads[root] @ up - 1e-6]
-    spine_starts = [c for c in kids[root] if c not in legs]
-    if len(legs) != 2 or len(spine_starts) != 1:
-        raise ValueError(f"expected 2 legs + 1 spine under root, got legs={legs} spine={spine_starts}")
-    leg_chains = [_chain(c, kids) for c in legs]
+    spine_start = max(kids[root], key=lambda c: high[c], default=None)
+    legs = sorted((c for c in kids[root] if c != spine_start and low[c] < root_h - 1e-6),
+                  key=lambda c: low[c])[:2]
+    if spine_start is None or len(legs) != 2 or high[spine_start] <= root_h:
+        raise ValueError(f"expected 2 legs + 1 spine under root, got legs={legs} spine={spine_start}")
+    leg_chains = [_limb(c, kids, lambda x: -_subtree_low(x, kids, heads, up), 4) for c in legs]
+    if min(len(ch) for ch in leg_chains) < 2:
+        raise ValueError(f"legs too short to find the feet: {leg_chains}")
     frame = character_frame(heads, [ch[-1] for ch in leg_chains], [ch[-2] for ch in leg_chains], up)
     left_axis = frame[:, 0]
 
-    spine = [root] + _chain(spine_starts[0], kids)
+    floor = min(low[c] for c in legs)
+    height = max(high.values()) - floor
+    # A third chain standing on the floor is a third leg (a four-legged body), not a skirt.
+    walkers = [c for c in kids[root] if c != spine_start and low[c] <= floor + 0.03 * height
+               and len(_subtree_bones(c, kids)) >= 3]
+    if len(walkers) > 2:
+        raise ValueError(f"expected 2 legs + 1 spine under root, got legs={walkers} spine={spine_start}")
+    knee = floor + 0.25 * (root_h - floor)
+    path, neck, arms = _find_chest(spine_start, kids, heads, up, left_axis, 0.12 * height, knee)
+    spine = [root] + path
     chest = spine[-1]
-    branches = kids[chest]
-    if len(branches) != 3:
-        raise ValueError(f"expected chest to fork into neck + 2 arms, got {branches}")
-    side = {b: float((heads[b] - heads[chest]) @ left_axis) for b in branches}
-    neck = min(branches, key=lambda b: abs(side[b]))
-    arms = [b for b in branches if b != neck]
+    side = {b: float((heads[b] - heads[chest]) @ left_axis) for b in arms}
 
     m: dict[str, str] = {}
     m.update(_spread(spine, ["Hips", "Spine1", "Spine2", "Chest"]))
-    neck_chain = _chain(neck, kids)
+    # Up the neck to the head; a single bone hanging down from the head (hair) is not it.
+    neck_chain = [neck]
+    while len(kids[neck_chain[-1]]) == 1 and heads[kids[neck_chain[-1]][0]] @ up > heads[neck_chain[-1]] @ up:
+        neck_chain.append(kids[neck_chain[-1]][0])
     m.update(_spread(neck_chain[:-1], ["Neck1", "Neck2"]))
     m[neck_chain[-1]] = "Head"
 
     for arm in arms:
         lr = "Left" if side[arm] > 0 else "Right"
-        ch = _chain(arm, kids)
+        ch = _limb(arm, kids, lambda x, lr=lr: abs(float((heads[x] - heads[chest]) @ left_axis)), 4)
         # A hand with one finger chain does not fork, so the walk runs on into it: the
         # arm is the first four bones, anything past the hand is that one finger.
         ch, past_hand = ch[:4], ch[4:]
@@ -163,6 +235,14 @@ def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.n
     for leg, ch in zip(legs, leg_chains):
         lr = "Left" if float((heads[leg] - heads[root]) @ left_axis) > 0 else "Right"
         m.update(_spread(ch, [f"{lr}Leg", f"{lr}Shin", f"{lr}Foot", f"{lr}ToeBase"]))
+    # Extra bones follow the nearest mapped bone above them, rigidly. Parents first, so
+    # every extra finds its parent already settled.
+    queue = [root]
+    while queue:
+        b = queue.pop(0)
+        if b not in m:
+            m[b] = m[parents[b]]
+        queue += kids[b]
     return m, frame
 
 

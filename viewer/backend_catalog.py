@@ -338,7 +338,7 @@ CATALOG: tuple[Backend, ...] = (
         tradeoff="Shape and paint are separate venvs, each set up on its own.",
         license_name="MIT (code); Tencent Hunyuan Community License (weights)",
         license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",
-        install="uv sync + hunyuan_mlx/download_weights.py",
+        install="python scripts/bootstrap_hunyuan_xiong.py",
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
         # Neither half of Hunyuan reaches an AMD card: this port is Apple Silicon, and

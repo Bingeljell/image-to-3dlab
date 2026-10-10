@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and refused preset moves. The skeleton check wanted an exact bone layout, so one extra
   bone on the hips or chest failed it. Extra bones now just follow the body part they
   hang from. Four-legged creatures are still turned away. Reported by MeAndVR.
+- Setting up Hunyuan3D-MLX (Xiong) from Setup & Status now builds both of its Python
+  environments before fetching weights. It used to fetch only the weights, so it said
+  "done" and the route still showed "not installed" (#97).
 
 ## [0.4.1] - 2026-10-08
 

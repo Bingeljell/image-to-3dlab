@@ -126,12 +126,10 @@ def test_an_unknown_backend_is_rejected():
         dl.start("not-a-backend")
 
 
-def test_the_hunyuan_command_pins_one_model_rather_than_all_three():
-    # Without --model the downloader fetches every shape checkpoint: 23 GB where the
-    # default route needs 5.
+def test_hunyuan_setup_builds_both_venvs_not_only_the_weights():
+    """Weights alone left the paint venv unbuilt: "done", yet "not installed" (issue #97)."""
     command = dl.COMMANDS["hunyuan_xiong"]
-    assert "--model" in command
-    assert command[command.index("--model") + 1] == "2.0"
+    assert Path(command[1]).name == "bootstrap_hunyuan_xiong.py" and "--yes" in command
 
 
 def test_removal_refuses_paths_outside_the_repo_and_cache(tmp_path, monkeypatch):
@@ -183,12 +181,6 @@ def test_removal_is_refused_while_that_backend_is_downloading(monkeypatch):
 # A Windows user reported "[WinError 2] The system cannot find the file specified" after
 # logging into Hugging Face. `Popen` had been handed `.venv/bin/python`, which on Windows
 # is spelled `.venv\\Scripts\\python.exe`, and the raw OSError went straight to the browser.
-
-
-def test_the_hunyuan_command_uses_this_os_s_interpreter_path():
-    program = Path(dl.COMMANDS["hunyuan_xiong"][0])
-    assert program.name in ("python", "python.exe")
-    assert program.parent.name in ("bin", "Scripts")
 
 
 def test_a_missing_venv_is_explained_rather_than_reported_as_errno_2(tmp_path):

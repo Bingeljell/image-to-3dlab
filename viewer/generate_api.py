@@ -266,7 +266,7 @@ class BackendSpec:
     ``<stem>_sf3d.glb`` instead)."""
     hidden_fields: tuple[str, ...] = ()
     """Element ids of Generate-tab controls this spec ignores, so the page hides them
-    (the Mac-only attention option mean nothing on the NVIDIA route)."""
+    (the Mac-only attention option means nothing on the NVIDIA route)."""
     gpu_memory_wanted: int | None = None
     """Free VRAM this backend needs before it is worth starting, in bytes.
 
@@ -714,6 +714,16 @@ def image_has_transparent_alpha(path: Path) -> bool:
         return False
 
 
+def needs_cut(path: Path) -> bool:
+    """Whether an upload must be cut out before the Mac TRELLIS port sees it: no real
+    transparency, or an alpha channel that never cut the subject out (Qwen-Image writes
+    RGBA with opaque alpha, so its pictures look cut out by mode and are not)."""
+    if not image_has_transparent_alpha(path):
+        return True
+    border = image_border_opaque_fraction(path)
+    return border is not None and border > UNCUT_BORDER_LIMIT
+
+
 def matte_upload(image_path: Path) -> tuple[Path, str]:
     """Cut an upload out with our own remover; returns (the cut-out PNG, the remover's name).
 
@@ -764,16 +774,6 @@ def image_border_opaque_fraction(path: Path) -> float | None:
             return wrapper.border_opaque_fraction(np.array(image)[..., 3])
     except Exception:
         return None
-
-
-def uncut_image_error(border_fraction: float) -> str:
-    """Browser-facing text for an image whose alpha never cut the subject out."""
-    return (
-        f"This image has an alpha channel, but {border_fraction:.0%} of its outer border is "
-        "still opaque, so the subject was never cut out of its background. Generating from it "
-        "would rebuild the background as 3D geometry, "
-        "ending in a slab behind the subject. Re-export it with a transparent background."
-    )
 
 
 def _read_seconds(path: Path) -> dict[str, float]:
@@ -2596,14 +2596,14 @@ class Handler(SimpleHTTPRequestHandler):
             with image_path.open("wb") as handle:
                 handle.write(image_field["data"])
             try:
-                lacks_alpha = spec.requires_alpha and not image_has_transparent_alpha(image_path)
+                cut_needed = spec.requires_alpha and needs_cut(image_path)
             except RuntimeError as exc:
                 for child in provisional.iterdir():
                     child.unlink()
                 provisional.rmdir()
                 self._send_json(500, {"error": str(exc)})
                 return
-            if lacks_alpha:
+            if cut_needed:
                 try:
                     image_path, settings["matted_with"] = matte_upload(image_path)
                 except Exception as exc:  # noqa: BLE001 - a missing remover is a message, not a crash
@@ -2614,14 +2614,6 @@ class Handler(SimpleHTTPRequestHandler):
                         "error": "This picture needs its background removed and the remover "
                                  f"failed ({exc}). Upload a PNG with a transparent background."
                     })
-                    return
-            if spec.requires_alpha and not lacks_alpha:
-                border = image_border_opaque_fraction(image_path)
-                if border is not None and border > UNCUT_BORDER_LIMIT:
-                    for child in provisional.iterdir():
-                        child.unlink()
-                    provisional.rmdir()
-                    self._send_json(422, {"error": uncut_image_error(border)})
                     return
             # JobManager builds the real, human-readable job directory. Move the upload into it
             # so the id and artifact URLs are stable, without ever accepting a client-provided path.

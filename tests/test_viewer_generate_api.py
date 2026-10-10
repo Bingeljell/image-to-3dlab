@@ -785,10 +785,20 @@ def test_border_opaque_fraction_none_when_unreadable(tmp_path):
     assert api.image_border_opaque_fraction(tmp_path / "missing.png") is None
 
 
-def test_uncut_image_error_states_the_measurement(tmp_path):
-    msg = api.uncut_image_error(0.39)
-    assert "39%" in msg
-    assert "transparent background" in msg
+def test_a_fake_alpha_is_cut_out_like_no_alpha(tmp_path):
+    """Qwen-Image writes RGBA that cuts nothing; it gets cut out, not refused."""
+    from PIL import Image
+
+    rgb, opaque, framed, cutout = (tmp_path / n for n in ("rgb.png", "o.png", "f.png", "c.png"))
+    Image.new("RGB", (40, 40), "white").save(rgb)
+    Image.new("RGBA", (40, 40), (255, 255, 255, 255)).save(opaque)
+    fake = Image.new("RGBA", (40, 40), (255, 255, 255, 255))
+    fake.putpixel((20, 20), (0, 0, 0, 0))  # one transparent pixel, a backdrop all round
+    fake.save(framed)
+    real = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+    real.paste((200, 50, 50, 255), (10, 10, 30, 30))
+    real.save(cutout)
+    assert [api.needs_cut(p) for p in (rgb, opaque, framed, cutout)] == [True, True, True, False]
 
 
 def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):

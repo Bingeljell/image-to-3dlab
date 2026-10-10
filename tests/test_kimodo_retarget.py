@@ -402,3 +402,17 @@ def test_a_four_legged_creature_is_still_turned_away():
         P[name], H[name] = "head", pos
     with pytest.raises(ValueError, match="four-legged"):
         kr.map_skintokens_to_soma(P, {k: np.array(v, float) for k, v in H.items()})
+
+
+def test_arms_hanging_at_the_sides_are_still_arms():
+    """Not every upload is T-posed: arms straight down sit close to the body."""
+    parents, heads, roles = _humanoid()
+    for lr, sx in (("L", -1), ("R", 1)):  # facing +Y: left is -X
+        heads[roles[f"{lr}sh"]] = np.array([0.06 * sx, 0, 1.45])
+        heads[roles[f"{lr}arm"]] = np.array([0.15 * sx, 0, 1.42])
+        heads[roles[f"{lr}fa"]] = np.array([0.17 * sx, 0, 1.15])
+        heads[roles[f"{lr}hand"]] = np.array([0.18 * sx, 0, 0.9])
+        for role in [r for r in roles if r.startswith(lr) and any(f in r for f in ("thumb", "index", "middle", "ring", "pinky"))]:
+            heads[roles[role]] = heads[roles[f"{lr}hand"]] + np.array([0, 0, -0.03 - 0.01 * int(role[-1])])
+    m, _ = kr.map_skintokens_to_soma(parents, heads)
+    assert m[roles["Lhand"]] == "LeftHand" and m[roles["Rarm"]] == "RightArm" and m[roles["head"]] == "Head"

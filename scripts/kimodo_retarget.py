@@ -195,7 +195,8 @@ def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.n
     if len(walkers) > 2:
         raise ValueError(f"expected 2 legs + 1 spine under root, got legs={walkers} spine={spine_start}")
     knee = floor + 0.25 * (root_h - floor)
-    path, neck, arms = _find_chest(spine_start, kids, heads, up, left_axis, 0.12 * height, knee)
+    # Arms hanging straight down still reach ~10% of height out to the side; 5% leaves room.
+    path, neck, arms = _find_chest(spine_start, kids, heads, up, left_axis, 0.05 * height, knee)
     spine = [root] + path
     chest = spine[-1]
     side = {b: float((heads[b] - heads[chest]) @ left_axis) for b in arms}

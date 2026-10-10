@@ -15,12 +15,12 @@ photo's pixel, and the model's own paint stays only where no photo looks.
 
 It is part of **Finish** in the studio, on by default:
 
-- **Pixal3D models made in this lab**: automatic. Every Pixal3D run saves the camera it
+- **Pixal3D models made in AssetFurnace**: automatic. Every Pixal3D run saves the camera it
   used beside the model (`<run>.svviews/`), and Finish finds it by matching the model's
   content, so there is nothing to point at.
 - **Anything else** (another generator, a model from elsewhere): skipped, with a note
   saying so. There is no saved camera to project through.
-- **Turn it off** with the unticked **Pixel Match** box on the Finish step. Each step in
+- **Turn it off** by unticking the **Pixel Match** box on the Finish step. Each step in
   the Steps panel has its own Download GLB, so the model from before Pixel Match is
   always one click away too.
 
@@ -53,8 +53,8 @@ are left alone, and the run takes seconds.
   coordinates, so a normal Finish run lines up; a model you moved, edited or re-exported
   elsewhere may not, and the photo lands slightly off.
 - **Only the front is real.** Sides and back keep the generated paint, colour-matched.
-  A second photo (a turnaround sheet, a generated side view) can be added as another
-  view — the code takes a list of views, not one photo.
+  Painting from other pictures (a turnaround sheet, a side view) is not supported yet:
+  the model was not built from them, so they do not line up and paint features twice.
 
 ## The trust map
 
@@ -87,5 +87,4 @@ Finish writes. The trust thresholds can be tuned on `photo_paint.py`:
 | `--edge-px` | How many pixels inward from the silhouette the photo fades in. Raise if a rim of backdrop colour shows. |
 
 Pure numpy and Pillow: no Blender, no GPU, no model download. The projection uses the
-same formula as pixal3d.cpp itself, and the coordinate frame was found by search and
-checked on every asset tried.
+same formula as pixal3d.cpp itself.

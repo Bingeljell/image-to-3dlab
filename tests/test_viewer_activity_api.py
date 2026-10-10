@@ -187,3 +187,32 @@ def test_a_missing_or_bad_model_seed_leaves_the_engine_default():
             fields["model_seed"] = seed
         body, ctype = aa.multipart(fields, {})
         assert aa.chain_from_form(parse_multipart(ctype, body)).model_seed is None
+
+
+def test_keep_everything_reaches_the_3d_step_as_debug(tmp_path):
+    """Create's "Keep everything" box: the 3D job keeps its textures, meshes and caches.
+    /api/generate already honours `debug`; the chain just has to send it."""
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": json.dumps(["model", "finished"]), "engine": "pixal3d",
+                                "keep_everything": "1"}, {"file": ("boy.png", b"png")})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    assert chain.keep_everything is True
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    sent = {p: b for m, p, b in jobs.calls}
+    assert b'"debug": true' in sent["/api/generate"]
+    assert b"debug" not in sent["/api/finish"]       # only the 3D step has anything to keep
+
+
+def test_keep_everything_is_off_unless_asked(tmp_path):
+    from viewer.generate_api import parse_multipart
+    for value in (None, "", "0", "no"):
+        fields = {"title": "x", "steps": json.dumps(["model"])}
+        if value is not None:
+            fields["keep_everything"] = value
+        body, ctype = aa.multipart(fields, {"file": ("boy.png", b"png")})
+        chain = aa.chain_from_form(parse_multipart(ctype, body))
+        assert chain.keep_everything is False
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    assert b"debug" not in next(b for m, p, b in jobs.calls if p == "/api/generate")

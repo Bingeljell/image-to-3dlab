@@ -485,6 +485,15 @@ def test_create_asks_for_the_same_picture_steps_the_server_defaults_to():
 
 
 @needs_node
+def test_create_sends_keep_everything_only_when_ticked():
+    out = _run("create.js", """
+      const on = m.planForm({ steps: ['model'], keepEverything: true });
+      const off = m.planForm({ steps: ['model'] });
+      console.log(JSON.stringify([on.get('keep_everything'), off.get('keep_everything')]));""")
+    assert out == ["1", None]
+
+
+@needs_node
 def test_every_finished_step_can_be_downloaded_on_its_own():
     """The raw model stays downloadable after Finish (asked for by a user who lost it)."""
     out = _run("library.js", f"""

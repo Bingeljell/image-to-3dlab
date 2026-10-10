@@ -46,7 +46,7 @@ def test_defaults_are_the_measured_fast_ones():
     """cfg 6.0 (the upstream recipe) makes the model do two passes per step for nothing:
     17 minutes against 11 for an identical picture. 768/10 steps was 4m22s."""
     assert api.DEFAULTS["cfg_scale"] == 1.0
-    assert api.DEFAULTS["steps"] == 10
+    assert api.DEFAULTS["steps"] == 8  # tested by eye against 10: nothing visible lost
     assert api.DEFAULTS["width"] == api.DEFAULTS["height"] == 768
 
 
@@ -70,7 +70,7 @@ def test_prompt_is_one_argument_not_shell_text():
     command = command_for(nasty)
     assert command[command.index("-p") + 1] == nasty
     assert command.count("--steps") == 1
-    assert command[command.index("--steps") + 1] == "10"
+    assert command[command.index("--steps") + 1] == str(api.DEFAULTS["steps"])
 
 
 def test_negative_prompt_only_appears_when_asked():

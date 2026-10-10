@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Pictures take 8 steps instead of 10 by default: about a fifth faster, with no visible
+  difference in side-by-side tests. You can still raise it in Create.
+
 ### Fixed
 - Clicking a model in the Library now really shows it. The studio opens on Create, whose
   sheet covers the whole viewer, and picking an asset loaded the model behind that sheet:

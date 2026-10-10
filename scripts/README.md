@@ -194,6 +194,14 @@ The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have
 | `blender_idle_cycle.py` | Author a looping idle for the rigged fox. |
 | `blender_attack_cycle.py` | Author a slam-attack clip on a rigged quadruped in the live Blender scene. |
 
+## Project upkeep
+
+Numbers about the project itself, not about any asset.
+
+| Script | What it does |
+|---|---|
+| `repo_traffic.py` | Save a repo's GitHub traffic and its one-line install counts into one CSV, a row per day. |
+
 ## Vendor patches
 
 `vendor/` is git-ignored, so every fix to someone else's checkout lives here as a re-appliable patch script. Each one asserts its anchor and is idempotent; re-running after a bootstrap is the intended workflow.

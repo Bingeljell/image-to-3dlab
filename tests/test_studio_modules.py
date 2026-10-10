@@ -257,9 +257,8 @@ def test_everything_the_studio_shows_in_the_viewer_puts_a_sheet_away_first():
 
     for name in ("show", "showMaking", "openCreateSheet", "openFile"):
         assert "closeSheet(" in body(name), name
-    assert "closeSheet" in next(line for line in app.splitlines() if line.startswith("import")) or \
-           "closeSheet" in "".join(line for line in app.splitlines() if line.startswith("import ")), \
-        "closeSheet is not imported"
+    pages_import = next(line for line in app.splitlines() if line.startswith("import") and "'./pages.js'" in line)
+    assert "closeSheet" in pages_import, "closeSheet is not imported from pages.js"
 
 
 @needs_node

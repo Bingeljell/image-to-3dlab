@@ -59,7 +59,8 @@ PyTorch, so on an AMD card it needs no NVIDIA-only build.
 picture, so text, logos and faces come back as garbled lookalikes. Pixel Match, in the
 **Finish** step, copies the real pixels from your source image back onto every surface the
 image can see. "VANGUARD 07" on a chest stays "VANGUARD 07", even at ~5k faces. On by
-default for Pixal3D models; other backends are next. [How Finish works](#finishing-an-asset).
+default for Pixal3D models; other backends are next.
+[How Pixel Match works](docs/pixel-match.md) · [How Finish works](#finishing-an-asset).
 
 <p align="center">
   <img src="docs/images/pixel-match-lettering-before-after.jpg" width="480"

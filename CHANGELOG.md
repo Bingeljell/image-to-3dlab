@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A docs page for **Pixel Match**: how it works, when it runs, and what to check when a
+  result looks wrong ([docs/pixel-match.md](docs/pixel-match.md)).
 - Two new views in the studio: **Clay** (plain grey, to judge the shape without the paint) and
   **Normals** (surface direction as colour, so dents, lumps and flipped faces stand out).
   The face count now shows bottom left of the viewer.

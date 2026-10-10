@@ -266,7 +266,7 @@ class BackendSpec:
     ``<stem>_sf3d.glb`` instead)."""
     hidden_fields: tuple[str, ...] = ()
     """Element ids of Generate-tab controls this spec ignores, so the page hides them
-    (the Mac-only attention and rembg options mean nothing on the NVIDIA route)."""
+    (the Mac-only attention option mean nothing on the NVIDIA route)."""
     gpu_memory_wanted: int | None = None
     """Free VRAM this backend needs before it is worth starting, in bytes.
 
@@ -584,7 +584,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "seed": 0,
     "decimation_target": 300_000,
     "texture_size": 2048,
-    "allow_rembg": False,
     "sparse_attn_backend": "sdpa",
 }
 VALID_RESOLUTIONS = {"512", "1024", "1536"}
@@ -662,7 +661,8 @@ def validate_settings(raw: Any) -> dict[str, Any]:
         raw = {}
     if not isinstance(raw, dict):
         raise ValueError("settings must be a JSON object")
-    settings = {**DEFAULT_SETTINGS, **raw}
+    # allow_rembg (BRIA) is gone: the server cuts pictures out itself. Old clients may send it.
+    settings = {**DEFAULT_SETTINGS, **{k: v for k, v in raw.items() if k != "allow_rembg"}}
     if str(settings["resolution"]) not in VALID_RESOLUTIONS:
         raise ValueError("resolution must be one of 512, 1024, or 1536")
     try:
@@ -675,8 +675,6 @@ def validate_settings(raw: Any) -> dict[str, Any]:
         raise ValueError("decimation_target must be positive")
     if settings["texture_size"] not in VALID_TEXTURES:
         raise ValueError("texture_size must be one of 1024, 2048, 3072, or 4096")
-    if not isinstance(settings["allow_rembg"], bool):
-        raise ValueError("allow_rembg must be a boolean")
     if settings["sparse_attn_backend"] not in VALID_SPARSE_ATTN:
         raise ValueError("sparse_attn_backend must be one of sdpa, mlx, or mlx-fp16")
     settings["resolution"] = str(settings["resolution"])
@@ -712,8 +710,28 @@ def image_has_transparent_alpha(path: Path) -> bool:
             return image.getextrema()[3][0] < 255
     except Exception:
         # A missing/undecodable alpha is deliberately conservative: the wrapper will refuse it
-        # unless the user explicitly opts into BRIA rembg.
+        # and the server cuts it out with our own remover.
         return False
+
+
+def matte_upload(image_path: Path) -> tuple[Path, str]:
+    """Cut an upload out with our own remover; returns (the cut-out PNG, the remover's name).
+
+    The Mac TRELLIS port needs a transparent picture, and upstream's remover is BRIA
+    RMBG-2.0, which this repo never loads. Its venv has no rembg, so the server cuts here.
+    The original stays beside it as original.<ext>.
+    """
+    from PIL import Image
+
+    from image_to_3dlab.matte import cut_out
+
+    original = image_path.with_name(f"original{image_path.suffix}")
+    image_path.replace(original)
+    with Image.open(original) as opened:
+        cut, model = cut_out(opened.convert("RGB"))
+    destination = image_path.with_name("input.png")
+    cut.save(destination)
+    return destination, model
 
 
 def image_border_opaque_fraction(path: Path) -> float | None:
@@ -1303,8 +1321,8 @@ def _trellis_build_args(job: Job) -> list[str]:
         "--texture-size", str(job.settings["texture_size"]),
         "--sparse-attn-backend", attention_backend_spec(job.settings["sparse_attn_backend"])[0],
     ]
-    if job.settings["allow_rembg"]:
-        args.append("--allow-rembg")
+    if job.settings.get("matted_with"):
+        args += ["--matted-with", job.settings["matted_with"]]
     if not job.debug:
         # Skip the multi-hundred-MB resume caches entirely rather than write-then-delete.
         args += ["--no-save-latents", "--no-save-decode"]
@@ -1849,7 +1867,7 @@ def trellis_spec(host: str | None = None) -> BackendSpec:
             validate_settings=validate_settings, build_args=_trellis_cuda_build_args,
             parse_line=_trellis_parse_line, readiness=cuda_setup_status,
             baseline_path=BASELINE_PATH,
-            hidden_fields=("generate-attention", "generate-rembg"),
+            hidden_fields=("generate-attention",),
         )
     return BackendSpec(
         id="trellis", label="TRELLIS.2 (clean port)",
@@ -2585,15 +2603,18 @@ class Handler(SimpleHTTPRequestHandler):
                 provisional.rmdir()
                 self._send_json(500, {"error": str(exc)})
                 return
-            if lacks_alpha and not settings.get("allow_rembg"):
-                for child in provisional.iterdir():
-                    child.unlink()
-                provisional.rmdir()
-                self._send_json(422, {
-                    "error": "This image has no transparent alpha foreground. Enable 'allow rembg' "
-                             "to use BRIA background removal, or upload a pre-masked PNG."
-                })
-                return
+            if lacks_alpha:
+                try:
+                    image_path, settings["matted_with"] = matte_upload(image_path)
+                except Exception as exc:  # noqa: BLE001 - a missing remover is a message, not a crash
+                    for child in provisional.iterdir():
+                        child.unlink()
+                    provisional.rmdir()
+                    self._send_json(422, {
+                        "error": "This picture needs its background removed and the remover "
+                                 f"failed ({exc}). Upload a PNG with a transparent background."
+                    })
+                    return
             if spec.requires_alpha and not lacks_alpha:
                 border = image_border_opaque_fraction(image_path)
                 if border is not None and border > UNCUT_BORDER_LIMIT:
@@ -2609,12 +2630,14 @@ class Handler(SimpleHTTPRequestHandler):
                 job = JOBS.create(provisional_image, settings, backend_id, image_stem,
                                   output_name, output_base, debug)
             except RuntimeError as exc:
-                provisional_image.unlink(missing_ok=True)
+                for child in provisional.iterdir():
+                    child.unlink()
                 provisional.rmdir()
                 self._send_json(409, {"error": str(exc)})
                 return
             final_image = job.directory / image_path.name
-            provisional_image.replace(final_image)
+            for child in provisional.iterdir():  # the upload, plus the original if we cut it out
+                child.replace(job.directory / child.name)
             provisional.rmdir()
             job.image_path = final_image
             warning = gpu_busy_warning(busy)

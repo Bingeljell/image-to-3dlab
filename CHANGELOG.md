@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- TRELLIS.2 on a Mac takes any picture again. The studio cuts the background out with our
+  own remover first, as the NVIDIA route already did. The old "allow rembg" switch went
+  with the classic viewer, and it loaded BRIA RMBG-2.0 (non-commercial, and it crashed on
+  a Mac asking for an NVIDIA card), so it is gone for good. Reported by MeAndVR.
+
 ## [0.4.1] - 2026-10-08
 
 ### Added

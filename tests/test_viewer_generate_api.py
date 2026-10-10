@@ -44,7 +44,6 @@ def test_shape_slat_passes_are_disambiguated(tmp_path):
     {"resolution": "2048"},
     {"texture_size": 512},
     {"decimation_target": 0},
-    {"allow_rembg": "yes"},
     {"sparse_attn_backend": "metal_flash"},
     {"sparse_attn_backend": "fp16"},
     {"sparse_attn_backend": "sdpa-fp16"},
@@ -1352,7 +1351,7 @@ def test_cleanup_keeps_pixal3d_licence_record_and_camera(tmp_path):
 
 
 def test_nvidia_trellis_hides_the_mac_only_controls():
-    assert set(api.trellis_spec(api.backend_catalog.NVIDIA).hidden_fields) == {"generate-attention", "generate-rembg"}
+    assert set(api.trellis_spec(api.backend_catalog.NVIDIA).hidden_fields) == {"generate-attention"}
     assert api.trellis_spec(api.APPLE).hidden_fields == ()
 
 
@@ -1564,3 +1563,31 @@ def test_a_setup_run_streams_its_progress_at_the_address_it_hands_out():
         server.shutdown()
         server.server_close()
         api.SETUP_RUNS.pop(run_id, None)
+
+
+def test_old_allow_rembg_setting_is_ignored_not_passed_on(tmp_path):
+    """BRIA is never loaded; a stale client sending the old flag must not reach the wrapper."""
+    settings = api.validate_settings({"allow_rembg": True})
+    assert "allow_rembg" not in settings
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb", settings, "trellis")
+    assert "--allow-rembg" not in api._trellis_build_args(job)
+
+
+def test_matted_upload_records_the_remover(tmp_path):
+    settings = {**api.validate_settings({}), "matted_with": "birefnet-general-lite"}
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb", settings, "trellis")
+    args = api._trellis_build_args(job)
+    assert args[args.index("--matted-with") + 1] == "birefnet-general-lite"
+
+
+def test_matte_upload_cuts_out_and_keeps_the_original(tmp_path, monkeypatch):
+    from PIL import Image
+    import image_to_3dlab.matte as matte
+
+    upload = tmp_path / "input.jpg"
+    Image.new("RGB", (8, 8), "white").save(upload)
+    monkeypatch.setattr(matte, "cut_out", lambda image: (Image.new("RGBA", image.size), "u2net"))
+    cut, model = api.matte_upload(upload)
+    assert (cut.name, model) == ("input.png", "u2net")
+    assert Image.open(cut).mode == "RGBA"
+    assert (tmp_path / "original.jpg").is_file()

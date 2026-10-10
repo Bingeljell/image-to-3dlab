@@ -8,11 +8,14 @@ import { AnimationPlayer } from '../animation/player.js';
 import { projectAxes, AXES } from './gizmo.js';
 import { createBoneDisplay } from './bones.js';
 import { createFloor, standOnFloor, homeView, facingAngle } from './floor.js';
+import { applyLook, meshesOf, faceLabel } from './looks.js';
 
 const ICON = {
   reset: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
   wire: '<svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>',
   grid: '<svg viewBox="0 0 24 24"><path d="M3 15l9 5 9-5M3 15l9-5 9 5M7.5 12.5l9 5M16.5 12.5l-9 5"/></svg>',
+  clay: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8 9a5 5 0 0 1 5-2"/></svg>',
+  normal: '<svg viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M12 18V5M8 9l4-4 4 4"/></svg>',
   bones: '<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 6v8M12 9l-5 3M12 9l5 3M12 14l-3 7M12 14l3 7"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>',
@@ -36,6 +39,8 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
       <button class="tool" data-act="reset" data-tip="Reset view: back to the starting camera (Home)" aria-label="Reset view">${ICON.reset}</button>
       <button class="tool" data-act="wire" aria-pressed="false" data-tip="Wireframe: see the triangles" aria-label="Wireframe">${ICON.wire}</button>
       <button class="tool" data-act="grid" aria-pressed="true" data-tip="Floor grid and the origin (0,0,0): red line is X, blue is Z" aria-label="Floor grid">${ICON.grid}</button>
+      <button class="tool" data-act="clay" aria-pressed="false" data-tip="Clay: plain grey, so you judge the shape without the paint" aria-label="Clay view">${ICON.clay}</button>
+      <button class="tool" data-act="normal" aria-pressed="false" data-tip="Normals: the surface's direction as colour; dents, lumps and flipped faces stand out" aria-label="Normal view">${ICON.normal}</button>
       <button class="tool" data-act="bones" aria-pressed="false" data-tip="Show skeleton: the bones the auto-rig placed" aria-label="Show skeleton">${ICON.bones}</button>
     </div>`;
   stage.appendChild(tools);
@@ -121,9 +126,22 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     if (setCameraView(view, name)) requestRender();
   }
 
+  // one clay and one normal material for the viewer's life, shared by every mesh
+  const looks = {
+    clay: new THREE.MeshStandardMaterial({ color: 0x8a8580, roughness: 0.7, metalness: 0 }),
+    normal: new THREE.MeshNormalMaterial(),
+  };
+
   function setWireframe(on) {
     if (!view) return;
     for (const entry of view.materials) entry.original.wireframe = on;
+    for (const material of Object.values(looks)) material.wireframe = on;
+    requestRender();
+  }
+
+  function setLook(mode) {
+    if (!view) return;
+    applyLook(meshesOf(view.materials), mode, looks);
     requestRender();
   }
 
@@ -149,6 +167,12 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
       return;
     }
     button.setAttribute('aria-pressed', String(on));
+    if (act === 'clay' || act === 'normal') {
+      // one look at a time: pressing one lets the other go
+      const other = tools.querySelector(`[data-act="${act === 'clay' ? 'normal' : 'clay'}"]`);
+      if (on) other.setAttribute('aria-pressed', 'false');
+      setLook(on ? act : 'paint');
+    }
     if (act === 'wire') setWireframe(on);
     if (act === 'grid' && view?.floor) { view.floor.visible = on; requestRender(); }
     if (act === 'bones') setSkeleton(on);
@@ -170,6 +194,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   }
 
   function dispose() {
+    pane.querySelector('.stats').hidden = true;   // a picture or an empty stage has no face count
     player?.dispose?.();
     player = null;
     skeleton?.dispose();
@@ -213,6 +238,11 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
         // keep wireframe and skeleton on across models and moves
         const pressed = (act) => tools.querySelector(`[data-act="${act}"]`).getAttribute('aria-pressed') === 'true';
         if (pressed('wire')) setWireframe(true);
+        if (pressed('clay')) setLook('clay');
+        if (pressed('normal')) setLook('normal');
+        const stats = pane.querySelector('.stats');
+        stats.textContent = faceLabel(stats.textContent);
+        stats.hidden = !stats.textContent;
         if (pressed('bones')) {
           if (loaded.rig.bones.length) setSkeleton(true);
           else tools.querySelector('[data-act="bones"]').setAttribute('aria-pressed', 'false');

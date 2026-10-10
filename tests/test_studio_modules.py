@@ -491,3 +491,48 @@ def test_every_finished_step_can_be_downloaded_on_its_own():
       const k = {json.dumps(KNIGHT)};
       console.log(JSON.stringify(['model', 'finished', 'rigged', 'picture', 'animated'].map(s => m.stepFile(k, s))));""")
     assert out == ["a/k.glb", "finish/k/k_40k.glb", "animate/k/k_rigged.glb", None, None]
+
+
+@needs_node
+def test_clay_and_normals_swap_the_paint_out_and_put_it_back():
+    """Clay and Normals replace every mesh's material; Paint restores the model's own,
+    including a mesh with several materials, whose groups need one material per slot."""
+    out = _run("looks.js", """
+      const one = { material: 'skin', userData: {} };
+      const many = { material: ['robe', 'belt'], userData: {} };
+      const looks = { clay: 'CLAY', normal: 'NORMAL' };
+      const seen = [];
+      for (const mode of ['clay', 'normal', 'clay', 'paint']) {
+        m.applyLook([one, many], mode, looks);
+        seen.push([one.material, many.material]);
+      }
+      const entries = [{ mesh: one }, { mesh: many }, { mesh: many }];
+      console.log(JSON.stringify({ seen, meshes: m.meshesOf(entries).length }));""")
+    assert out["seen"] == [
+        ["CLAY", ["CLAY", "CLAY"]],
+        ["NORMAL", ["NORMAL", "NORMAL"]],
+        ["CLAY", ["CLAY", "CLAY"]],
+        ["skin", ["robe", "belt"]],
+    ]
+    assert out["meshes"] == 2   # a two-material mesh is swapped once, not twice
+
+
+@needs_node
+def test_the_face_count_reads_the_viewport_stats():
+    out = _run("looks.js", """
+      console.log(JSON.stringify([
+        m.faceLabel('893,412 faces\\n450,000 verts (as stored)'),
+        m.faceLabel('loading… 40%'),
+        m.faceLabel(''),
+      ]));""")
+    assert out == ["893,412 faces", "", ""]
+
+
+def test_the_viewer_offers_clay_and_normal_views():
+    """The buttons exist and are wired to the tested swap; the how-to page names them."""
+    viewer = (REPO / "viewer" / "studio" / "viewer.js").read_text()
+    for act in ("clay", "normal"):
+        assert f'data-act="{act}"' in viewer
+    assert "applyLook(meshesOf(view.materials)" in viewer
+    guide = (REPO / "viewer" / "studio" / "pages.js").read_text()
+    assert "clay" in guide and "normals" in guide and "face count" in guide

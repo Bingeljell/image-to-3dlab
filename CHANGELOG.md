@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Two new views in the studio: **Clay** (plain grey, to judge the shape without the paint) and
+  **Normals** (surface direction as colour, so dents, lumps and flipped faces stand out).
+  The face count now shows bottom left of the viewer.
+
 ### Changed
 - Pictures take 8 steps instead of 10 by default: about a fifth faster, with no visible
   difference in side-by-side tests. You can still raise it in Create.

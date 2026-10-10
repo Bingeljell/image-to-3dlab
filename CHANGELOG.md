@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A docs page for **Pixel Match**: how it works, when it runs, and what to check when a
+  result looks wrong ([docs/pixel-match.md](docs/pixel-match.md)).
+
 ## [0.4.2] - 2026-10-10
 
 ### Added

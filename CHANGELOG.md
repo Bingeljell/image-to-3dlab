@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-10
+
 ### Added
 - **Keep everything** in Create (Advanced: 3D model): the 3D step keeps its textures,
   in-between meshes and resume files instead of tidying them away, for digging into a bad

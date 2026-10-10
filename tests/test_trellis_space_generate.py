@@ -271,7 +271,7 @@ def test_generate_checkpoints_latents_before_decode_failure(monkeypatch, tmp_pat
             tmp_path,
             seed=19,
             sparse_attn_backend="sdpa",
-            allow_rembg=False,
+            matted_with=None,
             save_latents=False,
             save_decode=False,
             pre_cap=4_000_000,
@@ -341,7 +341,7 @@ def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_pa
         tmp_path,
         seed=19,
         sparse_attn_backend="sdpa",
-        allow_rembg=False,
+        matted_with=None,
         save_latents=False,
         save_decode=False,
         pre_cap=4_000_000,
@@ -521,3 +521,15 @@ def test_filter_out_of_range_faces_negative_index():
     kept, removed = gen.filter_out_of_range_faces(faces, num_vertices=10)
     assert removed == 1
     assert kept.tolist() == [[0, 1, 2]]
+
+
+def test_manifest_records_our_matte_and_never_bria():
+    m = gen.build_manifest(image="i.png", output="o.glb", params={}, pipeline_type="512", seed=0,
+                           timings={}, artifacts={}, load_rembg=False, sparse_attn_backend="sdpa",
+                           matte_model="birefnet-general-lite")
+    assert m["matte_model"] == "birefnet-general-lite" and m["load_rembg"] is False
+
+
+def test_wrapper_no_longer_offers_bria():
+    source = Path(gen.__file__).read_text()
+    assert "--allow-rembg" not in source and "--matted-with" in source

@@ -44,6 +44,10 @@ Only the ones everyone can hit:
 - **NVIDIA: Pixal3D's ready-made build needs driver 575 or newer.** On an older driver the
   installer compiles it instead, if the CUDA toolkit is installed.
 - **Animate: humanoids in a T-pose only.** Four-legged creatures are coming.
+- **Animate: some humanoids are wrongly called "not a humanoid".** Extra bones (hair, a
+  cape, a sword) no longer cause it. If it happens, please attach the rigged GLB to an issue.
+- **Pixel Match can look worse than the raw model on some assets.** Each step in the
+  studio has its own Download GLB, so the raw model is always there.
 - **Animate: feet can slide a little, and elbows and knees can bend like rubber.**
   Generated meshes have no extra edges at the joints; a cleaner retopology helps.
 - **Windows has had limited testing.** More testers wanted: tell us how it went.

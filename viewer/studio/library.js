@@ -53,6 +53,12 @@ export function displayModel(asset) {
   return asset.rigged || asset.finished || asset.model || null;
 }
 
+/** The GLB one finished step made, so each step can be downloaded on its own: the raw
+ *  model from before Finish and Pixel Match, not only the latest one. */
+export function stepFile(asset, stepId) {
+  return { model: asset.model, finished: asset.finished, rigged: asset.rigged }[stepId] || null;
+}
+
 /** A served URL for a path the assets API gave, relative to its base. */
 export function servedUrl(base, relative) {
   if (!relative) return null;

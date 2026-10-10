@@ -41,7 +41,6 @@ from backend_catalog import (  # noqa: E402
     Backend,
     human_bytes,
     runs_on_phrase,
-    venv_python,
 )
 
 POLL_SECONDS = 2.0
@@ -56,13 +55,10 @@ COMMANDS: dict[str, list[str]] = {
     "trellis": [sys.executable, str(REPO / "scripts" / "bootstrap_trellis_space_macos.py")],
     "pixal3d": [sys.executable, str(REPO / "scripts" / "bootstrap_pixal3d.py"), "--yes"],
     "sf3d": [sys.executable, str(REPO / "scripts" / "bootstrap_sf3d.py"), "--yes"],
-    "hunyuan_xiong": [
-        str(venv_python(REPO / "hunyuan_mlx" / "shape")),
-        str(REPO / "hunyuan_mlx" / "download_weights.py"),
-        # Explicitly the default route, not every model. Without --model this fetches all
-        # three shape checkpoints, which is 23 GB where the default route needs 5.
-        "--model", "2.0",
-    ],
+    # Both venvs (uv sync, if missing) and then the default route's weights. Weights alone
+    # left the paint venv unbuilt: "done", yet still "not installed" (issue #97).
+    "hunyuan_xiong": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_xiong.py"),
+                      "--yes"],
     # --yes because the browser already asked. The confirmation AGENTS.md requires is the
     # Setup & Status dialog; asking again on a stdin nobody is attached to would hang.
     "qwen-image": [sys.executable, str(REPO / "scripts" / "bootstrap_qwen_image.py"),

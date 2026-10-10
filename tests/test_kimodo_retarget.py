@@ -352,3 +352,67 @@ def test_posture_is_kept_only_limbs_are_aligned():
     for role in ("hips", "s1", "s2", "chest", "neck", "head"):
         assert np.allclose(align[roles[role]], np.eye(3)), role
     assert not np.allclose(align[roles["Lshin"]], np.eye(3))
+
+
+def _with_extras(parents, heads, roles):
+    """The test humanoid dressed up: hair, a cape, a skirt, a sword and chest straps."""
+    parents, heads = dict(parents), dict(heads)
+
+    def add(name, parent_role_or_name, pos):
+        parents[name] = roles.get(parent_role_or_name, parent_role_or_name)
+        heads[name] = np.array(pos, float)
+
+    add("hair0", "head", (0, -0.08, 1.58)); add("hair1", "hair0", (0, -0.1, 1.4))  # a ponytail
+    add("cape0", "s2", (0, -0.1, 1.3)); add("cape1", "cape0", (0, -0.15, 1.0)); add("cape2", "cape1", (0, -0.15, 0.7))
+    add("skirtF", "hips", (0, 0.1, 0.9)); add("skirtF1", "skirtF", (0, 0.12, 0.6))
+    add("skirtB", "hips", (0, -0.1, 0.9)); add("skirtB1", "skirtB", (0, -0.12, 0.6))
+    add("strap", "chest", (0.02, 0.05, 1.3))
+    add("sword", "Rfa", (-0.5, 0.05, 1.4)); add("blade", "sword", (-0.5, 0.4, 1.4))
+    return parents, heads
+
+
+def test_extra_bones_do_not_hide_the_humanoid():
+    """Hair, capes, skirts and swords are on most generated characters (reported by a user:
+    'most humanoids are not human'). The body is still found, and extras ride along."""
+    parents, heads, roles = _humanoid()
+    parents, heads = _with_extras(parents, heads, roles)
+    m, frame = kr.map_skintokens_to_soma(parents, heads)
+    assert len(m) == len(parents)
+    for role, soma in {"hips": "Hips", "chest": "Chest", "head": "Head", "Lhand": "LeftHand",
+                       "Rhand": "RightHand", "Rfa": "RightForeArm", "Lleg": "LeftLeg",
+                       "Rtoe": "RightToeBase"}.items():
+        assert m[roles[role]] == soma, role
+    assert m["hair1"] == "Head" and m["cape2"] == m[roles["s2"]] and m["skirtB1"] == "Hips"
+    assert m["blade"] == "RightForeArm" and m["strap"] == "Chest"
+    assert np.allclose(frame[:, 2], [0, 1, 0])
+
+
+def test_a_four_legged_creature_is_still_turned_away():
+    """Front legs on the chest reach the floor: those are legs, not arms."""
+    P = {"hips": None, "s1": "hips", "chest": "s1", "neck": "chest", "head": "neck"}
+    H = {"hips": (0, 0, 0.8), "s1": (0, 0.4, 0.85), "chest": (0, 0.8, 0.9), "neck": (0, 1.0, 1.1), "head": (0, 1.1, 1.3)}
+    for base, at, y in (("f", "chest", 0.8), ("b", "hips", 0.0)):
+        for lr, x in (("L", -0.25), ("R", 0.25)):
+            P[f"{base}{lr}0"], H[f"{base}{lr}0"] = at, (x, y, 0.7)
+            P[f"{base}{lr}1"], H[f"{base}{lr}1"] = f"{base}{lr}0", (x, y, 0.35)
+            P[f"{base}{lr}2"], H[f"{base}{lr}2"] = f"{base}{lr}1", (x, y, 0.05)
+            P[f"{base}{lr}3"], H[f"{base}{lr}3"] = f"{base}{lr}2", (x, y + 0.08, 0.0)
+    # ears and a jaw fork the head three ways, like a chest: they must not pass for arms
+    for name, pos in (("earL", (-0.15, 1.1, 1.5)), ("earR", (0.15, 1.1, 1.5)), ("jaw", (0, 1.3, 1.2))):
+        P[name], H[name] = "head", pos
+    with pytest.raises(ValueError, match="four-legged"):
+        kr.map_skintokens_to_soma(P, {k: np.array(v, float) for k, v in H.items()})
+
+
+def test_arms_hanging_at_the_sides_are_still_arms():
+    """Not every upload is T-posed: arms straight down sit close to the body."""
+    parents, heads, roles = _humanoid()
+    for lr, sx in (("L", -1), ("R", 1)):  # facing +Y: left is -X
+        heads[roles[f"{lr}sh"]] = np.array([0.06 * sx, 0, 1.45])
+        heads[roles[f"{lr}arm"]] = np.array([0.15 * sx, 0, 1.42])
+        heads[roles[f"{lr}fa"]] = np.array([0.17 * sx, 0, 1.15])
+        heads[roles[f"{lr}hand"]] = np.array([0.18 * sx, 0, 0.9])
+        for role in [r for r in roles if r.startswith(lr) and any(f in r for f in ("thumb", "index", "middle", "ring", "pinky"))]:
+            heads[roles[role]] = heads[roles[f"{lr}hand"]] + np.array([0, 0, -0.03 - 0.01 * int(role[-1])])
+    m, _ = kr.map_skintokens_to_soma(parents, heads)
+    assert m[roles["Lhand"]] == "LeftHand" and m[roles["Rarm"]] == "RightArm" and m[roles["head"]] == "Head"

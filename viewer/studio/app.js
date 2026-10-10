@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, doneCount, statusText, displayModel, servedUrl, visibleAssets, openingView, isModelFile } from './library.js';
+import { STEPS, stepCount, doneCount, statusText, displayModel, stepFile, servedUrl, visibleAssets, openingView, isModelFile } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -70,12 +70,17 @@ function renderSteps(asset) {
     const dot = state === 'done' ? '✓' : i + 1;
     const showBody = state === 'now' || (step.id === 'animated' && state === 'done');
     const body = showBody ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
-    return `<li class="step ${state}" data-step="${step.id}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}</div>` : ''}</span></header>${body}</li>`;
+    return `<li class="step ${state}" data-step="${step.id}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}${stepLink(asset, step.id)}</div>` : ''}</span></header>${body}</li>`;
   }).join('');
   $('steps').querySelectorAll('.step').forEach((card) => {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
   });
   setDownload(displayModel(asset));
+}
+
+function stepLink(asset, stepId) {
+  const file = stepFile(asset, stepId);
+  return file ? ` · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
 }
 
 function setDownload(file) {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Every finished step in the Steps panel has its own **Download GLB** link, so the raw
+  3D model from before Finish and Pixel Match is one click away. Asked for by MeAndVR.
+
 ### Fixed
 - TRELLIS.2 on a Mac takes any picture again. The studio cuts the background out with our
   own remover first, as the NVIDIA route already did. The old "allow rembg" switch went

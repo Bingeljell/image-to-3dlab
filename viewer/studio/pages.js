@@ -28,8 +28,15 @@ export function byDay(records, today = new Date()) {
   return groups;
 }
 
-function sheet(stage, inner) {
+/** Put the sheet over the viewer away (Create, Activity, How to use, About), if one is there.
+ *  They are opaque and cover the whole stage, so anything that shows a model has to call this
+ *  first: the model would otherwise load behind one and the click would look like nothing. */
+export function closeSheet(stage) {
   stage.querySelector('.sheet')?.remove();
+}
+
+function sheet(stage, inner) {
+  closeSheet(stage);
   const el = document.createElement('div');
   el.className = 'sheet';
   el.innerHTML = inner;

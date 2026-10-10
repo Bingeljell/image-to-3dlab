@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing appeared to happen. Create, Activity, How to use and About are now put away as
   soon as something else wants the viewer. Opening a GLB already did this, which is why
   it looked like the only way in.
+
 ## [0.4.2] - 2026-10-10
 
 ### Added

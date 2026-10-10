@@ -38,7 +38,7 @@ expects internally.
 
 License note: the input must carry a transparent alpha foreground. With alpha, the background
 remover (rembg / BRIA RMBG) is never loaded (``load_rembg=False``), honoring the repo's BRIA
-guardrail. A non-alpha input would load it, so this script refuses one unless ``--allow-rembg``.
+guardrail. A non-alpha input is refused; the studio cuts it out with our own remover first.
 An image whose alpha does not actually cut the subject out (an opaque backdrop with only
 letterbox bars transparent) is refused too, unless ``--allow-uncut``.
 """
@@ -221,6 +221,7 @@ def build_manifest(
     load_rembg: bool,
     sparse_attn_backend: str,
     sparse_attn_dtype: str | None = None,
+    matte_model: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the run manifest. Pure: all inputs in, one dict out (testable without torch)."""
     return {
@@ -234,6 +235,7 @@ def build_manifest(
         "sparse_attn_backend": sparse_attn_backend,
         "sparse_attn_dtype": sparse_attn_dtype,
         "load_rembg": load_rembg,
+        "matte_model": matte_model,
         "seed": seed,
         "pipeline_type": pipeline_type,
         "params": params,
@@ -734,8 +736,8 @@ def generate(
     *,
     seed: int,
     sparse_attn_backend: str,
-    allow_rembg: bool,
     allow_uncut: bool = False,
+    matted_with: str | None = None,
     save_latents: bool,
     save_decode: bool,
     pre_cap: int,
@@ -750,10 +752,12 @@ def generate(
     extrema = raw_image.getextrema()
     alpha_min = extrema[3][0] if raw_image.mode == "RGBA" else None
     has_alpha = alpha_is_transparent(raw_image.mode, alpha_min)
-    if not has_alpha and not allow_rembg:
+    if not has_alpha:
+        # Upstream's remover is BRIA RMBG-2.0 (non-commercial), which this repo never loads.
+        # The studio cuts pictures out with our own remover before they get here.
         raise SystemExit(
-            f"{image_path} has no transparent alpha foreground. Loading the background remover "
-            "(rembg/BRIA) would be required; pass --allow-rembg to permit it, or pre-mask the image."
+            f"{image_path} has no transparent alpha foreground. Cut it out first: the studio "
+            "does this for you, or use any PNG with a transparent background."
         )
     if has_alpha and not allow_uncut:
         import numpy as np
@@ -761,7 +765,7 @@ def generate(
         border = border_opaque_fraction(np.array(raw_image)[..., 3])
         if border > BORDER_OPAQUE_LIMIT:
             raise SystemExit(uncut_foreground_message(image_path, border))
-    load_rembg = not has_alpha
+    load_rembg = False
 
     pipeline_type = pipeline_type_for_resolution(resolution)
     ss = sampler_params("sparse_structure")
@@ -886,6 +890,7 @@ def generate(
         sparse_attn_dtype=resolved_attention_dtype(
             sparse_attn_backend, os.environ.get("I2L_MLX_ATTN_DTYPE")
         ),
+        matte_model=matted_with,
     )
     manifest_path = output_path.with_suffix(".json")
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -964,8 +969,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "through MLX's fused Metal kernel (needs "
                              "scripts/patch_trellis_mlx_attention.py applied and mlx "
                              "installed in the vendor venv)")
-    parser.add_argument("--allow-rembg", action="store_true",
-                        help="permit loading the background remover for a non-alpha input")
+    parser.add_argument("--matted-with", default=None,
+                        help="the remover that cut the input out (recorded in the manifest)")
     parser.add_argument("--allow-uncut", action="store_true",
                         help="permit an alpha image whose subject was never cut out of its "
                              "background (the background becomes 3D geometry)")
@@ -1036,7 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
         vendor_root,
         seed=args.seed,
         sparse_attn_backend=args.sparse_attn_backend,
-        allow_rembg=args.allow_rembg,
+        matted_with=args.matted_with,
         allow_uncut=args.allow_uncut,
         save_latents=args.save_latents,
         save_decode=args.save_decode,

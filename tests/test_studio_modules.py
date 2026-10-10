@@ -475,3 +475,12 @@ def test_create_makes_a_fresh_picture_each_time_unless_a_seed_is_kept():
     assert out["fresh"] == {"width": 1024, "height": 1024, "steps": 16, "seed": 1073741823}
     assert out["kept"] == {"width": 768, "height": 768, "steps": 50, "seed": 7}  # odd sizes fall back, steps are capped
     assert out["sent"] == out["kept"]
+
+
+@needs_node
+def test_every_finished_step_can_be_downloaded_on_its_own():
+    """The raw model stays downloadable after Finish (asked for by a user who lost it)."""
+    out = _run("library.js", f"""
+      const k = {json.dumps(KNIGHT)};
+      console.log(JSON.stringify(['model', 'finished', 'rigged', 'picture', 'animated'].map(s => m.stepFile(k, s))));""")
+    assert out == ["a/k.glb", "finish/k/k_40k.glb", "animate/k/k_rigged.glb", None, None]

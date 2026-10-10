@@ -79,7 +79,9 @@ class Proxy:
 def build_proxy(mapping: dict[str, str], points: np.ndarray, owners: list[str],
                 segments: dict[str, tuple], height: float) -> Proxy | None:
     """The body outline for one rig, from its rest pose. None if it has no arms to fix."""
-    by_role = {role: bone for bone, role in mapping.items()}
+    by_role: dict[str, str] = {}
+    for bone, role in mapping.items():  # first bone wins: extras and stiff fingers share roles
+        by_role.setdefault(role, bone)
     body_bones = [by_role[r] for r in BODY_ROLES if r in by_role]
     arms = {}
     for side in SIDES:

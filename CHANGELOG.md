@@ -13,6 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing appeared to happen. Create, Activity, How to use and About are now put away as
   soon as something else wants the viewer. Opening a GLB already did this, which is why
   it looked like the only way in.
+## [0.4.2] - 2026-10-10
+
+### Added
+- Every finished step in the Steps panel has its own **Download GLB** link, so the raw
+  3D model from before Finish and Pixel Match is one click away. Asked for by MeAndVR.
+
+### Fixed
+- TRELLIS.2 on a Mac takes any picture again. The studio cuts the background out with our
+  own remover first, as the NVIDIA route already did. The old "allow rembg" switch went
+  with the classic viewer, and it loaded BRIA RMBG-2.0 (non-commercial, and it crashed on
+  a Mac asking for an NVIDIA card), so it is gone for good. Reported by MeAndVR.
+- Humanoids with hair, a cape, a skirt or a sword are no longer called "not a humanoid"
+  and refused preset moves. The skeleton check wanted an exact bone layout, so one extra
+  bone on the hips or chest failed it. Extra bones now just follow the body part they
+  hang from. Four-legged creatures are still turned away. Reported by MeAndVR.
+- Setting up Hunyuan3D-MLX (Xiong) from Setup & Status now builds both of its Python
+  environments before fetching weights. It used to fetch only the weights, so it said
+  "done" and the route still showed "not installed" (#97).
+
+### Removed
+- `--allow-rembg` on `scripts/trellis_space_generate.py`. It loaded BRIA RMBG-2.0; cut the
+  picture out first instead (the studio does it for you).
 
 ## [0.4.1] - 2026-10-08
 

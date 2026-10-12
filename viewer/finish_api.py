@@ -213,6 +213,14 @@ def build_command(
     return command
 
 
+def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
+    """The input files a run cannot do without. The picture only feeds Pixel Match and the
+    repaint, so a run with both off (one started without a picture) needs only the model."""
+    if settings.get("skip_photo", False) and settings.get("skip_paint", True):
+        return [job.asset_path]
+    return [job.asset_path, job.image_path]
+
+
 def uses_photo(job: "FinishJob", settings: dict[str, Any]) -> bool:
     """Whether this run gets the photo stage: a camera was found and it was not turned off."""
     return not settings.get("skip_photo", False) and (job.views_dir / "transforms.json").is_file()
@@ -451,8 +459,9 @@ class FinishJobManager:
         self.lock = threading.Lock()
 
     def create(
-        self, asset_name: str, asset: bytes, image: bytes, settings: dict[str, Any],
+        self, asset_name: str, asset: bytes, image: bytes | None, settings: dict[str, Any],
     ) -> FinishJob:
+        """A new run. `image` None finishes the mesh alone: no Pixel Match, no repaint."""
         with self.lock:
             active = self.jobs.get(self.active) if self.active else None
             if active is not None and active.status not in TERMINAL:
@@ -468,9 +477,12 @@ class FinishJobManager:
             job = FinishJob(uuid.uuid4().hex, directory)
             try:
                 job.settings = fit_to_machine(normalise_settings(settings))
+                if image is None:
+                    job.settings.update(skip_photo=True, skip_paint=True)
                 job.input_dir.mkdir(parents=True, exist_ok=True)
                 job.asset_path.write_bytes(asset)
-                job.image_path.write_bytes(image)
+                if image is not None:
+                    job.image_path.write_bytes(image)
                 views = None if job.settings["skip_photo"] else find_source_views(
                     asset, self.generated_root)
                 if views is not None:
@@ -501,7 +513,7 @@ class FinishJobManager:
             job = FinishJob(uuid.uuid4().hex, directory)
             if not job.settings_path.is_file():
                 raise RuntimeError(f"{name} predates resume support and has no settings.json")
-            for required in (job.asset_path, job.image_path):
+            for required in needed_inputs(job, json.loads(job.settings_path.read_text())):
                 if not required.is_file():
                     raise RuntimeError(f"{name} is missing {required.name}")
             job.settings = fit_to_machine(
@@ -672,8 +684,7 @@ def describe_run(directory: Path) -> dict[str, Any]:
         "resumable": (
             not result.is_file()
             and settings is not None
-            and layout.asset_path.is_file()
-            and layout.image_path.is_file()
+            and all(path.is_file() for path in needed_inputs(layout, settings))
         ),
     }
 

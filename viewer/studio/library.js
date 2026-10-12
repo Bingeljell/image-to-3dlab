@@ -9,22 +9,50 @@ export const STEPS = [
   { id: 'animated', label: 'Animate' },
 ];
 
-const STAGE_INDEX = Object.fromEntries(STEPS.map((step, i) => [step.id, i]));
-
 /** How many steps this asset can go through: props stop at Finish. */
 export function stepCount(asset) {
   return asset.kind === 'prop set' ? 3 : STEPS.length;
 }
 
-/** How many of those steps are done. */
-export function doneCount(asset) {
-  return Math.min(stepCount(asset), (STAGE_INDEX[asset.stage] ?? -1) + 1);
+/** Whether one step is done, judged by the file it makes, not by order: a model can be
+ *  rigged without being finished, and an uploaded model with no picture counts past it. */
+export function stepDone(asset, stepId) {
+  const set = asset.kind === 'prop set';
+  const has = {
+    model: set ? !!asset.model : !!(asset.model || asset.finished || asset.rigged),
+    finished: set ? !!asset.props?.length : !!asset.finished,
+    rigged: !!asset.rigged,
+    animated: !!asset.clips?.length,
+  };
+  if (stepId === 'picture') return !!asset.picture || has.model;
+  return !!has[stepId];
 }
 
-/** The step to offer next, or null when the asset has gone as far as it can. */
+/** Whether a step that is not done can run now: the file it starts from is there. */
+export function stepReady(asset, stepId) {
+  const model = !!(asset.model || asset.finished);
+  return { model: !!asset.picture, finished: model, rigged: model, animated: !!asset.rigged }[stepId] ?? false;
+}
+
+/** 'done', 'now' (can run) or 'later' (waits on an earlier step), per step. */
+export function stepState(asset, stepId) {
+  if (stepDone(asset, stepId)) return 'done';
+  return stepReady(asset, stepId) ? 'now' : 'later';
+}
+
+/** How many of those steps are done. */
+export function doneCount(asset) {
+  return STEPS.slice(0, stepCount(asset)).filter((step) => stepDone(asset, step.id)).length;
+}
+
+/** The first step not done yet, or null when the asset has gone as far as it can. */
 export function nextStep(asset) {
-  const done = doneCount(asset);
-  return done < stepCount(asset) ? STEPS[done] : null;
+  return STEPS.slice(0, stepCount(asset)).find((step) => !stepDone(asset, step.id)) ?? null;
+}
+
+/** The triangle count Finish's Detail control asks for: a preset, or the custom box. */
+export function finishFaces(choice, custom) {
+  return Math.round(Number(choice === 'custom' ? custom : choice));
 }
 
 /** One short line for the Library card. */

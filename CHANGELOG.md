@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- The studio's **Steps** panel unlocks a step once the file it needs exists, not strictly in
+  order: rig a raw model without finishing it, or finish a model that has no picture (it is
+  cleaned up and re-baked, with Pixel Match skipped and a note saying so). A finished model
+  gets **Redo Finish**, with Detail from 5,000 to 200,000 triangles or a custom count.
 - **Create** now asks for characters in an **A-pose** (arms angled down, a gap from the body,
   hands open) instead of a T-pose, without mentioning fingers or listing things to leave
   out, both of which tended to add the very thing. New tips, linked to the picture guide.

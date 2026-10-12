@@ -3,6 +3,7 @@
 
 import { followJob, plainError, statusUrlFor, jobEnd } from './jobs.js';
 import { freshSeed } from './create.js';
+import { finishFaces } from './library.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -38,15 +39,19 @@ export function stepBody(stepId, asset, ctx) {
       <button class="primary" data-run="finished">Split into props</button>`;
   }
   if (stepId === 'finished') {
-    if (!asset.picture) return '<p class="hint">Finishing needs the picture the model was made from, and this asset has none on disk.</p>';
-    return `<label class="field">Detail<select data-k="faces">
-        <option value="5000">5,000 triangles · phones, crowds</option><option value="15000">15,000 triangles · light</option>
-        <option value="40000" selected>40,000 triangles · game-ready</option><option value="100000">100,000 triangles · close-ups</option></select></label>
-      <label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture's sharp details on the front</span></span></label>
+    const photo = asset.picture
+      ? '<label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture\'s sharp details on the front</span></span></label>'
+      : '<p class="hint">No picture on disk for this model, so Pixel Match is skipped: Finish cleans up the mesh and re-bakes its own texture.</p>';
+    const skipped = !asset.finished && asset.rigged
+      ? '<p class="hint">Skipped so far. Finishing now makes a new finished model; rig it again to use it.</p>' : '';
+    const controls = `${skipped}${finishDetail()}${photo}
       <details class="adv"><summary>Advanced</summary>
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
       </details>
-      <button class="primary" data-run="finished">Finish model</button>`;
+      <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
+    return asset.finished
+      ? `<details class="adv redo"><summary>Redo Finish</summary><p class="hint">Makes a new finished model from the raw one, say at another detail level. The current one is kept.</p>${controls}</details>`
+      : controls;
   }
   if (stepId === 'rigged') {
     return `<p class="hint">Adds a skeleton so it can move. About a minute. Works best on a character standing in an A-pose (a T-pose works too) with empty hands.</p>
@@ -60,6 +65,15 @@ export function stepBody(stepId, asset, ctx) {
   }
   if (stepId === 'animated') return movePicker(asset, ctx, asset.clips.length ? 'Add this move' : 'Animate');
   return '';
+}
+
+// Detail: a preset triangle count, or a custom one (the server takes 1,000 to 200,000)
+function finishDetail() {
+  return `<label class="field">Detail<select data-k="faces">
+      <option value="5000">5,000 triangles · phones, crowds</option><option value="10000">10,000 triangles · light</option>
+      <option value="40000" selected>40,000 triangles · game-ready</option><option value="100000">100,000 triangles · close-ups</option>
+      <option value="200000">200,000 triangles · most detail</option><option value="custom">Custom…</option></select></label>
+    <label class="field" data-custom hidden>Triangles<input type="number" data-k="customFaces" min="1000" max="200000" step="1000" value="60000"></label>`;
 }
 
 function movePicker(asset, ctx, cta) {
@@ -83,13 +97,15 @@ export function wireStep(card, stepId, asset, ctx) {
   const speed = k('speed'), spread = k('spread'), engine = k('engine');
   if (speed) speed.oninput = () => { card.querySelector('[data-o="speed"]').textContent = `${Number(speed.value).toFixed(2)}×`; };
   if (spread) spread.oninput = () => { card.querySelector('[data-o="spread"]').textContent = `${spread.value}°`; };
+  const faces = k('faces');
+  if (faces) faces.onchange = () => { card.querySelector('[data-custom]').hidden = faces.value !== 'custom'; };
   if (engine) engine.onchange = () => { card.querySelector('[data-k="licence"]').textContent = ctx.engines.find((e) => e.id === engine.value)?.license || ''; };
 
   card.querySelectorAll('[data-run]').forEach((button) => button.onclick = async () => {
     // read every setting now: the progress card replaces these controls as soon as it starts
     const settings = {
       backend: engine?.value || ctx.engines[0]?.id,
-      faces: Number(k('faces')?.value), photo: k('photo')?.checked, texture: Number(k('texture')?.value),
+      faces: finishFaces(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, texture: Number(k('texture')?.value),
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
     };
@@ -116,7 +132,8 @@ async function startFinish(asset, ctx, settings) {
   const model = asset.model || asset.finished;
   const form = new FormData();
   form.append('asset', await fileFrom(ctx.url(model), fileName(model)));
-  form.append('image', await fileFrom(ctx.url(asset.picture), fileName(asset.picture)));
+  // no picture: the server skips Pixel Match and finishes the mesh alone
+  if (asset.picture) form.append('image', await fileFrom(ctx.url(asset.picture), fileName(asset.picture)));
   form.append('settings', JSON.stringify(settings));
   return { kind: 'finish', start: await postStart('/api/finish', form) };
 }

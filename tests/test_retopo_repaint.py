@@ -221,3 +221,13 @@ def test_preflight_finds_blender_when_none_is_given(tmp_path):
     exe = tmp_path / "blender"
     exe.write_text("")
     assert rr.preflight(None, skip_paint=True, platform="nvidia", find=lambda: exe) == (exe, None)
+
+
+def test_a_run_with_no_repaint_and_no_photo_needs_only_the_mesh():
+    parser = rr.build_parser()
+    alone = parser.parse_args(["a.glb", "missing.png", "out.glb", "--skip-paint"])
+    assert rr.required_inputs(alone) == [Path("a.glb")]
+    with_views = parser.parse_args(["a.glb", "a.png", "out.glb", "--skip-paint", "--views", "v"])
+    assert rr.required_inputs(with_views) == [Path("a.glb"), Path("a.png")]
+    repaint = parser.parse_args(["a.glb", "a.png", "out.glb"])
+    assert rr.required_inputs(repaint) == [Path("a.glb"), Path("a.png")]

@@ -605,3 +605,40 @@ def test_view_pictures_is_offered_only_when_a_model_covers_the_picture():
       console.log(JSON.stringify(a.map(m.canViewPictures)));""")
     # the knight's model hides its picture; the fox is only a picture; the sheet kept none
     assert out == [True, False, False]
+
+
+RAW_RIG = {"name": "raw rig", "kind": "character", "stage": "rigged", "picture": "images/r/r.png",
+           "model": "a/r.glb", "finished": None, "rigged": "animate/r/r_rigged.glb", "clips": [], "props": []}
+UPLOAD = {"name": "upload", "kind": "model", "stage": "model", "picture": None, "model": "a/u.glb",
+          "finished": None, "rigged": None, "clips": [], "props": []}
+
+
+@needs_node
+def test_steps_unlock_by_the_files_they_need_not_by_order():
+    out = _run("library.js", f"""
+      const steps = ['picture', 'model', 'finished', 'rigged', 'animated'];
+      const a = {json.dumps([KNIGHT, FOX, RAW_RIG, UPLOAD])};
+      console.log(JSON.stringify(a.map(x => steps.map(s => m.stepState(x, s)))));""")
+    assert out == [
+        ["done", "done", "done", "done", "done"],
+        ["done", "now", "later", "later", "later"],
+        # rigged straight from the raw model: Finish was skipped and can still run
+        ["done", "done", "now", "done", "now"],
+        # an upload with no picture: Finish and Rig are open, Animate waits for the rig
+        ["done", "done", "now", "now", "later"],
+    ]
+
+
+@needs_node
+def test_progress_counts_skipped_steps_as_not_done():
+    out = _run("library.js", f"""
+      const a = {json.dumps([RAW_RIG, UPLOAD])};
+      console.log(JSON.stringify(a.map(x => [m.doneCount(x), m.nextStep(x)?.id ?? null])));""")
+    assert out == [[3, "finished"], [2, "finished"]]
+
+
+@needs_node
+def test_finish_detail_takes_a_preset_or_a_custom_count():
+    out = _run("library.js", """
+      console.log(JSON.stringify([m.finishFaces('40000', '1'), m.finishFaces('custom', '62500.4')]));""")
+    assert out == [40000, 62500]

@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- The **picture guide** opens inside the studio: the "picture guide" link in Create's tips
+  shows it over Create, so nothing typed there is lost.
 - The studio's **Activity** list is one line per step ("✓ Rig · knight · 17:19 · 42 s");
   click a line for the prompt, the file it made and the full log. New runs record their prompt.
 - The studio's **Steps** panel unlocks a step once the file it needs exists, not strictly in

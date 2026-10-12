@@ -654,3 +654,27 @@ def test_each_activity_entry_is_one_line():
         "! Finish · blocky toy knight · 17:19 · 2 min 10 s · failed",
         "■ 3D model · blocky toy knight · 17:19 · 5 s · stopped",
     ]
+
+
+@needs_node
+def test_the_picture_guide_renders_from_the_real_doc():
+    doc = (REPO / "docs" / "prompt-guide.md").read_text()
+    out = _run("guide.js", f"""
+      const html = m.renderGuide({json.dumps(doc)});
+      console.log(JSON.stringify({{ html, links: [
+        m.isGuideLink('https://github.com/Bingeljell/image-to-3dlab/blob/main/docs/prompt-guide.md'),
+        m.isGuideLink('https://github.com/Bingeljell/image-to-3dlab/blob/main/README.md')] }}));""")
+    html = out["html"]
+    assert html.startswith("<h2>Picking a picture")
+    assert '<img src="/docs/images/prompt-guide-style-and-pose.jpg"' in html   # served by the studio
+    assert "<h3>What works</h3>" in html and "<b>1. A soft 3D-render look.</b>" in html
+    assert html.count("<li>") == 3                                            # the "go wrong" list
+    assert "<pre class=\"log\">A [character] in A-pose" in html
+    assert "**" not in html and "](" not in html                              # no raw Markdown left
+    assert out["links"] == [True, False]
+
+
+def test_the_tips_link_to_the_guide_the_studio_opens():
+    recipes = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
+    assert any("prompt-guide.md" in tip for tip in recipes["goals"]["character"]["tips"])
+    assert (REPO / "docs" / "prompt-guide.md").is_file()

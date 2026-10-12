@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Pull requests post to **Discord** as cards, like releases: title, author, what happened
+  (opened, merged, closed) and the start of the description (`scripts/discord_pr_card.py`).
 - **Front + back** in Create: for a character or a prop, Qwen draws the back of your picture,
   Pixal3D builds the shape from both, and Pixel Match paints from both, so the sides and back
   match your picture instead of being guessed. On by default when its downloads are present

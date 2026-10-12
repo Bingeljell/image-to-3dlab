@@ -62,6 +62,12 @@ export function stepFile(asset, stepId) {
   return { model: asset.model, finished: asset.finished, rigged: asset.rigged }[stepId] || null;
 }
 
+/** Whether the Picture step offers "View pictures": there is a picture, and a model is
+ *  covering it in the viewer (a picture-only asset already shows its picture). */
+export function canViewPictures(asset) {
+  return !!asset.picture && !!displayModel(asset);
+}
+
 /** A served URL for a path the assets API gave, relative to its base. */
 export function servedUrl(base, relative) {
   if (!relative) return null;

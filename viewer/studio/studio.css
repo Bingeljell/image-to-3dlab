@@ -140,6 +140,7 @@ a { color: inherit; }
 .step .time { font: 500 12px/1 var(--f-num); color: var(--ash); white-space: nowrap; }  /* how long it took */
 .step .sum { font-size: 12px; color: var(--ash); overflow-wrap: anywhere; }
 .step .sum .step-dl { color: inherit; text-decoration: underline; }
+.step .sum .linkish { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
 .step .body { padding: 0 12px 12px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--ash); }
 .side-foot { padding: 12px; border-top: 1px solid var(--line); display: grid; }
 

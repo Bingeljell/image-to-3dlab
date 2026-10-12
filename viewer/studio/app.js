@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, doneCount, statusText, displayModel, stepFile, servedUrl, visibleAssets, openingView, isModelFile, duration } from './library.js';
+import { STEPS, stepCount, doneCount, statusText, displayModel, stepFile, servedUrl, visibleAssets, openingView, isModelFile, duration, canViewPictures } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -18,6 +18,7 @@ let filter = 'all', query = '', showHidden = false, limit = 30;
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
 let making = null, viewingMaking = false;  // the asset Create is making right now
+let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
 
@@ -75,10 +76,20 @@ function renderSteps(asset) {
   $('steps').querySelectorAll('.step').forEach((card) => {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
   });
+  $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
+    if (viewingPictures) { show(asset); return; }
+    viewingPictures = true;
+    viewer.setClips([]);
+    viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? url(asset.back) : null);
+    renderSteps(asset);
+  });
   setDownload(displayModel(asset));
 }
 
 function stepLink(asset, stepId) {
+  if (stepId === 'picture' && canViewPictures(asset)) {
+    return ` · <button type="button" class="linkish" data-pictures>${viewingPictures ? 'Show model' : `View picture${asset.back ? 's' : ''}`}</button>`;
+  }
   const file = stepFile(asset, stepId);
   return file ? ` · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
 }
@@ -104,6 +115,7 @@ function show(asset) {
   closeSheet($('stage'));   // Create/Activity/How to use/About cover the viewer; get them out of the way
   current = asset;
   viewingMaking = false;
+  viewingPictures = false;
   $('progress').hidden = true;
   renderLibrary();
   $('vTitle').textContent = asset?.name ?? '';

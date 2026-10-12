@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   few pixels at most. `scripts/photo_paint.py` reports what moved; `--no-align` turns it off.
 - The studio's **Steps** panel shows how long each finished step took, while a run is going
   and on any asset opened later (older assets too, from the run history).
+- **View pictures** on the Picture step: once a model is made, one click shows the pictures
+  it came from (front and back side by side), and another brings the model back.
 - A guide to **picking a picture** for 3D: soft 3D-render style over flat anime art, A-pose
   over T-pose, open hands, positive wording, and a prompt to start from
   ([docs/prompt-guide.md](docs/prompt-guide.md)).

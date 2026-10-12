@@ -596,3 +596,12 @@ def test_the_viewer_offers_clay_and_normal_views():
     assert "applyLook(meshesOf(view.materials)" in viewer
     guide = (REPO / "viewer" / "studio" / "pages.js").read_text()
     assert "clay" in guide and "normals" in guide and "face count" in guide
+
+
+@needs_node
+def test_view_pictures_is_offered_only_when_a_model_covers_the_picture():
+    out = _run("library.js", f"""
+      const a = {json.dumps([KNIGHT, FOX, SHEET])};
+      console.log(JSON.stringify(a.map(m.canViewPictures)));""")
+    # the knight's model hides its picture; the fox is only a picture; the sheet kept none
+    assert out == [True, False, False]

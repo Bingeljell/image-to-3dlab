@@ -324,7 +324,7 @@ class ChainRunner:
     # ------------------------------------------------------------------ history
     def _history(self, chain: Chain, step: str, result: str, started: float, note: str, log: str) -> None:
         record = {"time": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(self.now())), "chain": chain.id,
-                  "title": chain.title, "want": chain.want, "step": step, "result": result,
+                  "title": chain.title, "prompt": chain.prompt, "want": chain.want, "step": step, "result": result,
                   "seconds": round(self.now() - started, 1), "note": note,
                   "made": chain.made.get({"picture": "picture", "back": "back", "model": "model",
                                           "finished": "finished", "rigged": "rigged"}.get(step, ""), None),

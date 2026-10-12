@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- The studio's **Activity** list is one line per step ("✓ Rig · knight · 17:19 · 42 s");
+  click a line for the prompt, the file it made and the full log. New runs record their prompt.
 - The studio's **Steps** panel unlocks a step once the file it needs exists, not strictly in
   order: rig a raw model without finishing it, or finish a model that has no picture (it is
   cleaned up and re-baked, with Pixel Match skipped and a note saying so). A finished model

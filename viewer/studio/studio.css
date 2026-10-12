@@ -196,7 +196,7 @@ body.busy .step .body [data-run] { opacity: .5; pointer-events: none; }
 /* Create sheet */
 .lib-head .primary { width: 100%; }
 .sheet { position: absolute; inset: 0; z-index: 20; background: #0c0a09; display: grid; place-items: start center; padding: 28px 24px; overflow-y: auto; }
-.sheet-card { width: min(680px, 100%); display: grid; gap: 14px; }
+.sheet-card { width: min(680px, 100%); display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .sheet-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .sheet-card h2 { margin: 0; font: 800 26px/1.15 var(--f-display); letter-spacing: -.01em; }
 .sheet-card h2 span { color: var(--ember); }
@@ -264,12 +264,17 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 /* Activity and About */
 .sheet-card h3 { margin: 10px 0 0; font: 600 12px/1.4 var(--f-num); letter-spacing: .08em; text-transform: uppercase; color: var(--ash); }
 .act-list, .credits { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.act { display: grid; grid-template-columns: 22px 1fr auto; gap: 4px 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
-.act-mark { font-weight: 700; color: var(--ash); text-align: center; }
-.act.done .act-mark { color: var(--ember); }
-.act-what { display: grid; gap: 2px; min-width: 0; }
-.act-why { color: var(--bone); opacity: .85; font-size: 13px; }
-.act .log { grid-column: 1 / -1; margin: 6px 0 0; max-height: 240px; overflow: auto; }
+.act-list { grid-template-columns: minmax(0, 1fr); }
+.act { min-width: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; }
+.act summary { padding: 9px 12px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+.act-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act summary .meta { white-space: nowrap; }
+.act.done .act-title::first-letter { color: var(--ember); }
+.act.error { border-color: var(--line-hi); }
+.act-more { padding: 0 12px 10px; display: grid; gap: 6px; font-size: 13px; }
+.act-more p { margin: 0; overflow-wrap: anywhere; }
+.act-why { color: var(--bone); opacity: .85; }
+.act .log { margin: 0; max-height: 240px; overflow: auto; }
 .credits li { line-height: 1.5; }
 .about .row { display: flex; flex-wrap: wrap; gap: 8px; }
 .adds { margin: 0; padding-left: 18px; display: grid; gap: 6px; line-height: 1.5; }

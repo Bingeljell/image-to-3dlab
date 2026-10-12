@@ -67,6 +67,7 @@ def test_a_whole_character_runs_and_each_step_gets_the_last_ones_file(tmp_path):
     history = aa.read_history(tmp_path)
     assert [h["step"] for h in history] == ["animated", "rigged", "finished", "model", "picture"]  # newest first
     assert all(h["result"] == "done" for h in history)
+    assert {h["prompt"] for h in history} == {"a sensei"}   # Activity shows what was asked for
 
 
 def test_a_failure_stops_the_chain_in_plain_words_and_is_kept_in_history(tmp_path):

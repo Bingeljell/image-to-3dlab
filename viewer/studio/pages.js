@@ -65,22 +65,30 @@ export async function openActivity(stage) {
     box.innerHTML = '<p class="meta">Nothing yet. Everything you make from now on is listed here.</p>';
     return;
   }
-  const mark = { done: '✓', error: '!', cancelled: '■' };
-  box.innerHTML = byDay(records).map((group) => `<h3>${escape(group.label)}</h3><ul class="act-list">${group.items.map((r, i) => `
-    <li class="act ${escape(r.result)}">
-      <span class="act-mark" aria-hidden="true">${mark[r.result] || '·'}</span>
-      <span class="act-what"><span><b>${escape(STEP_LABELS[r.step] || r.step)}</b> · ${escape(r.title)}</span>
-        <span class="meta">${escape(String(r.time || '').slice(11, 16))} · ${duration(r.seconds)}${r.result === 'cancelled' ? ' · stopped' : ''}</span>
-        ${r.result === 'error' ? `<span class="act-why">${escape(r.note)}</span>` : ''}</span>
-      ${r.log ? `<button class="ghost small" data-log="${escape(group.label)}-${i}">Log</button>` : ''}
-      ${r.log ? `<pre class="log" hidden data-logbox="${escape(group.label)}-${i}">${escape(r.log)}</pre>` : ''}
-    </li>`).join('')}</ul>`).join('');
-  box.addEventListener('click', (e) => {
-    const key = e.target.closest('[data-log]')?.dataset.log;
-    if (!key) return;
-    const pre = box.querySelector(`[data-logbox="${CSS.escape(key)}"]`);
-    pre.hidden = !pre.hidden;
-  });
+  // one line per step; click it for the prompt, what it made and the full log
+  box.innerHTML = byDay(records).map((group) => `<h3>${escape(group.label)}</h3><ul class="act-list">${group.items.map((r) => `
+    <li class="act ${escape(r.result)}"><details><summary title="${escape(activityLine(r))}">${activityParts(r).map((part, i) => `<span class="${i ? 'meta' : 'act-title'}">${escape(part)}</span>`).join('')}</summary>
+      <div class="act-more">
+        ${r.result === 'error' && r.note ? `<p class="act-why">${escape(r.note)}</p>` : ''}
+        ${r.prompt ? `<p><span class="meta">Prompt</span><br>${escape(r.prompt)}</p>` : ''}
+        ${r.made ? `<p><span class="meta">Made</span><br>${escape(r.made)}</p>` : ''}
+        ${r.log ? `<pre class="log">${escape(r.log)}</pre>` : '<p class="meta">No log kept for this step.</p>'}
+      </div></details></li>`).join('')}</ul>`).join('');
+}
+
+const MARK = { done: '✓', error: '!', cancelled: '■' };
+
+/** One Activity line: "✓ Rig · blocky toy knight · 17:19 · 42 s" (and "· stopped" or
+ *  "· failed" when it did not finish). */
+export function activityLine(record) {
+  return activityParts(record).join(' · ');
+}
+
+/** The line in two parts: what ran (shortened to fit) and when and how long (always shown). */
+export function activityParts(record) {
+  const ending = { cancelled: ' · stopped', error: ' · failed' }[record.result] || '';
+  return [`${MARK[record.result] || '·'} ${STEP_LABELS[record.step] || record.step} · ${record.title}`,
+    `${String(record.time || '').slice(11, 16)} · ${duration(record.seconds)}${ending}`];
 }
 
 const CREDITS = [

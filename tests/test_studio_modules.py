@@ -642,3 +642,15 @@ def test_finish_detail_takes_a_preset_or_a_custom_count():
     out = _run("library.js", """
       console.log(JSON.stringify([m.finishFaces('40000', '1'), m.finishFaces('custom', '62500.4')]));""")
     assert out == [40000, 62500]
+
+
+@needs_node
+def test_each_activity_entry_is_one_line():
+    out = _run("pages.js", """
+      const r = (step, result, seconds) => ({ time: '2026-10-12T17:19:05', title: 'blocky toy knight', step, result, seconds });
+      console.log(JSON.stringify([r('rigged', 'done', 42), r('finished', 'error', 130), r('model', 'cancelled', 5)].map(m.activityLine)));""")
+    assert out == [
+        "✓ Rig · blocky toy knight · 17:19 · 42 s",
+        "! Finish · blocky toy knight · 17:19 · 2 min 10 s · failed",
+        "■ 3D model · blocky toy knight · 17:19 · 5 s · stopped",
+    ]

@@ -81,13 +81,18 @@ function redoBox(title, note, body) {
   return `<details class="adv redo"><summary>${title}</summary><p class="hint">${note}</p>${body}</details>`;
 }
 
-// Detail: a preset triangle count, or a custom one (the server takes 1,000 to 200,000)
+// Detail: three tested triangle counts, or a custom one (the server takes 1,000 to 200,000). Tested on
+// five very different models: 10k and 20k stay clean, 40k adds rough patches on some, 5k breaks.
 function finishDetail() {
   return `<label class="field">Detail<select data-k="faces">
-      <option value="5000">5,000 triangles · phones, crowds</option><option value="10000">10,000 triangles · light</option>
-      <option value="40000" selected>40,000 triangles · game-ready</option><option value="100000">100,000 triangles · close-ups</option>
-      <option value="200000">200,000 triangles · most detail</option><option value="custom">Custom…</option></select></label>
-    <label class="field" data-custom hidden>Triangles<input type="number" data-k="customFaces" min="1000" max="200000" step="1000" value="60000"></label>`;
+      <option value="10000">10,000 triangles · light</option>
+      <option value="20000" selected>20,000 triangles · game-ready</option>
+      <option value="40000">40,000 triangles · more detail</option>
+      <option value="custom">Custom… (unexpected results)</option></select></label>
+    <div data-custom hidden>
+      <label class="field">Triangles<input type="number" data-k="customFaces" min="1000" max="200000" step="1000" value="30000"></label>
+      <p class="hint">Unexpected results: very low counts break up shapes and very high ones add rough patches. Try 10,000 to 40,000 first.</p>
+    </div>`;
 }
 
 function movePicker(asset, ctx, cta) {

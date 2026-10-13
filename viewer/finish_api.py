@@ -69,7 +69,7 @@ SETTING_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "faces": 40000, "atlas": 2048, "angle": 89.0, "voxel": 0.004,
+    "faces": 20000, "atlas": 2048, "angle": 89.0, "voxel": 0.004,
     "metallic": 0.25, "roughness": 0.65, "ior": 1.45,
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,

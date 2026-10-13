@@ -364,3 +364,20 @@ def test_a_picture_a_finish_was_made_from_is_not_a_lone_item(output):
     _write(run / "input" / "source.png", b"png uncut", 6500)
     names = [a["picture"] for a in aa.list_assets(output) if a["stage"] == "picture"]
     assert not any(n and n.endswith(f"{other}.png") for n in names)
+
+
+def test_one_version_per_family_can_be_the_main_one(output):
+    _rig_again(output)
+    first, second = _knights(output)
+    assert first["main"] is False and second["main"] is False
+    aa.set_main(output, second["id"], True)
+    first, second = _knights(output)
+    assert second["main"] is True and first["main"] is False
+    aa.set_main(output, first["id"], True)          # starring another one moves the star
+    first, second = _knights(output)
+    assert first["main"] is True and second["main"] is False
+    aa.set_main(output, first["id"], False)
+    assert not any(a["main"] for a in _knights(output))
+    assert (output / "finish" / FIN / "a-chunky-knight_40k.glb").is_file()   # nothing deleted
+    with pytest.raises(ValueError):
+        aa.set_main(output, "0123456789ab", True)

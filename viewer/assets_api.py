@@ -389,8 +389,10 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
     meta = _read_meta(output)
     hidden = set(meta.get("hidden", []))
     names = meta.get("names") if isinstance(meta.get("names"), dict) else {}
+    mains = meta.get("main") if isinstance(meta.get("main"), dict) else {}
     for asset in assets:
         asset["hidden"] = asset["id"] in hidden
+        asset["main"] = mains.get(asset["family"]) == asset["id"]
         if isinstance(names.get(asset["id"]), str):
             asset["name"] = names[asset["id"]]
     assets.sort(key=lambda a: a["updated"], reverse=True)
@@ -415,6 +417,25 @@ def set_hidden(output: Path, asset_id: str, hidden: bool) -> None:
     ids = set(meta.get("hidden", []))
     ids.add(asset_id) if hidden else ids.discard(asset_id)
     meta["hidden"] = sorted(ids)
+    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+
+
+def set_main(output: Path, asset_id: str, main: bool) -> None:
+    """Mark one version as the family's main one (the one export and game use should take), or
+    clear it. One per family: starring a version un-stars the one before. Never touches files."""
+    if not ASSET_ID.fullmatch(asset_id or ""):
+        raise ValueError(f"not an asset id: {asset_id!r}")
+    found = {a["id"]: a for a in list_assets(output)}
+    if asset_id not in found:
+        raise ValueError(f"no such asset: {asset_id}")
+    family = found[asset_id]["family"]
+    meta = _read_meta(output)
+    mains = meta.get("main") if isinstance(meta.get("main"), dict) else {}
+    if main:
+        mains[family] = asset_id
+    elif mains.get(family) == asset_id:
+        del mains[family]
+    meta["main"] = mains
     (output / META_NAME).write_text(json.dumps(meta, indent=1))
 
 

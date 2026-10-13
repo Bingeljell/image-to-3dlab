@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleAssets, openingView, isModelFile, duration, canViewPictures } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, openingView, isModelFile, duration, canViewPictures } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -19,6 +19,7 @@ let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
+const openFamilies = new Set();  // families whose versions are listed under their row
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
 
@@ -26,16 +27,26 @@ const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '
 const url = (relative) => servedUrl(base, relative);
 const fileName = (relative) => relative?.split('/').pop() ?? '';
 
-function renderLibrary() {
-  const { rows: list, more, hiddenCount } = visibleAssets(assets, { filter, query, showHidden, limit });
-  $('assetList').innerHTML = makingRow() + (list.length ? list.map((asset) => {
-    const pips = STEPS.slice(0, stepCount(asset)).map((step) => `<i class="${stepDone(asset, step.id) ? 'done' : ''}"></i>`).join('');
-    // a small server-made copy, not the full picture (often a megabyte each)
-    const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
-    return `<li><button class="asset${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" aria-current="${!viewingMaking && asset === current}">
+function assetButton(asset, { sub = false } = {}) {
+  const pips = STEPS.slice(0, stepCount(asset)).map((step) => `<i class="${stepDone(asset, step.id) ? 'done' : ''}"></i>`).join('');
+  // a small server-made copy, not the full picture (often a megabyte each)
+  const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
+  const when = new Date(asset.updated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  const name = sub ? `v${asset.version} · ${statusText(asset)}` : asset.name;
+  return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${!viewingMaking && asset === current}">
       <span class="thumb">${thumb}</span>
-      <span style="min-width:0"><span class="nm">${escape(asset.name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(statusText(asset))}</span></span>
-    </button></li>`;
+      <span style="min-width:0"><span class="nm">${asset.main ? '<b class="star" title="Main version">★</b> ' : ''}${escape(name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${sub ? escape(when) : escape(statusText(asset))}</span></span>
+    </button>`;
+}
+
+function renderLibrary() {
+  const { rows: list, more, hiddenCount } = visibleFamilies(assets, { filter, query, showHidden, limit });
+  $('assetList').innerHTML = makingRow() + (list.length ? list.map(({ key, shown, members }) => {
+    if (members.length < 2) return `<li>${assetButton(shown)}</li>`;
+    const open = openFamilies.has(key) || members.includes(current);
+    return `<li class="family">${assetButton(shown)}
+      <button type="button" class="vers" data-family="${escape(key)}" aria-expanded="${open}">${members.length} versions <span aria-hidden="true">${open ? '▾' : '▸'}</span></button>
+      ${open ? `<ul class="versions">${members.map((m) => `<li>${assetButton(m, { sub: true })}</li>`).join('')}</ul>` : ''}</li>`;
   }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing matches.' : 'No assets yet. Press + Create to make your first.'}</li>`)
     + (more ? `<li><button class="ghost more" id="showMore">Show ${Math.min(more, 30)} more of ${more}</button></li>` : '');
   const shown = assets.filter((a) => !a.hidden).length;
@@ -109,7 +120,13 @@ const ctx = {
   asset: () => current,
   onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
   // after a new move, open the asset on that move
-  onDone: async (stepId, { preset } = {}) => { playNext = preset; await loadLibrary(current?.id); },
+  onDone: async (stepId, { preset } = {}) => {
+    playNext = preset;
+    const before = assets, keepId = current?.id, family = current?.family || keepId;
+    await loadLibrary(null, { pick: false });
+    // a redo makes a new version: open that one, not the one it branched from
+    show(madeVersion(before, assets, family) ?? assets.find((a) => a.id === keepId) ?? assets[0] ?? null);
+  },
 };
 
 function show(asset) {
@@ -153,6 +170,13 @@ function show(asset) {
 }
 
 $('assetList').addEventListener('click', (event) => {
+  const toggle = event.target.closest('[data-family]');
+  if (toggle) {
+    const key = toggle.dataset.family;
+    if (openFamilies.has(key)) openFamilies.delete(key); else openFamilies.add(key);
+    renderLibrary();
+    return;
+  }
   const button = event.target.closest('.asset');
   if (!button) return;  // the "Show more" row has its own handler
   if (button.dataset.making != null) { showMaking(); return; }
@@ -172,7 +196,21 @@ $('hideBtn').addEventListener('click', async () => {
   renderHideButton();
 });
 
+$('mainBtn').addEventListener('click', async () => {
+  if (!current) return;
+  const main = !current.main;
+  const response = await fetch(`/api/assets/${current.id}/main`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ main }) });
+  if (!response.ok) return;
+  await refreshAssets();
+  renderHideButton();
+});
+
 function renderHideButton() {
+  const star = $('mainBtn');
+  star.hidden = !current || (current.versions || 1) < 2;   // a lone version needs no star
+  star.textContent = current?.main ? '★ Main' : '☆ Main';
+  star.dataset.tip = current?.main ? 'This is the main version. Click to clear it.' : 'Mark this version as the main one: the one to export and use in your game.';
+
   const button = $('hideBtn');
   button.hidden = !current;
   button.textContent = current?.hidden ? 'Unhide' : 'Hide';

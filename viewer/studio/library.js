@@ -116,6 +116,34 @@ export function visibleAssets(assets, { filter = 'all', query = '', showHidden =
 }
 
 /**
+ * The Library as families: one row per picture's family, showing the version marked main (the star),
+ * else the newest. `members` holds every shown version, the original first. Paging counts families.
+ */
+export function visibleFamilies(assets, { limit = 30, ...options } = {}) {
+  const { rows, hiddenCount } = visibleAssets(assets, { ...options, limit: Infinity });
+  const families = new Map();
+  for (const asset of rows) {
+    const key = asset.family || asset.id;
+    if (!families.has(key)) families.set(key, []);
+    families.get(key).push(asset);
+  }
+  const all = [...families.entries()].map(([key, members]) => {
+    members.sort((a, b) => (a.version || 1) - (b.version || 1));
+    const shown = members.find((m) => m.main) ?? members.reduce((best, m) => (m.updated > best.updated ? m : best));
+    return { key, shown, members };
+  });
+  return { rows: all.slice(0, limit), more: Math.max(0, all.length - limit), hiddenCount };
+}
+
+/** After a step finishes: the version it just made (an id the Library did not have, in the
+ *  same family), or null when it only added to the version already open. */
+export function madeVersion(before, after, familyKey) {
+  const known = new Set(before.map((a) => a.id));
+  const fresh = after.filter((a) => !known.has(a.id) && (a.family || a.id) === familyKey);
+  return fresh.reduce((best, a) => (!best || a.updated > best.updated ? a : best), null);
+}
+
+/**
  * What the studio shows when it opens: a run still going on the server, else Create. Never the
  * last asset: most visits are to make something, and the Library beside it is one click away.
  */

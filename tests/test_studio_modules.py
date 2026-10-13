@@ -678,3 +678,41 @@ def test_the_tips_link_to_the_guide_the_studio_opens():
     recipes = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
     assert any("prompt-guide.md" in tip for tip in recipes["goals"]["character"]["tips"])
     assert (REPO / "docs" / "prompt-guide.md").is_file()
+
+
+def _version(id_, family, version, updated, **extra):
+    return {"id": id_, "family": family, "version": version, "updated": updated, "name": f"knight {version}",
+            "kind": "character", "hidden": False, "main": False, **extra}
+
+
+@needs_node
+def test_a_family_is_one_row_that_shows_the_main_version_else_the_newest():
+    assets = [_version("c", "f1", 3, 30), _version("a", "f1", 1, 10), _version("b", "f1", 2, 20),
+              _version("x", "f2", 1, 25), _version("z", "f3", 1, 5, hidden=True)]
+    out = _run("library.js", f"""
+      const a = {json.dumps(assets)};
+      const rows = (list, o) => m.visibleFamilies(list, o).rows.map(r => [r.key, r.shown.id, r.members.map(x => x.id).join('')]);
+      const starred = a.map(x => x.id === 'a' ? {{ ...x, main: true }} : x);
+      console.log(JSON.stringify({{
+        plain: rows(a, {{}}),
+        starred: rows(starred, {{}}),
+        withHidden: rows(a, {{ showHidden: true }}),
+        paged: m.visibleFamilies(a, {{ limit: 1 }}).more,
+      }}));""")
+    assert out["plain"] == [["f1", "c", "abc"], ["f2", "x", "x"]]     # newest shown; versions in order
+    assert out["starred"][0] == ["f1", "a", "abc"]                    # the star wins over newest
+    assert [r[0] for r in out["withHidden"]] == ["f1", "f2", "f3"]
+    assert out["paged"] == 1
+
+
+@needs_node
+def test_the_version_a_step_just_made_is_the_new_id_in_the_same_family():
+    before = [_version("a", "f1", 1, 10), _version("x", "f2", 1, 12)]
+    after = before + [_version("b", "f1", 2, 40), _version("y", "f2", 2, 41)]
+    out = _run("library.js", f"""
+      const before = {json.dumps(before)}, after = {json.dumps(after)};
+      console.log(JSON.stringify({{
+        made: m.madeVersion(before, after, 'f1')?.id ?? null,
+        none: m.madeVersion(after, after, 'f1')?.id ?? null,
+      }}));""")
+    assert out == {"made": "b", "none": None}      # f2's new version is someone else's

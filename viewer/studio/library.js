@@ -156,6 +156,25 @@ export function isModelFile(name) {
   return /.\.glb$/i.test(name || '');
 }
 
+/** A byte count in plain words: "480 KB", "12 MB", "1.4 GB". */
+export function sizeText(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return '';
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  if (n < 1024 ** 3) return `${Math.round(n / 1024 ** 2)} MB`;
+  return `${(n / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/** What deleting a version removes, in words, from the server's plan: "its rig and moves, its finished model". */
+export function deletionWords(plan) {
+  const part = (folder) => {
+    const top = folder.path.split('/')[0];
+    return { animate: 'its rig and moves', finish: 'its finished model', images: 'its picture', props: 'its split props' }[top] || 'its 3D model';
+  };
+  const words = [...new Set(plan.folders.map(part))];
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] || 'nothing';
+}
+
 /** How long a step took, in plain words: "42s", "4m 12s", "1h 3m"; "" when unknown. */
 export function duration(seconds) {
   const s = Number(seconds);

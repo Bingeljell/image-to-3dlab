@@ -313,3 +313,9 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .asset.sub { grid-template-columns: 36px minmax(0, 1fr); padding: 5px 6px; }
 .asset.sub .thumb { width: 36px; height: 36px; }
 .star { color: var(--ember); font-weight: 400; }
+
+/* Deleting a version: asks first, in the Steps column */
+.delbar { margin: 0 14px 8px; padding: 10px 12px; border: 1px solid var(--ember); border-radius: 10px; background: var(--raise); font-size: 13px; }
+.delbar p { margin: 0 0 8px; }
+.danger { background: #b3321f; color: #fff; border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 600; cursor: pointer; }
+.danger:disabled { opacity: .5; }

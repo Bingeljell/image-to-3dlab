@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, openingView, isModelFile, duration, canViewPictures } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -209,7 +209,35 @@ $('mainBtn').addEventListener('click', async () => {
   renderHideButton();
 });
 
+$('deleteBtn').addEventListener('click', async () => {
+  if (!current) return;
+  const bar = $('deleteBar');
+  const response = await fetch(`/api/assets/${current.id}/delete-plan`);
+  const plan = await response.json().catch(() => ({}));
+  const close = () => { bar.hidden = true; bar.innerHTML = ''; };
+  bar.hidden = false;
+  if (!response.ok || plan.refused) {
+    bar.innerHTML = `<p>${escape(plan.refused || plan.error || 'This could not be checked.')}</p><div class="row end"><button class="ghost small" data-close>OK</button></div>`;
+    bar.querySelector('[data-close]').onclick = close;
+    return;
+  }
+  bar.innerHTML = `<p><b>Delete this version?</b> This removes ${escape(deletionWords(plan))} from your disk and frees ${escape(sizeText(plan.bytes))}. It cannot be undone.</p>
+    <div class="row end"><button class="ghost small" data-close>Keep it</button><button class="danger small" data-delete>Delete</button></div>`;
+  bar.querySelector('[data-close]').onclick = close;
+  bar.querySelector('[data-delete]').onclick = async (event) => {
+    event.target.disabled = true;
+    const family = current.family;
+    const done = await fetch(`/api/assets/${current.id}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    if (!done.ok) { bar.innerHTML = `<p>${escape((await done.json().catch(() => ({}))).error || 'Could not delete.')}</p><div class="row end"><button class="ghost small" data-close>OK</button></div>`; bar.querySelector('[data-close]').onclick = close; return; }
+    close();
+    await loadLibrary(null, { pick: false });
+    show(assets.find((x) => x.family === family) ?? assets[0] ?? null);
+  };
+});
+
 function renderHideButton() {
+  $('deleteBtn').hidden = !current;
+  $('deleteBar').hidden = true;
   const star = $('mainBtn');
   star.hidden = !current || (current.versions || 1) < 2;   // a lone version needs no star
   star.textContent = current?.main ? '★ Main' : '☆ Main';

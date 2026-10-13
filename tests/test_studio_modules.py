@@ -735,3 +735,19 @@ def test_a_finished_step_can_be_run_again_as_a_new_version():
     assert 'data-k="rigsource"' not in out["rigRaw"]                # only the raw one: nothing to choose
     assert "Re-rig" not in out["firstRig"]                          # a first rig is just "rig it"
     assert "Draw another picture" in out["picture"] and out["noPrompt"] == ""
+
+
+@needs_node
+def test_a_deletion_is_described_in_plain_words_and_sizes():
+    out = _run("library.js", """
+      const folders = (...paths) => ({ folders: paths.map((path) => ({ path })) });
+      console.log(JSON.stringify({
+        rig: m.deletionWords(folders('animate/a__rig__1')),
+        two: m.deletionWords(folders('finish/a__finish__1', 'animate/a__rig__1')),
+        three: m.deletionWords(folders('images/p', 'commercial_conditional/m', 'finish/f')),
+        none: m.deletionWords(folders()),
+        sizes: [m.sizeText(0), m.sizeText(500 * 1024), m.sizeText(12.4 * 1024 ** 2), m.sizeText(1.46 * 1024 ** 3), m.sizeText('x')],
+      }));""")
+    assert out["rig"] == "its rig and moves" and out["two"] == "its finished model and its rig and moves"
+    assert out["three"] == "its picture, its 3D model and its finished model" and out["none"] == "nothing"
+    assert out["sizes"] == ["1 KB", "500 KB", "12 MB", "1.5 GB", ""]

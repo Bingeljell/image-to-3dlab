@@ -234,77 +234,103 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
     pictures, models, finishes = _pictures(output), _models(output), _finishes(output)
     rigs, sets = _rigs(output), _prop_sets(output)
 
-    # union-find over every run; each connected group is one asset
+    # One family tree per picture: picture -> 3D models -> finishes -> rigs (a prop sheet hangs off a
+    # model). Each branch end is its own asset, so a re-rig or a second 3D model is a new version
+    # of the same family, not a silent replacement of the one before.
     nodes: list[tuple[str, dict[str, Any]]] = (
         [("picture", n) for n in pictures] + [("model", n) for n in models]
         + [("finished", n) for n in finishes] + [("rigged", n) for n in rigs] + [("set", n) for n in sets])
-    parent = list(range(len(nodes)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    def join(a: int, b: int) -> None:
-        parent[find(a)] = find(b)
-
     index_of = {id(n): i for i, (_, n) in enumerate(nodes)}
-    model_by_sha: dict[str, int] = {}
-    for model in models:
-        model_by_sha[hashes.of(model["file"])] = index_of[id(model)]
+    parent: dict[int, int | None] = {i: None for i in range(len(nodes))}
+    model_by_sha = {hashes.of(m["file"]): index_of[id(m)] for m in models}
+    picture_by_sha = {hashes.of(p["file"]): index_of[id(p)] for p in pictures}
+    finished_by_sha: dict[str, int] = {}
+    picture_hint: dict[int, int] = {}     # a finish kept its picture: where a model with no picture of its own looks
     for picture in pictures:
         for model in models:
             if model["stem"].startswith(picture["stem"] + "__") or model["stem"].startswith(picture["stem"] + "-cutout__"):
-                join(index_of[id(picture)], index_of[id(model)])
-    picture_by_sha = {hashes.of(p["file"]): index_of[id(p)] for p in pictures}
-    finished_by_sha: dict[str, int] = {}
+                parent[index_of[id(model)]] = index_of[id(picture)]
     for fin in finishes:
-        if fin["image"] is not None:
-            match = picture_by_sha.get(hashes.of(fin["image"]))
-            if match is not None:
-                join(index_of[id(fin)], match)
-        finished_by_sha[hashes.of(fin["file"])] = index_of[id(fin)]
-        if fin["source"] is not None:
-            match = model_by_sha.get(hashes.of(fin["source"]))
-            if match is not None:
-                join(index_of[id(fin)], match)
+        me = index_of[id(fin)]
+        finished_by_sha[hashes.of(fin["file"])] = me
+        picture_of = picture_by_sha.get(hashes.of(fin["image"])) if fin["image"] is not None else None
+        model_of = model_by_sha.get(hashes.of(fin["source"])) if fin["source"] is not None else None
+        if picture_of is not None:
+            picture_hint[me] = picture_of
+        if model_of is not None:
+            parent[me] = model_of
+            if picture_of is not None and parent[model_of] is None:
+                parent[model_of] = picture_of    # a model made outside the app, found through its finish
+        else:
+            parent[me] = picture_of
     for rig in rigs:
         sha = rig["input_sha"]
         match = finished_by_sha.get(sha) if sha else None
         if match is None and sha:
             match = model_by_sha.get(sha)
-        if match is not None:
-            join(index_of[id(rig)], match)
+        parent[index_of[id(rig)]] = match
     for prop_set in sets:
         if prop_set["file"] is not None:
-            match = model_by_sha.get(hashes.of(prop_set["file"]))
-            if match is not None:
-                join(index_of[id(prop_set)], match)
+            parent[index_of[id(prop_set)]] = model_by_sha.get(hashes.of(prop_set["file"]))
     hashes.save()
 
-    groups: dict[int, list[int]] = {}
-    for i in range(len(nodes)):
-        groups.setdefault(find(i), []).append(i)
+    def born(i: int) -> tuple[float, str]:
+        node = nodes[i][1]
+        target = node["file"] if node.get("file") is not None else node["dir"]
+        return (target.stat().st_mtime, rel(target) or "")
 
     def rel(path: Path | None) -> str | None:
         return path.relative_to(output).as_posix() if path is not None else None
 
+    children: dict[int, list[int]] = {}
+    for i, up in parent.items():
+        if up is not None:
+            children.setdefault(up, []).append(i)
+    # The first child made at each fork carries on the original; later ones are new versions.
+    first_child = {up: min(kids, key=born) for up, kids in children.items()}
+    # a picture a finish was made from belongs to that family, even when the model came from another copy of it
+    claimed = set(picture_hint.values())
+    leaves = [i for i in range(len(nodes)) if i not in children and not (nodes[i][0] == "picture" and i in claimed)]
+
+    def path_to(leaf: int) -> list[int]:
+        path = [leaf]
+        while parent[path[-1]] is not None:
+            path.append(parent[path[-1]])
+        return path[::-1]
+
+    def branch_start(path: list[int]) -> int | None:
+        """The node where this chain split off the original, or None for the original itself."""
+        for up, node in zip(path, path[1:]):
+            if first_child[up] != node:
+                return node
+        return None
+
+    chains = [path_to(leaf) for leaf in leaves]
+    # family = the root of the tree; version 1 is the original, the rest count by when they split off
+    family_chains: dict[int, list[list[int]]] = {}
+    for chain in chains:
+        family_chains.setdefault(chain[0], []).append(chain)
+    version_of: dict[int, int] = {}
+    for root, members in family_chains.items():
+        members.sort(key=lambda c: (branch_start(c) is not None,
+                                    born(branch_start(c)) if branch_start(c) is not None else (0.0, "")))
+        for number, chain in enumerate(members, start=1):
+            version_of[chain[-1]] = number
+
     assets = []
-    for members in groups.values():
-        by_kind: dict[str, list[dict[str, Any]]] = {}
-        for i in members:
-            by_kind.setdefault(nodes[i][0], []).append(nodes[i][1])
-
-        def latest(kind: str) -> dict[str, Any] | None:
-            items = [n for n in by_kind.get(kind, []) if n.get("file") is not None]
-            return max(items, key=lambda n: n["file"].stat().st_mtime) if items else None
-
-        picture, model, fin, rig = latest("picture"), latest("model"), latest("finished"), latest("rigged")
-        prop_set = max(by_kind.get("set", []), key=lambda n: n["dir"].stat().st_mtime, default=None)
-        files = [n["file"] for i in members for n in [nodes[i][1]] if n.get("file") is not None]
-        files += [c["file"] for r in by_kind.get("rigged", []) for c in r["clips"]]
-        files += [p["file"] for s in by_kind.get("set", []) for p in s["props"]]
+    for chain in chains:
+        by_kind: dict[str, dict[str, Any]] = {nodes[i][0]: nodes[i][1] for i in chain}
+        picture, model, fin, rig = by_kind.get("picture"), by_kind.get("model"), by_kind.get("finished"), by_kind.get("rigged")
+        if picture is None and fin is not None and index_of[id(fin)] in picture_hint:
+            picture = nodes[picture_hint[index_of[id(fin)]]][1]
+        prop_set = by_kind.get("set")
+        files = [nodes[i][1]["file"] for i in chain if nodes[i][1].get("file") is not None]
+        if picture is not None:
+            files.append(picture["file"])
+        if rig is not None:
+            files += [c["file"] for c in rig["clips"]]
+        if prop_set is not None:
+            files += [p["file"] for p in prop_set["props"]]
         clips = rig["clips"] if rig else []
 
         if prop_set is not None:
@@ -317,14 +343,27 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             if kind == "model" and (any(rel(f) in asked_props for f in files)
                                     or (picture and _prompted_as_prop(picture["file"], prop_wording))):
                 kind = "prop"
+        root_node = nodes[chain[0]][1]
         first = picture or model or (prop_set if prop_set and prop_set.get("file") else None) or fin or rig
         # A person-given name ("rune_knight" at the finish or rig step) beats the prompt the
         # picture was named after; it is the shortest name in the chain.
         stems = [n["stem"] for n in (rig, fin, prop_set, model, picture) if n is not None]
         name_from = min(stems, key=lambda stem: len(friendly_name(stem)))
+        root_file = root_node.get("file") or (first or {}).get("file")
+        family_id = hashlib.sha1(rel(root_file).encode()).hexdigest()[:12] if root_file else name_from
+        split = branch_start(chain)
+        if split is None:
+            asset_id = family_id            # the original keeps the id it always had
+        else:
+            split_node = nodes[split][1]
+            split_file = split_node.get("file") or split_node.get("dir")
+            asset_id = hashlib.sha1(rel(split_file).encode()).hexdigest()[:12]
+        version = version_of[chain[-1]]
         assets.append({
-            "id": hashlib.sha1(rel(first["file"]).encode()).hexdigest()[:12] if first and first.get("file") else name_from,
-            "name": friendly_name(name_from),
+            "id": asset_id,
+            "family": family_id,
+            "version": version,
+            "name": friendly_name(name_from) + (f" · v{version}" if version > 1 else ""),
             "kind": kind,
             "stage": stage,
             "picture": rel(picture["file"]) if picture else None,
@@ -341,7 +380,12 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
                         for step, seconds in [step_times[rel(f)]]},
             "updated": max((f.stat().st_mtime for f in files), default=0),
         })
-    hashes.save()
+    counts: dict[str, int] = {}
+    for asset in assets:
+        counts[asset["family"]] = counts.get(asset["family"], 0) + 1
+    for asset in assets:
+        asset["versions"] = counts[asset["family"]]
+    hashes.save()   # the rig facts read above are cached too
     meta = _read_meta(output)
     hidden = set(meta.get("hidden", []))
     names = meta.get("names") if isinstance(meta.get("names"), dict) else {}

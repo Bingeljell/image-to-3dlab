@@ -285,3 +285,82 @@ def test_an_asset_carries_each_steps_time_from_the_history(output):
     knight = _by_name(aa.list_assets(output))["a chunky knight"]
     assert knight["timings"] == {"picture": 251.4, "model": 318.0, "finished": 95.2}
     assert _by_name(aa.list_assets(output))["a lone fox"]["timings"] == {}
+
+
+def _rig_again(out: Path, of: bytes = b"FINISHED", stamp: str = "20261006-090000", mtime: float = 6000) -> Path:
+    run = out / "animate" / f"a-chunky-knight_40k__rig__{stamp}"
+    _write(run / "a-chunky-knight_40k_rigged.glb", b"RIGGED " + stamp.encode(), mtime)
+    _write(run / "a-chunky-knight_40k_rigged.provenance.json",
+           json.dumps({"input": {"sha256": hashlib.sha256(of).hexdigest()}}), mtime)
+    return run
+
+
+def _knights(out: Path) -> list[dict]:
+    return sorted((a for a in aa.list_assets(out) if a["name"].startswith("a chunky knight")), key=lambda a: a["version"])
+
+
+def test_rigging_again_adds_a_version_and_keeps_the_first(output):
+    before = _by_name(aa.list_assets(output))["a chunky knight"]
+    _rig_again(output)
+    first, second = _knights(output)
+    assert first["id"] == before["id"] and first["version"] == 1 and first["name"] == "a chunky knight"
+    assert [c["name"] for c in first["clips"]] == ["dance", "run"]      # untouched
+    assert second["version"] == 2 and second["name"] == "a chunky knight · v2"
+    assert second["id"] != first["id"] and second["clips"] == []
+    # same picture, model and finish; only the rig differs
+    for key in ("picture", "model", "finished"):
+        assert second[key] == first[key]
+    assert second["rigged"] != first["rigged"]
+    assert first["family"] == second["family"] and first["versions"] == second["versions"] == 2
+
+
+def test_a_second_3d_model_from_the_same_picture_is_a_new_version(output):
+    again = f"{IMG}-cutout__pixal3d__20261006-120000"
+    _write(output / "commercial_conditional" / again / f"{again}.glb", b"GENERATED TWO", 7000)
+    first, second = _knights(output)
+    assert first["stage"] == "animated" and first["model"].endswith(f"{GEN}.glb")
+    assert second["stage"] == "model" and second["model"].endswith(f"{again}.glb")
+    assert second["picture"] == first["picture"]
+
+
+def test_rigging_the_raw_model_skips_finish_as_its_own_version(output):
+    _rig_again(output, of=b"GENERATED")
+    first, second = _knights(output)
+    assert first["finished"] and second["finished"] is None
+    assert second["model"] == first["model"] and second["stage"] == "rigged"
+
+
+def test_a_new_move_on_a_rig_is_not_a_new_version(output):
+    _write(output / "animate" / RIG / "a-chunky-knight_40k_walk.glb", b"WALK", 8000)
+    (knight,) = _knights(output)
+    assert knight["versions"] == 1
+    assert [c["name"] for c in knight["clips"]] == ["dance", "run", "walk"]
+
+
+def test_a_versions_id_survives_its_own_next_step_and_a_later_version(output):
+    _rig_again(output)
+    second_id = _knights(output)[1]["id"]
+    _write(output / "animate" / "a-chunky-knight_40k__rig__20261006-090000" / "a-chunky-knight_40k_walk.glb", b"W", 8000)
+    _rig_again(output, stamp="20261007-090000", mtime=9000)
+    knights = _knights(output)
+    assert [k["version"] for k in knights] == [1, 2, 3]
+    assert knights[1]["id"] == second_id and len({k["id"] for k in knights}) == 3
+    assert [c["name"] for c in knights[1]["clips"]] == ["walk"]
+
+
+def test_each_family_counts_its_own_versions(output):
+    _rig_again(output)
+    fox = _by_name(aa.list_assets(output))["a lone fox"]
+    assert fox["versions"] == 1 and fox["version"] == 1
+
+
+def test_a_picture_a_finish_was_made_from_is_not_a_lone_item(output):
+    # the same knight finished from another copy of its picture (say, the uncut one)
+    other = "a-chunky-knight__20261005-205524-uncut"
+    _write(output / "images" / other / f"{other}.png", b"png uncut", 1100)
+    run = output / "finish" / "a-chunky-knight__finish__20261005-230000"
+    _write(run / "a-chunky-knight_40k.glb", b"FINISHED UNCUT", 6500)
+    _write(run / "input" / "source.glb", b"GENERATED", 6500)
+    _write(run / "input" / "source.png", b"png uncut", 6500)
+    names = [a["picture"] for a in aa.list_assets(output) if a["stage"] == "picture"]
+    assert not any(n and n.endswith(f"{other}.png") for n in names)

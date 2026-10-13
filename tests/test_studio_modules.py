@@ -105,11 +105,26 @@ def test_axis_map_looking_straight_down_does_not_break():
 @needs_node
 def test_best_ready_engine_comes_first_and_missing_weights_drop_out():
     catalog = {"backends": [
-        {"id": "trellis", "kind": "3d", "rank": 3, "build_present": True, "weights": [{"present": True}], "license": {"name": "MIT"}},
-        {"id": "pixal3d", "kind": "3d", "rank": 1, "build_present": True, "weights": [{"present": True}], "license": {"name": "MIT"}},
-        {"id": "sf3d", "kind": "3d", "rank": 5, "build_present": True, "weights": [{"present": False}]},
-        {"id": "hunyuan-cuda", "kind": "3d", "rank": 2, "supported_here": False},
+        {"id": "trellis", "kind": "3d", "rank": 3, "state": "ready", "build_present": True, "weights": [{"present": True}], "license": {"name": "MIT"}},
+        {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "build_present": True, "weights": [{"present": True}], "license": {"name": "MIT"}},
+        {"id": "sf3d", "kind": "3d", "rank": 5, "state": "partial", "build_present": True, "weights": [{"present": False}]},
+        {"id": "hunyuan-cuda", "kind": "3d", "rank": 2, "state": "unsupported", "supported_here": False},
         {"id": "autorig", "kind": "tool", "rank": 0},
+    ]}
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.readyEngines({json.dumps(catalog)}).map(e => e.id)));")
+    assert out == ["pixal3d", "trellis"]
+
+
+@needs_node
+def test_engine_picker_agrees_with_setup_about_ready():
+    # A user's Setup page showed TRELLIS.2 "ready", yet the Create picker hid it: Setup
+    # trusts the server's state, which counts TRELLIS ready once built (its weights fetch
+    # on first run, and TinyCLIP/BiRefNet are optional on a Mac). The picker must agree.
+    catalog = {"backends": [
+        {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "build_present": True, "weights": [{"present": True}]},
+        {"id": "trellis", "kind": "3d", "rank": 3, "state": "ready", "build_present": True,
+         "weights": [{"present": True}, {"present": False}, {"present": False}]},
+        {"id": "hunyuan_xiong", "kind": "3d", "rank": 2, "state": "missing", "build_present": False, "weights": [{"present": False}]},
     ]}
     out = _run("jobs.js", f"console.log(JSON.stringify(m.readyEngines({json.dumps(catalog)}).map(e => e.id)));")
     assert out == ["pixal3d", "trellis"]

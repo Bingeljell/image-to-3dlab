@@ -8,8 +8,9 @@ const STALL_SECONDS = 180;
 /** The best ready 3D engine first, then the other ready ones (from GET /api/catalog). */
 export function readyEngines(catalog) {
   return (catalog?.backends || [])
-    .filter((b) => b.kind === '3d' && b.supported_here !== false && b.build_present !== false
-      && (b.weights || []).every((w) => w.present !== false))
+    // The server's state, the same one Setup shows: a built TRELLIS is ready even before its
+    // weights arrive (they fetch on first run), so counting files here hid it from the picker.
+    .filter((b) => b.kind === '3d' && b.state === 'ready')
     .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
     .map((b) => ({ id: b.id, label: b.label, license: b.license?.name || '', caveat: b.caveat || null }));
 }

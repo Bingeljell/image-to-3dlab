@@ -65,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Slower on very dense meshes (about 12 s to 37 s on a million triangles).
 
 ### Fixed
+- The **Engine** picker in Create showed only Pixal3D when TRELLIS.2 or Hunyuan3D was installed
+  but still had optional or first-run downloads to come. It now lists every engine Setup calls ready.
 - **Pixel Match** no longer crashes on models whose texture is stored as WebP (Pixal3D's raw
   output). The painted model is written with a plain PNG texture.
 - **Finish** no longer paints patches from brows and lips onto the face behind them (grey

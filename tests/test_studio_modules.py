@@ -751,3 +751,26 @@ def test_a_deletion_is_described_in_plain_words_and_sizes():
     assert out["rig"] == "its rig and moves" and out["two"] == "its finished model and its rig and moves"
     assert out["three"] == "its picture, its 3D model and its finished model" and out["none"] == "nothing"
     assert out["sizes"] == ["1 KB", "500 KB", "12 MB", "1.5 GB", ""]
+
+
+@needs_node
+def test_the_library_filters_by_step_engine_and_main_and_sorts_by_name():
+    assets = [
+        _version("a", "f1", 1, 30, name="Zed", stage="animated", model="x/z__pixal3d__1/z.glb"),
+        _version("b", "f2", 1, 20, name="alpha", stage="model", model="x/a__trellis__1/a.glb", main=True),
+        _version("c", "f3", 1, 10, name="Mid", stage="picture", model=None, finished=None),
+        _version("d", "f1", 2, 5, name="Zed · v2", stage="model", model="x/z__trellis__2/z.glb"),
+    ]
+    out = _run("library.js", f"""
+      const a = {json.dumps(assets)};
+      const names = (o) => m.visibleFamilies(a, o).rows.map(r => r.shown.id).join('');
+      console.log(JSON.stringify({{
+        newest: names({{}}), byName: names({{ sort: 'name' }}),
+        picture: names({{ stage: 'picture' }}), model: names({{ stage: 'model' }}),
+        trellis: names({{ engine: 'TRELLIS.2' }}), starred: names({{ starred: true }}),
+        engines: m.engineChoices(a),
+      }}));""")
+    assert out["newest"] == "abc" and out["byName"] == "bca"      # families: Zed (v2 inside), alpha, Mid
+    assert out["picture"] == "c" and out["model"] == "bd"     # a family shows the version that matches
+    assert out["trellis"] == "bd" and out["starred"] == "b"
+    assert out["engines"] == ["Pixal3D", "TRELLIS.2"]

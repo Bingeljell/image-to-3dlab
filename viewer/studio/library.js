@@ -115,12 +115,32 @@ export function visibleAssets(assets, { filter = 'all', query = '', showHidden =
   return { rows: pool.slice(0, limit), more: Math.max(0, pool.length - limit), hiddenCount };
 }
 
+/** Which 3D engine made a model, read from its run folder's name. */
+export function engineOf(path) {
+  const run = path?.split('/').slice(-2, -1)[0] || '';
+  const match = run.match(/__(pixal3d|trellis|hunyuan[a-z-]*|sf3d)__/);
+  return match ? { pixal3d: 'Pixal3D', trellis: 'TRELLIS.2', sf3d: 'Stable Fast 3D' }[match[1]] || 'Hunyuan3D' : 'made outside the app';
+}
+
+/** The engine for the Library's filter: nothing for a picture with no model yet. */
+export function assetEngine(asset) {
+  return asset.model ? engineOf(asset.model) : asset.finished ? 'made outside the app' : '';
+}
+
+/** The engines present in the Library, for the filter's choices. */
+export function engineChoices(assets) {
+  return [...new Set(assets.map(assetEngine).filter(Boolean))].sort();
+}
+
 /**
  * The Library as families: one row per picture's family, showing the version marked main (the star),
  * else the newest. `members` holds every shown version, the original first. Paging counts families.
  */
-export function visibleFamilies(assets, { limit = 30, ...options } = {}) {
-  const { rows, hiddenCount } = visibleAssets(assets, { ...options, limit: Infinity });
+export function visibleFamilies(assets, { limit = 30, stage = 'all', engine = 'all', starred = false, sort = 'newest', ...options } = {}) {
+  const found = visibleAssets(assets, { ...options, limit: Infinity });
+  const { hiddenCount } = found;
+  const rows = found.rows.filter((a) => (stage === 'all' || a.stage === stage)
+    && (engine === 'all' || assetEngine(a) === engine) && (!starred || a.main));
   const families = new Map();
   for (const asset of rows) {
     const key = asset.family || asset.id;
@@ -132,6 +152,8 @@ export function visibleFamilies(assets, { limit = 30, ...options } = {}) {
     const shown = members.find((m) => m.main) ?? members.reduce((best, m) => (m.updated > best.updated ? m : best));
     return { key, shown, members };
   });
+  // newest first is the order the assets already arrive in; by name goes by the original's name
+  if (sort === 'name') all.sort((a, b) => a.members[0].name.localeCompare(b.members[0].name, undefined, { sensitivity: 'base' }));
   return { rows: all.slice(0, limit), more: Math.max(0, all.length - limit), hiddenCount };
 }
 

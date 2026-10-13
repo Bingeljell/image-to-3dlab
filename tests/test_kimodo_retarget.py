@@ -432,3 +432,69 @@ def test_arms_hanging_at_the_sides_are_still_arms():
             heads[roles[role]] = heads[roles[f"{lr}hand"]] + np.array([0, 0, -0.03 - 0.01 * int(role[-1])])
     m, _ = kr.map_skintokens_to_soma(parents, heads)
     assert m[roles["Lhand"]] == "LeftHand" and m[roles["Rarm"]] == "RightArm" and m[roles["head"]] == "Head"
+
+
+# The blocky knight's real rig (Y-up, glTF space, read from its rigged GLB on 2026-10-13).
+# Its legs have three bones, thigh, knee and ankle, with no toe. The mesh faces +Z; the
+# old code took the last leg bone for a toe, read the shin's backward lean as the foot
+# pointing backward, and so turned the character away and played every clip in reverse.
+_KNIGHT_PARENTS = {
+    "bone_0": None, "bone_1": "bone_0", "bone_2": "bone_1", "bone_3": "bone_2", "bone_4": "bone_1",
+    "bone_5": "bone_4", "bone_6": "bone_5", "bone_7": "bone_1", "bone_8": "bone_7", "bone_9": "bone_8",
+    "bone_10": "bone_0", "bone_11": "bone_10", "bone_12": "bone_11", "bone_13": "bone_0",
+    "bone_14": "bone_13", "bone_15": "bone_14",
+}
+_KNIGHT_HEADS = {
+    "bone_0": [-0.0008, -0.1504, -0.0306], "bone_1": [-0.0008, -0.0085, -0.0015],
+    "bone_2": [-0.0008, 0.1042, 0.0203], "bone_3": [-0.0008, 0.137, 0.0313],
+    "bone_4": [0.0938, 0.0679, 0.024], "bone_5": [0.1774, -0.0049, 0.0167], "bone_6": [0.232, -0.0813, 0.0349],
+    "bone_7": [-0.0917, 0.0679, 0.024], "bone_8": [-0.1754, -0.0049, 0.0167], "bone_9": [-0.2336, -0.0813, 0.0349],
+    "bone_10": [0.0683, -0.1286, -0.016], "bone_11": [0.0756, -0.2486, -0.0088], "bone_12": [0.0792, -0.3977, -0.0779],
+    "bone_13": [-0.0735, -0.1286, -0.016], "bone_14": [-0.0772, -0.2486, -0.0088], "bone_15": [-0.0845, -0.3977, -0.0779],
+}
+_Y_UP = np.array([0.0, 1.0, 0.0])
+
+
+def test_the_knights_three_bone_legs_face_forward_not_backward():
+    heads = {k: np.array(v, float) for k, v in _KNIGHT_HEADS.items()}
+    _, frame = kr.map_skintokens_to_soma(_KNIGHT_PARENTS, heads, up=_Y_UP)
+    assert frame[2, 2] > 0.9  # forward is +Z, the way the mesh looks
+
+
+def _three_bone_legs(face):
+    """The `_humanoid` with its toes removed and knees bent forward: thigh, knee, ankle."""
+    parents, heads, roles = _humanoid(face)
+    for lr in "LR":
+        toe = roles[f"{lr}toe"]
+        parents.pop(toe), heads.pop(toe)
+        heads[roles[f"{lr}shin"]] = heads[roles[f"{lr}shin"]] + np.array([0, 0.05 * face, 0])
+        heads[roles[f"{lr}foot"]] = heads[roles[f"{lr}foot"]] + np.array([0, -0.03 * face, 0])
+    return parents, heads
+
+
+@pytest.mark.parametrize("face", [+1, -1])
+def test_a_leg_without_a_toe_is_read_by_which_way_the_knee_bends(face):
+    parents, heads = _three_bone_legs(face)
+    _, frame = kr.map_skintokens_to_soma(parents, heads)
+    assert np.allclose(frame[:, 2], [0, face, 0], atol=1e-6)
+
+
+def test_a_toe_still_decides_when_the_leg_has_one():
+    """Four bones to the leg end in a real toe. A backward-bent knee (a dog-legged hero)
+    must not outvote it."""
+    parents, heads, roles = _humanoid(+1)
+    for lr in "LR":
+        heads[roles[f"{lr}shin"]] = heads[roles[f"{lr}shin"]] + np.array([0, -0.06, 0])
+    _, frame = kr.map_skintokens_to_soma(parents, heads)
+    assert np.allclose(frame[:, 2], [0, +1, 0], atol=1e-6)
+
+
+def test_straight_toeless_legs_fall_back_to_the_old_cue_without_crashing():
+    parents, heads = _three_bone_legs(+1)
+    for b in heads:  # knees exactly on the hip-ankle line, the whole leg leaning forward a little
+        if abs(heads[b][2] - 0.5) < 1e-9:
+            heads[b] = np.array([heads[b][0], 0.01, 0.5])
+        if abs(heads[b][2] - 0.08) < 1e-9:
+            heads[b] = np.array([heads[b][0], 0.02, 0.08])
+    _, frame = kr.map_skintokens_to_soma(parents, heads)
+    assert np.allclose(frame[:, 2], [0, +1, 0], atol=1e-6)

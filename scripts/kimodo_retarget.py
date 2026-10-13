@@ -89,15 +89,44 @@ def _spread(chain: list[str], names: list[str]) -> dict[str, str]:
     return {b: names[i] for b, i in zip(chain, idx)}
 
 
-def character_frame(heads: dict[str, np.ndarray], toes: list[str], feet: list[str],
+def _flat(v: np.ndarray, up) -> np.ndarray:
+    return v - (v @ up) * up
+
+
+# A knee that bends less than this share of the leg's length is too straight to tell
+# which way is forward, so the older foot cue is used instead.
+KNEE_BEND_MIN = 0.01
+
+
+def leg_forward(heads: dict[str, np.ndarray], chains: list[list[str]], up=Z_UP) -> np.ndarray:
+    """The way the legs say is forward, flattened onto the ground (not yet unit length).
+
+    A leg of four bones or more ends in a real foot and toe, and foot -> toe points forward.
+    A leg of three has no toe: its last bone is the ankle, and foot -> "toe" is only the
+    shin's lean, which can point backward. The blocky knight's did, and it was turned away
+    and walked in reverse. Those legs are read by the knee, which bends forward of the
+    hip-ankle line. A knee too straight to tell falls back to the foot cue.
+    """
+    votes = []
+    for ch in chains:
+        if len(ch) == 3:
+            hip, knee, ankle = (heads[b] for b in ch)
+            bend = _flat(knee - (hip + ankle) / 2, up)
+            if np.linalg.norm(bend) >= KNEE_BEND_MIN * np.linalg.norm(hip - ankle):
+                votes.append(bend)
+                continue
+        votes.append(heads[ch[-1]] - heads[ch[-2]])
+    return _flat(np.mean(votes, axis=0), up)
+
+
+def character_frame(heads: dict[str, np.ndarray], leg_chains: list[list[str]],
                     up=Z_UP) -> np.ndarray:
     """3x3 matrix whose columns are the character's (left, up, forward) in world space.
 
-    Forward is the mean foot->toe direction flattened onto the ground, the one cue every
-    standing humanoid carries regardless of how it was exported.
+    Forward comes from the legs (`leg_forward`): the one cue every standing humanoid
+    carries regardless of how it was exported.
     """
-    f = np.mean([heads[t] - heads[k] for t, k in zip(toes, feet)], axis=0)
-    f = f - (f @ up) * up
+    f = leg_forward(heads, leg_chains, up)
     f /= np.linalg.norm(f)
     left = np.cross(up, f)
     return np.stack([left, up, f], axis=1)
@@ -184,7 +213,7 @@ def map_skintokens_to_soma(parents: dict[str, str | None], heads: dict[str, np.n
     leg_chains = [_limb(c, kids, lambda x: -_subtree_low(x, kids, heads, up), 4) for c in legs]
     if min(len(ch) for ch in leg_chains) < 2:
         raise ValueError(f"legs too short to find the feet: {leg_chains}")
-    frame = character_frame(heads, [ch[-1] for ch in leg_chains], [ch[-2] for ch in leg_chains], up)
+    frame = character_frame(heads, leg_chains, up)
     left_axis = frame[:, 0]
 
     floor = min(low[c] for c in legs)

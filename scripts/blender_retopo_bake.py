@@ -133,12 +133,14 @@ def base_colour_image(material):
     return None
 
 
-def ray_distance(dimensions, fraction: float = 0.02) -> float:
+def ray_distance(dimensions, fraction: float = 0.005) -> float:
     """How far the bake may search from the new surface to find the old one.
 
     Scaled to the asset rather than fixed: too small and the new surface misses the old
-    one entirely, leaving the atlas empty; too large and a ray from the chest can reach
-    the far side of the body and sample its colour.
+    one entirely, leaving the atlas empty; too large and a ray picks up colour from a thin
+    part standing in front of the surface it was meant for. At 2% (the old value) the
+    gnoll's lip and brow ridges painted grey patches over its muzzle and eyes; at 0.5%
+    they were gone on all seven test models, with no empty spots (2026-10-13).
     """
     return max(dimensions) * fraction
 

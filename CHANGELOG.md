@@ -67,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Pixel Match** no longer crashes on models whose texture is stored as WebP (Pixal3D's raw
   output). The painted model is written with a plain PNG texture.
+- **Finish** no longer paints patches from brows and lips onto the face behind them (grey
+  smears on a muzzle, blotches round the eyes). It copies colour from a much shorter distance.
 - The two **Mac Hunyuan3D routes** now get your picture cut out first. Their shape stage trusts
   the picture's transparency, and a picture from Create has none that means anything, so the
   backdrop was built as a wall behind the model. A test now checks that every route gets a

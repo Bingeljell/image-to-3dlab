@@ -235,8 +235,9 @@ def _prop_sets(output: Path) -> list[dict[str, Any]]:
     return found
 
 
-def list_assets(output: Path) -> list[dict[str, Any]]:
-    """Every asset on disk, the one touched most recently first."""
+def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
+    """Every asset on disk, the one touched most recently first. `with_runs` adds the run folders
+    that belong to this version alone (what deleting it would remove); the Library list never needs them."""
     if not output.is_dir():
         return []
     hashes = _Hashes(output)
@@ -317,6 +318,11 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
         return None
 
     chains = [path_to(leaf) for leaf in leaves]
+    shared = {i: sum(1 for c in chains if i in c) > 1 for i in range(len(nodes))}
+
+    def run_dir(i: int) -> Path | None:
+        node = nodes[i][1]
+        return node["dir"] if node.get("dir") is not None else node["file"].parent if node.get("file") is not None else None
     # family = the root of the tree; version 1 is the original, the rest count by when they split off
     family_chains: dict[int, list[list[int]]] = {}
     for chain in chains:
@@ -391,6 +397,7 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             "timings": {step: seconds for f in files if (rel(f) in step_times)
                         for step, seconds in [step_times[rel(f)]]},
             "updated": max((f.stat().st_mtime for f in files), default=0),
+            **({"runs": [rel(run_dir(i)) for i in chain if not shared[i] and run_dir(i) is not None]} if with_runs else {}),
         })
     counts: dict[str, int] = {}
     for asset in assets:
@@ -449,6 +456,56 @@ def set_main(output: Path, asset_id: str, main: bool) -> None:
         del mains[family]
     meta["main"] = mains
     (output / META_NAME).write_text(json.dumps(meta, indent=1))
+
+
+def _folder_bytes(path: Path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def plan_delete(output: Path, asset_id: str) -> dict[str, Any]:
+    """What deleting one version would remove, and whether it may be deleted at all.
+
+    Only the run folders that belong to this version alone go: the picture, model and finish it
+    shares with other versions stay. The original (v1) is kept while later versions exist,
+    because they were built from it."""
+    if not ASSET_ID.fullmatch(asset_id or ""):
+        raise ValueError(f"not an asset id: {asset_id!r}")
+    found = {a["id"]: a for a in list_assets(output, with_runs=True)}
+    if asset_id not in found:
+        raise ValueError(f"no such asset: {asset_id}")
+    asset = found[asset_id]
+    root = output.resolve()
+    folders = []
+    for run in asset["runs"]:
+        path = (output / run).resolve()
+        if root not in path.parents or not path.is_dir():
+            raise ValueError(f"refusing to touch {run}: not a run folder inside output/")
+        folders.append({"path": run, "bytes": _folder_bytes(path)})
+    refused = None
+    if asset["version"] == 1 and asset["versions"] > 1:
+        refused = "This is the original: the other versions were built from it. Delete those first, or hide this one."
+    return {"id": asset_id, "name": asset["name"], "stage": asset["stage"], "folders": folders,
+            "bytes": sum(f["bytes"] for f in folders), "refused": refused}
+
+
+def delete_version(output: Path, asset_id: str) -> dict[str, Any]:
+    """Delete the run folders only this version owns. Cannot be undone."""
+    import shutil
+
+    plan = plan_delete(output, asset_id)
+    if plan["refused"]:
+        raise ValueError(plan["refused"])
+    for folder in plan["folders"]:
+        shutil.rmtree(output / folder["path"])
+    meta = _read_meta(output)
+    meta["hidden"] = [i for i in meta.get("hidden", []) if i != asset_id]
+    for key in ("names",):
+        if isinstance(meta.get(key), dict):
+            meta[key].pop(asset_id, None)
+    if isinstance(meta.get("main"), dict):
+        meta["main"] = {family: i for family, i in meta["main"].items() if i != asset_id}
+    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+    return plan
 
 
 NAME_LIMIT = 80

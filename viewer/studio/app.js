@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, openingView, isModelFile, duration, canViewPictures } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -15,6 +15,7 @@ const LOGO = './studio/mark.svg';
 let base = '/output/';
 let assets = [];
 let filter = 'all', query = '', showHidden = false, limit = 30;
+let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
 let making = null, viewingMaking = false;  // the asset Create is making right now
@@ -39,8 +40,16 @@ function assetButton(asset, { sub = false } = {}) {
     </button>`;
 }
 
+function renderEngineChoices() {
+  const select = $('engineFilter'), choices = engineChoices(assets);
+  if (engineFilter !== 'all' && !choices.includes(engineFilter)) engineFilter = 'all';
+  select.innerHTML = `<option value="all">Any engine</option>${choices.map((c) => `<option value="${escape(c)}">${escape(c)}</option>`).join('')}`;
+  select.value = engineFilter;
+}
+
 function renderLibrary() {
-  const { rows: list, more, hiddenCount } = visibleFamilies(assets, { filter, query, showHidden, limit });
+  renderEngineChoices();
+  const { rows: list, more, hiddenCount } = visibleFamilies(assets, { filter, query, showHidden, limit, stage: stageFilter, engine: engineFilter, starred: starredOnly, sort: sortBy });
   $('assetList').innerHTML = makingRow() + (list.length ? list.map(({ key, shown, members }) => {
     if (members.length < 2) return `<li>${assetButton(shown)}</li>`;
     const open = openFamilies.has(key) || members.includes(current);
@@ -54,12 +63,6 @@ function renderLibrary() {
   document.querySelector('.hidden-toggle').hidden = !hiddenCount && !showHidden;
   $('hiddenLabel').textContent = `Show hidden (${assets.filter((a) => a.hidden).length})`;
   $('showMore')?.addEventListener('click', () => { limit += 30; renderLibrary(); });
-}
-
-function engineOf(path) {
-  const run = path?.split('/').slice(-2, -1)[0] || '';
-  const match = run.match(/__(pixal3d|trellis|hunyuan[a-z-]*|sf3d)__/);
-  return match ? { pixal3d: 'Pixal3D', trellis: 'TRELLIS.2', sf3d: 'Stable Fast 3D' }[match[1]] || 'Hunyuan3D' : 'made outside the app';
 }
 
 function summaries(asset) {
@@ -189,6 +192,10 @@ $('assetList').addEventListener('click', (event) => {
 });
 
 $('search').addEventListener('input', (event) => { query = event.target.value; limit = 30; renderLibrary(); });
+$('stageFilter').addEventListener('change', (event) => { stageFilter = event.target.value; limit = 30; renderLibrary(); });
+$('engineFilter').addEventListener('change', (event) => { engineFilter = event.target.value; limit = 30; renderLibrary(); });
+$('sortBy').addEventListener('change', (event) => { sortBy = event.target.value; renderLibrary(); });
+$('starredOnly').addEventListener('change', (event) => { starredOnly = event.target.checked; limit = 30; renderLibrary(); });
 $('showHidden').addEventListener('change', (event) => { showHidden = event.target.checked; renderLibrary(); });
 $('hideBtn').addEventListener('click', async () => {
   if (!current) return;
@@ -209,7 +216,35 @@ $('mainBtn').addEventListener('click', async () => {
   renderHideButton();
 });
 
+$('deleteBtn').addEventListener('click', async () => {
+  if (!current) return;
+  const bar = $('deleteBar');
+  const response = await fetch(`/api/assets/${current.id}/delete-plan`);
+  const plan = await response.json().catch(() => ({}));
+  const close = () => { bar.hidden = true; bar.innerHTML = ''; };
+  bar.hidden = false;
+  if (!response.ok || plan.refused) {
+    bar.innerHTML = `<p>${escape(plan.refused || plan.error || 'This could not be checked.')}</p><div class="row end"><button class="ghost small" data-close>OK</button></div>`;
+    bar.querySelector('[data-close]').onclick = close;
+    return;
+  }
+  bar.innerHTML = `<p><b>Delete this version?</b> This removes ${escape(deletionWords(plan))} from your disk and frees ${escape(sizeText(plan.bytes))}. It cannot be undone.</p>
+    <div class="row end"><button class="ghost small" data-close>Keep it</button><button class="danger small" data-delete>Delete</button></div>`;
+  bar.querySelector('[data-close]').onclick = close;
+  bar.querySelector('[data-delete]').onclick = async (event) => {
+    event.target.disabled = true;
+    const family = current.family;
+    const done = await fetch(`/api/assets/${current.id}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    if (!done.ok) { bar.innerHTML = `<p>${escape((await done.json().catch(() => ({}))).error || 'Could not delete.')}</p><div class="row end"><button class="ghost small" data-close>OK</button></div>`; bar.querySelector('[data-close]').onclick = close; return; }
+    close();
+    await loadLibrary(null, { pick: false });
+    show(assets.find((x) => x.family === family) ?? assets[0] ?? null);
+  };
+});
+
 function renderHideButton() {
+  $('deleteBtn').hidden = !current;
+  $('deleteBar').hidden = true;
   const star = $('mainBtn');
   star.hidden = !current || (current.versions || 1) < 2;   // a lone version needs no star
   star.textContent = current?.main ? '★ Main' : '☆ Main';

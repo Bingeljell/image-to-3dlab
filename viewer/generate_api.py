@@ -84,7 +84,7 @@ from autorig_api import (
     source_record_for as animate_source_record,
     status_payload as animate_status_payload,
 )
-from assets_api import assets_payload, set_hidden as set_asset_hidden, set_main as set_asset_main, set_name as set_asset_name, thumbnail as asset_thumbnail
+from assets_api import assets_payload, delete_version as delete_asset_version, plan_delete as plan_asset_delete, set_hidden as set_asset_hidden, set_main as set_asset_main, set_name as set_asset_name, thumbnail as asset_thumbnail
 import activity_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from props_api import (
@@ -2232,6 +2232,19 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self._send_json(200, {"id": parts[2], "hidden": bool(body.get("hidden", True))})
             return
+        if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "delete":
+            # a deletion cannot be undone, so the page must say so: a bare POST does nothing
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                if body.get("confirm") is not True:
+                    raise ValueError("confirm the deletion first")
+                plan = delete_asset_version(OUTPUT_ROOT, parts[2])
+            except (ValueError, json.JSONDecodeError) as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            self._send_json(200, {"id": parts[2], "deleted": [f["path"] for f in plan["folders"]], "bytes": plan["bytes"]})
+            return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "main":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2434,6 +2447,12 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "activity"]:
             self._send_json(200, {"history": read_history(OUTPUT_ROOT)})
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "delete-plan":
+            try:
+                self._send_json(200, plan_asset_delete(OUTPUT_ROOT, parts[2]))
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
             return
         if parts == ["api", "assets"]:
             try:

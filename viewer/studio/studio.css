@@ -313,3 +313,15 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .asset.sub { grid-template-columns: 36px minmax(0, 1fr); padding: 5px 6px; }
 .asset.sub .thumb { width: 36px; height: 36px; }
 .star { color: var(--ember); font-weight: 400; }
+
+/* Deleting a version: asks first, in the Steps column */
+.delbar { margin: 0 14px 8px; padding: 10px 12px; border: 1px solid var(--ember); border-radius: 10px; background: var(--raise); font-size: 13px; }
+.delbar p { margin: 0 0 8px; }
+.danger { background: #b3321f; color: #fff; border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 600; cursor: pointer; }
+.danger:disabled { opacity: .5; }
+
+/* Library filters and sort */
+.lib-filters { display: grid; grid-template-columns: 0.95fr 1.3fr 0.95fr; gap: 6px; margin-top: 8px; }
+.lib-filters select { min-width: 0; font-size: 12px; padding: 4px 6px; background: var(--raise); color: var(--bone); border: 1px solid var(--line-hi); border-radius: 8px; }
+.lib-filters .check { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ash); cursor: pointer; }
+.lib-filters .check input { accent-color: var(--ember); }

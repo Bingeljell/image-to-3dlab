@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Delete** a version from the studio. It says what goes ("its rig and moves") and how much space
+  it frees, and asks first. Only what belongs to that version alone is removed; the picture and
+  model it shares with other versions stay, and the original stays while later versions exist.
+- The Library can be **filtered** by step, engine and Main, and **sorted** by newest or name.
 - **Versions** in the studio. Run any finished step again from the Steps panel and the result is
   a new version of the same character, never a replacement: **Draw another picture** (opens
   Create with the same description), **Make another 3D model**, **Redo Finish**, and **Re-rig**

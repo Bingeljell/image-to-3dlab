@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Versions** in the studio. Run any finished step again from the Steps panel and the result is
+  a new version of the same character, never a replacement: **Draw another picture** (opens
+  Create with the same description), **Make another 3D model**, **Redo Finish**, and **Re-rig**
+  (with a choice of the finished or the raw model, which is also how to skip Finish). The Library
+  shows one row per character with a "3 versions" line that opens to v1, v2, v3, and the studio
+  opens the version you just made. A **Main** button marks the version to use.
 - Pull requests post to **Discord** as cards, like releases: title, author, what happened
   (opened, merged, closed) and the start of the description (`scripts/discord_pr_card.py`).
 - **Front + back** in Create: for a character or a prop, Qwen draws the back of your picture,

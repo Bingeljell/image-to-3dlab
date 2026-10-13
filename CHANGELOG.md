@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (with a choice of the finished or the raw model, which is also how to skip Finish). The Library
   shows one row per character with a "3 versions" line that opens to v1, v2, v3, and the studio
   opens the version you just made. A **Main** button marks the version to use.
-- Pull requests post to **Discord** as cards, like releases: title, author, what happened
-  (opened, merged, closed) and the start of the description (`scripts/discord_pr_card.py`).
+- Merged pull requests post to **Discord** as cards, like releases: title, author and the start
+  of the description (`scripts/discord_pr_card.py`). Opening, reopening and closing without
+  merging stay quiet.
 - **Front + back** in Create: for a character or a prop, Qwen draws the back of your picture,
   Pixal3D builds the shape from both, and Pixel Match paints from both, so the sides and back
   match your picture instead of being guessed. On by default when its downloads are present

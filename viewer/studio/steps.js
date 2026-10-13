@@ -23,16 +23,22 @@ export async function postStart(url, body) {
 
 /** The body for the step the asset can take next. `ctx` has engines, presets, url(). */
 export function stepBody(stepId, asset, ctx) {
+  if (stepId === 'picture') {
+    return asset.prompt
+      ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
+          <button class="primary" data-newpicture>Open Create</button></details>` : '';
+  }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
     const [best, ...others] = ctx.engines;
     if (!best) return '<p class="hint">No 3D engine is installed yet. <a href="./setup.html">Install one in Setup</a>.</p>';
-    return `<p class="hint">Builds a textured 3D model from the picture. Takes a few minutes.</p>
+    const body = `<p class="hint">Builds a textured 3D model from the picture. Takes a few minutes.</p>
       <details class="adv"><summary>Advanced</summary>
         <label class="field">Engine<select data-k="engine">${[best, ...others].map((e, i) => `<option value="${esc(e.id)}">${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>
         <p class="hint" data-k="licence">${esc(best.license)}</p>
       </details>
-      <button class="primary" data-run="model">Make 3D model</button>`;
+      <button class="primary" data-run="model">${asset.model ? 'Make another 3D model' : 'Make 3D model'}</button>`;
+    return asset.model ? redoBox('Make another 3D model', 'Builds a new 3D model from the same picture. It shows up as a new version; the current one is kept.', body) : body;
   }
   if (stepId === 'finished' && asset.kind === 'prop set') {
     return `<p class="hint">Cuts the sheet into one model per prop, each cleaned up with lighter versions for far away. A few minutes.</p>
@@ -50,14 +56,17 @@ export function stepBody(stepId, asset, ctx) {
       </details>
       <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
     return asset.finished
-      ? `<details class="adv redo"><summary>Redo Finish</summary><p class="hint">Makes a new finished model from the raw one, say at another detail level. The current one is kept.</p>${controls}</details>`
+      ? `<details class="adv redo"><summary>Redo Finish</summary><p class="hint">Makes a new finished model from the raw one, say at another detail level. It shows up as a new version; the current one is kept.</p>${controls}</details>`
       : controls;
   }
   if (stepId === 'rigged') {
-    return `<p class="hint">Adds a skeleton so it can move. About a minute. Works best on a character standing in an A-pose (a T-pose works too) with empty hands.</p>
+    const both = asset.finished && asset.model;
+    const body = `<p class="hint">Adds a skeleton so it can move. About a minute. Works best on a character standing in an A-pose (a T-pose works too) with empty hands.</p>
+      ${both ? '<label class="field">Rig which model<select data-k="rigsource"><option value="finished">The finished model</option><option value="model">The raw model (skips Finish)</option></select></label>' : ''}
       <p class="ask">Is this a humanoid: two arms, two legs, standing upright?</p>
       <div class="row"><button class="primary" data-run="rigged" data-humanoid="yes">Yes, rig it</button>
       <button class="ghost" data-run="rigged" data-humanoid="no" data-tip="Four-legged and other creatures can be rigged but not animated with the preset moves, and the rig may be wonky.">No, rig it anyway</button></div>`;
+    return asset.rigged ? redoBox('Re-rig', 'Makes a new rig from the model. It shows up as a new version; the current rig and its moves are kept.', body) : body;
   }
   if (stepId === 'animated' && asset.fits_moves === false) {
     return `<p class="hint">Rigged. Preset moves are for humanoids only for now: four-legged and other creatures can be rigged,
@@ -65,6 +74,11 @@ export function stepBody(stepId, asset, ctx) {
   }
   if (stepId === 'animated') return movePicker(asset, ctx, asset.clips.length ? 'Add this move' : 'Animate');
   return '';
+}
+
+/** A step that is already done, offered again: folded away, and its result is a new version. */
+function redoBox(title, note, body) {
+  return `<details class="adv redo"><summary>${title}</summary><p class="hint">${note}</p>${body}</details>`;
 }
 
 // Detail: a preset triangle count, or a custom one (the server takes 1,000 to 200,000)
@@ -108,12 +122,13 @@ export function wireStep(card, stepId, asset, ctx) {
       faces: finishFaces(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, texture: Number(k('texture')?.value),
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
+      rigSource: k('rigsource')?.value || 'finished',
     };
     card.dataset.lastPreset = settings.preset || '';
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
         : startFinish(asset, ctx, { faces: settings.faces, skip_photo: !settings.photo, texture_size: settings.texture })),
-      rigged: () => startRig(asset),
+      rigged: () => startRig(asset, settings.rigSource),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread) }[stepId];
     const note = button.dataset.humanoid === 'no'
       ? 'Rigging anyway. Preset moves only fit humanoids, so this one can be downloaded and animated in Blender. The rig may be wonky.' : '';
@@ -145,9 +160,9 @@ async function startSplit(asset) {
   return { kind: 'props', start: await postStart('/api/props', form) };
 }
 
-async function startRig(asset) {
+async function startRig(asset, source = 'finished') {
   const form = new FormData();
-  form.append('model', asset.finished || asset.model);
+  form.append('model', (source === 'model' ? asset.model : null) || asset.finished || asset.model);
   return { kind: 'animate', start: await postStart('/api/animate/rig', form) };
 }
 

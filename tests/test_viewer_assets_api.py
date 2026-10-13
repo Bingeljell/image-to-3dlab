@@ -387,3 +387,97 @@ def test_an_asset_carries_the_prompt_its_picture_was_drawn_from(output):
     _write(output / "images" / IMG / f"{IMG}.provenance.json", json.dumps({"prompt": "A chunky knight"}), 1000)
     assert _by_name(aa.list_assets(output))["a chunky knight"]["prompt"] == "A chunky knight"
     assert _by_name(aa.list_assets(output))["a lone fox"]["prompt"] is None       # no record kept
+
+
+# --- deleting a version --------------------------------------------------------------------------
+
+
+def test_deleting_a_version_removes_only_what_it_alone_owns(output):
+    run = _rig_again(output)
+    second = _knights(output)[1]
+    plan = aa.plan_delete(output, second["id"])
+    assert [f["path"] for f in plan["folders"]] == [f"animate/{run.name}"] and plan["bytes"] > 0
+    aa.set_name(output, second["id"], "Spare rig")
+    aa.set_hidden(output, second["id"], True)
+    aa.delete_version(output, second["id"])
+    assert not run.exists()
+    first, = _knights(output)
+    assert first["versions"] == 1 and first["rigged"] and [c["name"] for c in first["clips"]] == ["dance", "run"]
+    for shared in (output / "finish" / FIN, output / "images" / IMG):
+        assert shared.is_dir()                                  # picture, model and finish stay
+    meta = json.loads((output / aa.META_NAME).read_text())
+    assert second["id"] not in meta.get("hidden", []) and second["id"] not in meta.get("names", {})
+
+
+def test_the_original_stays_while_later_versions_were_built_from_it(output):
+    _rig_again(output)
+    first = _knights(output)[0]
+    plan = aa.plan_delete(output, first["id"])
+    assert "original" in plan["refused"]
+    with pytest.raises(ValueError, match="original"):
+        aa.delete_version(output, first["id"])
+    assert (output / "animate" / RIG).is_dir()
+
+
+def test_a_lone_version_takes_its_picture_and_model_with_it(output):
+    fox = _by_name(aa.list_assets(output))["a lone fox"]
+    plan = aa.plan_delete(output, fox["id"])
+    assert plan["refused"] is None and [f["path"] for f in plan["folders"]] == ["images/a-lone-fox__20261006-080100"]
+    aa.delete_version(output, fox["id"])
+    assert "a lone fox" not in _by_name(aa.list_assets(output))
+
+
+def test_only_real_asset_ids_can_be_deleted(output):
+    for bad in ("../../etc", "0123456789ab"):
+        with pytest.raises(ValueError):
+            aa.delete_version(output, bad)
+    assert (output / "images").is_dir()
+
+
+def test_deleting_never_reaches_outside_output(output, tmp_path):
+    import shutil
+
+    run = output / "images" / "a-lone-fox__20261006-080100"
+    outside = tmp_path / "keep-me"
+    _write(outside / "a-lone-fox__20261006-080100.png", b"png")
+    shutil.rmtree(run)
+    run.symlink_to(outside, target_is_directory=True)        # a run folder that is really a link elsewhere
+    fox = _by_name(aa.list_assets(output))["a lone fox"]
+    with pytest.raises(ValueError, match="refusing"):
+        aa.delete_version(output, fox["id"])
+    assert (outside / "a-lone-fox__20261006-080100.png").is_file()
+
+
+def test_the_delete_endpoints_preview_first_and_need_a_confirmation(output, monkeypatch):
+    import http.server
+    import threading
+    import urllib.error
+    import urllib.request
+
+    import generate_api as api
+
+    monkeypatch.setattr(api, "OUTPUT_ROOT", output)
+    run = _rig_again(output)
+    second = _knights(output)[1]
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}/api/assets/{second['id']}"
+
+    def call(url, body=None):
+        request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
+                                         headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+    try:
+        status, plan = call(f"{base}/delete-plan")
+        assert status == 200 and plan["folders"][0]["path"] == f"animate/{run.name}" and run.is_dir()
+        assert call(f"{base}/delete", {})[0] == 422 and run.is_dir()                  # no confirmation, nothing happens
+        status, done = call(f"{base}/delete", {"confirm": True})
+        assert status == 200 and done["deleted"] == [f"animate/{run.name}"] and not run.exists()
+        assert call(f"{base}/delete", {"confirm": True})[0] == 422                    # already gone
+    finally:
+        server.shutdown()
+        server.server_close()

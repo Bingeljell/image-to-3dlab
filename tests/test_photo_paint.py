@@ -239,6 +239,41 @@ def test_swapping_the_texture_changes_nothing_else(tmp_path):
     assert length == len(swapped)
 
 
+def _webp_only_glb(colour=(90, 60, 30)) -> bytes:
+    """A GLB whose base colour is WebP through EXT_texture_webp, with no PNG fallback:
+    how Pixal3D's raw output arrives."""
+    buffer = io.BytesIO()
+    Image.new("RGB", (8, 8), colour).save(buffer, format="WEBP", lossless=True)
+    doc, binary = pp._split_glb(pp.replace_base_colour(_textured_glb(), buffer.getvalue()))
+    doc["images"][0]["mimeType"] = "image/webp"
+    texture = doc["textures"][0]
+    texture["extensions"] = {"EXT_texture_webp": {"source": texture.pop("source")}}
+    doc["extensionsUsed"] = ["EXT_texture_webp"]
+    doc["extensionsRequired"] = ["EXT_texture_webp"]
+    return pp._join_glb(doc, binary)
+
+
+def test_a_webp_only_glb_can_be_read(tmp_path):
+    path = tmp_path / "raw.glb"
+    path.write_bytes(_webp_only_glb())
+    _, _, _, texture = pp.read_glb(path)
+    assert tuple(texture[0, 0, :3]) == (90, 60, 30)
+
+
+def test_painting_a_webp_only_glb_writes_a_plain_png_texture(tmp_path):
+    new_png = pp.encode_png(np.full((16, 16, 3), 200, dtype=np.uint8))
+    swapped = pp.replace_base_colour(_webp_only_glb(), new_png)
+    doc, _ = pp._split_glb(swapped)
+    # A PNG behind a WebP extension would be a lie to every reader, so the texture points
+    # at it directly and the extension is gone.
+    assert doc["textures"][0]["source"] == 0 and "extensions" not in doc["textures"][0]
+    assert "EXT_texture_webp" not in doc.get("extensionsRequired", [])
+    assert "EXT_texture_webp" not in doc.get("extensionsUsed", [])
+    path = tmp_path / "painted.glb"
+    path.write_bytes(swapped)
+    assert tuple(pp.read_glb(path)[3][0, 0, :3]) == (200, 200, 200)
+
+
 def test_a_glb_with_a_node_transform_is_refused(tmp_path):
     doc, binary = pp._split_glb(_textured_glb())
     doc["nodes"][0]["translation"] = [1.0, 0.0, 0.0]

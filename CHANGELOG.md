@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   few pixels at most. `scripts/photo_paint.py` reports what moved; `--no-align` turns it off.
 - The studio's **Steps** panel shows how long each finished step took, while a run is going
   and on any asset opened later (older assets too, from the run history).
+- **View pictures** on the Picture step: once a model is made, one click shows the pictures
+  it came from (front and back side by side), and another brings the model back.
 - A guide to **picking a picture** for 3D: soft 3D-render style over flat anime art, A-pose
   over T-pose, open hands, positive wording, and a prompt to start from
   ([docs/prompt-guide.md](docs/prompt-guide.md)).
@@ -30,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- The **picture guide** opens inside the studio: the "picture guide" link in Create's tips
+  shows it over Create, so nothing typed there is lost.
+- The studio's **Activity** list is one line per step ("✓ Rig · knight · 17:19 · 42 s");
+  click a line for the prompt, the file it made and the full log. New runs record their prompt.
+- The studio's **Steps** panel unlocks a step once the file it needs exists, not strictly in
+  order: rig a raw model without finishing it, or finish a model that has no picture (it is
+  cleaned up and re-baked, with Pixel Match skipped and a note saying so). A finished model
+  gets **Redo Finish**, with Detail from 5,000 to 200,000 triangles or a custom count.
 - **Create** now asks for characters in an **A-pose** (arms angled down, a gap from the body,
   hands open) instead of a T-pose, without mentioning fingers or listing things to leave
   out, both of which tended to add the very thing. New tips, linked to the picture guide.

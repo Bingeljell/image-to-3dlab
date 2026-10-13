@@ -271,10 +271,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def required_inputs(args: argparse.Namespace) -> list[Path]:
+    """The files this run must find. The picture feeds only the repaint and the photo
+    stage, so a run with neither (a model that came with no picture) needs just the mesh."""
+    if args.skip_paint and args.views is None:
+        return [args.source]
+    return [args.source, args.image]
+
+
 def main() -> int:
     args = build_parser().parse_args()
 
-    for path in (args.source, args.image):
+    for path in required_inputs(args):
         if not path.is_file():
             raise SystemExit(f"not found: {path}")
     args.blender, problem = preflight(args.blender, args.skip_paint)

@@ -596,3 +596,85 @@ def test_the_viewer_offers_clay_and_normal_views():
     assert "applyLook(meshesOf(view.materials)" in viewer
     guide = (REPO / "viewer" / "studio" / "pages.js").read_text()
     assert "clay" in guide and "normals" in guide and "face count" in guide
+
+
+@needs_node
+def test_view_pictures_is_offered_only_when_a_model_covers_the_picture():
+    out = _run("library.js", f"""
+      const a = {json.dumps([KNIGHT, FOX, SHEET])};
+      console.log(JSON.stringify(a.map(m.canViewPictures)));""")
+    # the knight's model hides its picture; the fox is only a picture; the sheet kept none
+    assert out == [True, False, False]
+
+
+RAW_RIG = {"name": "raw rig", "kind": "character", "stage": "rigged", "picture": "images/r/r.png",
+           "model": "a/r.glb", "finished": None, "rigged": "animate/r/r_rigged.glb", "clips": [], "props": []}
+UPLOAD = {"name": "upload", "kind": "model", "stage": "model", "picture": None, "model": "a/u.glb",
+          "finished": None, "rigged": None, "clips": [], "props": []}
+
+
+@needs_node
+def test_steps_unlock_by_the_files_they_need_not_by_order():
+    out = _run("library.js", f"""
+      const steps = ['picture', 'model', 'finished', 'rigged', 'animated'];
+      const a = {json.dumps([KNIGHT, FOX, RAW_RIG, UPLOAD])};
+      console.log(JSON.stringify(a.map(x => steps.map(s => m.stepState(x, s)))));""")
+    assert out == [
+        ["done", "done", "done", "done", "done"],
+        ["done", "now", "later", "later", "later"],
+        # rigged straight from the raw model: Finish was skipped and can still run
+        ["done", "done", "now", "done", "now"],
+        # an upload with no picture: Finish and Rig are open, Animate waits for the rig
+        ["done", "done", "now", "now", "later"],
+    ]
+
+
+@needs_node
+def test_progress_counts_skipped_steps_as_not_done():
+    out = _run("library.js", f"""
+      const a = {json.dumps([RAW_RIG, UPLOAD])};
+      console.log(JSON.stringify(a.map(x => [m.doneCount(x), m.nextStep(x)?.id ?? null])));""")
+    assert out == [[3, "finished"], [2, "finished"]]
+
+
+@needs_node
+def test_finish_detail_takes_a_preset_or_a_custom_count():
+    out = _run("library.js", """
+      console.log(JSON.stringify([m.finishFaces('40000', '1'), m.finishFaces('custom', '62500.4')]));""")
+    assert out == [40000, 62500]
+
+
+@needs_node
+def test_each_activity_entry_is_one_line():
+    out = _run("pages.js", """
+      const r = (step, result, seconds) => ({ time: '2026-10-12T17:19:05', title: 'blocky toy knight', step, result, seconds });
+      console.log(JSON.stringify([r('rigged', 'done', 42), r('finished', 'error', 130), r('model', 'cancelled', 5)].map(m.activityLine)));""")
+    assert out == [
+        "✓ Rig · blocky toy knight · 17:19 · 42 s",
+        "! Finish · blocky toy knight · 17:19 · 2 min 10 s · failed",
+        "■ 3D model · blocky toy knight · 17:19 · 5 s · stopped",
+    ]
+
+
+@needs_node
+def test_the_picture_guide_renders_from_the_real_doc():
+    doc = (REPO / "docs" / "prompt-guide.md").read_text()
+    out = _run("guide.js", f"""
+      const html = m.renderGuide({json.dumps(doc)});
+      console.log(JSON.stringify({{ html, links: [
+        m.isGuideLink('https://github.com/Bingeljell/image-to-3dlab/blob/main/docs/prompt-guide.md'),
+        m.isGuideLink('https://github.com/Bingeljell/image-to-3dlab/blob/main/README.md')] }}));""")
+    html = out["html"]
+    assert html.startswith("<h2>Picking a picture")
+    assert '<img src="/docs/images/prompt-guide-style-and-pose.jpg"' in html   # served by the studio
+    assert "<h3>What works</h3>" in html and "<b>1. A soft 3D-render look.</b>" in html
+    assert html.count("<li>") == 3                                            # the "go wrong" list
+    assert "<pre class=\"log\">A [character] in A-pose" in html
+    assert "**" not in html and "](" not in html                              # no raw Markdown left
+    assert out["links"] == [True, False]
+
+
+def test_the_tips_link_to_the_guide_the_studio_opens():
+    recipes = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())
+    assert any("prompt-guide.md" in tip for tip in recipes["goals"]["character"]["tips"])
+    assert (REPO / "docs" / "prompt-guide.md").is_file()

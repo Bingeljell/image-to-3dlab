@@ -3,6 +3,7 @@
 
 import { HAVES, WANTS, ALLOWED, STEP_LABELS, planFor, stopAfter, composePrompt, troubleFor } from './plan.js';
 import { plainError } from './jobs.js';
+import { openPromptGuide, isGuideLink } from './guide.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
@@ -96,6 +97,11 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     sheet.querySelectorAll('[data-stop]').forEach((b) => b.onclick = () => { state.stop = state.stop === b.dataset.stop ? null : b.dataset.stop; render(); });
     sheet.querySelectorAll('.qs').forEach((b) => b.onclick = () => { state.want = b.dataset.w; state.have = b.dataset.h; state.file = null; state.stop = null; render(); });
     q('[data-tips]')?.addEventListener('click', () => { state.tips = !state.tips; render(); });
+    // the tips' "picture guide" link opens here, over Create, instead of on GitHub
+    q('.tipsbox')?.addEventListener('click', (e) => {
+      const link = e.target.closest('a');
+      if (link && isGuideLink(link.href)) { e.preventDefault(); openPromptGuide(); }
+    });
     const text = q('[data-k="text"]');
     if (text) { text.oninput = () => { state.text = text.value; warn(); }; warn(); }
     q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });

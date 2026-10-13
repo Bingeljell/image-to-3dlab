@@ -2910,9 +2910,11 @@ class Handler(SimpleHTTPRequestHandler):
             if not asset or not asset_name.lower().endswith(".glb"):
                 self._send_json(422, {"error": "multipart field 'asset' must be a .glb file"})
                 return
+            # The picture is optional: without one, Finish cleans up and re-bakes the mesh
+            # alone (no Pixel Match), so a model uploaded with no picture can still finish.
             image = form.get("image")
             image_name = str(image.get("filename")) if image else ""
-            if not image or Path(image_name).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+            if image and Path(image_name).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
                 self._send_json(422, {
                     "error": "multipart field 'image' must be the source art (PNG/JPG/WebP)"
                 })
@@ -2932,7 +2934,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             try:
                 job = FINISH_JOBS.create(
-                    asset_name, asset["data"], image["data"], raw_settings,
+                    asset_name, asset["data"], image["data"] if image else None, raw_settings,
                 )
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})

@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, doneCount, statusText, displayModel, stepFile, servedUrl, visibleAssets, openingView, isModelFile, duration } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleAssets, openingView, isModelFile, duration, canViewPictures } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -18,6 +18,7 @@ let filter = 'all', query = '', showHidden = false, limit = 30;
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
 let making = null, viewingMaking = false;  // the asset Create is making right now
+let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
 
@@ -28,7 +29,7 @@ const fileName = (relative) => relative?.split('/').pop() ?? '';
 function renderLibrary() {
   const { rows: list, more, hiddenCount } = visibleAssets(assets, { filter, query, showHidden, limit });
   $('assetList').innerHTML = makingRow() + (list.length ? list.map((asset) => {
-    const pips = Array.from({ length: stepCount(asset) }, (_, i) => `<i class="${i < doneCount(asset) ? 'done' : ''}"></i>`).join('');
+    const pips = STEPS.slice(0, stepCount(asset)).map((step) => `<i class="${stepDone(asset, step.id) ? 'done' : ''}"></i>`).join('');
     // a small server-made copy, not the full picture (often a megabyte each)
     const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
     return `<li><button class="asset${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" aria-current="${!viewingMaking && asset === current}">
@@ -63,22 +64,33 @@ function summaries(asset) {
 
 function renderSteps(asset) {
   $('sideKind').textContent = { 'prop set': 'Prop set', prop: 'Prop', character: 'Character', model: '3D model', picture: 'Picture' }[asset.kind] || '';
-  const done = doneCount(asset), total = stepCount(asset), sum = summaries(asset);
+  const total = stepCount(asset), sum = summaries(asset);
   $('steps').innerHTML = STEPS.map((step, i) => {
     if (i >= total) return `<li class="step na"><header><span class="dot">–</span><span><h3>${step.label}</h3><div class="sum">Not needed for props</div></span></header></li>`;
-    const state = i < done ? 'done' : i === done ? 'now' : 'later';
+    const state = stepState(asset, step.id);
     const dot = state === 'done' ? '✓' : i + 1;
-    const showBody = state === 'now' || (step.id === 'animated' && state === 'done');
-    const body = showBody ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
+    // a finished model can be finished again at another detail level; a rigged one gets more moves
+    const redo = state === 'done' && ((step.id === 'animated') || (step.id === 'finished' && asset.kind !== 'prop set'));
+    const body = state === 'now' || redo ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
     return `<li class="step ${state}" data-step="${step.id}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}${stepLink(asset, step.id)}</div>` : ''}</span>${state === 'done' && asset.timings?.[step.id] ? `<span class="time">${duration(asset.timings[step.id])}</span>` : ''}</header>${body}</li>`;
   }).join('');
   $('steps').querySelectorAll('.step').forEach((card) => {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
   });
+  $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
+    if (viewingPictures) { show(asset); return; }
+    viewingPictures = true;
+    viewer.setClips([]);
+    viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? url(asset.back) : null);
+    renderSteps(asset);
+  });
   setDownload(displayModel(asset));
 }
 
 function stepLink(asset, stepId) {
+  if (stepId === 'picture' && canViewPictures(asset)) {
+    return ` · <button type="button" class="linkish" data-pictures>${viewingPictures ? 'Show model' : `View picture${asset.back ? 's' : ''}`}</button>`;
+  }
   const file = stepFile(asset, stepId);
   return file ? ` · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
 }
@@ -104,6 +116,7 @@ function show(asset) {
   closeSheet($('stage'));   // Create/Activity/How to use/About cover the viewer; get them out of the way
   current = asset;
   viewingMaking = false;
+  viewingPictures = false;
   $('progress').hidden = true;
   renderLibrary();
   $('vTitle').textContent = asset?.name ?? '';

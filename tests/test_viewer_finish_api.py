@@ -565,3 +565,23 @@ def test_a_finished_model_is_named_by_its_path_in_output(tmp_path, monkeypatch):
     glb = tmp_path / "output" / "finish" / "knight__finish__20261006-220000" / "knight_40k.glb"
     assert finish.library_path(glb) == "finish/knight__finish__20261006-220000/knight_40k.glb"
     assert finish.library_path(tmp_path / "elsewhere.glb") is None
+
+
+def test_a_run_without_a_picture_finishes_the_mesh_alone(tmp_path):
+    manager = finish.FinishJobManager(output_root=tmp_path, generated_root=tmp_path / "none")
+    job = manager.create("upload.glb", b"glb", None, {"faces": 10000, "skip_photo": False})
+    assert job.settings["skip_photo"] is True and job.settings["skip_paint"] is True
+    assert not job.image_path.exists()
+    command = finish.build_command(job, job.settings)
+    assert "--skip-paint" in command and "--views" not in command
+    # and a run that died halfway is still offered for resume, and adopts cleanly
+    assert finish.describe_run(job.directory)["resumable"] is True
+    manager.finish(job)
+    assert manager.adopt(job.directory.name).asset_path == job.asset_path
+
+
+def test_a_run_with_pixel_match_still_needs_its_picture(tmp_path):
+    job = finish.FinishJob("", tmp_path)
+    assert finish.needed_inputs(job, {"skip_photo": False}) == [job.asset_path, job.image_path]
+    assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": False}) == [job.asset_path, job.image_path]
+    assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": True}) == [job.asset_path]

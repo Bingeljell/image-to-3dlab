@@ -565,7 +565,14 @@ def base_colour_image_index(doc: dict) -> int:
     texture = materials[0].get("pbrMetallicRoughness", {}).get("baseColorTexture")
     if texture is None:
         raise ValueError("the material has no base colour texture to paint")
-    return doc["textures"][texture["index"]]["source"]
+    entry = doc["textures"][texture["index"]]
+    if "source" in entry:
+        return entry["source"]
+    # Pixal3D's raw output carries only a WebP image, reachable through the extension.
+    webp = entry.get("extensions", {}).get("EXT_texture_webp", {})
+    if "source" not in webp:
+        raise ValueError("the base colour texture has no image this reader understands")
+    return webp["source"]
 
 
 def read_glb(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -612,8 +619,29 @@ def replace_base_colour(data: bytes, png: bytes) -> bytes:
         view["byteLength"] = len(chunk)
         packed += chunk
     doc["buffers"][0]["byteLength"] = len(packed)
-    doc["images"][base_colour_image_index(doc)]["mimeType"] = "image/png"
+    image = base_colour_image_index(doc)
+    doc["images"][image]["mimeType"] = "image/png"
+    _drop_webp_extension(doc, image)
     return _join_glb(doc, packed)
+
+
+def _drop_webp_extension(doc: dict, image: int) -> None:
+    """Point every texture that showed `image` through EXT_texture_webp straight at it,
+    now that it is a PNG, and stop declaring the extension once nothing uses it."""
+    for texture in doc.get("textures", []):
+        extensions = texture.get("extensions", {})
+        if extensions.get("EXT_texture_webp", {}).get("source") == image:
+            texture["source"] = image
+            del extensions["EXT_texture_webp"]
+            if not extensions:
+                texture.pop("extensions")
+    if any("EXT_texture_webp" in t.get("extensions", {}) for t in doc.get("textures", [])):
+        return
+    for key in ("extensionsUsed", "extensionsRequired"):
+        if key in doc:
+            doc[key] = [name for name in doc[key] if name != "EXT_texture_webp"]
+            if not doc[key]:
+                del doc[key]
 
 
 def encode_png(pixels: np.ndarray) -> bytes:

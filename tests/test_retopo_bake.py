@@ -112,6 +112,11 @@ def test_ray_distance_uses_the_largest_dimension():
     assert retopo.ray_distance((1.0, 5.0, 2.0)) == pytest.approx(retopo.ray_distance((5.0, 5.0, 5.0)))
 
 
+def test_ray_distance_is_short_enough_to_miss_parts_in_front():
+    """At 2% of the model's size, brows and lips in front of a face painted over it."""
+    assert retopo.ray_distance((1.0, 1.0, 1.0)) == pytest.approx(0.005)
+
+
 def test_ray_distance_is_a_small_fraction_not_the_whole_body():
     """Reaching across the body would sample the far side's colour onto the near side."""
     assert retopo.ray_distance((1.0, 1.0, 1.0)) < 0.1

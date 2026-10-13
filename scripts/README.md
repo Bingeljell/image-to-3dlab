@@ -203,6 +203,7 @@ Numbers about the project itself, not about any asset.
 | Script | What it does |
 |---|---|
 | `discord_release_card.py` | Post a GitHub release to Discord as a tidy card instead of a bare link. |
+| `discord_pr_card.py` | Post a GitHub pull request to Discord as a tidy card, like the release cards. |
 | `repo_traffic.py` | Save a repo's GitHub traffic and its one-line install counts into one CSV, a row per day. |
 
 ## Vendor patches

@@ -1,0 +1,22 @@
+name: Discord PR card
+
+# pull_request_target so PRs from forks can use the webhook secret too. It runs this
+# workflow as it is on main and never checks out or runs the PR's own code: the card is
+# built from the event GitHub sends.
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, closed]
+
+permissions:
+  contents: read
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post to Discord
+        env:
+          # its own channel when DISCORD_PR_WEBHOOK is set, else the releases channel
+          DISCORD_PR_WEBHOOK: ${{ secrets.DISCORD_PR_WEBHOOK || secrets.DISCORD_RELEASE_WEBHOOK }}
+        run: python3 scripts/discord_pr_card.py "$GITHUB_EVENT_PATH"

@@ -25,7 +25,7 @@ export function freshSeed(random = Math.random) {
 }
 
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
-export function openCreate({ stage, recipes, engines, presets, frontBack = null, onStart }) {
+export function openCreate({ stage, recipes, engines, presets, frontBack = null, prefill = null, onStart }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
@@ -33,6 +33,8 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
     pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false,
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
+  // "Draw another picture": the picture's own description, word for word, so nothing is added twice
+  if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
   const close = () => sheet.remove();
 
   const render = () => {

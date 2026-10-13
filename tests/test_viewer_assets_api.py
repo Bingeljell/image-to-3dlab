@@ -381,3 +381,9 @@ def test_one_version_per_family_can_be_the_main_one(output):
     assert (output / "finish" / FIN / "a-chunky-knight_40k.glb").is_file()   # nothing deleted
     with pytest.raises(ValueError):
         aa.set_main(output, "0123456789ab", True)
+
+
+def test_an_asset_carries_the_prompt_its_picture_was_drawn_from(output):
+    _write(output / "images" / IMG / f"{IMG}.provenance.json", json.dumps({"prompt": "A chunky knight"}), 1000)
+    assert _by_name(aa.list_assets(output))["a chunky knight"]["prompt"] == "A chunky knight"
+    assert _by_name(aa.list_assets(output))["a lone fox"]["prompt"] is None       # no record kept

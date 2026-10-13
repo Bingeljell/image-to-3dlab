@@ -85,6 +85,17 @@ def _prompted_as_prop(picture: Path, wording: str | None) -> bool:
     return wording in str(record.get("prompt", ""))
 
 
+def _picture_prompt(picture: Path | None) -> str | None:
+    """What the picture was drawn from, kept in its provenance record, so it can be drawn again."""
+    if picture is None:
+        return None
+    try:
+        text = json.loads(picture.with_suffix(".provenance.json").read_text()).get("prompt")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return text if isinstance(text, str) and text.strip() else None
+
+
 def friendly_name(stem: str) -> str:
     """'a-chunky-knight__20261005-205524-cutout__pixal3d__...' -> 'a chunky knight'."""
     words = stem.split("__")[0].removesuffix("-cutout").replace("-", " ").replace("_", " ").strip()
@@ -367,6 +378,7 @@ def list_assets(output: Path) -> list[dict[str, Any]]:
             "kind": kind,
             "stage": stage,
             "picture": rel(picture["file"]) if picture else None,
+            "prompt": _picture_prompt(picture["file"] if picture else None),
             # Front + back: the drawn back sits beside its front as <front>__back.png.
             "back": rel(back) if picture and (back := picture["file"].with_name(
                 f"{picture['file'].stem}__back.png")).is_file() else None,

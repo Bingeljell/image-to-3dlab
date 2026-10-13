@@ -81,12 +81,16 @@ function renderSteps(asset) {
     const state = stepState(asset, step.id);
     const dot = state === 'done' ? '✓' : i + 1;
     // a finished model can be finished again at another detail level; a rigged one gets more moves
-    const redo = state === 'done' && ((step.id === 'animated') || (step.id === 'finished' && asset.kind !== 'prop set'));
+    const redo = state === 'done' && ({
+      picture: !!asset.prompt, model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
+      rigged: asset.kind !== 'prop set', animated: true,
+    }[step.id]);
     const body = state === 'now' || redo ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
     return `<li class="step ${state}" data-step="${step.id}"><header><span class="dot">${dot}</span><span style="min-width:0"><h3>${step.label}</h3>${state === 'done' ? `<div class="sum">${escape(sum[step.id])}${stepLink(asset, step.id)}</div>` : ''}</span>${state === 'done' && asset.timings?.[step.id] ? `<span class="time">${duration(asset.timings[step.id])}</span>` : ''}</header>${body}</li>`;
   }).join('');
   $('steps').querySelectorAll('.step').forEach((card) => {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
+    card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({ text: asset.prompt, want: asset.kind === 'prop' ? 'prop' : 'character' }));
   });
   $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
     if (viewingPictures) { show(asset); return; }
@@ -260,9 +264,9 @@ async function loadTools() {
 }
 
 // ------------------------------------------------------------------ Create
-function openCreateSheet() {
+function openCreateSheet(prefill = null) {
   closeSheet($('stage'));
-  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, onStart: (plan) => startChain(plan) });
+  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, prefill, onStart: (plan) => startChain(plan) });
 }
 
 $('createBtn').addEventListener('click', () => {

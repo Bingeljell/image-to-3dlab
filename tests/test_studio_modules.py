@@ -716,3 +716,22 @@ def test_the_version_a_step_just_made_is_the_new_id_in_the_same_family():
         none: m.madeVersion(after, after, 'f1')?.id ?? null,
       }}));""")
     assert out == {"made": "b", "none": None}      # f2's new version is someone else's
+
+
+@needs_node
+def test_a_finished_step_can_be_run_again_as_a_new_version():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [{ id: 'pixal3d', label: 'Pixal3D', license: 'x' }] };
+      const knight = { kind: 'character', picture: 'i/k.png', prompt: 'A knight', model: 'm/k.glb', finished: 'f/k.glb', rigged: 'r/k.glb', clips: [] };
+      const raw = { ...knight, finished: null };
+      console.log(JSON.stringify({
+        model: m.stepBody('model', knight, ctx), rig: m.stepBody('rigged', knight, ctx), rigRaw: m.stepBody('rigged', raw, ctx),
+        picture: m.stepBody('picture', knight, ctx), noPrompt: m.stepBody('picture', { ...knight, prompt: null }, ctx),
+        firstRig: m.stepBody('rigged', { ...raw, rigged: null }, ctx),
+      }));""")
+    assert "Make another 3D model" in out["model"] and "new version" in out["model"]
+    assert "Re-rig" in out["rig"] and "new version" in out["rig"]
+    assert 'data-k="rigsource"' in out["rig"]                       # finished and raw both exist: you choose
+    assert 'data-k="rigsource"' not in out["rigRaw"]                # only the raw one: nothing to choose
+    assert "Re-rig" not in out["firstRig"]                          # a first rig is just "rig it"
+    assert "Draw another picture" in out["picture"] and out["noPrompt"] == ""

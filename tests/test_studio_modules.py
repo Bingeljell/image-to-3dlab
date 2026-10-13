@@ -774,3 +774,19 @@ def test_the_library_filters_by_step_engine_and_main_and_sorts_by_name():
     assert out["picture"] == "c" and out["model"] == "bd"     # a family shows the version that matches
     assert out["trellis"] == "bd" and out["starred"] == "b"
     assert out["engines"] == ["Pixal3D", "TRELLIS.2"]
+
+
+@needs_node
+def test_finish_offers_three_tested_detail_levels_and_warns_about_custom():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const html = m.stepBody('finished', { kind: 'character', picture: 'i/k.png', model: 'm/k.glb', finished: null, clips: [] }, ctx);
+      const options = [...html.matchAll(/<option value="(\\w+)"( selected)?>([^<]*)<\\/option>/g)]
+        .filter((o) => /^(\\d+|custom)$/.test(o[1])).map((o) => [o[1], !!o[2], o[3]]);
+      console.log(JSON.stringify({ options, hint: /unexpected results/.test(html) }));""")
+    values = [o[0] for o in out["options"] if o[0] != "1024"]
+    detail = [o for o in out["options"] if o[0] in ("10000", "20000", "40000", "custom", "5000", "100000", "200000")]
+    assert [o[0] for o in detail] == ["10000", "20000", "40000", "custom"]       # no 5k (broken), 100k or 200k
+    assert [o[0] for o in detail if o[1]] == ["20000"]                           # 20,000 is the default
+    assert "unexpected results" in detail[-1][2] and out["hint"] is True
+    assert values

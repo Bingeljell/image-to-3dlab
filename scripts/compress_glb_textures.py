@@ -86,8 +86,17 @@ def build_glb(document: dict, binary: bytes) -> bytes:
     return b"glTF" + struct.pack("<II", 2, 12 + len(body)) + body
 
 
+def normal_texture_images(document: dict) -> set[int]:
+    """Image indices feeding a material's normal map."""
+    return _slot_images(document, normal_only=True)
+
+
 def data_texture_images(document: dict) -> set[int]:
     """Image indices feeding a slot the shader reads as numbers rather than colour."""
+    return _slot_images(document, normal_only=False)
+
+
+def _slot_images(document: dict, normal_only: bool) -> set[int]:
     textures = document.get("textures", [])
     found: set[int] = set()
 
@@ -102,6 +111,9 @@ def data_texture_images(document: dict) -> set[int]:
             found.add(source)
 
     for material in document.get("materials", []):
+        if normal_only:
+            note(material.get("normalTexture"))
+            continue
         pbr = material.get("pbrMetallicRoughness", {})
         note(pbr.get("metallicRoughnessTexture"))
         for slot in DATA_SLOTS:
@@ -158,8 +170,12 @@ def compress(
     map_quality: int = 90,
     max_size: int | None = 2048,
     map_size: int | None = 1024,
+    normal_size: int | None = 2048,
 ) -> tuple[bytes, list[dict]]:
-    """Re-encode every embedded image. Returns (glb_bytes, per-image report)."""
+    """Re-encode every embedded image. Returns (glb_bytes, per-image report).
+
+    A normal map holds the edges of every block and bevel, which is what lets a light mesh
+    look crisp, so it gets `normal_size` (None: the same cap as the other data maps)."""
     from PIL import Image
 
     document, binary = parse_glb(data)
@@ -169,6 +185,7 @@ def compress(
         return data, []
 
     data_images = data_texture_images(document)
+    normal_images = normal_texture_images(document) if normal_size else set()
 
     replacements: dict[int, bytes] = {}
     report: list[dict] = []
@@ -187,7 +204,7 @@ def compress(
                 opened,
                 fmt,
                 map_quality if is_data else quality,
-                map_size if is_data else max_size,
+                normal_size if index in normal_images else map_size if is_data else max_size,
             )
         if len(encoded) >= len(blob):
             # Re-encoding made it bigger, which happens on already-compact textures.
@@ -256,6 +273,11 @@ def main() -> int:
         help="Cap for data maps. These carry far less detail than an albedo and a 4096 "
              "metallic-roughness map is almost always 14 MB of nothing. 0 keeps it",
     )
+    parser.add_argument(
+        "--normal-size", type=int, default=2048,
+        help="Cap for the normal map, which carries the crisp edges of a light mesh and is "
+             "worth more than the other data maps (0: the same cap as --map-size)",
+    )
     args = parser.parse_args()
 
     data = args.asset.read_bytes()
@@ -266,6 +288,7 @@ def main() -> int:
         map_quality=args.map_quality,
         max_size=args.max_size or None,
         map_size=args.map_size or None,
+        normal_size=args.normal_size or None,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(out)

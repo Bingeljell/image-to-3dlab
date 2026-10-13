@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- **Finish** offers three tested detail levels: 10,000 (light), **20,000 (game-ready, the new
+  default)** and 40,000 (more detail), plus a Custom count marked "unexpected results". Tested on
+  five very different models: 10k and 20k stay clean, 40k adds rough patches on some, and 5k
+  breaks shapes, so 5,000, 100,000 and 200,000 are no longer listed.
+- Finish keeps the **normal map at 2048 px** instead of 1024 (about 1 MB more per model), so
+  light models keep crisp edges on blocks and bevels. The other data maps stay at 1024.
 - The **picture guide** opens inside the studio: the "picture guide" link in Create's tips
   shows it over Create, so nothing typed there is lost.
 - The studio's **Activity** list is one line per step ("✓ Rig · knight · 17:19 · 42 s");

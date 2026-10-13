@@ -225,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("source", type=Path, help="generated GLB to finish")
     parser.add_argument("image", type=Path, help="source concept art, for the repaint")
     parser.add_argument("output", type=Path, help="finished GLB to write")
-    parser.add_argument("--faces", type=int, default=40000, help="retopology target")
+    parser.add_argument("--faces", type=int, default=20000, help="retopology target")
     parser.add_argument("--atlas", type=int, default=2048)
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(

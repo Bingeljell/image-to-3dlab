@@ -216,3 +216,35 @@ def test_the_json_chunk_stays_valid_json_and_padded():
     assert kind == cg.JSON_CHUNK
     assert length % 4 == 0
     json.loads(out[20 : 20 + length])
+
+
+def test_the_normal_map_keeps_more_resolution_than_the_other_data_maps():
+    """A normal map carries the edges of every block and bevel, so it gets its own, larger cap."""
+    material = {"pbrMetallicRoughness": {
+        "baseColorTexture": {"index": 0},
+        "metallicRoughnessTexture": {"index": 1},
+    }, "normalTexture": {"index": 2}}
+    data, _ = _glb([_png((512, 512)), _png((512, 512), seed=3), _png((512, 512), seed=4)], material=material)
+
+    document, _binary = cg.parse_glb(data)
+    assert cg.normal_texture_images(document) == {2}
+
+    out, _report = cg.compress(data, map_size=64, normal_size=256, max_size=None)
+    document, binary = cg.parse_glb(out)
+
+    def side(index):
+        view = document["bufferViews"][index]
+        with Image.open(io.BytesIO(binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]])) as image:
+            return max(image.size)
+
+    assert (side(0), side(1), side(2)) == (512, 64, 256)      # colour untouched, roughness small, normal bigger
+
+
+def test_without_a_normal_size_the_normal_map_follows_the_other_data_maps():
+    material = {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}, "normalTexture": {"index": 1}}
+    data, _ = _glb([_png((512, 512)), _png((512, 512), seed=3)], material=material)
+    out, _ = cg.compress(data, map_size=64, normal_size=None, max_size=None)
+    document, binary = cg.parse_glb(out)
+    view = document["bufferViews"][1]
+    with Image.open(io.BytesIO(binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]])) as image:
+        assert max(image.size) == 64

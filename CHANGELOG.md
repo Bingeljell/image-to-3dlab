@@ -69,6 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output). The painted model is written with a plain PNG texture.
 - **Finish** no longer paints patches from brows and lips onto the face behind them (grey
   smears on a muzzle, blotches round the eyes). It copies colour from a much shorter distance.
+- A rig whose legs have **no toe bone** (three bones: thigh, knee, ankle) is no longer
+  read as facing backward. The studio turned such a character away from the camera and its
+  moves played in reverse. Facing is now read from which way the knee bends when there is no
+  toe. Rigs with a toe are unchanged; re-run Rig on an affected character to pick it up.
 - The two **Mac Hunyuan3D routes** now get your picture cut out first. Their shape stage trusts
   the picture's transparency, and a picture from Create has none that means anything, so the
   backdrop was built as a wall behind the model. A test now checks that every route gets a

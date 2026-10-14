@@ -555,6 +555,41 @@ def test_a_blocked_route_says_its_own_reason_not_the_usual_one():
     assert "huggingface-hub" in note and "AMD" in note
 
 
+def test_the_cuda_hunyuan_route_points_an_amd_card_at_the_rocm_one():
+    """Tencent's code is not NVIDIA-only; this route is. The AMD card gets the same model
+    built with HIP, and the note has to name that rather than claim an impossibility."""
+    note = bc.BY_ID["hunyuan-cuda"]._platform_note(bc.AMD)
+    assert "NVIDIA-only compiled extensions" not in note
+    assert "Hunyuan3D-2.1 (AMD)" in note
+    assert bc.BY_ID["hunyuan-rocm"].runs_here(bc.AMD, "linux") is True
+
+
+def test_the_mac_hunyuan_ports_do_not_claim_tencent_is_nvidia_only():
+    """Both MLX ports said "Tencent's own needs NVIDIA-only compiled extensions" after the
+    AMD route shipped, which was simply no longer true."""
+    for backend_id in ("hunyuan_xiong", "hunyuan-mlx"):
+        note = bc.BY_ID[backend_id]._platform_note(bc.AMD)
+        assert "NVIDIA-only compiled extensions" not in note, backend_id
+        assert "Hunyuan3D-2.1 (AMD)" in note, backend_id
+
+
+def test_every_route_named_as_an_amd_alternative_really_runs_on_amd():
+    """A suggestion that is itself unavailable is the same failure as no suggestion, and
+    it is what makes a page read as broken rather than as honest."""
+    for backend in bc.CATALOG:
+        note = backend._platform_note(bc.AMD)
+        if not note.startswith("Not on AMD"):
+            continue
+        # The route being talked about is the one the note is about, not a suggestion:
+        # "TRELLIS.2 (clean port) needs NVIDIA-only extensions" contains its own label and
+        # is not recommending it.
+        for other in bc.CATALOG:
+            if other.label == backend.label or other.label not in note:
+                continue
+            assert other.runs_here(bc.AMD, "linux"), \
+                f"{other.label} is suggested to an AMD user but does not run there"
+
+
 def test_an_amd_user_is_not_sent_to_an_nvidia_machine_they_do_not_have():
     """The MLX ports point at Tencent's own route as the alternative. That is true and
     useless here: it is NVIDIA-only too, so the note has to say Hunyuan is out, not offer

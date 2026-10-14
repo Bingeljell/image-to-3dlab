@@ -238,8 +238,13 @@ class Backend:
             reason = self.amd_blocked_reason or (
                 f"{self.label} needs NVIDIA-only compiled extensions, and upstream ships no "
                 f"ROCm build of them, so a download here would end in a failed build.")
-            return (f"Not on AMD yet. {reason} Pixal3D runs on this card and needs nothing "
-                    f"NVIDIA-only.")
+            # Point at a route that genuinely runs here, by asking the catalogue rather than
+            # naming one: a suggestion that is itself unavailable is the same failure as no
+            # suggestion at all, and it is the thing that reads as a broken page.
+            works = [b.label for b in CATALOG if AMD in b.runs_on and b.kind == "3d"]
+            tail = f" {works[0]} runs on this card and needs nothing NVIDIA-only." if works else ""
+            return f"Not on AMD. {reason}{tail}"
+
         # The "use the official version" advice is only true while this lab cannot run it
         # on NVIDIA itself; once a route lists NVIDIA, the plain note is the honest one.
         twin = BY_ID.get(self.nvidia_route) if self.nvidia_route else None
@@ -364,8 +369,8 @@ CATALOG: tuple[Backend, ...] = (
         # Tencent's own is NVIDIA-only. Saying so beats the generic note, which would
         # point an AMD reader at a machine they do not have.
         amd_blocked_reason=(
-            "Hunyuan is not available on AMD in any form: this port is Apple Silicon, and "
-            "Tencent's own needs NVIDIA-only compiled extensions."
+            "This port is Apple Silicon, and Tencent's own runs on AMD only in the "
+            "separate Hunyuan3D-2.1 (AMD) route, which is compiled with HIP."
         ),
         setup_minutes=25,
         build_probes=(venv_python(REPO / "hunyuan_mlx" / "shape"),
@@ -387,6 +392,13 @@ CATALOG: tuple[Backend, ...] = (
         label="Hunyuan3D-2.1 (NVIDIA)",
         rank=2,
         best_for="Hunyuan on an NVIDIA card: Tencent's own shape and PBR paint, one run.",
+        # On AMD this route is not "not built for your card": the same upstream commit
+        # builds with HIP, as hunyuan-rocm. Saying so stops the page reading as though
+        # Tencent's code itself were NVIDIA-only.
+        amd_blocked_reason=(
+            "This is the CUDA build of Tencent's own Hunyuan3D-2.1. The same upstream commit "
+            "compiles with HIP as Hunyuan3D-2.1 (AMD), which is the route for this card."
+        ),
         tradeoff=(
             "Linux only, and paint needs about 21 GB of GPU memory: a 24 GB card or bigger. "
             "Compiles its paint rasterizer for your card on setup."
@@ -476,8 +488,8 @@ CATALOG: tuple[Backend, ...] = (
         upstream=("Hunyuan3D-2.1", "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"),
         nvidia_route="hunyuan-cuda",
         amd_blocked_reason=(
-            "Hunyuan is not available on AMD in any form: this port is Apple Silicon, and "
-            "Tencent's own needs NVIDIA-only compiled extensions."
+            "This port is Apple Silicon, and Tencent's own runs on AMD only in the "
+            "separate Hunyuan3D-2.1 (AMD) route, which is compiled with HIP."
         ),
         automated_setup=False,
         setup_minutes=40,

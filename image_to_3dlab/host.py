@@ -410,13 +410,61 @@ def _installed_torch_cuda() -> str | None:
     return torch.version.cuda
 
 
+def _installed_torch_hip() -> str | None:
+    """The ROCm version the installed torch was built with; None if CUDA/CPU-only or missing."""
+    try:
+        import torch
+    except Exception:  # noqa: BLE001 - any failure means "no usable ROCm torch"
+        return None
+    return torch.version.hip
+
+
+# PyTorch itself plus the wheels that only make sense beside it: the CUDA runtime libraries,
+# the toolkit and Triton. PyPI's Linux torch *is* a CUDA build, so a lock resolved for one
+# NVIDIA machine drags about 6 GB of NVIDIA wheels onto every other machine -- including an
+# AMD card, which cannot load a single one of them.
+#
+# This is deliberately the same family `scripts/lock_nvidia_routes.py` keeps out of the
+# per-route locks. It lives here so the installer asks the same question the lock generator
+# answers, instead of growing a second, near-identical regex in a shell script.
+CUDA_FAMILY = re.compile(r"^(?:torch|torchvision|torchaudio|triton|pytorch-triton"
+                         r"|nvidia-[\w.-]+|cuda-[\w.-]+)\s*==", re.I)
+
+
+def is_cuda_package(line: str) -> bool:
+    """Whether one line of a lock names PyTorch or a wheel that only exists for NVIDIA.
+
+    Comments and blank lines are not packages, and a marker (`; sys_platform == ...`) is not
+    part of the name, so both are ignored. A pin such as `torch==2.14.1 ; python_version < '3.15'`
+    and a bare `torch==2.14.1` are the same line for this question.
+    """
+    return bool(CUDA_FAMILY.match(line.split("#", 1)[0].split(";", 1)[0].strip()))
+
+
+def without_cuda(text: str) -> str:
+    """A lock with PyTorch and the NVIDIA-only wheels taken out.
+
+    An AMD machine still gets PyTorch, just from ROCm's index instead of PyPI's CUDA build
+    (`torch-rocm-index`). Every other pin is kept, because it was resolved against the same
+    Python and was not the problem.
+    """
+    kept = [line for line in text.splitlines() if not is_cuda_package(line)]
+    return "\n".join(kept) + ("\n" if kept else "")
+
+
 def main(argv: list[str] | None = None, *, which: Callable = shutil.which,
          run: Callable = subprocess.run,
-         torch_cuda: Callable[[], str | None] = _installed_torch_cuda) -> int:
+         torch_cuda: Callable[[], str | None] = _installed_torch_cuda,
+         torch_hip: Callable[[], str | None] = _installed_torch_hip,
+         version_file: Path = ROCM_VERSION_FILE) -> int:
     """Small questions for the installers, answered without them parsing anything.
 
     `torch-index`: print the PyTorch CUDA index for this driver (empty if none fits).
     `torch-has-cuda`: exit 0 if the installed torch has CUDA, 1 if not.
+    `torch-rocm-index`: the same for this machine's ROCm, so an AMD card gets the ROCm
+        build rather than PyPI's CUDA one.
+    `torch-has-rocm`: exit 0 if the installed torch has HIP, 1 if not.
+    `without-cuda FILE`: print that lock minus PyTorch and the NVIDIA-only wheels.
     """
     command = (argv if argv is not None else sys.argv[1:])[:1]
     if command == ["torch-index"]:
@@ -424,7 +472,26 @@ def main(argv: list[str] | None = None, *, which: Callable = shutil.which,
         return 0
     if command == ["torch-has-cuda"]:
         return 0 if torch_cuda() else 1
-    print("usage: python -m image_to_3dlab.host {torch-index|torch-has-cuda}", file=sys.stderr)
+    if command == ["torch-rocm-index"]:
+        print(torch_rocm_index(rocm_version(version_file, which, run)) or "")
+        return 0
+    if command == ["torch-has-rocm"]:
+        return 0 if torch_hip() else 1
+    if command == ["without-cuda"]:
+        path = (argv if argv is not None else sys.argv[1:])[1:]
+        if not path:
+            print("usage: python -m image_to_3dlab.host without-cuda FILE",
+                  file=sys.stderr)
+            return 2
+        try:
+            print(without_cuda(Path(path[0]).read_text()), end="")
+        except OSError as error:
+            print(f"cannot read {path[0]}: {error}", file=sys.stderr)
+            return 2
+        return 0
+    print("usage: python -m image_to_3dlab.host "
+          "{torch-index|torch-has-cuda|torch-rocm-index|torch-has-rocm|without-cuda FILE}",
+          file=sys.stderr)
     return 2
 
 

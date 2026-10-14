@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-10-14
+
 ### Added
 - **Delete** a version from the studio. It says what goes ("its rig and moves") and how much space
   it frees, and asks first. Only what belongs to that version alone is removed; the picture and

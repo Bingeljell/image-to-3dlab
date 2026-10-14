@@ -70,6 +70,11 @@ COMMANDS: dict[str, list[str]] = {
     # unsupported everywhere else, so start() refuses before this runs on a Mac.
     "hunyuan-cuda": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_cuda.py"),
                      "--yes"],
+    # AMD-only: the same upstream commit, compiled with hipcc instead of nvcc. It is a
+    # separate route rather than a per-host override because the weights land in
+    # vendor/hunyuan-rocm/ and a machine with both cards keeps both installs.
+    "hunyuan-rocm": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_rocm.py"),
+                     "--yes"],
 }
 
 # Where a route installs differently per machine, the machine's own command wins. TRELLIS.2

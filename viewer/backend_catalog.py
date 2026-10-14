@@ -422,6 +422,46 @@ CATALOG: tuple[Backend, ...] = (
         ),
     ),
     Backend(
+        id="hunyuan-rocm",
+        label="Hunyuan3D-2.1 (AMD)",
+        rank=2,
+        best_for="Hunyuan on an AMD card: Tencent's own shape and PBR paint, one run.",
+        tradeoff=(
+            "Linux only, and paint needs about 21 GB of GPU memory: a 24 GB card runs it as "
+            "it comes. On 20 GB or less, setup lowers the texture resolution and views, and "
+            "chunks the attention, so it runs slower rather than not at all. The shape stage "
+            "fits in 10 GB and needs none of that."
+        ),
+        license_name="Tencent Hunyuan Community License (code + weights)",
+        license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",
+        install="scripts/bootstrap_hunyuan_rocm.py",
+        runs_on=(AMD,),
+        setup_minutes=30,
+        build_probes=(REPO / "vendor" / "hunyuan-rocm" / ".i2l-build-complete",),
+        caveat=(
+            "The Hunyuan weights are not licensed for use in the EU, the UK or South Korea. "
+            "Check the licence before downloading."
+        ),
+        weights=(
+            WeightSet("Hunyuan3D-2.1 shape + VAE", "tencent/Hunyuan3D-2.1", int(8.03 * GB),
+                      REPO / "vendor" / "hunyuan-rocm" / "models" / "tencent" / "Hunyuan3D-2.1"),
+            WeightSet("Hunyuan3D-2.1 PBR paint", "tencent/Hunyuan3D-2.1", int(6.89 * GB),
+                      HF_HUB_DIR / "models--tencent--Hunyuan3D-2.1"),
+            WeightSet("DINOv2-giant image encoder", "facebook/dinov2-giant", int(4.55 * GB),
+                      HF_HUB_DIR / "models--facebook--dinov2-giant",
+                      note="The paint model reads the picture with it. Upstream fetches it "
+                           "unannounced on the first run; here it is fetched at setup."),
+            WeightSet("RealESRGAN x4plus upscaler",
+                      "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/"
+                      "RealESRGAN_x4plus.pth",
+                      int(0.067 * GB),
+                      REPO / "vendor" / "hunyuan-rocm" / "ckpt" / "RealESRGAN_x4plus.pth"),
+            WeightSet("BiRefNet-lite background remover", _matte.LITE_URL, _matte.LITE_BYTES,
+                      _matte.model_file(_matte.LITE_MODEL),
+                      note="Cuts out pictures without alpha. Shared with the other routes."),
+        ),
+    ),
+    Backend(
         id="hunyuan-mlx",
         label="Hunyuan3D-MLX (dgrauet shape + Xiong paint)",
         rank=4,

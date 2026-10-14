@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Hunyuan3D-2.1 on AMD.** Tencent's own shape and PBR paint, the route NVIDIA users
+  already had, now builds for an AMD card with HIP: `scripts/bootstrap_hunyuan_rocm.py` and
+  the new **Hunyuan3D-2.1 (AMD)** engine in Create. Less work than it sounds -- the shape
+  stage is plain PyTorch, and the paint stage's one CUDA extension builds under ROCm's own
+  `setup.py` because `CUDAExtension` dispatches to `hipcc` on its own. No hipify step, no
+  source port.
+  - Paint settings are **fitted to the card**. Upstream wants about 21 GB; a 20 GB card does
+    not have that, so views, texture resolution and an attention chunk walk down until the
+    run fits what is free. The shape stage needs 10 GB and none of that.
+  - `scripts/patch_hunyuan_rocm.py` makes three fixes: a scheduler that crashed on a float
+    comparison, attention chunked so a small card fits, and a hardcoded `cuda:0` that
+    silently switched off CPU offload.
+  - `--flash-vdm` asks the shape decoder only for promising points. Pure PyTorch despite
+    the name, and much faster than querying every point of the grid.
+- The **shape stage** is verified end to end on an RX 7900 XT (gfx1100, ROCm 7.2): a
+  picture to a valid 25k-vertex GLB, with the manifest and provenance sidecar recording the
+  run as `amd-rocm`. The **paint stage** is installed and its extensions import, but has
+  not been run to a finished texture on this card: the weights for it are still fetching,
+  and it is the stage that needs the VRAM ladder above to do anything at 20 GB.
+
 ### Fixed
 - **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and
   PyPI's Linux torch is a CUDA build, so every AMD card was handed torch plus roughly 6 GB of

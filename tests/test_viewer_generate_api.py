@@ -418,6 +418,7 @@ def test_job_status_payload_names_the_model_once_it_is_on_disk(tmp_path, monkeyp
 def test_backend_registry_lists_every_backend():
     assert set(api.BACKENDS) == {
         "trellis", "sf3d", "hunyuan-mlx", "hunyuan-mlx-xiong", "pixal3d", "hunyuan-cuda",
+        "hunyuan-rocm",
     }
     for spec in api.BACKENDS.values():
         assert spec.stages, f"{spec.id} must declare at least one stage"
@@ -1630,7 +1631,8 @@ def test_matte_upload_cuts_out_and_keeps_the_original(tmp_path, monkeypatch):
 # it in its own code with our remover; this keeps a new route from slipping through.
 
 
-@pytest.mark.parametrize("host", [api.APPLE, api.backend_catalog.NVIDIA])
+@pytest.mark.parametrize("host", [api.APPLE, api.backend_catalog.NVIDIA,
+                                  api.backend_catalog.AMD])
 def test_every_route_gets_a_real_cut_out(host):
     specs = {**api.BACKENDS, "trellis": api.trellis_spec(host)}
     for backend_id, spec in specs.items():

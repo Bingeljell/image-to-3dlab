@@ -120,6 +120,13 @@ HUNYUAN_CUDA_VENDOR = REPO / "vendor" / "hunyuan-cuda"
 HUNYUAN_CUDA_WRAPPER = REPO / "scripts" / "hunyuan_cuda_generate.py"
 HUNYUAN_CUDA_PYTHON = HUNYUAN_CUDA_VENDOR / ".venv" / "bin" / "python"
 HUNYUAN_CUDA_MARKER = HUNYUAN_CUDA_VENDOR / ".i2l-build-complete"
+# Hunyuan3D-2.1 on Linux + AMD: the same upstream commit, compiled with hipcc instead of
+# nvcc by scripts/bootstrap_hunyuan_rocm.py. Its own vendor folder, because the weights
+# land there and a machine with both cards keeps both installs.
+HUNYUAN_ROCM_VENDOR = REPO / "vendor" / "hunyuan-rocm"
+HUNYUAN_ROCM_WRAPPER = REPO / "scripts" / "hunyuan_rocm_generate.py"
+HUNYUAN_ROCM_PYTHON = HUNYUAN_ROCM_VENDOR / ".venv" / "bin" / "python"
+HUNYUAN_ROCM_MARKER = HUNYUAN_ROCM_VENDOR / ".i2l-build-complete"
 OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"  # shipped default, never written
 # Timings learned on this machine. Under output/ (git-ignored): writing the tracked file
@@ -149,6 +156,7 @@ SELF_CUTTING: dict[tuple[str, str | None], str] = {
     ("sf3d", None): "image_to_3dlab/sf3d_backend.py",
     ("pixal3d", None): "scripts/pixal3d_generate.py",
     ("hunyuan-cuda", None): "scripts/hunyuan_cuda_generate.py",
+    ("hunyuan-rocm", None): "scripts/hunyuan_rocm_generate.py",
     ("trellis", "nvidia"): "scripts/trellis_cuda_generate.py",
 }
 
@@ -1958,6 +1966,62 @@ def _hunyuan_cuda_validate_settings(raw: Any) -> dict[str, Any]:
     return settings
 
 
+# The AMD route's defaults deliberately omit views and texture resolution. Upstream's
+# defaults want about 21 GB, which a consumer card does not have; the generator's
+# fit_paint_settings walks down a ladder until it fits what is free, and a default here
+# would override that without saying so.
+HUNYUAN_ROCM_DEFAULT_SETTINGS: dict[str, Any] = {
+    "seed": 1234,
+    "steps": 50,
+    "octree_resolution": 384,
+}
+
+
+def _hunyuan_rocm_validate_settings(raw: Any) -> dict[str, Any]:
+    """Validate what the studio sends, and pass through the two optional overrides.
+
+    The bounds are the generator's, not upstream's: a small card has to be allowed to ask
+    for one view and a 128px texture, which the NVIDIA route does not permit.
+    """
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("settings must be a JSON object")
+    known = {**HUNYUAN_ROCM_DEFAULT_SETTINGS, "max_num_view": 0, "paint_resolution": 0}
+    settings = {**HUNYUAN_ROCM_DEFAULT_SETTINGS,
+                **{k: v for k, v in raw.items() if k in known}}
+    try:
+        settings = {key: int(value) for key, value in settings.items()}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("all Hunyuan3D-2.1 settings must be integers") from exc
+    if settings["octree_resolution"] not in {256, 384, 512}:
+        raise ValueError("octree_resolution must be 256, 384 or 512")
+    if settings["steps"] < 1:
+        raise ValueError("steps must be at least 1")
+    if not 1 <= settings["max_num_view"] <= 9:
+        raise ValueError("max_num_view must be 1 to 9")
+    if settings["paint_resolution"] not in {128, 256, 512, 768}:
+        raise ValueError("paint_resolution must be 128, 256, 512 or 768")
+    return settings
+
+
+def _hunyuan_rocm_build_args(job: Job) -> list[str]:
+    """Only pass the two fitted settings when the studio actually set them.
+
+    The generator fits whatever is absent, so passing a default here would quietly pin the
+    card to whatever this file guessed when it was written.
+    """
+    s = job.settings
+    args = [str(job.image_path), str(job.output_path),
+            "--seed", str(s["seed"]), "--steps", str(s["steps"]),
+            "--octree-resolution", str(s["octree_resolution"])]
+    if "max_num_view" in s:
+        args += ["--max-num-view", str(s["max_num_view"])]
+    if "paint_resolution" in s:
+        args += ["--paint-resolution", str(s["paint_resolution"])]
+    return args
+
+
 def _hunyuan_cuda_build_args(job: Job) -> list[str]:
     s = job.settings
     return [
@@ -2000,6 +2064,46 @@ def _hunyuan_cuda_readiness() -> dict[str, Any]:
         "weights": weights,
         "missing_weights": missing,
         "ready": ready,
+        "warning": "Not licensed in the EU, the UK or South Korea.",
+    }
+
+
+def _hunyuan_rocm_readiness() -> dict[str, Any]:
+    """Readiness of the AMD Hunyuan3D-2.1 route, same shape as the NVIDIA one.
+
+    The patches count as part of "built": the generator needs them, and a build marker
+    without them is a route that compiles and then crashes in the scheduler.
+    """
+    import backend_catalog
+    sys.path.insert(0, str(REPO / "scripts"))
+    from patch_hunyuan_rocm import is_patched
+
+    root = HUNYUAN_ROCM_VENDOR / "Hunyuan3D-2.1"
+    built = (HUNYUAN_ROCM_MARKER.is_file() and HUNYUAN_ROCM_PYTHON.is_file()
+             and HUNYUAN_ROCM_WRAPPER.is_file())
+    patched = is_patched(root) if built else False
+    weights = {w["label"]: {"label": w["label"], "present": w["present"],
+                            "human": w["human_present"]}
+               for w in backend_catalog.BY_ID["hunyuan-rocm"].describe()["weights"]}
+    missing = [label for label, w in weights.items() if not w["present"]]
+    hint = None
+    if not built:
+        hint = ("Hunyuan3D-2.1 for AMD is not installed. Set it up from Setup & Status, or "
+                "run python scripts/bootstrap_hunyuan_rocm.py (Linux with ROCm, ~19.5 GB).")
+    elif not patched:
+        hint = ("The Hunyuan3D-2.1 checkout is missing the AMD patches. Run "
+                "python scripts/patch_hunyuan_rocm.py first.")
+    elif missing:
+        hint = ("Hunyuan3D-2.1 weights are missing: " + "; ".join(missing) + ". Run "
+                "python scripts/bootstrap_hunyuan_rocm.py --weights-only.")
+    return {
+        "schema_version": 1,
+        "build": {"present": built and patched, "interpreter": str(HUNYUAN_ROCM_PYTHON),
+                  "wrapper": str(HUNYUAN_ROCM_WRAPPER), "hint": hint},
+        "weights": weights,
+        "missing_weights": missing,
+        "ready": built and patched and not missing,
+        # The one licence restriction with real teeth, on the route where it bites.
         "warning": "Not licensed in the EU, the UK or South Korea.",
     }
 
@@ -2051,6 +2155,18 @@ BACKENDS.update({
         validate_settings=_hunyuan_cuda_validate_settings,
         build_args=_hunyuan_cuda_build_args,
         parse_line=_hunyuan_parse_line, readiness=_hunyuan_cuda_readiness,
+    ),
+    # The AMD route fits its paint settings to the card, so views and resolution are NOT
+    # in its defaults: leaving them out is what lets fit_paint_settings decide. An explicit
+    # one still wins, which is why _hunyuan_rocm_validate_settings accepts them.
+    "hunyuan-rocm": BackendSpec(
+        id="hunyuan-rocm", label="Hunyuan3D-2.1 (AMD)",
+        interpreter=HUNYUAN_ROCM_PYTHON, wrapper=HUNYUAN_ROCM_WRAPPER,
+        default_settings=HUNYUAN_ROCM_DEFAULT_SETTINGS, stages=HUNYUAN_STAGES,
+        stage_labels=HUNYUAN_STAGE_LABELS, requires_alpha=False,
+        validate_settings=_hunyuan_rocm_validate_settings,
+        build_args=_hunyuan_rocm_build_args,
+        parse_line=_hunyuan_parse_line, readiness=_hunyuan_rocm_readiness,
     ),
 })
 

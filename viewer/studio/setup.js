@@ -403,8 +403,7 @@ function summarise(catalog) {
   if (catalog.host && !catalog.host.any_backend_runs_here) {
     return `<strong>This machine is ${catalog.host.label}.</strong> `
       + `Every backend here needs ${catalog.host.supported.join(' or ')}, so there is `
-      + `nothing to install yet. AMD support is coming (see the AMD tab); the other `
-      + `tabs show what each machine gets.`;
+      + `nothing to install yet. Each tab above shows what one of those machines gets.`;
   }
   // A route that only needs a top-up (a newer release added a small file) is not
   // "nothing installed": that read as losing a working setup after an update.

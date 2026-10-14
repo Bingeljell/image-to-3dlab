@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and
+  PyPI's Linux torch is a CUDA build, so every AMD card was handed torch plus roughly 6 GB of
+  NVIDIA wheels it cannot load, leaving a torch that reports no device. The installer now asks
+  `image_to_3dlab.host` which PyTorch the machine needs, installs the CUDA wheels nowhere on an
+  AMD card, and puts the ROCm build that matches the installed runtime in their place. NVIDIA
+  and Apple installs are unchanged. (`requirements.rocm.lock` is written beside the install.)
+- **A Qwen-Image run that silently fell back to the CPU is now caught on AMD.** The watcher
+  already read ROCm's and Vulkan's start-up lines, but was only switched on for NVIDIA, and the
+  message it would have shown pointed at `nvidia-smi`. Every machine that loads its GPU backend
+  at run time is watched now, and the wording is picked for the card: an AMD user is sent to
+  `rocminfo` and the Vulkan build.
+
+### Changed
+- The Setup page's "nothing runs here" banner no longer promises that AMD support is coming.
+  AMD has shipped for a while, and that banner is where a visitor is told what their machine
+  can actually do.
+- The How-to page says the lab runs on NVIDIA **and AMD**, not just Apple Silicon and NVIDIA.
+
 ## [0.4.4] - 2026-10-14
 
 ### Added

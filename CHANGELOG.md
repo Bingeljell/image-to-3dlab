@@ -22,11 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     silently switched off CPU offload.
   - `--flash-vdm` asks the shape decoder only for promising points. Pure PyTorch despite
     the name, and much faster than querying every point of the grid.
-- The **shape stage** is verified end to end on an RX 7900 XT (gfx1100, ROCm 7.2): a
-  picture to a valid 25k-vertex GLB, with the manifest and provenance sidecar recording the
-  run as `amd-rocm`. The **paint stage** is installed and its extensions import, but has
-  not been run to a finished texture on this card: the weights for it are still fetching,
-  and it is the stage that needs the VRAM ladder above to do anything at 20 GB.
+- **Verified end to end** on an RX 7900 XT (gfx1100, ROCm 7.2), both stages: a picture to
+  a textured GLB with a PBR base-colour and ORM texture, 40k triangles, 402 s at 2 views and
+  256px. Chunked and unchunked attention were compared on the same seed and produce
+  **byte-identical textures**, which is the claim the patch makes. The manifest and
+  provenance sidecar record the run as `amd-rocm`.
+- **What the low settings cost.** At 2 views and 256px the texture is correct but visibly
+  rough: the picture is a long thin prop on white, and its base colour comes back as a
+  quilted patchwork. That is the paint model at a quarter of its resolution and a third of
+  its views, not a fault in the ROCm build -- a 24 GB card runs it at 6 views and 512px
+  unchunked. Raise `--max-num-view` and `--paint-resolution` when the card has the room.
 
 ### Fixed
 - **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and

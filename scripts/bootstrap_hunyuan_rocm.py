@@ -87,8 +87,13 @@ TORCH = {
 }
 
 # cupy-cuda12x is already in the shared skip list: nothing on the inference path imports
-# it, and it is a CUDA wheel. Nothing else is dropped for ROCm.
-SKIP_REQUIREMENTS = cuda.SKIP_REQUIREMENTS
+# it, and it is a CUDA wheel.
+#
+# onnxruntime is skipped here and not on the CUDA route. No Hunyuan file imports it -- it
+# is only reached because `diffusers.utils.import_utils` resolves its lazy module table on
+# first use, and the 1.16.3 wheel's shared object asks for an executable stack, which the
+# loader refuses on this kernel. So the paint stage died on an import it never made use of.
+SKIP_REQUIREMENTS = cuda.SKIP_REQUIREMENTS | {"onnxruntime"}
 
 HUNYUAN_REPO = cuda.HUNYUAN_REPO
 DINO_REPO = cuda.DINO_REPO

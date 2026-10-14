@@ -694,7 +694,7 @@ CATALOG: tuple[Backend, ...] = (
                   "the back, Pixal3D builds the shape from both, and Pixel Match paints from "
                   "both, so the sides and back match your picture instead of being guessed."),
         tradeoff=("Needs Pixal3D and Qwen-Image set up first. Each model takes a few minutes "
-                  "more on a Mac for the back picture, under a minute on NVIDIA."),
+                  "more on a Mac for the back picture, under a minute on a Linux GPU."),
         license_name="MIT + DINOv3 License (Pixal3D); Qwen Research License (vision projector)",
         license_url="https://huggingface.co/raven38/pixal3d-q8_0-v1",
         install="scripts/bootstrap_front_back.py",

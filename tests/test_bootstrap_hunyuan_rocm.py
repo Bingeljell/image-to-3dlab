@@ -92,8 +92,22 @@ def test_the_cuda_only_wheels_stay_out():
     steps = [" ".join(c) for c in
              boot.pip_commands("rocm7.2", "uv", Path("/venv/bin/python"),
                                boot.filter_requirements(_UPSTREAM_REQUIREMENTS))]
-    for banned in ("cupy-cuda12x", "gradio", "deepspeed"):
+    for banned in ("cupy-cuda12x", "gradio", "deepspeed", "onnxruntime"):
         assert all(banned not in step for step in steps), banned
+
+
+def test_onnxruntime_is_skipped_here_and_not_on_the_nvidia_route():
+    """Nothing in Hunyuan imports onnxruntime; `diffusers` resolves it lazily anyway, and the
+    pinned wheel asks the loader for an executable stack, which this kernel refuses. The
+    CUDA route keeps it because that is not what broke there."""
+    assert "onnxruntime" in boot.SKIP_REQUIREMENTS
+    assert "onnxruntime" not in cuda.SKIP_REQUIREMENTS
+
+
+def test_the_skip_list_does_not_grow_by_accident():
+    """Every entry has to be one that genuinely is unused on the inference path."""
+    for name in boot.SKIP_REQUIREMENTS - cuda.SKIP_REQUIREMENTS:
+        assert name == "onnxruntime", name
 
 
 def test_the_bpy_pin_survives_the_filter():

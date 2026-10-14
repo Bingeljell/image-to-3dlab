@@ -48,6 +48,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
 | `hunyuan_cuda_generate.py` | Full image -> textured GLB through Tencent's own Hunyuan3D-2.1 on an NVIDIA card. |
+| `hunyuan_rocm_generate.py` | Full image -> textured GLB through Tencent's own Hunyuan3D-2.1 on an AMD card. |
 | `hunyuan_mlx_generate.py` | End-to-end Hunyuan3D-MLX generation: image -> textured GLB. |
 | `hunyuan_mlx_xiong_generate.py` | End-to-end, single-repo Hunyuan3D-MLX generation: image -> textured GLB. |
 | `hunyuan_shape_octree_test.py` | Shape-only generation at a given octree_resolution, with visible progress. |

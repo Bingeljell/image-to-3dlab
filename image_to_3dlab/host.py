@@ -428,7 +428,7 @@ def _installed_torch_hip() -> str | None:
 # per-route locks. It lives here so the installer asks the same question the lock generator
 # answers, instead of growing a second, near-identical regex in a shell script.
 CUDA_FAMILY = re.compile(r"^(?:torch|torchvision|torchaudio|triton|pytorch-triton"
-                         r"|nvidia-[\w.-]+|cuda-[\w.-]+)\s*==", re.I)
+                         r"|nvidia-[\w.-]+|cuda-[\w.-]+)\s*==", re.IGNORECASE)
 
 
 def is_cuda_package(line: str) -> bool:

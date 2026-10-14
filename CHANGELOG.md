@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- Characters made in the studio now ask for slightly larger, clearly defined eyes, and the picture
+  guide explains why: realistic faces no longer come out with a dark-rimmed shelf for eyes.
 - **Finish** offers three tested detail levels: 10,000 (light), **20,000 (game-ready, the new
   default)** and 40,000 (more detail), plus a Custom count marked "unexpected results". Tested on
   five very different models: 10k and 20k stay clean, 40k adds rough patches on some, and 5k

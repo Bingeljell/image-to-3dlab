@@ -31,7 +31,12 @@ held or nearby gets fused into the model.
 
 **5. Eyes open, neutral face.** Closed or squinting eyes get carved into the shape as slits.
 
-**6. Name what you want, not what you don't.** "No wrinkles" tends to add wrinkles; "smooth
+**6. Realistic characters: ask for slightly larger, clearly defined eyes.** In a full-body
+picture a realistic face is small, and its eyes come out as a shelf with a dark rim around
+them. "Slightly larger, clearly defined eyes with visible eyelids" fixes most of that while the
+character still looks realistic. Stylised characters with big eyes already come out well.
+
+**7. Name what you want, not what you don't.** "No wrinkles" tends to add wrinkles; "smooth
 fabric" doesn't. The same goes for props: describe empty hands rather than ruling a weapon out.
 
 ## Things that tend to go wrong
@@ -48,5 +53,5 @@ These have gone wrong more than once, but are less proven than the list above:
 ```
 A [character] in A-pose facing the camera, full body, arms angled down about 45 degrees
 with a clear gap from the body, hands open, palms facing down, eyes open, calm expression,
-[outfit], stylised 3D game character render, soft even lighting, plain light grey background
+slightly larger, clearly defined eyes with visible eyelids, [outfit], stylised 3D game character render, soft even lighting, plain light grey background
 ```

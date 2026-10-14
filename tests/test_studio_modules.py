@@ -339,6 +339,13 @@ def test_every_goal_has_tips_and_the_3d_goals_add_wording():
     assert "A-pose" in goals["character"]["wording"] and "empty hands" in goals["character"]["wording"]
 
 
+def test_character_wording_asks_for_clearly_defined_eyes():
+    # Small realistic faces came out with a dark-rimmed shelf for eyes; slightly larger,
+    # clearly defined eyes with eyelids fixed it (2026-10-14, viking + mage).
+    wording = RECIPES["goals"]["character"]["wording"]
+    assert "slightly larger, clearly defined eyes with visible eyelids" in wording
+
+
 def test_the_added_wording_names_only_what_it_wants_and_leaves_fingers_alone():
     # Naming a thing summons it ("no cape" draws a cape), and asking about fingers curls or
     # doubles them (2026-10-12). The words the studio adds follow both rules.

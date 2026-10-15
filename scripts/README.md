@@ -36,6 +36,8 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_hunyuan_cuda.py` | Install Hunyuan3D-2.1 for Linux with an NVIDIA card: Tencent's own code, built for CUDA. |
 | `bootstrap_hunyuan_rocm.py` | Install Hunyuan3D-2.1 for Linux with an AMD card: Tencent's own code, built with HIP. |
 | `bootstrap_sf3d.py` | Install Stable Fast 3D: its code and compiled extensions, then its gated weights. |
+| `patch_sf3d_linux.py` | Let Stable Fast 3D compile its GPU texture baker on an AMD card. |
+| `bootstrap_sf3d_rocm.py` | Install Stable Fast 3D for Linux with an AMD card: its own venv, built with HIP. |
 | `bootstrap_front_back.py` | Install Front + back: the two downloads that build a model from a front and a back picture. |
 | `bootstrap_pixal3d.py` | Install Pixal3D (raven38/pixal3d.cpp): a `trellis-cli` build plus its Q8_0 weights. |
 | `bootstrap_blender.py` | Install Blender 4.2 LTS for Finish on Linux, from blender.org. |

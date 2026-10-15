@@ -424,6 +424,50 @@ def test_backend_registry_lists_every_backend():
         assert spec.stages, f"{spec.id} must declare at least one stage"
 
 
+def test_every_route_accepts_exactly_the_settings_it_declares_as_defaults():
+    """A fresh job sends the route's own defaults and nothing else.
+
+    The AMD Hunyuan route declares fewer defaults than it accepts, on purpose: the two
+    paint settings are left out so the generator can fit them to the card. Its validator
+    read them anyway, so every character died at the first job with a bare
+    `KeyError: 'max_num_view'` in the UI and nothing on the server's terminal.
+    """
+    for backend_id, spec in api.BACKENDS.items():
+        validate = spec.validate_settings
+        if validate is None:
+            continue
+        out = validate(spec.default_settings)
+        assert isinstance(out, dict), backend_id
+        # And it must survive the round trip: defaults in, build args out.
+        assert validate(out) == out, backend_id
+
+
+def _rocm_job(tmp_path, settings):
+    return api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb",
+                   settings, "hunyuan-rocm")
+
+
+def test_a_route_whose_defaults_are_a_subset_still_builds_its_command_line(tmp_path):
+    """The shape of that failure: settings that validate, then a KeyError while building
+    the command. Both halves are checked here, because either alone passes."""
+    spec = api.BACKENDS["hunyuan-rocm"]
+    settings = spec.validate_settings(spec.default_settings)
+    assert "max_num_view" not in settings, "absent is what lets the generator fit it"
+    args = spec.build_args(_rocm_job(tmp_path, settings))
+    assert "--max-num-view" not in args, args
+    assert "--paint-resolution" not in args, args
+    assert "--octree-resolution" in args
+
+
+def test_an_explicit_view_count_still_reaches_the_command_line(tmp_path):
+    spec = api.BACKENDS["hunyuan-rocm"]
+    settings = spec.validate_settings(
+        {**api.HUNYUAN_ROCM_DEFAULT_SETTINGS, "max_num_view": 4, "paint_resolution": 256})
+    args = spec.build_args(_rocm_job(tmp_path, settings))
+    assert args[args.index("--max-num-view") + 1] == "4"
+    assert args[args.index("--paint-resolution") + 1] == "256"
+
+
 def test_every_stage_event_a_backend_emits_names_a_declared_stage(tmp_path):
     """`phase` is the row key the browser looks up, so it must be a declared stage id.
 
@@ -1164,6 +1208,17 @@ def test_the_generate_handler_never_refuses_for_a_busy_card():
     source = inspect.getsource(api.Handler)
     assert "gpu_busy_warning(busy)" in source
     assert '{"error": f"{spec.label}: {busy}"}' not in source
+
+
+def test_a_bug_in_a_routes_settings_check_is_reported_as_a_sentence():
+    """A `KeyError` on a setting name reached the browser as a bare `'max_num_view'` with
+    nothing on the server's terminal, so the run looked like it had simply stopped.
+    ValueError is still the user's problem and stays a 422; anything else is our bug."""
+    import inspect
+    source = inspect.getsource(api.Handler)
+    assert "validate_settings raised" in source, "the traceback must reach the terminal"
+    assert "_send_json(500" in source
+    assert "bug in the route's settings" in source, "and say so in the browser"
 
 
 def test_every_backend_answers_the_check_without_raising():

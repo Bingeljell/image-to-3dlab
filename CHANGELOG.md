@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at run time is watched now, and the wording is picked for the card: an AMD user is sent to
   `rocminfo` and the Vulkan build.
 
+- **A character on an AMD card no longer stops between the picture and the 3D model.**
+  The new AMD Hunyuan route validates settings it deliberately leaves unset (the paint
+  settings are fitted to the card at run time), and read them anyway, so every run died on
+  a `KeyError` that reached the browser as a bare `'max_num_view'` with nothing on the
+  server's terminal. The two settings are now checked only when the studio actually sends
+  them. A settings-check bug of any kind is also reported as a sentence naming the route,
+  with the traceback on the terminal.
+
 ### Changed
 - The Setup page's "nothing runs here" banner no longer promises that AMD support is coming.
   AMD has shipped for a while, and that banner is where a visitor is told what their machine

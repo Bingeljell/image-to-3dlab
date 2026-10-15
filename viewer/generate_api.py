@@ -1998,9 +1998,12 @@ def _hunyuan_rocm_validate_settings(raw: Any) -> dict[str, Any]:
         raise ValueError("octree_resolution must be 256, 384 or 512")
     if settings["steps"] < 1:
         raise ValueError("steps must be at least 1")
-    if not 1 <= settings["max_num_view"] <= 9:
+    # The two fitted settings are checked only when they are here. They are absent from the
+    # defaults on purpose -- that is what lets the generator fit them to the card -- so
+    # reading them unconditionally raised KeyError('max_num_view') on every fresh job.
+    if "max_num_view" in settings and not 1 <= settings["max_num_view"] <= 9:
         raise ValueError("max_num_view must be 1 to 9")
-    if settings["paint_resolution"] not in {128, 256, 512, 768}:
+    if "paint_resolution" in settings and settings["paint_resolution"] not in {128, 256, 512, 768}:
         raise ValueError("paint_resolution must be 128, 256, 512 or 768")
     return settings
 
@@ -2805,6 +2808,18 @@ class Handler(SimpleHTTPRequestHandler):
                 settings = spec.validate_settings(raw_settings)
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
+                return
+            except Exception as exc:  # noqa: BLE001
+                # A validator bug must not reach the browser as a bare repr. `KeyError` on a
+                # setting name printed as just `'max_num_view'`, with nothing on the server's
+                # terminal: the run looked like it had simply stopped. Name the exception and
+                # the route, and say where to look.
+                print(f"[generate] {backend_id} validate_settings raised "
+                      f"{type(exc).__name__}: {exc}", flush=True)
+                self._send_json(500, {"error": (
+                    f"{spec.label} could not read the settings for this run "
+                    f"({type(exc).__name__}: {exc}). This is a bug in the route's settings "
+                    f"check, not in your picture. The server's terminal has the traceback.")})
                 return
             back_field = form.get("back")
             if back_field is not None and back_field.get("filename"):

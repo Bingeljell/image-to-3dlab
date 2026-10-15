@@ -82,12 +82,21 @@ VALID_OCTREE = (256, 384, 512)
 VALID_VIEWS = range(1, 10)
 # 128 and 256 only, and not because upstream says so.
 #
-# Upstream offers 512 and 768 and those are its defaults. On this card they produce a
-# texture that is uniformly black: the paint UNet's multiview output comes back with a
-# maximum of 0.02 across the whole image at 512, where at 256 it is a normal picture with
-# no non-finite values at all. It is not a bake problem -- the views are already black
-# before they reach it -- and it is not the attention patch: chunked and unchunked agree
-# at both sizes. 256 gives a usable texture, so that is what this route asks for.
+# Upstream offers 512 and 768. On this card those produce a texture that is uniformly
+# black: the paint UNet's multiview output comes back with a maximum of 0.02 across the
+# whole image at 512, where at 256 it is a normal picture with no non-finite values at all.
+# The views are black before the bake, so the bake is innocent, and it is not the attention
+# patch -- chunked and unchunked agree at both sizes.
+#
+# It is NOT an out-of-memory: the unchunked 512px run finishes paint in 43 s with 20 GB
+# free. It is also not reliably reproducible -- one instrumented run gave a correct texture
+# at 512 with the same seed, differing only in that it held a reference to the UNet output,
+# which shifts PyTorch's attention-backend choice. The paint path runs float16 with a
+# bfloat16 UNet and pins no attention backend, so this looks like a marginal numerical
+# sensitivity at the larger latent rather than a hard limit. Unproven.
+#
+# A route that is right 9 times in 10 is worse than one that is right every time, so 256 is
+# what this asks for until someone pins the actual cause.
 VALID_PAINT_RESOLUTION = (128, 256)
 
 # The attention chunk, in query tokens. Read by the patch, not by this script.

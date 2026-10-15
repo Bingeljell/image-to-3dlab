@@ -151,7 +151,10 @@ def test_the_log_says_so_when_it_cannot_read_the_card():
 def test_this_route_never_asks_for_the_resolution_that_comes_back_black():
     """Upstream offers 512 and 768. On this card the paint UNet's multiview output has a
     maximum of 0.02 across the whole image at 512 -- uniformly black -- where at 256 it is
-    an ordinary picture with no non-finite values. Every rung, and the CLI, agree."""
+    an ordinary picture with no non-finite values. Every rung, and the CLI, agree.
+
+    The cap is not because 512 runs out of memory: it finishes with 20 GB free. It is
+    because one run in a row is worse than one that is never wrong."""
     assert gen.MAX_PAINT_RESOLUTION == 256
     assert gen.VALID_PAINT_RESOLUTION == (128, 256)
     for gigabytes in (48, 24, 20, 16, 12, 8, 1):

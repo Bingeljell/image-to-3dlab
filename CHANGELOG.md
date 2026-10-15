@@ -27,11 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   256px. Chunked and unchunked attention were compared on the same seed and produce
   **byte-identical textures**, which is the claim the patch makes. The manifest and
   provenance sidecar record the run as `amd-rocm`.
-- **What the low settings cost.** At 2 views and 256px the texture is correct but visibly
-  rough: the picture is a long thin prop on white, and its base colour comes back as a
-  quilted patchwork. That is the paint model at a quarter of its resolution and a third of
-  its views, not a fault in the ROCm build -- a 24 GB card runs it at 6 views and 512px
-  unchunked. Raise `--max-num-view` and `--paint-resolution` when the card has the room.
+- **Textures are capped at 256px, and it is not a memory compromise.** Upstream's default
+  512px returns a perfectly valid GLB whose base colour is entirely black, on this card, at
+  any view count. Probing the pipeline shows the paint UNet's multiview output already has
+  a maximum of 0.02 across the whole image at 512, where at 256 it is an ordinary picture
+  with no non-finite values at all -- so the views are black before they reach the bake,
+  and it is not the attention patch (chunked and unchunked agree at both sizes). The route
+  asks for 256px, and a run that bakes a black texture now stops and says so instead of
+  writing a model with no texture on it.
 
 ### Fixed
 - **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and

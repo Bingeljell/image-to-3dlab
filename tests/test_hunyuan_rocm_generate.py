@@ -23,17 +23,17 @@ import hunyuan_rocm_generate as gen
 GB = 1024 ** 3
 
 
-def test_a_big_card_is_left_on_upstreams_defaults():
+def test_a_big_card_is_left_on_upstreams_settings():
     """Chunking costs a little speed, so a card that does not need it should not pay it."""
     fitted = gen.fit_paint_settings(48 * GB)
-    assert fitted == {"max_num_view": 6, "paint_resolution": 512, "sdpa_query_chunk": 0}
+    assert fitted == {"max_num_view": 6, "paint_resolution": 256, "sdpa_query_chunk": 0}
 
 
-def test_a_twenty_gigabyte_card_gets_chunked_but_keeps_the_full_settings():
-    """20 GB is the common consumer card and it is one rung below the unchunked defaults:
-    the same picture, done more slowly, rather than a smaller picture."""
+def test_a_twenty_gigabyte_card_gets_chunked_but_keeps_every_view():
+    """20 GB is the common consumer card and it is one rung below the unchunked settings:
+    the same picture, done more slowly, rather than fewer views."""
     fitted = gen.fit_paint_settings(20 * GB)
-    assert fitted["max_num_view"] == 6 and fitted["paint_resolution"] == 512
+    assert fitted["max_num_view"] == 6 and fitted["paint_resolution"] == 256
     assert fitted["sdpa_query_chunk"] > 0
 
 
@@ -138,12 +138,77 @@ def test_the_shape_weights_are_where_the_bootstrap_put_them(tmp_path):
 
 def test_the_log_says_what_was_chosen_and_why():
     line = gen.describe_fit(gen.fit_paint_settings(20 * GB), 20 * GB)
-    assert "6 views" in line and "512px" in line
+    assert "6 views" in line and "256px" in line
     assert "20.0 GB" in line and "chunk 4096" in line
 
 
 def test_the_log_says_so_when_it_cannot_read_the_card():
     assert "unknown" in gen.describe_fit(gen.fit_paint_settings(None), None)
+
+
+# --- the 512px black texture, found by running this on a real card -----------------------
+
+def test_this_route_never_asks_for_the_resolution_that_comes_back_black():
+    """Upstream offers 512 and 768. On this card the paint UNet's multiview output has a
+    maximum of 0.02 across the whole image at 512 -- uniformly black -- where at 256 it is
+    an ordinary picture with no non-finite values. Every rung, and the CLI, agree."""
+    assert gen.MAX_PAINT_RESOLUTION == 256
+    assert gen.VALID_PAINT_RESOLUTION == (128, 256)
+    for gigabytes in (48, 24, 20, 16, 12, 8, 1):
+        assert gen.fit_paint_settings(gigabytes * GB)["paint_resolution"] <= 256, gigabytes
+
+
+def test_a_black_texture_is_told_apart_from_a_dark_one(tmp_path):
+    """The check is on the spread, not the brightness, so a genuinely black model is not
+    mistaken for the failure and told to re-run."""
+    pytest.importorskip("numpy")
+    numpy = pytest.importorskip("numpy")
+    from PIL import Image
+
+    black = tmp_path / "black.jpg"
+    Image.fromarray(numpy.zeros((64, 64, 3), dtype="uint8")).save(black)
+    assert gen.texture_is_blank(black) is True
+
+    dark = tmp_path / "dark.jpg"
+    varying = numpy.zeros((64, 64, 3), dtype="uint8")
+    varying[:, :, 0] = numpy.linspace(0, 90, 64)[None, :]  # a dark but varied surface
+    Image.fromarray(varying).save(dark)
+    assert gen.texture_is_blank(dark) is False
+
+
+def test_a_run_that_baked_a_black_texture_stops_rather_than_shipping_it(tmp_path):
+    """Without this the viewer shows a finished model with no texture and says nothing.
+    Found on a real card at 512px, where the paint stage returned cleanly and wrote a
+    valid GLB whose base colour was entirely black."""
+    pytest.importorskip("numpy")
+    numpy = pytest.importorskip("numpy")
+    from PIL import Image
+
+    Image.fromarray(numpy.zeros((64, 64, 3), dtype="uint8")).save(
+        tmp_path / "textured_mesh.jpg")
+    with pytest.raises(SystemExit) as raised:
+        gen._refuse_a_blank_texture(tmp_path, {"paint_resolution": 512})
+    message = str(raised.value)
+    assert "all-black texture" in message
+    assert "--paint-resolution 256" in message, "and say how to get a real texture"
+    assert "not a problem with the picture" in message
+
+
+def test_a_good_run_is_not_interrupted(tmp_path):
+    pytest.importorskip("numpy")
+    numpy = pytest.importorskip("numpy")
+    from PIL import Image
+
+    varying = numpy.zeros((64, 64, 3), dtype="uint8")
+    varying[:, :, 0] = numpy.linspace(0, 200, 64)[None, :]
+    Image.fromarray(varying).save(tmp_path / "textured_mesh.jpg")
+    assert gen._refuse_a_blank_texture(tmp_path, {"paint_resolution": 256}) is None
+
+
+def test_no_texture_at_all_is_not_this_failure(tmp_path):
+    """An older layout, or a run that wrote the GLB some other way, must not be reported
+    as a black texture: there is nothing to judge."""
+    assert gen._refuse_a_blank_texture(tmp_path, {"paint_resolution": 512}) is None
 
 
 def test_verify_paths_names_the_bootstrap_that_builds_it(tmp_path):
@@ -211,6 +276,8 @@ def test_validation_fills_in_the_defaults():
     merged = gen.validate({})
     assert merged["seed"] == gen.DEFAULTS["seed"]
     assert merged["octree_resolution"] == 384
+    # The default must itself be a value this route can actually produce.
+    assert merged["paint_resolution"] <= gen.MAX_PAINT_RESOLUTION
 
 
 def test_the_intermediate_files_are_named_after_the_output():

@@ -2003,8 +2003,11 @@ def _hunyuan_rocm_validate_settings(raw: Any) -> dict[str, Any]:
     # reading them unconditionally raised KeyError('max_num_view') on every fresh job.
     if "max_num_view" in settings and not 1 <= settings["max_num_view"] <= 9:
         raise ValueError("max_num_view must be 1 to 9")
-    if "paint_resolution" in settings and settings["paint_resolution"] not in {128, 256, 512, 768}:
-        raise ValueError("paint_resolution must be 128, 256, 512 or 768")
+    if "paint_resolution" in settings and settings["paint_resolution"] not in {128, 256}:
+        # 512 and 768 are what upstream offers, and this card returns an all-black texture
+        # at both: the paint UNet's multiview output comes back with a maximum of 0.02
+        # across the whole image. Measured on an RX 7900 XT, 2026-10-14.
+        raise ValueError("paint_resolution must be 128 or 256 on an AMD card")
     return settings
 
 

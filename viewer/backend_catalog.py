@@ -439,10 +439,12 @@ CATALOG: tuple[Backend, ...] = (
         rank=2,
         best_for="Hunyuan on an AMD card: Tencent's own shape and PBR paint, one run.",
         tradeoff=(
-            "Linux only, and paint needs about 21 GB of GPU memory: a 24 GB card runs it as "
-            "it comes. On 20 GB or less, setup lowers the texture resolution and views, and "
-            "chunks the attention, so it runs slower rather than not at all. The shape stage "
-            "fits in 10 GB and needs none of that."
+            "Linux only, and capped at 256px textures. Upstream's 512px comes back "
+            "entirely black on this card -- measured on an RX 7900 XT -- so the paint "
+            "stage is asked for less rather than for something broken. Paint also wants "
+            "about 21 GB; on 20 GB or less it drops views and chunks attention so it runs "
+            "slower rather than not at all. The shape stage fits in 10 GB and needs none "
+            "of that."
         ),
         license_name="Tencent Hunyuan Community License (code + weights)",
         license_url="https://huggingface.co/tencent/Hunyuan3D-2.1",

@@ -1179,10 +1179,24 @@ def test_a_backend_with_no_declared_need_never_asks_the_gpu(monkeypatch):
     assert api.gpu_busy_check(api.BACKENDS["trellis"]) is None
 
 
-def test_a_backend_that_declares_a_need_is_checked():
+def test_a_backend_that_declares_a_need_is_checked(monkeypatch):
+    # Asking the real card made this a coin flip on a busy machine, which is how a green
+    # suite turns red for reasons that have nothing to do with the change under test.
+    monkeypatch.setattr(api, "gpu_busy_note", lambda wanted: None)
     spec = api.BACKENDS["pixal3d"]
     assert spec.gpu_memory_wanted is not None
-    assert api.gpu_busy_check(spec) is None or "GPU has" in api.gpu_busy_check(spec)
+    assert api.gpu_busy_check(spec) is None
+
+
+def test_a_backend_with_no_need_is_never_asked_about_the_card(monkeypatch):
+    """A CPU route must not be warned about having no card, so the card is not asked."""
+    def refuse(wanted):
+        raise AssertionError("the card must not be asked for a route that needs none")
+
+    monkeypatch.setattr(api, "gpu_busy_note", refuse)
+    for backend_id, spec in api.BACKENDS.items():
+        if spec.gpu_memory_wanted is None:
+            assert api.gpu_busy_check(spec) is None, backend_id
 
 
 def test_a_run_that_may_not_fit_is_flagged_before_it_starts(monkeypatch):

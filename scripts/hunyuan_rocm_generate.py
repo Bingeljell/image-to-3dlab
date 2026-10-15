@@ -73,31 +73,67 @@ DEFAULTS: dict[str, Any] = {
     "octree_resolution": 384,
     "guidance_scale": 5.0,
     "max_num_view": 6,
-    "paint_resolution": 512,
+    # Upstream's default is 512. This is not a memory compromise: 512 bakes to an
+    # all-black texture on this card. See VALID_PAINT_RESOLUTION.
+    "paint_resolution": 256,
 }
 VALID_OCTREE = (256, 384, 512)
 # Wider than the NVIDIA route's 6..9: a small card needs to be allowed to ask for fewer.
 VALID_VIEWS = range(1, 10)
-# 256 is not upstream's choice. It is the size community ROCm reports fitting a 20 GB card.
-VALID_PAINT_RESOLUTION = (128, 256, 512, 768)
+# 128 and 256 only, and not because upstream says so.
+#
+# Upstream offers 512 and 768 and those are its defaults. On this card they produce a
+# texture that is uniformly black: the paint UNet's multiview output comes back with a
+# maximum of 0.02 across the whole image at 512, where at 256 it is a normal picture with
+# no non-finite values at all. It is not a bake problem -- the views are already black
+# before they reach it -- and it is not the attention patch: chunked and unchunked agree
+# at both sizes. 256 gives a usable texture, so that is what this route asks for.
+VALID_PAINT_RESOLUTION = (128, 256)
 
 # The attention chunk, in query tokens. Read by the patch, not by this script.
 CHUNK_ENV = "HY3D_SDPA_QUERY_CHUNK"
 
+# The largest texture this route asks for, in one place so the ladder, the CLI and the
+# warning below cannot drift apart.
+MAX_PAINT_RESOLUTION = max(VALID_PAINT_RESOLUTION)
+
+# A baked sheet whose every pixel is under this is not a dark object, it is the failure
+# above: measured 0.000 mean and 0.000 standard deviation. A real texture of a dark object
+# still varies.
+BLANK_TEXTURE_LEVEL = 0.02
+
 # (minimum free GB, views, texture resolution, attention chunk or 0 for off), best first.
 #
-# Paint at upstream's defaults (6 views, 512) wants about 21 GB. Measured community
-# figures for ROCm put 6 views at 512 near 10.5 GB with chunking and unchunked well past
-# 20 GB, so the ladder trades views first (they multiply the batch), then resolution, and
-# only then starts chunking, which costs a little speed for a lot of headroom.
+# Paint at upstream's defaults wants about 21 GB. Measured community figures for ROCm put
+# 6 views at 512 near 10.5 GB with chunking and unchunked well past 20 GB, so the ladder
+# trades views first (they multiply the batch), then resolution, and only then starts
+# chunking, which costs a little speed for a lot of headroom.
+#
+# No rung asks for more than 256px: see VALID_PAINT_RESOLUTION for why that is the
+# ceiling on this card rather than a memory question.
 FIT_LADDER: tuple[tuple[int, int, int, int], ...] = (
-    (24, 6, 512, 0),
-    (20, 6, 512, 4096),
-    (16, 4, 512, 2048),
+    (24, 6, 256, 0),
+    (20, 6, 256, 4096),
+    (16, 4, 256, 2048),
     (12, 4, 256, 1024),
     (8, 2, 256, 512),
     (0, 1, 128, 512),
 )
+
+
+def texture_is_blank(image_path: Path, level: float = BLANK_TEXTURE_LEVEL) -> bool:
+    """Whether a baked texture is the all-black failure rather than a dark picture.
+
+    Measured mean and standard deviation both come out as 0.000 for the failure, while a
+    real texture of a dark object still varies: the threshold is on the spread, not the
+    brightness, so a genuinely black model is not mistaken for this.
+    """
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(image_path) as opened:
+        pixels = np.asarray(opened.convert("RGB"), dtype=np.float32) / 255.0
+    return float(pixels.std()) <= level and float(pixels.max()) <= level
 
 
 # ----------------------------------------------------------------------------------------
@@ -416,12 +452,30 @@ def generate_paint(image: Path, mesh_path: Path, output: Path, settings: dict[st
     if not painted.is_file():
         raise SystemExit(f"paint finished but wrote no GLB at {painted}")
     output.parent.mkdir(parents=True, exist_ok=True)
+    _refuse_a_blank_texture(work_dir(output), settings)
     painted.replace(output)
     seconds = time.time() - started
     print(f"paint stage done in {seconds:.1f}s -> {output}", flush=True)
     del pipeline
     _free_gpu()
     return seconds
+
+
+def _refuse_a_blank_texture(where: Path, settings: dict[str, Any]) -> None:
+    """Stop rather than ship a GLB whose texture is uniformly black.
+
+    Found by running this on a real card: at 512px the paint stage returns without an
+    error and writes a perfectly valid GLB whose base colour is entirely black. That reads
+    in the viewer as a finished model with no texture, and nothing says why.
+    """
+    baked = where / "textured_mesh.jpg"
+    if not baked.is_file() or not texture_is_blank(baked):
+        return
+    raise SystemExit(
+        f"The paint stage produced an all-black texture at "
+        f"{settings['paint_resolution']}px, which is the known failure above 256px on this "
+        f"card -- not a problem with the picture. Re-run with --paint-resolution 256. "
+        f"The GLB has not been written.")
 
 
 def generate(image_path: Path, output: Path, vendor_root: Path, settings: dict[str, Any], *,

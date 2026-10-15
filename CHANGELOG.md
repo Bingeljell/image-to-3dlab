@@ -45,6 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has been correct on every run, and a run that bakes a black texture stops and says so
   rather than writing a model with no texture on it.
 
+- **Stable Fast 3D on AMD.** It was marked Apple-only, and the reason was never the card:
+  its pins (numpy 1.26, transformers 4.42, an old huggingface-hub) broke the lab's *shared*
+  environment on Linux, so rather than give it its own packages to fight over them it was
+  excluded. A route with a venv of its own removes that reason, and nothing it pins can
+  reach the viewer.
+  Upstream needed **one line**. `texture_baker/setup.py` decides whether to build the GPU
+  kernels with `use_cuda and CUDA_HOME is not None`, but `CUDA_HOME` is None on a ROCm build
+  of PyTorch -- so `baker_kernel.cu` was dropped from the build and it produced a CPU-only
+  baker, successfully and silently. Everything else was already there: the `setup.py` has an
+  `is_hip_extension` branch, and `CUDAExtension` dispatches to `hipcc` on its own.
+  Verified on an RX 7900 XT: the installed extension contains `gfx1100` code, and a picture
+  becomes a textured GLB with an albedo and an ORM texture. The venv also drops the `[gpu]`
+  extra from rembg, a CUDA wheel this route never calls.
+
 ### Fixed
 - **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and
   PyPI's Linux torch is a CUDA build, so every AMD card was handed torch plus roughly 6 GB of

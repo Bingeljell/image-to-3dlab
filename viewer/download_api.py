@@ -35,6 +35,7 @@ sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import processes  # noqa: E402
 from backend_catalog import (  # noqa: E402
+    AMD,
     BY_ID,
     HF_HUB_DIR,
     NVIDIA,
@@ -83,6 +84,10 @@ COMMANDS: dict[str, list[str]] = {
 HOST_COMMANDS: dict[tuple[str, str], list[str]] = {
     ("trellis", NVIDIA): [sys.executable, str(REPO / "scripts" / "bootstrap_trellis_cuda.py"),
                           "--yes"],
+    # SF3D installs into this interpreter on a Mac and into a venv of its own on AMD,
+    # because its pins break the shared environment. One id, two installers.
+    ("sf3d", AMD): [sys.executable, str(REPO / "scripts" / "bootstrap_sf3d_rocm.py"),
+                    "--yes"],
 }
 
 

@@ -1188,7 +1188,7 @@ def test_a_backend_that_declares_a_need_is_checked(monkeypatch):
     assert api.gpu_busy_check(spec) is None
 
 
-def test_a_backend_with_no_need_is_never_asked_about_the_card(monkeypatch):
+def test_a_route_with_no_need_is_never_asked_about_the_card(monkeypatch):
     """A CPU route must not be warned about having no card, so the card is not asked."""
     def refuse(wanted):
         raise AssertionError("the card must not be asked for a route that needs none")
@@ -1197,6 +1197,73 @@ def test_a_backend_with_no_need_is_never_asked_about_the_card(monkeypatch):
     for backend_id, spec in api.BACKENDS.items():
         if spec.gpu_memory_wanted is None:
             assert api.gpu_busy_check(spec) is None, backend_id
+
+
+# --- Stable Fast 3D: one route, two installs that must not be confused ---------------------
+
+def test_sf3d_runs_in_its_own_venv_on_amd_and_in_this_interpreter_on_a_mac():
+    """The Apple route installs SF3D into the interpreter the viewer runs in. The AMD route
+    gives it a venv, because its pins break the shared environment -- so the two installs
+    are in different places and a spec pointing at one is wrong on the other."""
+    amd = api.sf3d_spec(api.AMD)
+    apple = api.sf3d_spec(api.APPLE)
+    assert amd.interpreter == api.SF3D_ROCM_PYTHON
+    assert ".venv" in str(amd.interpreter)
+    assert apple.interpreter != amd.interpreter
+    assert ".venv" not in str(apple.interpreter)
+    # One id, so the studio's saved setting still names the same route either way.
+    assert amd.id == apple.id == "sf3d"
+    assert amd.wrapper == apple.wrapper, "only the interpreter differs"
+
+
+def test_sf3d_readiness_proves_the_right_install_for_each_machine(monkeypatch):
+    """A shared source file is true on a Mac that has only ever built the Apple install, and
+    on a Linux box whose texture baker compiled with no GPU kernels in it -- which is the
+    failure this route had. Each machine needs its own proof, and its own hint."""
+    # This machine may well have it installed, so the not-installed hints are read against
+    # paths that are definitely absent -- otherwise the test asserts on whatever the host
+    # happens to have, and passes for the wrong reason.
+    absent = Path("/nonexistent/stable-fast-3d")
+    monkeypatch.setattr(api, "SF3D_ROCM_MARKER", absent / ".i2l-build-complete")
+    monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", absent / ".venv" / "bin" / "python")
+    monkeypatch.setattr(api, "SF3D_REPO_DEFAULT", absent)
+
+    amd = api._sf3d_readiness(api.AMD)
+    apple = api._sf3d_readiness(api.APPLE)
+    assert amd["ready"] is False and apple["ready"] is False
+    # Each hint names its own installer, so "not installed" is actionable.
+    assert "bootstrap_sf3d_rocm.py" in amd["build"]["hint"]
+    assert "bootstrap_macos.sh" in apple["build"]["hint"]
+    assert "bootstrap_sf3d_rocm.py" not in apple["build"]["hint"]
+
+    # And when it is installed, AMD proves it from its venv rather than from the checkout
+    # the two routes share.
+    monkeypatch.setattr(api, "SF3D_ROCM_MARKER", Path(__file__))
+    monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", Path(sys.executable))
+    installed = api._sf3d_readiness(api.AMD)
+    assert installed["ready"] is True and installed["build"]["hint"] is None
+    assert str(api.SF3D_ROCM_PYTHON) in installed["build"]["interpreter"]
+
+def test_sf3d_is_offered_on_an_amd_card_and_still_on_a_mac():
+    import backend_catalog
+
+    entry = backend_catalog.BY_ID["sf3d"]
+    assert entry.runs_here(backend_catalog.AMD, "linux") is True
+    assert entry.runs_here(backend_catalog.APPLE, "darwin") is True
+    assert api.sf3d_spec(api.AMD).label != api.sf3d_spec(api.APPLE).label, \
+        "two installs behind one label is how a user picks the wrong one"
+
+
+def test_the_sf3d_download_command_is_the_amd_bootstrap_on_an_amd_card():
+    """The Setup button runs a command, and the Mac one installs into the shared
+    interpreter -- which is exactly what this route exists to stop doing on Linux."""
+    import backend_catalog
+    import download_api
+
+    command = download_api.command_for("sf3d", backend_catalog.AMD)
+    assert command is not None
+    assert any("bootstrap_sf3d_rocm.py" in part for part in command), command
+    assert "--yes" in command
 
 
 def test_a_run_that_may_not_fit_is_flagged_before_it_starts(monkeypatch):

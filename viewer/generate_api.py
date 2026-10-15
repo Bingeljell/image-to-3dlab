@@ -45,6 +45,7 @@ from rig_api import (
 import backend_catalog  # noqa: E402
 import hf_api  # noqa: E402
 from backend_catalog import (
+    AMD,
     APPLE,
     NVIDIA,
     _dir_state,
@@ -127,6 +128,12 @@ HUNYUAN_ROCM_VENDOR = REPO / "vendor" / "hunyuan-rocm"
 HUNYUAN_ROCM_WRAPPER = REPO / "scripts" / "hunyuan_rocm_generate.py"
 HUNYUAN_ROCM_PYTHON = HUNYUAN_ROCM_VENDOR / ".venv" / "bin" / "python"
 HUNYUAN_ROCM_MARKER = HUNYUAN_ROCM_VENDOR / ".i2l-build-complete"
+# Stable Fast 3D on Linux + AMD: the same checkout as the Apple route, but in a venv of its
+# own, because its pins (numpy 1.26, transformers 4.42, an old huggingface-hub) break the
+# shared environment. Built by scripts/bootstrap_sf3d_rocm.py.
+SF3D_ROCM_VENDOR = REPO / "vendor" / "stable-fast-3d"
+SF3D_ROCM_PYTHON = SF3D_ROCM_VENDOR / ".venv" / "bin" / "python"
+SF3D_ROCM_MARKER = SF3D_ROCM_VENDOR / ".i2l-build-complete"
 OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"  # shipped default, never written
 # Timings learned on this machine. Under output/ (git-ignored): writing the tracked file
@@ -1454,7 +1461,24 @@ def _sf3d_parse_line(job: Job, line: str) -> None:
         job.emit({"phase": "running", "message": stripped[:200]})
 
 
-def _sf3d_readiness() -> dict[str, Any]:
+def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
+    """Is SF3D usable here. The two installs are not interchangeable.
+
+    On a Mac the proof is the checkout, because SF3D is installed into this interpreter.
+    On AMD it is the venv and its build marker: the checkout alone would also be true on a
+    Mac, and a shared source file says nothing about whether anything was compiled for the
+    card -- which for this route is exactly the thing that goes wrong silently.
+    """
+    if (host or host_platform()) == AMD:
+        present = SF3D_ROCM_MARKER.is_file() and SF3D_ROCM_PYTHON.is_file()
+        hint = None if present else (
+            "Stable Fast 3D for AMD is not installed. Run "
+            "scripts/bootstrap_sf3d_rocm.py (Linux with ROCm, ~4.9 GB of weights).")
+        return {
+            "schema_version": 1,
+            "build": {"present": present, "interpreter": str(SF3D_ROCM_PYTHON), "hint": hint},
+            "weights": {}, "missing_weights": [], "ready": present, "warning": None,
+        }
     present = (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
     return {
         "schema_version": 1,
@@ -2114,16 +2138,40 @@ def _hunyuan_rocm_readiness() -> dict[str, Any]:
     }
 
 
-BACKENDS.update({
-    "trellis": trellis_spec(),
-    "sf3d": BackendSpec(
+def sf3d_spec(host: str | None = None) -> BackendSpec:
+    """SF3D for this machine: this interpreter on a Mac, its own venv on AMD.
+
+    The Apple route installs SF3D into the interpreter the viewer runs in, so both halves
+    share one. That was why SF3D could not be on Linux at all: its pins (numpy 1.26,
+    transformers 4.42, an old huggingface-hub) break the shared environment. The AMD route
+    gives it a venv of its own instead, so nothing it pins can reach the viewer -- which
+    means the interpreter is not the same one, and a spec pointing at `sys.executable`
+    would look for SF3D in a place it was never installed.
+
+    One id, two interpreters, the way TRELLIS.2 does it.
+    """
+    if (host or host_platform()) == AMD:
+        return BackendSpec(
+            id="sf3d", label="Stable Fast 3D (AMD)",
+            interpreter=SF3D_ROCM_PYTHON, wrapper=REPO / "pipeline.py",
+            default_settings=SF3D_DEFAULT_SETTINGS, stages=SF3D_STAGES,
+            stage_labels=SF3D_STAGE_LABELS, requires_alpha=False,
+            validate_settings=_sf3d_validate_settings, build_args=_sf3d_build_args,
+            parse_line=_sf3d_parse_line, readiness=_sf3d_readiness, finalize=_sf3d_finalize,
+        )
+    return BackendSpec(
         id="sf3d", label="Stable Fast 3D",
         interpreter=Path(sys.executable), wrapper=REPO / "pipeline.py",
         default_settings=SF3D_DEFAULT_SETTINGS, stages=SF3D_STAGES,
         stage_labels=SF3D_STAGE_LABELS, requires_alpha=False,
         validate_settings=_sf3d_validate_settings, build_args=_sf3d_build_args,
         parse_line=_sf3d_parse_line, readiness=_sf3d_readiness, finalize=_sf3d_finalize,
-    ),
+    )
+
+
+BACKENDS.update({
+    "trellis": trellis_spec(),
+    "sf3d": sf3d_spec(),
     "hunyuan-mlx": BackendSpec(
         id="hunyuan-mlx", label="Hunyuan3D-MLX (dgrauet shape + Xiong paint)",
         interpreter=HUNYUAN_PYTHON, wrapper=HUNYUAN_WRAPPER,

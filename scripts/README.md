@@ -233,6 +233,7 @@ Numbers about the project itself, not about any asset.
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |
 | `patch_trellis_no_bria.py` | Disable TRELLIS' configured background model for license-controlled runs. |
 | `patch_trellis_cuda_no_bria.py` | Stop the NVIDIA TRELLIS.2 checkout loading BRIA RMBG-2.0, before it ever downloads it. |
+| `patch_trellis_rocm.py` | Make TRELLIS.2 run on an AMD card: give it an attention backend, and fix the build. |
 | `patch_trellis_mlx_attention.py` | Add an `mlx` sparse-attention backend to a vendored TRELLIS.2 checkout. |
 | `render_glb_comparison.py` | Render several GLBs from one fixed camera and lay them out as a comparison image. |
 | `patch_ovoxel_pack_options.py` | Let `o_voxel.postprocess.to_glb` forward xatlas packing options. |

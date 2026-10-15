@@ -546,13 +546,26 @@ def test_the_amd_note_does_not_leak_into_other_tabs():
     assert "AMD" not in trellis._platform_note(bc.NVIDIA)
 
 
-def test_a_blocked_route_says_its_own_reason_not_the_usual_one():
-    """Every blocked route once borrowed the NVIDIA-only-extension sentence. SF3D is plain
-    PyTorch and is Apple-only because its pins break the shared environment, so claiming
-    an extension it does not have sends an AMD user hunting for a build problem."""
-    note = bc.BY_ID["sf3d"]._platform_note(bc.AMD)
-    assert "NVIDIA-only compiled extensions" not in note
-    assert "huggingface-hub" in note and "AMD" in note
+def test_sf3d_is_no_longer_a_blocked_route_on_amd():
+    """It was blocked for a reason that had nothing to do with the card: its pins broke the
+    lab's *shared* environment, so it was left out rather than given a venv. Giving it one
+    removed the reason, and the note it used to show must be gone rather than reworded --
+    a route that runs here has nothing to explain."""
+    entry = bc.BY_ID["sf3d"]
+    assert entry.runs_here(bc.AMD, "linux") is True
+    assert entry.amd_blocked_reason is None
+    assert entry._platform_note(bc.AMD) is None or "Not on AMD" not in entry._platform_note(bc.AMD)
+    assert entry.describe(bc.AMD)["platform_note"] is None
+
+
+def test_a_route_that_cannot_run_on_amd_still_says_why():
+    """The remaining blocked routes have to keep explaining themselves: a reader with no
+    NVIDIA machine to act on cannot do anything with "needs an NVIDIA GPU"."""
+    trellis = bc.BY_ID["trellis"]._platform_note(bc.AMD)
+    assert "Not on AMD" in trellis
+    # TRELLIS is genuinely blocked by NVIDIA-only extensions, so it may name them.
+    assert "flash-attn" in trellis or "NVIDIA-only" in trellis
+    assert bc.BY_ID["trellis"].runs_here(bc.AMD, "linux") is False
 
 
 def test_the_cuda_hunyuan_route_points_an_amd_card_at_the_rocm_one():

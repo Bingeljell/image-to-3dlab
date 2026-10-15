@@ -525,16 +525,20 @@ CATALOG: tuple[Backend, ...] = (
         license_name="Stability AI Community License (non-commercial under $1M revenue)",
         license_url="https://huggingface.co/stabilityai/stable-fast-3d",
         install="scripts/bootstrap_sf3d.py",
-        # Not NVIDIA: SF3D's pins (old huggingface-hub, rembg) broke the lab's shared
-        # environment there, and TRELLIS.2, Hunyuan3D-2.1 and Pixal3D beat it anyway.
-        runs_on=(APPLE,),
-        # Not the NVIDIA-only-extension story the other blocked routes use. SF3D is plain
-        # PyTorch; it is Apple-only here because of those pins, not because of the card.
-        amd_blocked_reason=(
-            "Stable Fast 3D is Apple-only in this lab: its pinned huggingface-hub and rembg "
-            "break the shared environment, so it was left out of the Linux routes rather "
-            "than given its own 2 GB of packages to fight over them."
-        ),
+        # Not a card limitation at all: SF3D's pins (numpy 1.26, transformers 4.42, an old
+        # huggingface-hub) broke the lab's *shared* environment on Linux, so it was marked
+        # Apple-only rather than given its own packages to fight over them. A route with a
+        # venv of its own removes that reason. Upstream needed one line:
+        # texture_baker/setup.py gates its GPU kernels on CUDA_HOME, which is None on a ROCm
+        # build, so it silently built a CPU-only baker.
+        install_by_host={AMD: "scripts/bootstrap_sf3d_rocm.py"},
+        # Same checkout as the Mac route, so the Apple source file proves nothing on Linux:
+        # what proves the AMD route is its venv and its build marker.
+        build_probes_by_host={
+            AMD: (REPO / "vendor" / "stable-fast-3d" / ".i2l-build-complete",
+                  venv_python(REPO / "vendor" / "stable-fast-3d")),
+        },
+        runs_on=(APPLE, AMD),
         setup_minutes=20,
         build_probes=(REPO / "vendor" / "stable-fast-3d" / "sf3d" / "system.py",),
         caveat=(

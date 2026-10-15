@@ -172,7 +172,9 @@ def pip_commands(route: str, uv: str, python: Path) -> list[list[str]]:
         # --index-url, not --extra-index-url: the ROCm build has to win over PyPI's CUDA one.
         [*pip, f"torch=={torch_version}", f"torchvision=={vision_version}",
          "--index-url", host.TORCH_INDEX + route],
-        [*pip, "--no-build-isolation", str(CHECKOUT / "requirements.txt")],
+        # -r, not a bare path: uv reads a positional path as an archive to install and
+        # rejects requirements.txt for not ending in .whl or .tar.gz.
+        [*pip, "--no-build-isolation", "-r", str(CHECKOUT / "requirements.txt")],
     ]
 
 

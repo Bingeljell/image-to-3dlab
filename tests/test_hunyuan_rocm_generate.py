@@ -286,3 +286,36 @@ def test_validation_fills_in_the_defaults():
 def test_the_intermediate_files_are_named_after_the_output():
     assert gen.work_dir(Path("/o/fox.glb")).name == "fox__hunyuan"
     assert gen.matted_path(Path("/o/fox.glb")).name == "fox__matted.png"
+
+
+def test_a_small_card_gets_fewer_views_when_nobody_asked_for_more():
+    """The defaults used to be filled in before the fit, so they read as a request and the
+    ladder only ever chose the chunk: 6 views at 256px on a card with 4 GB free."""
+    settings, fitted = gen.plan_paint({"seed": 1}, 4 * GB)
+    assert (settings["max_num_view"], settings["paint_resolution"]) == (1, 128)
+    assert fitted["sdpa_query_chunk"] == 512
+
+
+def test_an_explicit_request_still_beats_the_ladder():
+    settings, _ = gen.plan_paint({"max_num_view": 4, "paint_resolution": 256}, 4 * GB)
+    assert (settings["max_num_view"], settings["paint_resolution"]) == (4, 256)
+
+
+def test_free_memory_is_asked_of_torch_before_the_vendor_tool():
+    """On an APU the tool's "VRAM" is a 1 GB slice of a 124 GB shared pool, and ROCm 10 has
+    no rocm-smi at all. Torch answers for what a run can really allocate."""
+    assert gen.measured_free_bytes(lambda: 100 * GB, lambda: 1 * GB) == 100 * GB
+    assert gen.measured_free_bytes(lambda: None, lambda: 8 * GB) == 8 * GB
+    assert gen.measured_free_bytes(lambda: None, lambda: None) is None
+
+
+def test_a_black_texture_at_the_top_size_suggests_a_smaller_one(tmp_path):
+    """Already at 256, "re-run with 256" is no advice at all."""
+    numpy = pytest.importorskip("numpy")
+    from PIL import Image
+
+    Image.fromarray(numpy.zeros((64, 64, 3), dtype="uint8")).save(
+        tmp_path / "textured_mesh.jpg")
+    with pytest.raises(SystemExit) as raised:
+        gen._refuse_a_blank_texture(tmp_path, {"paint_resolution": 256})
+    assert "--paint-resolution 128" in str(raised.value)

@@ -44,6 +44,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -174,6 +175,42 @@ def fit_paint_settings(free_bytes: int | None,
         "paint_resolution": wanted_resolution or resolution,
         "sdpa_query_chunk": chunk,
     }
+
+
+def plan_paint(settings: dict[str, Any], free_bytes: int | None
+               ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The run's settings, checked, with paint fitted to the card; and the fit on its own.
+
+    What the caller asked for is read *before* defaults are filled in. Read after, the
+    defaults look like a request, win over the ladder, and only the chunk is ever fitted.
+    """
+    fitted = fit_paint_settings(free_bytes, settings.get("max_num_view"),
+                                settings.get("paint_resolution"))
+    return {**validate(settings), **fitted}, fitted
+
+
+def _torch_free_bytes() -> int | None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return int(torch.cuda.mem_get_info()[0])
+    except Exception:  # noqa: BLE001 - unknown, and the fallback below says so
+        return None
+    return None
+
+
+def measured_free_bytes(torch_free: Callable[[], int | None] = _torch_free_bytes,
+                        smi_free: Callable[[], int | None] = gpu_memory.free_vram_bytes
+                        ) -> int | None:
+    """Free GPU memory as HIP sees it, falling back to the vendor tool.
+
+    Torch first, because it answers for the memory a run can actually allocate. On an APU
+    (Strix Halo) "VRAM" is a 1 GB slice and the real pool is shared system memory, and a
+    ROCm with only `amd-smi` has no `rocm-smi` to ask at all.
+    """
+    found = torch_free()
+    return found if found is not None else smi_free()
 
 
 def describe_fit(settings: dict[str, Any], free_bytes: int | None) -> str:
@@ -393,7 +430,7 @@ def check_environment(vendor_root: Path) -> int:
         Hunyuan3DPaintPipeline,
     )
 
-    free = gpu_memory.free_vram_bytes()
+    free = measured_free_bytes()
     print(f"  PASS: {torch.cuda.get_device_name(0)} (ROCm "
           f"{torch.version.hip}), {gpu_memory.human_bytes(free) if free else 'VRAM unknown'}, "
           "shape + paint pipelines and both compiled extensions import", flush=True)
@@ -480,25 +517,22 @@ def _refuse_a_blank_texture(where: Path, settings: dict[str, Any]) -> None:
     baked = where / "textured_mesh.jpg"
     if not baked.is_file() or not texture_is_blank(baked):
         return
+    asked = settings["paint_resolution"]
+    lower = MAX_PAINT_RESOLUTION if asked > MAX_PAINT_RESOLUTION else min(VALID_PAINT_RESOLUTION)
     raise SystemExit(
-        f"The paint stage produced an all-black texture at "
-        f"{settings['paint_resolution']}px, which is the known failure above 256px on this "
-        f"card -- not a problem with the picture. Re-run with --paint-resolution 256. "
-        f"The GLB has not been written.")
+        f"The paint stage produced an all-black texture at {asked}px, which is the known "
+        f"failure at larger sizes on this card -- not a problem with the picture. Re-run "
+        f"with --paint-resolution {lower}. The GLB has not been written.")
 
 
 def generate(image_path: Path, output: Path, vendor_root: Path, settings: dict[str, Any], *,
              shape_only: bool = False, force_matte: bool = False,
              free_bytes: int | None = None, flash_vdm: bool = False) -> None:
-    settings = validate(settings)
+    settings, fitted = plan_paint(settings, free_bytes)
     problems = verify_paths(vendor_root)
     if problems:
         raise SystemExit("Hunyuan3D-2.1 is not installed:\n  " + "\n  ".join(problems) +
                          "\nRun: python scripts/bootstrap_hunyuan_rocm.py")
-    fitted = fit_paint_settings(free_bytes,
-                               settings.get("max_num_view"),
-                               settings.get("paint_resolution"))
-    settings.update(fitted)
     print(describe_fit(fitted, free_bytes), flush=True)
     prepared, matte_model = prepare_image(image_path, output, force_matte=force_matte)
     _enter_upstream(vendor_root, fitted["sdpa_query_chunk"])
@@ -573,7 +607,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.paint_resolution is not None:
         settings["paint_resolution"] = args.paint_resolution
     generate(args.image, args.output, vendor_root, settings, shape_only=args.shape_only,
-             force_matte=args.matte, free_bytes=gpu_memory.free_vram_bytes(),
+             force_matte=args.matte, free_bytes=measured_free_bytes(),
              flash_vdm=args.flash_vdm)
     return 0
 

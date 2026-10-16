@@ -56,10 +56,22 @@ def test_skipping_compress_leaves_the_asset_uncompressed():
     ]
 
 
-def test_retopology_is_never_skipped():
-    """It is what makes the repaint affordable; there is no route that omits it."""
+def test_retopology_is_never_skipped_for_a_game_ready_finish():
+    """It is what makes the repaint affordable; only full detail leaves it out."""
     assert rr.stage_plan(skip_paint=True, skip_compress=True, skip_bake=True) == [
         "retopologise"]
+
+
+def test_full_detail_keeps_the_mesh_and_only_pixel_matches_and_squeezes():
+    """Nothing simplified means nothing to repaint or bake onto, whatever else was asked."""
+    assert rr.stage_plan(skip_paint=False, skip_compress=False, photo=True, keep_mesh=True) == ["photo", "compress"]
+    assert rr.stage_plan(skip_paint=True, skip_compress=False, keep_mesh=True) == ["compress"]
+
+
+def test_full_detail_is_a_flag_on_the_command_line():
+    args = rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--keep-mesh"])
+    assert args.keep_mesh is True
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).keep_mesh is False
 
 
 def test_the_blender_command_passes_arguments_in_the_documented_order():

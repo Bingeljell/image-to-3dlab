@@ -55,6 +55,11 @@ export function finishFaces(choice, custom) {
   return Math.round(Number(choice === 'custom' ? custom : choice));
 }
 
+/** What Finish's Detail control sends: a triangle count, or full detail (every triangle kept). */
+export function finishDetailSettings(choice, custom) {
+  return choice === 'full' ? { keep_mesh: true } : { faces: finishFaces(choice, custom) };
+}
+
 /** One short line for the Library card. */
 export function statusText(asset) {
   if (asset.kind === 'prop set') {

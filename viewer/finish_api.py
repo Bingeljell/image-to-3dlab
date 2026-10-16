@@ -73,8 +73,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "metallic": 0.25, "roughness": 0.65, "ior": 1.45,
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
-    "skip_photo": False,
+    "skip_photo": False, "keep_mesh": False,
 }
+
+BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -123,7 +125,7 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
     for key, value in raw.items():
         if key not in DEFAULT_SETTINGS:
             continue
-        if key in {"skip_paint", "skip_compress", "skip_bake", "skip_photo"}:
+        if key in BOOL_SETTINGS:
             settings[key] = bool(value)
             continue
         try:
@@ -134,6 +136,9 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
         if not low <= number <= high:
             raise ValueError(f"{key} must be within {low}..{high}, got {number}")
         settings[key] = int(number) if key in INTEGER_SETTINGS else number
+    if settings["keep_mesh"]:
+        # full detail: nothing is simplified, so there is nothing to repaint or bake onto
+        settings.update(skip_paint=True, skip_bake=True)
     return settings
 
 
@@ -208,6 +213,8 @@ def build_command(
         command.append("--skip-compress")
     if settings["skip_bake"]:
         command.append("--skip-bake")
+    if settings.get("keep_mesh"):
+        command.append("--keep-mesh")
     if resume:
         command.append("--resume")
     return command
@@ -377,13 +384,14 @@ def faces_label(faces: int) -> str:
     return f"{faces / 1000:g}k"
 
 
-def final_name(directory_name: str, faces: int) -> str:
-    """The finished model's file name: the asset, then its face count (`vanguard_5k.glb`).
+def final_name(directory_name: str, faces: int, full: bool = False) -> str:
+    """The finished model's file name: the asset, then its face count (`vanguard_5k.glb`),
+    or `_full` for a full-detail finish that kept every triangle.
 
     The asset is the run folder's name up to its first `__`, which drops the generator
     and timestamp tags a generated file carries (`vanguard__pixal3d` -> `vanguard`).
     """
-    return f"{directory_name.split('__')[0]}_{faces_label(faces)}.glb"
+    return f"{directory_name.split('__')[0]}_{'full' if full else faces_label(faces)}.glb"
 
 
 class FinishJob:
@@ -425,7 +433,8 @@ class FinishJob:
     def result_glb(self) -> Path:
         if self.legacy:
             return self.directory / "result.glb"
-        return self.directory / final_name(self.directory.name, int(self.settings["faces"]))
+        return self.directory / final_name(self.directory.name, int(self.settings["faces"]),
+                                           bool(self.settings.get("keep_mesh")))
 
     @property
     def record_path(self) -> Path:
@@ -546,6 +555,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         stages = worker_module().stage_plan(
             job.settings["skip_paint"], job.settings["skip_compress"],
             job.settings.get("skip_bake", False), photo=uses_photo(job, job.settings),
+            keep_mesh=bool(job.settings.get("keep_mesh")),
         )
         if job.resume:
             message = "Resuming from what is already on disk"

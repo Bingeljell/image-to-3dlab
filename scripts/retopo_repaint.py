@@ -76,12 +76,16 @@ def emit_stage(phase: str, message: str) -> None:
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
-               photo: bool = False) -> list[str]:
+               photo: bool = False, keep_mesh: bool = False) -> list[str]:
     """The stages this run will execute, in order.
 
     Named separately from the running of them so a caller — the viewer's job API, say —
     can show the sequence before anything starts, and so the order is testable.
+    `keep_mesh` finishes the generator's own mesh as it is: no retopology, so nothing
+    to repaint or bake detail onto, just Pixel Match and the texture squeeze.
     """
+    if keep_mesh:
+        return (["photo"] if photo else []) + ([] if skip_compress else ["compress"])
     stages = ["retopologise"]
     if not skip_paint:
         stages.append("repaint")
@@ -249,6 +253,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "original; the asset keeps flat surface settings")
     parser.add_argument("--skip-compress", action="store_true")
     parser.add_argument(
+        "--keep-mesh", action="store_true",
+        help="full detail: keep every triangle of the source (no retopology, repaint or "
+             "bake); Pixel Match paints it directly. For renders and stills, not games",
+    )
+    parser.add_argument(
         "--views", type=Path, default=None,
         help="transforms.json directory holding the source photo(s) and their cameras "
              "(a Pixal3D run's .svviews). Given, every surface a photo can see takes the "
@@ -296,8 +305,10 @@ def main() -> int:
         args.steps_dir.mkdir(parents=True, exist_ok=True)
     if args.views is not None and not (args.views / "transforms.json").is_file():
         raise SystemExit(f"--views has no transforms.json: {args.views}")
+    if args.keep_mesh:
+        args.skip_paint = args.skip_bake = True   # nothing simplified, so nothing to repaint or bake onto
     stages = stage_plan(args.skip_paint, args.skip_compress, args.skip_bake,
-                        photo=args.views is not None)
+                        photo=args.views is not None, keep_mesh=args.keep_mesh)
     print(f"[retopo-repaint] {args.source.name} -> {args.output.name}: "
           f"{' -> '.join(stages)}", flush=True)
 
@@ -306,7 +317,9 @@ def main() -> int:
 
     retopo_glb = steps["retopo"]
     step = time.time()
-    if reuse(retopo_glb, args.resume):
+    if args.keep_mesh:
+        retopo_glb = args.source   # full detail: Pixel Match works on the generator's own mesh
+    elif reuse(retopo_glb, args.resume):
         emit_stage("retopologise", f"Reusing {retopo_glb.name}")
     else:
         emit_stage("retopologise", f"Retopologising to {args.faces:,} faces")
@@ -317,7 +330,8 @@ def main() -> int:
             ),
             steps["retopo_log"], "retopologise",
         )
-    timings["retopologise"] = round(time.time() - step, 1)
+    if not args.keep_mesh:
+        timings["retopologise"] = round(time.time() - step, 1)
 
     current = retopo_glb
     if not args.skip_paint:
@@ -394,8 +408,9 @@ def main() -> int:
         "stages": stages,
         "seconds": timings,
         "total_seconds": round(time.time() - started, 1),
-        "retopology": {"faces": args.faces, "atlas": args.atlas, "voxel": args.voxel,
-                       "angle": args.angle},
+        "retopology": None if args.keep_mesh else {"faces": args.faces, "atlas": args.atlas,
+                                                   "voxel": args.voxel, "angle": args.angle},
+        "full_detail": args.keep_mesh,
         "surface": {"metallic": args.metallic, "roughness": args.roughness, "ior": args.ior},
         "bake": None if args.skip_bake else {"size": args.atlas},
         "paint": None if args.skip_paint else {

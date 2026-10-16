@@ -819,3 +819,10 @@ def test_an_agents_link_names_the_asset_to_open():
     out = _run("library.js", """console.log(JSON.stringify(
       ['#asset=03711bf99d31', 'asset=03711bf99d31', '#asset=../../x', '#asset=', '', null, '#other=1&asset=0123456789ab'].map(m.linkedAssetId)));""")
     assert out == ["03711bf99d31", "03711bf99d31", None, None, None, None, "0123456789ab"]
+
+
+@needs_node
+def test_finish_detail_sends_a_triangle_count_or_full_detail():
+    out = _run("library.js", """console.log(JSON.stringify(
+      [m.finishDetailSettings('20000'), m.finishDetailSettings('custom', '30000'), m.finishDetailSettings('full')]));""")
+    assert out == [{"faces": 20000}, {"faces": 30000}, {"keep_mesh": True}]

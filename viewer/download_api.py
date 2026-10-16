@@ -88,6 +88,12 @@ HOST_COMMANDS: dict[tuple[str, str], list[str]] = {
     # because its pins break the shared environment. One id, two installers.
     ("sf3d", AMD): [sys.executable, str(REPO / "scripts" / "bootstrap_sf3d_rocm.py"),
                     "--yes"],
+    # TRELLIS.2 on AMD is Microsoft's own checkout built with HIP, like the NVIDIA entry
+    # above. Without this the Setup page falls back to COMMANDS["trellis"], which is the
+    # Metal port -- and that script refuses a machine that is not a Mac, so the button
+    # either failed minutes in or, before the check existed, built nothing usable.
+    ("trellis", AMD): [sys.executable, str(REPO / "scripts" / "bootstrap_trellis_rocm.py"),
+                       "--yes"],
 }
 
 
@@ -108,7 +114,10 @@ def command_for(backend_id: str, host: str | None = None,
 
 def building_label(backend_id: str, host: str | None = None) -> str:
     """What a setup with no bytes to measure is doing, for the progress line."""
-    if (backend_id, host or _this_host()) in HOST_COMMANDS or backend_id == "hunyuan-cuda":
+    here = host or _this_host()
+    if (backend_id, here) in HOST_COMMANDS or backend_id == "hunyuan-cuda":
+        if here == AMD:
+            return "building the ROCm version"
         return "building the CUDA version"
     return "building the Metal port"
 

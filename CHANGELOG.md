@@ -84,12 +84,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **The Setup button now installs TRELLIS.2 on AMD.** `viewer/download_api.py` keeps its own
+  per-host table of what to run, separate from the catalogue's, and it had a TRELLIS.2 entry
+  for NVIDIA but not for AMD. An AMD machine therefore fell back to the Metal port's
+  bootstrap, which is a Mac script. The progress line said "building the Metal port" while
+  nothing metal was involved.
 - **The macOS TRELLIS.2 bootstrap now refuses a machine that is not a Mac, and says what to run
   instead.** It had no platform check at all, so on an AMD card it cloned four Metal operator
   repositories, installed a dependency, and then died on `No such file or directory: 'xcrun'`.
   The failure arrived minutes in and read as a broken checkout rather than a machine that
-  cannot host the port — on a card TRELLIS.2 *can* host, just through the other script. It now
-  stops before fetching anything and names the right bootstrap for the card.
+  cannot host the port. It now stops before fetching anything and names the right bootstrap
+  for the card.
 - **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and
   PyPI's Linux torch is a CUDA build, so every AMD card was handed torch plus roughly 6 GB of
   NVIDIA wheels it cannot load, leaving a torch that reports no device. The installer now asks

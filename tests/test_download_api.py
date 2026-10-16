@@ -224,6 +224,45 @@ def test_trellis_on_a_mac_still_runs_the_metal_bootstrap():
     assert command[1].endswith("bootstrap_trellis_space_macos.py")
 
 
+def test_trellis_on_amd_runs_the_rocm_bootstrap():
+    """TRELLIS.2 on AMD is Microsoft's checkout built with HIP.
+
+    Without a host entry here the Setup page falls back to COMMANDS["trellis"], which is
+    the Metal port. That script refuses a machine that is not a Mac, so the button died
+    minutes in -- and before that check existed, it failed on `xcrun` after cloning four
+    repositories. Hit on a real AMD card.
+    """
+    command = dl.command_for("trellis", host=dl.AMD)
+    assert command[1].endswith("bootstrap_trellis_rocm.py")
+    assert command[-1] == "--yes"
+    assert dl.building_label("trellis", host=dl.AMD) == "building the ROCm version"
+
+
+@pytest.mark.parametrize("host", [dl.NVIDIA, dl.AMD])
+def test_no_machine_is_handed_the_metal_bootstrap(host):
+    """A general guard, not a trellis one: the Metal port builds through xcrun, so any
+    non-Mac given that script fails somewhere unhelpful."""
+    for backend_id in dl.COMMANDS:
+        command = dl.command_for(backend_id, host=host)
+        if command is None:
+            continue
+        assert "bootstrap_trellis_space_macos.py" not in command[1], (
+            f"{backend_id} on {host} runs the macOS bootstrap")
+
+
+def test_the_label_matches_the_command_being_run():
+    """A progress line that says CUDA while the ROCm build runs is worse than none."""
+    for host in ("apple-silicon", dl.NVIDIA, dl.AMD):
+        command = dl.command_for("trellis", host=host)
+        label = dl.building_label("trellis", host=host)
+        if "rocm" in command[1]:
+            assert "ROCm" in label
+        elif "cuda" in command[1]:
+            assert "CUDA" in label
+        else:
+            assert "Metal" in label
+
+
 def test_a_route_without_a_host_command_uses_the_shared_one():
     assert dl.command_for("pixal3d", host=dl.NVIDIA) == dl.COMMANDS["pixal3d"]
     assert dl.command_for("pixal3d", rebuild=True) == dl.REBUILDS["pixal3d"]

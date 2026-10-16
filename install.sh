@@ -168,6 +168,8 @@ if [ -z "$START" ]; then
 fi
 say "Done. Open Setup & Status in the viewer to choose what to install. Nothing large"
 say "downloads until you say so there. To update later, run this installer again."
+say "Use it from your agent too (Claude Code shown; Codex, Kimi and others: docs/agents.md):"
+printf '\n    claude mcp add assetfurnace -- %s/lab mcp\n\n' "$DIR"
 if [ "$START" = 1 ] && [ "$DRY" != 1 ] && [ -x "$DIR/lab" ]; then
   say "Starting the lab. Ctrl-C stops it; start it again any time with: cd $DIR && ./lab"
   exec "$DIR/lab"

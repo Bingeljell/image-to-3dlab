@@ -8,6 +8,7 @@ of things that must differ.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 from pathlib import Path
@@ -96,10 +97,23 @@ def test_the_provenance_routes_sort_output_apart():
     assert routes.ROCM.provenance_route == "amd-rocm"
 
 
-def test_the_weights_come_from_the_repo_unless_overridden(monkeypatch):
+def test_the_weights_come_from_the_repo_when_there_is_no_local_tree(monkeypatch, tmp_path):
     monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
-    for route in (routes.CUDA, routes.ROCM):
-        assert route.model_path() == "microsoft/TRELLIS.2-4B"
+    route = dataclasses.replace(routes.ROCM, vendor=tmp_path / "not-built")
+    assert route.model_path() == "microsoft/TRELLIS.2-4B"
+
+
+def test_a_conventional_local_tree_is_used_without_being_asked(monkeypatch, tmp_path):
+    """vendor/<route>/models/TRELLIS.2-4B holding a pipeline.json is a weights tree. Reading
+    the environment alone would leave a machine that assembled one by hand still being told
+    it is missing 15 GB."""
+    monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
+    route = dataclasses.replace(routes.ROCM, vendor=tmp_path)
+    assert route.model_path() == "microsoft/TRELLIS.2-4B"
+    (route.vendor / "models" / "TRELLIS.2-4B").mkdir(parents=True)
+    assert route.model_path() == "microsoft/TRELLIS.2-4B", "an empty directory is not a tree"
+    (route.vendor / "models" / "TRELLIS.2-4B" / "pipeline.json").write_text("{}")
+    assert route.model_path() == str(route.vendor / "models" / "TRELLIS.2-4B")
 
 
 def test_the_weights_can_be_pointed_at_a_local_directory(monkeypatch, tmp_path):

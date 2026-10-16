@@ -39,6 +39,41 @@ from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
 
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
+#: TRELLIS.2's weights can come from a local directory instead of the Hugging Face cache,
+#: for machines that already have them -- a shared model store, an offline box. Read by
+#: scripts/trellis_route.py too; the test that both agree on this name is what keeps the
+#: card and the generator from drifting onto different variables. Read here at import, like
+#: HF_HUB_DIR above: the viewer's environment is fixed when it starts.
+TRELLIS_MODEL_PATH_ENV = "I2L_TRELLIS_MODEL_PATH"
+
+#: Where a locally-assembled TRELLIS.2 weights tree goes, per route. A machine with both
+#: cards can use either; the generator looks under its own route first (see
+#: scripts/trellis_route.py). This is a convention rather than a requirement: the cache and
+#: the environment variable both work.
+TRELLIS_LOCAL_MODEL_DIR = "TRELLIS.2-4B"
+TRELLIS_ROUTE_DIRS = ("trellis-cuda", "trellis-rocm")
+
+
+def trellis_local_models() -> Path | None:
+    """The local TRELLIS.2 weights directory the environment points at, if any."""
+    value = os.environ.get(TRELLIS_MODEL_PATH_ENV)
+    return Path(value) if value else None
+
+
+def _local_trellis() -> tuple[Path, ...]:
+    """Every place these weights may legitimately be, besides the Hugging Face cache.
+
+    Without this a machine whose weights live outside the cache is told it is missing 15 GB
+    it does not need -- on the very machine that just finished a successful generation.
+    """
+    found: list[Path] = []
+    named = trellis_local_models()
+    if named:
+        found.append(named)
+    found += [REPO / "vendor" / route / "models" / TRELLIS_LOCAL_MODEL_DIR
+              for route in TRELLIS_ROUTE_DIRS]
+    return tuple(found)
+
 GB = 1024 ** 3
 
 # Which machines a backend can run on is per-backend data rather than one "is this a
@@ -62,6 +97,26 @@ def venv_python(project: Path) -> Path:
     if os.name == "nt":
         return project / ".venv" / "Scripts" / "python.exe"
     return project / ".venv" / "bin" / "python"
+
+
+def _total_present(weights: list[dict[str, Any]]) -> int:
+    """Bytes on disk for a backend, counting each location once.
+
+    One local TRELLIS.2 weights tree holds the main weights, the image-large decoder and the
+    DINOv3 encoder together, so three weights report the same directory. Summed naively the
+    card reads "53.1 GB of 17.9 GB" on a machine that is in fact completely ready. The first
+    weight to claim a location accounts for it; the rest add nothing.
+    """
+    counted: set[str] = set()
+    total = 0
+    for weight in weights:
+        alt = weight.get("alt_path")
+        if alt is not None:
+            if alt in counted:
+                continue
+            counted.add(alt)
+        total += weight["bytes_present"]
+    return total
 
 
 def host_platform() -> str:
@@ -96,14 +151,40 @@ class WeightSet:
     # same Hugging Face folder as its 5 GB text model): a glob under `path`. Presence,
     # progress and Remove then see only the matching files, never the whole folder.
     pattern: str | None = None
+    # Other places the same download may legitimately live. TRELLIS.2 can be pointed at a
+    # local directory of weights instead of downloaded (scripts/trellis_route.py), and a
+    # card that only looked in the Hugging Face cache would call a working route "partly
+    # downloaded" on the machine that built it. Whichever location holds the most bytes
+    # wins, so a cache that is partly populated still counts for what it has.
+    alt_paths: tuple[Path, ...] = ()
 
     def files(self) -> list[Path]:
         return sorted(self.path.glob(self.pattern)) if self.pattern and self.path.is_dir() else []
 
     def state(self) -> tuple[bool, int]:
-        """Whether this download is on disk, and how many bytes of it."""
-        if self.pattern is None:
-            return _dir_state(self.path)
+        """Whether this download is on disk, and how many bytes of it, and where.
+
+        The third value is the alternative location that satisfied it, or None. One local
+        weights tree can hold several of a backend's downloads at once -- TRELLIS.2's main
+        weights, its image-large decoder and its DINOv3 encoder all live in one directory --
+        so without it each reports the whole tree and the card's total reads 53 GB of 17.9.
+        """
+        if self.pattern is not None:
+            found, size = self._pattern_state()
+            return found, size, None
+        present, total = _dir_state(self.path)
+        best = (present, total, None)
+        for alternative in self.alt_paths:
+            found, size = _dir_state(alternative)
+            # By size, not by "does it exist": a Hugging Face cache directory is created
+            # with a refs/ file before anything is downloaded, so preferring the first
+            # location that merely exists would settle on an empty one.
+            if size > total:
+                best = (found, size, str(alternative))
+        return best
+
+    def _pattern_state(self) -> tuple[bool, int]:
+        """A glob under a folder: presence, progress and Remove see only those files."""
         total = 0
         for item in self.files():
             try:
@@ -113,7 +194,7 @@ class WeightSet:
         return total > 0, total
 
     def describe(self) -> dict[str, Any]:
-        present, actual = self.state()
+        present, actual, alt_path = self.state()
         return {
             "label": self.label,
             "source": self.source,
@@ -125,6 +206,7 @@ class WeightSet:
             "bytes_present": actual,
             "human_present": human_bytes(actual),
             "path": str(self.path),
+            "alt_path": alt_path,
             "note": self.note,
         }
 
@@ -266,7 +348,7 @@ class Backend:
 
     def describe(self, host: str | None = None) -> dict[str, Any]:
         weights = [w.describe() for w in self.weights]
-        present = sum(w["bytes_present"] for w in weights)
+        present = _total_present(weights)
         built = self.built_on(host)
         supported = self.runs_here(host)
         said = self.overrides_by_host.get(host or host_platform(), {})
@@ -616,17 +698,23 @@ CATALOG: tuple[Backend, ...] = (
         }},
         build_probes=(venv_python(REPO / "vendor" / "trellis-space-mac"),),
         weights=(
-            # Measured on a real download, 2026-10-01: 15.1 GiB (14.0 undercounted by a
-            # gigabyte, so the card read "16.4 GB of 15.3 GB").
+            # The first three can live outside the Hugging Face cache: TRELLIS.2 loads from
+            # a local directory when I2L_TRELLIS_MODEL_PATH points at one, and that
+            # directory holds the decoder and the encoder along with the main weights. So
+            # all three count it, or a working route reads as "partly downloaded" on the
+            # machine that built it.
             WeightSet("TRELLIS.2-4B", "microsoft/TRELLIS.2-4B", int(15.15 * GB),
-                      HF_HUB_DIR / "models--microsoft--TRELLIS.2-4B"),
+                      HF_HUB_DIR / "models--microsoft--TRELLIS.2-4B",
+                      alt_paths=_local_trellis()),
             WeightSet("TRELLIS image-large decoder", "microsoft/TRELLIS-image-large",
                       148 * 1024 ** 2,
                       HF_HUB_DIR / "models--microsoft--TRELLIS-image-large",
-                      note="One decoder file TRELLIS.2's config pulls in on the first run."),
+                      note="One decoder file TRELLIS.2's config pulls in on the first run.",
+                      alt_paths=_local_trellis()),
             WeightSet("DINOv3 image encoder", "facebook/dinov3-vitl16-pretrain-lvd1689m",
                       int(1.1 * GB),
-                      HF_HUB_DIR / "models--facebook--dinov3-vitl16-pretrain-lvd1689m"),
+                      HF_HUB_DIR / "models--facebook--dinov3-vitl16-pretrain-lvd1689m",
+                      alt_paths=_local_trellis()),
             WeightSet("TinyCLIP input advisor", "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
                       92 * 1024 ** 2,
                       HF_HUB_DIR / "models--wkcn--TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",

@@ -55,12 +55,23 @@ class Route:
     model_repo: str = "microsoft/TRELLIS.2-4B"
 
     def model_path(self) -> str:
-        """Where to load the weights from: the repo, or a local directory of that layout.
+        """Where to load the weights from: a local directory if there is one, else the repo.
 
-        The override exists for machines that already have the weights somewhere else -- a
-        shared model store, an offline box -- where re-downloading 16 GB is not on.
+        Two ways to have a local one. `I2L_TRELLIS_MODEL_PATH` names it outright; otherwise
+        this route's own `vendor/<route>/models/TRELLIS.2-4B` is used when it exists. The
+        override exists for machines whose weights are somewhere else entirely -- a shared
+        store, an offline box -- where re-downloading 16 GB is not on. The default is a
+        convention, not a requirement: the Hugging Face cache works as it always did.
+
+        The Setup card counts the same places (`viewer/backend_catalog.py`), so a route
+        whose weights are local does not read as partly downloaded on the machine that
+        built it.
         """
-        return os.environ.get("I2L_TRELLIS_MODEL_PATH") or self.model_repo
+        named = os.environ.get("I2L_TRELLIS_MODEL_PATH")
+        if named:
+            return named
+        local = self.vendor / "models" / "TRELLIS.2-4B"
+        return str(local) if (local / "pipeline.json").is_file() else self.model_repo
 
     def environ(self, base: dict[str, str] | None = None) -> dict[str, str]:
         """Set this route's variables, and report what it set.

@@ -84,6 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **The Setup card no longer offers to re-download TRELLIS.2 weights it already has.** It
+  measured only the Hugging Face cache, so a machine whose weights sit in a local directory
+  was told "partly downloaded · 1.4 GB of 16.7 GB" and offered a resume — on the machine
+  that had just finished a generation from those weights. Weights are now also counted in
+  `I2L_TRELLIS_MODEL_PATH` and in each route's `vendor/<route>/models/TRELLIS.2-4B`, which
+  is where a locally-assembled tree goes. The generator already looked in both.
+  - An empty cache directory no longer settles the question. Hugging Face creates the
+    folder with a `refs/` file before anything downloads, so preferring the first location
+    that merely *exists* picked the empty one.
+  - One shared directory is counted once. TRELLIS.2's main weights, its image-large decoder
+    and its DINOv3 encoder all live in the same local tree, and summing each separately
+    read "53.1 GB of 17.9 GB" while the route was in fact ready.
 - **The Setup button now installs TRELLIS.2 on AMD.** `viewer/download_api.py` keeps its own
   per-host table of what to run, separate from the catalogue's, and it had a TRELLIS.2 entry
   for NVIDIA but not for AMD. An AMD machine therefore fell back to the Metal port's

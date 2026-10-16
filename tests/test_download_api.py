@@ -507,7 +507,8 @@ def _vision_weight(repo):
 
 def test_a_patterned_weight_measures_only_its_own_file(tmp_path):
     weight = _vision_weight(_hf_folder(tmp_path))
-    assert weight.state() == (True, 7)
+    present, total, alt = weight.state()
+    assert (present, total, alt) == (True, 7, None)
     assert weight.describe()["bytes_present"] == 7
 
 
@@ -515,7 +516,7 @@ def test_a_patterned_weight_is_missing_when_its_file_is(tmp_path):
     repo = _hf_folder(tmp_path)
     for link in repo.glob("snapshots/*/mmproj-*"):
         link.unlink()
-    assert _vision_weight(repo).state() == (False, 0)
+    assert _vision_weight(repo).state()[:2] == (False, 0)
 
 
 def test_removing_a_patterned_weight_deletes_its_file_and_keeps_the_folder(tmp_path, monkeypatch):

@@ -18,6 +18,8 @@ from pathlib import Path
 import backend_catalog as bc
 import pytest
 
+REPO = Path(__file__).resolve().parents[1]
+
 
 def test_every_backend_states_a_licence_and_links_to_it():
     # The licence is the user's business, but we owe them the name and a way to read it.
@@ -563,6 +565,92 @@ def test_trellis_shows_no_amd_note_because_it_runs_there():
     trellis = bc.BY_ID["trellis"]
     assert trellis.runs_here(bc.AMD) is True
     assert "Not on AMD" not in trellis._platform_note(bc.AMD)
+
+
+# --- weights that are not in the Hugging Face cache ---------------------------------------
+#
+# TRELLIS.2 loads from a local directory when I2L_TRELLIS_MODEL_PATH names one, or when the
+# route's own vendor/<route>/models/TRELLIS.2-4B exists. The card only looked in the cache,
+# so a machine whose weights are local was told it was missing 15 GB it did not need -- on
+# the very machine that had just finished a generation.
+
+
+def test_a_local_weights_directory_satisfies_a_download(tmp_path):
+    local = tmp_path / "local"
+    local.mkdir()
+    (local / "weights.safetensors").write_bytes(b"x" * 4096)
+    weight = bc.WeightSet("w", "some/repo", 4096, tmp_path / "empty-cache",
+                          alt_paths=(local,))
+    present, total, alt = weight.state()
+    assert (present, total, alt) == (True, 4096, str(local))
+
+
+def test_an_empty_cache_directory_does_not_settle_it(tmp_path):
+    """A Hugging Face cache folder is created with a refs/ file before anything is
+    downloaded, so preferring the first location that merely exists picks the empty one."""
+    cache = tmp_path / "cache"
+    (cache / "refs").mkdir(parents=True)
+    local = tmp_path / "local"
+    local.mkdir()
+    (local / "weights.safetensors").write_bytes(b"x" * 4096)
+    weight = bc.WeightSet("w", "some/repo", 4096, cache, alt_paths=(local,))
+    assert weight.state()[1] == 4096
+    assert weight.state()[2] == str(local)
+
+
+def test_one_shared_directory_is_counted_once_not_once_per_weight(tmp_path):
+    """TRELLIS.2's main weights, its image-large decoder and its DINOv3 encoder all sit in
+    one local tree. Summed naively the card read "53.1 GB of 17.9 GB" while being ready."""
+    local = tmp_path / "local"
+    local.mkdir()
+    (local / "w.safetensors").write_bytes(b"x" * 2048)
+    weights = [
+        bc.WeightSet(f"w{n}", "some/repo", 100, tmp_path / f"cache{n}", alt_paths=(local,)).describe()
+        for n in range(3)
+    ]
+    assert bc._total_present(weights) == 2048
+
+
+def test_distinct_directories_are_each_counted(tmp_path):
+    weights = []
+    for n, size in ((0, 100), (1, 250)):
+        directory = tmp_path / f"local{n}"
+        directory.mkdir()
+        (directory / "w.safetensors").write_bytes(b"x" * size)
+        weights.append(bc.WeightSet(f"w{n}", "some/repo", size, tmp_path / f"cache{n}",
+                                    alt_paths=(directory,)).describe())
+    assert bc._total_present(weights) == 350
+
+
+def test_the_trellis_weights_look_in_both_local_places(monkeypatch, tmp_path):
+    monkeypatch.setenv(bc.TRELLIS_MODEL_PATH_ENV, str(tmp_path / "named"))
+    assert tmp_path / "named" in bc._local_trellis()
+    assert any("trellis-rocm" in str(p) for p in bc._local_trellis())
+
+
+def test_the_card_and_the_generator_read_the_same_variable():
+    """They each read it in their own module; nothing forces the names to agree."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import trellis_route
+
+    assert trellis_route.ROCM.model_repo  # sanity: the module loaded
+    source = (REPO / "scripts" / "trellis_route.py").read_text()
+    assert bc.TRELLIS_MODEL_PATH_ENV in source, (
+        f"the card reads {bc.TRELLIS_MODEL_PATH_ENV} but the generator does not set that name")
+
+
+def test_the_trellis_weights_all_look_in_the_local_places():
+    """Without alt_paths the card measures only the Hugging Face cache. No module reload
+    here on purpose: reloading backend_catalog binds a *second* copy under the same name, and
+    every monkeypatch in this file would then stop reaching the code under test."""
+    trellis = {w.label: w for w in bc.BY_ID["trellis"].weights}
+    for label in ("TRELLIS.2-4B", "TRELLIS image-large decoder", "DINOv3 image encoder"):
+        assert trellis[label].alt_paths, f"{label} only looks in the cache"
+        assert any("trellis-rocm" in str(p) for p in trellis[label].alt_paths), label
+    # The other two are not part of the TRELLIS.2 tree: TinyCLIP is a separate advisory
+    # model and the remover is a single file this repo fetches itself.
+    assert not trellis["TinyCLIP input advisor"].alt_paths
+    assert not trellis["BiRefNet-lite background remover"].alt_paths
 
 
 def test_the_amd_note_does_not_leak_into_other_tabs():

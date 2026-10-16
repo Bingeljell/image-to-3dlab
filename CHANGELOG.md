@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-10-17
+
 ### Added
 - **Use AssetFurnace from your agent.** `./lab mcp` is an MCP server for Claude Code, Codex,
   Kimi and others: make pictures, models and animated characters, check on a run, give a

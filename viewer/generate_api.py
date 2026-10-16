@@ -468,6 +468,25 @@ def trellis_cuda_bria_patched(checkout: Path | None = None) -> bool:
     return patch_trellis_cuda_no_bria.is_patched(checkout or TRELLIS_CUDA_VENDOR / "TRELLIS.2")
 
 
+def trellis_rocm_attention_problem(vendor: Path | None = None) -> str | None:
+    """Why the AMD TRELLIS.2 build has no attention backend, or None. Files only.
+
+    The viewer does not run in that venv, so `aule` is looked for on disk rather than
+    imported: its package folder in the venv's site-packages.
+    """
+    vendor = vendor or TRELLIS_ROCM_VENDOR
+    sys.path.insert(0, str(REPO / "scripts"))
+    from patch_trellis_rocm import is_patched
+
+    if not is_patched(vendor):
+        return ("The TRELLIS.2 checkout lacks the AMD attention patches. Run "
+                f"python scripts/patch_trellis_rocm.py --root {vendor}")
+    if not any((vendor / ".venv").glob("lib/python*/site-packages/aule/__init__.py")):
+        return ("aule (AuleAttention), the only attention backend on AMD, is not installed. "
+                "Re-run python scripts/bootstrap_trellis_rocm.py --code-only.")
+    return None
+
+
 def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
     """Readiness of the Linux TRELLIS.2 routes, for the Generate tab's readiness strip.
 
@@ -489,6 +508,9 @@ def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
 
     built = marker.is_file() and python.is_file() and wrapper.is_file()
     patched = trellis_cuda_bria_patched(vendor / "TRELLIS.2") if built else False
+    # AMD only: the attention backend has to be patched in and installed, or the run gets
+    # as far as the first attention and dies there.
+    attention = trellis_rocm_attention_problem(vendor) if on_amd and built else None
     weights = weights_on_disk()
     missing = [w["label"] for w in weights.values() if not w["present"]]
     hint = None
@@ -498,14 +520,17 @@ def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
     elif not patched:
         hint = ("The TRELLIS.2 checkout still loads BRIA RMBG-2.0. Run "
                 "python scripts/patch_trellis_cuda_no_bria.py first.")
+    elif attention:
+        hint = attention
+    ready = built and patched and not attention
     return {
         "schema_version": 1,
-        "build": {"present": built and patched, "interpreter": str(python),
+        "build": {"present": ready, "interpreter": str(python),
                   "wrapper": str(wrapper), "hint": hint},
         "weights": weights,
         "missing_weights": missing,
         "bria_patched": patched,
-        "ready": built and patched,
+        "ready": ready,
         "warning": "first use will download missing weights" if missing else None,
     }
 

@@ -243,11 +243,68 @@ license = "LicenseRef-NSCL"
 dependencies = ["numpy"]
 '''
 
+# The three places windowed_attn.py dispatches on the backend, cut down to the lines around
+# each anchor. No `else` in any of them upstream, so an unknown backend is an
+# UnboundLocalError rather than a message.
+WINDOWED_ATTN_SOURCE = """\
+import torch
+from .. import config
+
+
+def calc_window_partition(tensor, window_size, shift_window=0):
+    seq_lens = torch.bincount(shifted_indices)
+    if config.ATTN == 'xformers':
+        if 'xops' not in globals():
+            import xformers.ops as xops
+        attn_func_args = {
+            'attn_bias': xops.fmha.BlockDiagonalMask.from_seqlens(seq_lens)
+        }
+    elif config.ATTN == 'flash_attn':
+        attn_func_args = {
+            'cu_seqlens': torch.cat([torch.tensor([0], device=tensor.device), torch.cumsum(seq_lens, dim=0)], dim=0).int(),
+            'max_seqlen': torch.max(seq_lens)
+        }
+
+    return fwd_indices, bwd_indices, seq_lens, attn_func_args
+
+
+def sparse_windowed_scaled_dot_product_self_attention(qkv, window_size, shift_window=(0, 0, 0)):
+    qkv_feats = qkv.feats[fwd_indices]      # [M, 3, H, C]
+    if config.ATTN == 'xformers':
+        out = xops.memory_efficient_attention(q, k, v, **attn_func_args)[0]             # [M, H, C]
+    elif config.ATTN == 'flash_attn':
+        if 'flash_attn' not in globals():
+            import flash_attn
+        out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)  # [M, H, C]
+
+    out = out[bwd_indices]      # [T, H, C]
+    return qkv.replace(out)
+
+
+def sparse_windowed_scaled_dot_product_cross_attention(q, kv, q_window_size, kv_window_size):
+    q_feats = q.feats[q_fwd_indices]      # [M, H, C]
+    kv_feats = kv.feats[kv_fwd_indices]    # [M, 2, H, C]
+    if config.ATTN == 'xformers':
+        out = xops.memory_efficient_attention(q, k, v, attn_bias=mask)[0]               # [M, H, C]
+    elif config.ATTN == 'flash_attn':
+        if 'flash_attn' not in globals():
+            import flash_attn
+        out = flash_attn.flash_attn_varlen_kvpacked_func(q_feats, kv_feats,
+            cu_seqlens_q=q_attn_func_args['cu_seqlens'], cu_seqlens_k=kv_attn_func_args['cu_seqlens'],
+            max_seqlen_q=q_attn_func_args['max_seqlen'], max_seqlen_k=kv_attn_func_args['max_seqlen'],
+        )  # [M, H, C]
+
+    out = out[q_bwd_indices]      # [T, H, C]
+
+    return q.replace(out)
+"""
+
 UPSTREAM_SOURCES = {
     "TRELLIS.2/trellis2/modules/sparse/config.py": SPARSE_CONFIG_SOURCE,
     "TRELLIS.2/trellis2/modules/attention/config.py": DENSE_CONFIG_SOURCE,
     "TRELLIS.2/trellis2/modules/attention/full_attn.py": DENSE_ATTN_SOURCE,
     "TRELLIS.2/trellis2/modules/sparse/attention/full_attn.py": SPARSE_ATTN_SOURCE,
+    "TRELLIS.2/trellis2/modules/sparse/attention/windowed_attn.py": WINDOWED_ATTN_SOURCE,
     "TRELLIS.2/o-voxel/setup.py": OVOXEL_SETUP_SOURCE,
     "extensions/nvdiffrast/setup.py": NVDIFFRAST_SETUP_SOURCE,
     "extensions/nvdiffrast/pyproject.toml": NVDFRAST_PYPROJECT,
@@ -350,6 +407,44 @@ def test_unknown_backend_still_raises(root: Path):
                  "TRELLIS.2/trellis2/modules/attention/full_attn.py"):
         assert "raise ValueError(f\"Unknown attention module" in read(root, name), (
             f"{name}: an unknown backend would no longer raise")
+
+
+WINDOWED = "TRELLIS.2/trellis2/modules/sparse/attention/windowed_attn.py"
+
+
+def test_windowed_attention_has_an_aule_branch_in_all_three_places(root: Path):
+    """Without it, aule dies on an UnboundLocalError that names neither backend nor file."""
+    trellis_rocm.apply(root)
+    text = read(root, WINDOWED)
+    assert text.count("config.ATTN == 'aule'") == 3
+    assert text.count("from aule import flash_attention_triton") == 2
+    assert "for qn, kn in zip(q_seq_lens.tolist(), kv_seq_lens.tolist()):" in text
+
+
+def test_windowed_attention_names_an_unknown_backend(root: Path):
+    trellis_rocm.apply(root)
+    assert read(root, WINDOWED).count('raise ValueError(f"Unknown attention module') == 3
+
+
+def test_windowed_patches_are_judged_separately(root: Path):
+    """Three patches share one file, so each needs its own proof: a shared one would make
+    the second and third read as already applied the moment the first went in."""
+    proofs = [spec.proof for spec in trellis_rocm.PATCHES if spec.file == WINDOWED]
+    assert len(proofs) == 3 and len(set(proofs)) == 3
+    trellis_rocm.apply(root)
+    (root / WINDOWED).write_text(WINDOWED_ATTN_SOURCE)
+    assert not trellis_rocm.is_patched(root)
+
+
+def test_the_windowed_anchors_match_the_real_checkout_when_there_is_one():
+    """The excerpt above is a copy; when the vendored file exists, check against it too."""
+    real = trellis_rocm.DEFAULT_ROOT / WINDOWED
+    if not real.is_file():
+        pytest.skip("no vendored TRELLIS.2 checkout here")
+    text = real.read_text()
+    for spec in trellis_rocm.PATCHES:
+        if spec.file == WINDOWED:
+            assert spec.needle in text or spec.proof in text, spec.proof
 
 
 def test_patched_text_is_still_valid_python(root: Path):
@@ -476,11 +571,13 @@ def test_device_lib_honours_hip_device_lib_path(tmp_path: Path, monkeypatch):
     assert got == "--rocm-device-lib-path=/somewhere/else"
 
 
-def test_device_lib_is_empty_when_neither_layout_exists(tmp_path: Path, monkeypatch):
-    """No layout found yields an empty path, and clang says so. Loud beats guessing."""
+def test_device_lib_refuses_when_neither_layout_exists(tmp_path: Path, monkeypatch):
+    """No layout found used to give a bare `--rocm-device-lib-path=` and a compile error that
+    never mentioned the bitcode. Now setup.py stops and says where it looked."""
     monkeypatch.delenv("HIP_DEVICE_LIB_PATH", raising=False)
-    got = eval(device_lib_expression(), {"os": os, "_rocm": str(tmp_path / "nope")})
-    assert got == "--rocm-device-lib-path="
+    with pytest.raises(RuntimeError, match="HIP_DEVICE_LIB_PATH") as refused:
+        eval(device_lib_expression(), {"os": os, "_rocm": str(tmp_path / "nope")})
+    assert "amdgcn/bitcode" in str(refused.value) and "nope" in str(refused.value)
 
 
 # --- second runs, and refusals -------------------------------------------------------------

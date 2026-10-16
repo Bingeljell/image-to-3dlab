@@ -1525,6 +1525,50 @@ def test_the_rocm_route_not_built_points_at_its_own_bootstrap(tmp_path, monkeypa
     assert "api.NVIDIA" not in status["build"]["hint"]
 
 
+def _rocm_install(tmp_path, monkeypatch, *, attention=None):
+    vendor = tmp_path / "trellis-rocm"
+    python = vendor / ".venv" / "bin" / "python"
+    marker = vendor / ".i2l-build-complete"
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    marker.write_text("{}")
+    monkeypatch.setattr(api, "TRELLIS_ROCM_VENDOR", vendor)
+    monkeypatch.setattr(api, "TRELLIS_ROCM_PYTHON", python)
+    monkeypatch.setattr(api, "TRELLIS_ROCM_MARKER", marker)
+    monkeypatch.setattr(api, "TRELLIS_ROCM_WRAPPER", python)
+    monkeypatch.setattr(api, "weights_on_disk", lambda *a, **k: {})
+    monkeypatch.setattr(api, "trellis_cuda_bria_patched", lambda *a: True)
+    return vendor
+
+
+def test_the_rocm_route_is_not_ready_without_its_attention_patches(tmp_path, monkeypatch):
+    _rocm_install(tmp_path, monkeypatch)
+    status = api.cuda_setup_status(api.AMD)
+    assert status["ready"] is False and status["build"]["present"] is False
+    assert "patch_trellis_rocm.py" in status["build"]["hint"]
+
+
+def test_the_rocm_route_is_not_ready_without_aule_installed(tmp_path, monkeypatch):
+    import patch_trellis_rocm
+
+    vendor = _rocm_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(patch_trellis_rocm, "is_patched", lambda root: True)
+    status = api.cuda_setup_status(api.AMD)
+    assert status["ready"] is False
+    assert "aule" in status["build"]["hint"]
+    aule = vendor / ".venv" / "lib" / "python3.11" / "site-packages" / "aule"
+    aule.mkdir(parents=True)
+    (aule / "__init__.py").write_text("")
+    assert api.cuda_setup_status(api.AMD)["ready"] is True
+
+
+def test_the_nvidia_route_is_not_asked_about_aule(tmp_path, monkeypatch):
+    _cuda_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(api, "trellis_rocm_attention_problem",
+                        lambda *a: pytest.fail("asked an NVIDIA card about aule"))
+    assert api.cuda_setup_status(api.NVIDIA)["ready"] is True
+
+
 def test_bria_patch_probe_reads_the_real_checkout_rule(tmp_path):
     assert api.trellis_cuda_bria_patched(tmp_path / "missing") is False
 

@@ -9,7 +9,7 @@ card without them there is nothing to select and the run dies before the first f
 pass. This adds `aule` (AuleAttention, https://github.com/xenn0010/Aule-Attention) as a
 fourth. It is a Triton flash attention with no extension to compile, ships as a
 pure-Python wheel, and runs on ROCm — where it was checked against torch's own SDPA and
-agrees to 5e-4. The edit is the dispatch branch upstream lacks, in both the sparse and the
+agrees to 5e-4. The edit is the dispatch branch upstream lacks, in the sparse, windowed and
 dense attention paths.
 
 **The device bitcode.** The ROCm ports of nvdiffrast and CuMesh hardcode the ROCm 10
@@ -192,7 +192,14 @@ DEVICE_LIB_REPLACEMENT = (
     "%%INDENT%%%%DEEP%%%%DEEP%%(p for p in (os.path.join(_rocm,'lib','llvm',"
     "'amdgcn','bitcode'),\n"
     "%%INDENT%%%%DEEP%%%%DEEP%%%%DEEP%%os.path.join(_rocm,'amdgcn','bitcode'))\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%%%DEEP%%if os.path.isdir(p)), '')),\n"
+    "%%INDENT%%%%DEEP%%%%DEEP%%%%DEEP%%if os.path.isdir(p)), None)\n"
+    "%%INDENT%%%%DEEP%%# Neither layout: say so here, not as a bare --rocm-device-lib-path=\n"
+    "%%INDENT%%%%DEEP%%# and a compile error that never mentions the bitcode. A generator's\n"
+    "%%INDENT%%%%DEEP%%# throw() is how an expression raises inside a list literal.\n"
+    "%%INDENT%%%%DEEP%%or (_ for _ in ()).throw(RuntimeError(\n"
+    "%%INDENT%%%%DEEP%%%%DEEP%%'ROCm device bitcode not found under ' + repr(_rocm) +\n"
+    "%%INDENT%%%%DEEP%%%%DEEP%%' (looked in lib/llvm/amdgcn/bitcode and amdgcn/bitcode). '\n"
+    "%%INDENT%%%%DEEP%%%%DEEP%%'Set HIP_DEVICE_LIB_PATH to the folder holding ocml.bc.'))),\n"
 )
 DEVICE_LIB_PROOF = "ROCm 7.x keeps the device bitcode"
 
@@ -205,6 +212,88 @@ DEVICE_LIB_FILES = (
     f"{EXTENSIONS}/CuMesh/setup.py",
 )
 
+
+# Windowed sparse attention has an if/elif for xformers and flash_attn and no else, so any
+# other backend dies on an UnboundLocalError (`attn_func_args`, then `out`) that names
+# neither the backend nor the file. TRELLIS.2's own models use full attention, so this is
+# not on the default path -- which is exactly why it would surface late and confusingly.
+# Each gets an `aule` branch done the same way as the full sparse one (each window on its
+# own), and an `else: raise` so an unknown backend says what it is.
+WINDOWED_ATTN = f"{CHECKOUT}/trellis2/modules/sparse/attention/windowed_attn.py"
+UNKNOWN_ATTN = "    else:\n        raise ValueError(f\"Unknown attention module: {config.ATTN}\")\n"
+
+WINDOW_PARTITION_NEEDLE = (
+    "            'max_seqlen': torch.max(seq_lens)\n"
+    "        }\n"
+    "\n"
+    "    return fwd_indices, bwd_indices, seq_lens, attn_func_args"
+)
+WINDOW_PARTITION_PROOF = "aule windows need no packed-kernel arguments"
+WINDOW_PARTITION_REPLACEMENT = (
+    "            'max_seqlen': torch.max(seq_lens)\n"
+    "        }\n"
+    "    elif config.ATTN == 'aule':\n"
+    f"        # {MARKER} {WINDOW_PARTITION_PROOF}: each is attended on its own.\n"
+    "        attn_func_args = {}\n"
+    + UNKNOWN_ATTN +
+    "\n"
+    "    return fwd_indices, bwd_indices, seq_lens, attn_func_args"
+)
+
+WINDOW_SELF_NEEDLE = (
+    "        out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)"
+    "  # [M, H, C]\n"
+    "\n"
+    "    out = out[bwd_indices]      # [T, H, C]"
+)
+WINDOW_SELF_PROOF = "windowed self attention, one window at a time"
+WINDOW_SELF_REPLACEMENT = (
+    "        out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)"
+    "  # [M, H, C]\n"
+    "    elif config.ATTN == 'aule':\n"
+    f"        # {MARKER} {WINDOW_SELF_PROOF}, as the full sparse branch does.\n"
+    "        from aule import flash_attention_triton\n"
+    "        q, k, v = qkv_feats.unbind(dim=1)                                # [M, H, C]\n"
+    "        outs, off = [], 0\n"
+    "        for n in seq_lens.tolist():\n"
+    "            q_i = q[off:off + n].transpose(0, 1).unsqueeze(0)            # [1, H, n, C]\n"
+    "            k_i = k[off:off + n].transpose(0, 1).unsqueeze(0)\n"
+    "            v_i = v[off:off + n].transpose(0, 1).unsqueeze(0)\n"
+    "            out_i = flash_attention_triton(q_i, k_i, v_i, causal=False)[0]  # [H, n, C]\n"
+    "            outs.append(out_i.transpose(0, 1))                           # [n, H, C]\n"
+    "            off += n\n"
+    "        out = torch.cat(outs, dim=0)                                     # [M, H, C]\n"
+    + UNKNOWN_ATTN +
+    "\n"
+    "    out = out[bwd_indices]      # [T, H, C]"
+)
+
+WINDOW_CROSS_NEEDLE = (
+    "        )  # [M, H, C]\n"
+    "\n"
+    "    out = out[q_bwd_indices]      # [T, H, C]"
+)
+WINDOW_CROSS_PROOF = "windowed cross attention, one window pair at a time"
+WINDOW_CROSS_REPLACEMENT = (
+    "        )  # [M, H, C]\n"
+    "    elif config.ATTN == 'aule':\n"
+    f"        # {MARKER} {WINDOW_CROSS_PROOF}.\n"
+    "        from aule import flash_attention_triton\n"
+    "        k, v = kv_feats.unbind(dim=1)                                    # [M, H, C]\n"
+    "        outs, q_off, kv_off = [], 0, 0\n"
+    "        for qn, kn in zip(q_seq_lens.tolist(), kv_seq_lens.tolist()):\n"
+    "            q_i = q_feats[q_off:q_off + qn].transpose(0, 1).unsqueeze(0)  # [1, H, qn, C]\n"
+    "            k_i = k[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)      # [1, H, kn, C]\n"
+    "            v_i = v[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)\n"
+    "            out_i = flash_attention_triton(q_i, k_i, v_i, causal=False)[0]  # [H, qn, C]\n"
+    "            outs.append(out_i.transpose(0, 1))                           # [qn, H, C]\n"
+    "            q_off += qn\n"
+    "            kv_off += kn\n"
+    "        out = torch.cat(outs, dim=0)                                     # [M, H, C]\n"
+    + UNKNOWN_ATTN +
+    "\n"
+    "    out = out[q_bwd_indices]      # [T, H, C]"
+)
 
 AULE_PATCHES = (
     Patch(SPARSE_CONFIG, SPARSE_CONFIG_NEEDLE, SPARSE_CONFIG_REPLACEMENT,
@@ -221,6 +310,11 @@ AULE_PATCHES = (
           needle_survives=True),
     Patch(SPARSE_ATTN, SPARSE_ATTN_NEEDLE, SPARSE_ATTN_REPLACEMENT, proof=AULE_PROOF,
           needle_survives=True),
+    Patch(WINDOWED_ATTN, WINDOW_PARTITION_NEEDLE, WINDOW_PARTITION_REPLACEMENT,
+          proof=WINDOW_PARTITION_PROOF),
+    Patch(WINDOWED_ATTN, WINDOW_SELF_NEEDLE, WINDOW_SELF_REPLACEMENT, proof=WINDOW_SELF_PROOF),
+    Patch(WINDOWED_ATTN, WINDOW_CROSS_NEEDLE, WINDOW_CROSS_REPLACEMENT,
+          proof=WINDOW_CROSS_PROOF),
 )
 
 DEVICE_LIB_PATCHES = tuple(

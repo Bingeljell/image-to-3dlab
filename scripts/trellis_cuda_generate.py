@@ -39,6 +39,7 @@ for _path in (REPO, REPO / "scripts"):
         sys.path.insert(0, str(_path))
 
 import patch_trellis_cuda_no_bria as bria_patch  # noqa: E402, RUF100
+import patch_trellis_rocm as rocm_patch  # noqa: E402, RUF100
 import trellis_route  # noqa: E402, RUF100
 import trellis_space_generate as space  # noqa: E402, RUF100
 
@@ -75,6 +76,28 @@ def bria_refusal(vendor_root: Path) -> str | None:
     return (f"{checkout(vendor_root)} still loads BRIA RMBG-2.0, which this repo's "
             "generation pipeline must never load. Apply the guardrail first:\n"
             f"    python scripts/patch_trellis_cuda_no_bria.py --root {checkout(vendor_root)}")
+
+
+def uses_aule(route: trellis_route.Route) -> bool:
+    """Whether this route selects AuleAttention, which only the ROCm patches make exist."""
+    return "aule" in route.backend_env.values()
+
+
+def aule_patch_refusal(vendor_root: Path, route: trellis_route.Route) -> str | None:
+    """Why an AMD checkout cannot attend, or None. A file check: seconds, no torch.
+
+    Without the patches upstream ignores the unknown backend name and the run dies inside
+    the first attention, minutes in, on a flash-attn import nobody asked for.
+    """
+    if not uses_aule(route) or rocm_patch.is_patched(vendor_root):
+        return None
+    return (f"{vendor_root} lacks the AMD attention patches (the aule backend). Apply them:\n"
+            f"    python scripts/patch_trellis_rocm.py --root {vendor_root}")
+
+
+AULE_MISSING = ("aule (AuleAttention) does not import in this venv, and it is the only "
+                "attention backend on AMD. Re-run: python scripts/bootstrap_trellis_rocm.py "
+                "--code-only")
 
 
 class BriaRefused:
@@ -223,7 +246,7 @@ def prepare_image(image_path: Path, output: Path, *, force_matte: bool,
 
 
 def load_pipeline(vendor_root: Path, route: trellis_route.Route = ROUTE):
-    refusal = bria_refusal(vendor_root)
+    refusal = bria_refusal(vendor_root) or aule_patch_refusal(vendor_root, route)
     if refusal:
         raise SystemExit(refusal)
     configure_environment(route=route)
@@ -250,9 +273,9 @@ def check_environment(vendor_root: Path, route: trellis_route.Route = ROUTE) -> 
     """Seconds, no model load: paths, the BRIA guardrail, the device, and the imports a run
     needs. Run this before a generation, not after one has failed."""
     problems = verify_paths(vendor_root, route)
-    refusal = bria_refusal(vendor_root)
-    if refusal:
-        problems.append(refusal)
+    for refusal in (bria_refusal(vendor_root), aule_patch_refusal(vendor_root, route)):
+        if refusal:
+            problems.append(refusal)
     if problems:
         for problem in problems:
             print(f"  FAIL: {problem}", flush=True)
@@ -264,6 +287,12 @@ def check_environment(vendor_root: Path, route: trellis_route.Route = ROUTE) -> 
     if not torch.cuda.is_available():
         print("  FAIL: torch cannot see a CUDA device", flush=True)
         return 1
+    if uses_aule(route):
+        try:
+            import aule  # noqa: F401  the attention backend the patches select
+        except ImportError:
+            print(f"  FAIL: {AULE_MISSING}", flush=True)
+            return 1
     import o_voxel
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 

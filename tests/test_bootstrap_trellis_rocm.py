@@ -146,11 +146,13 @@ def test_torch_comes_from_the_rocm_index_not_the_default_one():
     assert "rocm" in index, "a CUDA torch on an AMD card is the bug this route exists to fix"
 
 
-def test_onnxruntime_is_not_installed():
-    """Its 1.16.3 wheel asks for an executable stack the kernel here refuses, and nothing
-    on the generation path needs it."""
+def test_onnxruntime_is_installed_so_rembg_can_cut_a_picture():
+    """A picture arriving without alpha has to be cut out before TRELLIS sees it, and rembg
+    needs onnxruntime to do that. An old wheel asked for an executable stack this kernel
+    refused; the release that resolves now installs and runs, so dropping it was a stale
+    answer and left every un-matted upload failing with no obvious cause."""
     joined = [" ".join(c) for c in boot.pip_commands("source", "uv", PYTHON, (7, 2))]
-    assert not any("onnxruntime" in c for c in joined)
+    assert any("onnxruntime" in c for c in joined)
 
 
 def test_an_unsupported_rocm_release_has_no_plan():

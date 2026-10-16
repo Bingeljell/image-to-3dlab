@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **TRELLIS.2 on AMD.** Microsoft's own pinned checkout, the same pipeline and the same
+  weights the NVIDIA route runs, now built with HIP: `scripts/bootstrap_trellis_rocm.py`,
+  `scripts/trellis_rocm_generate.py`, and the **TRELLIS.2 (AMD)** engine in Create.
+  - **Two of the four compiled extensions come from upstream**, at the same commits the
+    NVIDIA route uses: FlexGEMM and o-voxel already dispatch on `IS_HIP_EXTENSION` and pass
+    `--offload-arch`, and call only the raw CUDA runtime that hipcc aliases. Their one real
+    problem was `-std=c++17` against torch 2.14's C++20 headers, which is three words in
+    `scripts/patch_trellis_rocm.py`. Both cards now build them from identical source.
+  - **nvdiffrast and CuMesh come from dmonkman's ROCm ports**, for two different reasons
+    worth keeping apart. nvdiffrast because upstream is CUDA-only with no HIP path to patch
+    into; CuMesh because its eight `.cu` sources need a hipify (`cuda::` to hip, `cub::` to
+    `hipcub::`) that is machine generated rather than something to hand-edit. Both ports
+    still hardcode the ROCm 10 device-bitcode path and declare `requires-python >=3.12`; the
+    same patch fixes both, since ROCm 7.x keeps the bitcode at `<root>/amdgcn/bitcode` and
+    no upstream declares that floor at all.
+  - **Attention runs on AuleAttention**, a Triton flash attention with no extension to
+    compile. TRELLIS.2's three backends are xformers, flash-attn and flash-attn-3, all
+    compiled against CUDA, so on this card there was nothing to select at all. AuleAttention
+    ships as a pure-Python wheel and was checked against torch's own SDPA on gfx1100,
+    agreeing to 5e-4.
+  - **Verified end to end** on an RX 7900 XT (gfx1100, ROCm 7.2, torch 2.14.1): a picture to
+    a textured GLB in 233 s — 237k vertices, 282k triangles, a 2048² base-colour texture
+    with 26k distinct colours, not a black one. The manifest and provenance sidecar record
+    the run as `amd-rocm` with BRIA `loaded: false`.
 - **Hunyuan3D-2.1 on AMD.** Tencent's own shape and PBR paint, the route NVIDIA users
   already had, now builds for an AMD card with HIP: `scripts/bootstrap_hunyuan_rocm.py` and
   the new **Hunyuan3D-2.1 (AMD)** engine in Create. Less work than it sounds -- the shape
@@ -81,6 +105,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the traceback on the terminal.
 
 ### Changed
+- `I2L_TRELLIS_MODEL_PATH` points the TRELLIS.2 routes at a local directory of weights
+  instead of downloading them, for machines that already have them — a shared model store,
+  an offline box — where re-fetching 16 GB is not on. Unset, both routes behave as before.
 - The Setup page's "nothing runs here" banner no longer promises that AMD support is coming.
   AMD has shipped for a while, and that banner is where a visitor is told what their machine
   can actually do.

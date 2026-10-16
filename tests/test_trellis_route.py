@@ -96,6 +96,20 @@ def test_the_provenance_routes_sort_output_apart():
     assert routes.ROCM.provenance_route == "amd-rocm"
 
 
+def test_the_weights_come_from_the_repo_unless_overridden(monkeypatch):
+    monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
+    for route in (routes.CUDA, routes.ROCM):
+        assert route.model_path() == "microsoft/TRELLIS.2-4B"
+
+
+def test_the_weights_can_be_pointed_at_a_local_directory(monkeypatch, tmp_path):
+    """For machines that already have the weights -- a shared store, an offline box -- where
+    re-fetching 16 GB is not on. Both routes honour it, since they load the same repo."""
+    monkeypatch.setenv("I2L_TRELLIS_MODEL_PATH", str(tmp_path))
+    for route in (routes.CUDA, routes.ROCM):
+        assert route.model_path() == str(tmp_path)
+
+
 def test_the_build_marker_is_the_same_name_on_both_routes():
     """Both bootstraps write `.i2l-build-complete`; readiness reads what the route asks for."""
     assert routes.CUDA.marker_name == routes.ROCM.marker_name == ".i2l-build-complete"

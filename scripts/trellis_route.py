@@ -49,6 +49,18 @@ class Route:
     provenance_route: str = ""
     #: Written by the bootstrap when the build finished.
     marker_name: str = ".i2l-build-complete"
+    #: The Hugging Face repo `pipeline.from_pretrained` is given. Upstream loads it by id
+    #: and falls back to a local directory when one holds `pipeline.json`, so this can be
+    #: pointed at a directory of the same layout.
+    model_repo: str = "microsoft/TRELLIS.2-4B"
+
+    def model_path(self) -> str:
+        """Where to load the weights from: the repo, or a local directory of that layout.
+
+        The override exists for machines that already have the weights somewhere else -- a
+        shared model store, an offline box -- where re-downloading 16 GB is not on.
+        """
+        return os.environ.get("I2L_TRELLIS_MODEL_PATH") or self.model_repo
 
     def environ(self, base: dict[str, str] | None = None) -> dict[str, str]:
         """Set this route's variables, and report what it set.

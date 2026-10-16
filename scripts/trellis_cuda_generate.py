@@ -236,8 +236,10 @@ def load_pipeline(vendor_root: Path, route: trellis_route.Route = ROUTE):
     if not torch.cuda.is_available():
         raise SystemExit("torch cannot see a CUDA device; check the driver and the venv")
     forbid_bria(rembg)
-    print(f"Loading TRELLIS.2 pipeline ({route.provenance_route}, BRIA disabled)...", flush=True)
-    pipeline = Trellis2ImageTo3DPipeline.from_pretrained("microsoft/TRELLIS.2-4B")
+    model = route.model_path()
+    print(f"Loading TRELLIS.2 pipeline ({route.provenance_route}, weights from {model}, "
+          "BRIA disabled)...", flush=True)
+    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model)
     if pipeline.rembg_model is not None:
         raise SystemExit("refusing: the pipeline built a background remover despite the patch")
     pipeline.cuda()

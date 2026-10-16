@@ -136,11 +136,13 @@ NOINLINE_PROBE_SOURCE = (
     "int main() { return 0; }\n"
 )
 
-# Upstream's --basic list minus what only training or the Gradio demo uses. onnxruntime is
-# dropped: its 1.16.3 wheel asks for an executable stack the kernel here refuses, and nothing
-# on the generation path needs it. transformers is pinned to the version that knows
-# DINOv3. numpy and plyfile are o-voxel's, which installs with --no-deps.
-BASIC_ROCM = [p for p in BASIC if p != "onnxruntime"]
+# Upstream's --basic list minus what only training or the Gradio demo uses. transformers is
+# pinned to the version that knows DINOv3. numpy and plyfile are o-voxel's, which installs
+# with --no-deps. onnxruntime stays: rembg needs it to cut out pictures that arrive without
+# alpha, and the current release installs and runs here. An old 1.16.3 wheel asked for an
+# executable stack this kernel refused, and dropping it was the right answer at the time; it
+# is simply not the wheel that gets resolved now.
+BASIC_ROCM = list(BASIC)
 
 LICENCE = (
     "TRELLIS.2: MIT (code + weights). DINOv3: DINOv3 License, gated: request access at\n"

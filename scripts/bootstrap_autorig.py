@@ -77,8 +77,21 @@ def venv_python(root: Path = VENDOR) -> Path:
     return root / ".venv" / "bin" / "python"
 
 
-def announcement(build: bool = True, weights: bool = True) -> str:
+def route_label(family: str, index: str | None) -> str:
+    """Which machine this installs for and where its torch comes from, for the prompt."""
+    if index and "rocm" in index:
+        return f"AMD / ROCm on Linux, torch from {index}"
+    if index:
+        return f"NVIDIA / CUDA, torch from {index}"
+    if family == "macos":
+        return "Apple Silicon (Metal), torch from PyPI"
+    return "no supported GPU found, torch from PyPI (runs on the CPU, slowly)"
+
+
+def announcement(build: bool = True, weights: bool = True, route: str | None = None) -> str:
     lines = ["Auto-rig: SkinTokens by VAST-AI (MIT licence)"]
+    if route:
+        lines.append(f"  route    {route}")
     if build:
         lines.append(f"  code     {UPSTREAM} @ {COMMIT[:7]} -> {VENDOR.relative_to(REPO)}/")
         lines.append(f"  packages a Python {PYTHON_VERSION} venv there, about 2 GB "
@@ -164,16 +177,39 @@ def pip_commands(uv: str, python: Path, root: Path, index: str | None) -> list[l
     return [torch, [*pip, *EXTRA_PACKAGES, "-r", str(root / "requirements.txt")]]
 
 
-def install_packages(root: Path = VENDOR, runner=run) -> None:
+def this_machines_index() -> str | None:
+    return torch_index(host.os_family(), host.has_nvidia_gpu(), host.driver_cuda_version(),
+                       amd=host.has_amd_gpu(), rocm=host.rocm_version())
+
+
+def prove_torch_on_amd(python: Path, probe=None) -> None:
+    """Launch one kernel with the torch just installed, before anything is built on it.
+
+    A ROCm torch can install cleanly and still carry no code for this card; the rig then
+    dies on the first tensor with `hipErrorInvalidKernelFile`. Seconds now, not later.
+    """
+    if probe is None:
+        from bootstrap_trellis_rocm import gpu_probe as probe
+    ok, why = probe(python)
+    if not ok:
+        raise SystemExit(f"The ROCm torch installed for auto-rig does not run on this card: "
+                         f"{why}. Nothing else was installed.")
+
+
+def install_packages(root: Path = VENDOR, runner=run, index: str | None = None,
+                     probe=None) -> None:
     uv = shutil.which("uv")
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
-    index = torch_index(host.os_family(), host.has_nvidia_gpu(), host.driver_cuda_version(),
-                        amd=host.has_amd_gpu(), rocm=host.rocm_version())
+    index = this_machines_index() if index is None else index
     if venv_needs_rebuild(root):
         shutil.rmtree(root / ".venv", ignore_errors=True)
         runner([uv, "venv", str(root / ".venv"), "--python", PYTHON_VERSION])
-    for command in pip_commands(uv, venv_python(root), root, index):
+    torch, *rest = pip_commands(uv, venv_python(root), root, index)
+    runner(torch)
+    if index and "rocm" in index:
+        prove_torch_on_amd(venv_python(root), probe)
+    for command in rest:
         runner(command)
 
 
@@ -225,7 +261,11 @@ def main(argv: list[str] | None = None) -> int:
 
     build = not args.weights_only
     weights = not args.build_only
-    print(announcement(build=build, weights=weights))
+    # Worked out before asking, so the prompt names the route and an unusable driver or
+    # ROCm stops here rather than after the yes.
+    index = this_machines_index() if build else None
+    route = route_label(host.os_family(), index) if build else None
+    print(announcement(build=build, weights=weights, route=route))
 
     if not args.yes:
         # Non-interactive without --yes must not silently proceed, and must not hang
@@ -240,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     if build:
         clone_pinned()
         portable.patch(VENDOR)
-        install_packages()
+        install_packages(index=index)
     if weights:
         install_weights()
     print("\nDone. Open the viewer's Rig tab.")

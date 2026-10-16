@@ -28,6 +28,7 @@ LABELS = {"picture": "Picture", "back": "Back picture", "model": "3D model", "fi
 KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "finish", "split": "props",
         "rigged": "animate", "animated": "animate"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
+MOVE_KEYS = ("speed", "arm_spread")
 FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
@@ -87,6 +88,7 @@ class Chain:
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
     finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
+    move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread (the animate job checks them)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -311,7 +313,8 @@ class ChainRunner:
         if step == "animated":
             if not chain.made.get("rigged") or not chain.first_move:
                 raise ValueError("Animate needs a rigged model and a move")
-            body = json.dumps({"model": chain.made["rigged"], "preset": chain.first_move}).encode()
+            body = json.dumps({"model": chain.made["rigged"], "preset": chain.first_move,
+                               **chain.move_settings}).encode()
             return kind, self._post("/api/animate/play", body, "application/json")
         if step == "split":
             if not chain.made.get("model"):
@@ -404,6 +407,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         made = json.loads(text("made") or "{}")
         picture = json.loads(text("picture_settings") or "{}")
         finish = json.loads(text("finish_settings") or "{}")
+        move = json.loads(text("move_settings") or "{}")
     except ValueError as exc:
         raise ValueError(f"the plan is not readable: {exc}") from exc
     upload = form.get("file")
@@ -415,6 +419,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         model_seed=int(text("model_seed")) if (text("model_seed") or "").isdigit() else None,
         keep_everything=text("keep_everything") in ("1", "true"),
         finish_settings={k: finish[k] for k in FINISH_KEYS if k in finish} if isinstance(finish, dict) else {},
+        move_settings={k: move[k] for k in MOVE_KEYS if k in move} if isinstance(move, dict) else {},
         made={k: str(v) for k, v in made.items() if k in ("picture", "back", "model", "finished", "rigged") and v},
         upload=(upload.get("filename") or "upload", upload["data"]) if upload and upload.get("filename") and upload.get("data") else None,
     )

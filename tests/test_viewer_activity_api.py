@@ -294,3 +294,22 @@ def test_a_plan_carries_edge_fade_to_the_finish_job():
     form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
             "finish_settings": {"value": json.dumps({"keep_mesh": True, "skip_edge_fade": True, "skip_nudge": True})}}
     assert aa.chain_from_form(form).finish_settings == {"keep_mesh": True, "skip_edge_fade": True, "skip_nudge": True}
+
+
+def test_a_plan_carries_move_speed_and_arm_spread_to_the_animate_job(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["animated"])}, "first_move": {"value": "wave"},
+            "made": {"value": json.dumps({"rigged": "animate/k/k_rigged.glb"})},
+            "move_settings": {"value": json.dumps({"speed": 1.5, "arm_spread": 10, "colour": "red"})}}
+    (tmp_path / "animate/k").mkdir(parents=True)
+    (tmp_path / "animate/k/k_rigged.glb").write_bytes(b"x")
+    chain = aa.chain_from_form(form)
+    assert chain.move_settings == {"speed": 1.5, "arm_spread": 10}     # unknown keys never reach Animate
+    runner.submit(chain, background=False)
+    body = next(b for m, p, b in jobs.calls if p == "/api/animate/play")
+    assert json.loads(body) == {"model": "animate/k/k_rigged.glb", "preset": "wave", "speed": 1.5, "arm_spread": 10}
+
+
+def test_a_plan_without_move_settings_lets_the_move_use_its_own_pace():
+    chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["animated"])}})
+    assert chain.move_settings == {}

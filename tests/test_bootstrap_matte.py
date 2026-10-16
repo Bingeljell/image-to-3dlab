@@ -59,3 +59,14 @@ def test_a_file_with_the_wrong_checksum_is_thrown_away(home):
     with pytest.raises(SystemExit, match="checksum mismatch"):
         bm.download(home / "birefnet-general-lite.onnx", opener=_opener(b"corrupt"))
     assert not any(home.iterdir())
+
+
+def test_no_terminal_means_no_download_rather_than_a_crash(home, monkeypatch, capsys):
+    """Run without --yes and without a keyboard, input() raises EOFError."""
+    monkeypatch.setattr(bm, "download", lambda *a, **k: pytest.fail("downloaded"))
+
+    def no_terminal(prompt):
+        raise EOFError
+
+    assert bm.main([], ask=no_terminal) == 1
+    assert "nobody to ask" in capsys.readouterr().out

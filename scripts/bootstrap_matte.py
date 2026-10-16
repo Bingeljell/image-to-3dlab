@@ -85,9 +85,15 @@ def main(argv: list[str] | None = None, ask=input) -> int:
         return 1
 
     print(announcement(), flush=True)
-    if not args.yes and ask("Download it? [y/N] ").strip().lower() not in ("y", "yes"):
-        print("Nothing downloaded.")
-        return 1
+    if not args.yes:
+        try:
+            answer = ask("Download it? [y/N] ")
+        except EOFError:  # no terminal: nobody to ask, so the answer is no
+            print("Refusing to download without --yes when there is nobody to ask.")
+            return 1
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Nothing downloaded.")
+            return 1
     download(target)
     print(f"Installed {target}")
     return 0

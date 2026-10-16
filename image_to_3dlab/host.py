@@ -365,6 +365,11 @@ AMD_ROCM_INDEX = "https://stable.repo.amd.com/rocm/whl-next/"
 # machine on the AMD index runs the same torch it would have on its own -- only the runtime
 # it is built against differs. Checked live: torch 2.14.0+rocm10.1.0 and
 # torchvision 0.29.0+rocm10.0.0 for gfx1151 (Strix Halo) on 2026-10-16.
+#
+# Whether a machine can *run* what this index offers is not settled here -- it is not a
+# question a table can answer. The rocm10.1 wheel installed on that same card carries an empty
+# `.hip_fatbin` (NOBITS, no code object beside it) and cannot launch a kernel at all, so
+# scripts/bootstrap_trellis_rocm.py offers a second candidate and proves it on the card.
 AMD_TORCH_BUILDS: tuple[tuple[tuple[int, int], str, str], ...] = (
     ((10, 2), "2.14.0", "0.29.0"),
     ((10, 1), "2.14.0", "0.29.0"),

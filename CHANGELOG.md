@@ -84,6 +84,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **A ROCm 10.x machine now gets a torch that actually runs.** The route sent anything newer
+  than PyTorch's rocm7.2 index to AMD's own, and took whatever that index offered without
+  asking the card. On a ROCm 10.2 machine that wheel cannot launch a kernel at all: its
+  `.hip_fatbin` section is declared at 322 MB and is **NOBITS** — empty, with no code object
+  anywhere beside it — so the first GPU op of the first generation died with
+  `torch.AcceleratorError: CUDA error: invalid kernel file`, forty minutes of compiled
+  extensions earlier and two minutes into a run with nowhere to go.
+  - Which index a machine can run is a property of the **machine**, not of either table, so
+    the route no longer decides it by looking. `torch_candidates` offers both, best first, and
+    `install_torch` **proves one on the card** — a randn, a reduction and a synchronise —
+    before a single extension is compiled. The one that works goes in the build marker, so a
+    later run can see the machine fell back.
+  - The fallback is PyTorch's own newest ROCm wheel, not a guess: a newer runtime runs an
+    older wheel, which is what ROCm's compatibility promise is for. PyTorch's rocm7.2 build
+    carries 322 MB of real device code and ran on the same Strix Halo, under the same ROCm
+    10.2, that the AMD wheel could not.
+  - If no candidate launches a kernel the install stops and says which it tried and why each
+    failed, rather than compiling four extensions against a torch that cannot run.
+  - **Verified end to end** on a Strix Halo (gfx1151, ROCm 10.2, torch 2.14.1+rocm7.2 after the
+    fallback): a picture to a 9.5 MB textured GLB in 1349.7 s, nvdiffrast's rasterisation
+    kernels completing on the card, and the sidecar recording the run as `amd-rocm` with BRIA
+    `loaded: false`. The install in front of it takes about three minutes on a warm uv cache.
 - **A finished download now looks finished.** The Setup page's progress panel kept its
   running appearance forever: the bar sat at 100% in the same ember gradient it wore while
   downloading, the border stayed neutral, and only a small log line said anything had happened.
@@ -98,6 +120,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The title now follows the run's own events: *Installed* when it is done, *Setup failed* when
   it exits non-zero, *Setup cancelled* when it is stopped. The wording lives in one pure module
   (`viewer/components/setup-progress.js`) instead of two copies of a ternary.
+- **A TRELLIS.2 install on a ROCm 10.x machine no longer dies on its last line.** The build
+  marker read `TORCH[version]` — the PyTorch index table only — so on exactly the machines the
+  fix above was written for, the 40-minute build finished, every extension installed, and then
+  `KeyError: (10, 2)`. Because the marker is what says "installed", the studio still offered to
+  set the route up again and the next run redid the whole compile. The marker is now built by
+  `build_record`, from the same candidate the install proved on the card, and records the ROCm
+  release, torchvision and the index it came from.
+  - The install plan and that record are now settled *before* the first `git clone`, so a
+    machine with no published torch pair is refused in a second rather than after a gigabyte
+    of checkout — AGENTS.md's rule about checking before the expensive step.
+  - The "PyTorch's index stops at 7.2 / AMD's at 10.2" wording is read off the two tables
+    rather than written into the sentence, so it cannot go stale when either grows.
 - **TRELLIS.2 now builds on an AMD card newer than PyTorch's index.** `choose_route` refused
   anything above ROCm 7.2 outright, so a ROCm 10.x machine — a Strix Halo, an AI 395 — got
   "Cannot install TRELLIS.2 here" and nothing else. That was wrong twice over: the build does

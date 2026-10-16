@@ -11,8 +11,10 @@ that stops a silent 16 GB download.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -279,6 +281,206 @@ def test_which_extensions_come_from_a_fork():
     python_floor = {spec.file for spec in boot.rocm_patch.REQUIRES_PYTHON_PATCHES}
     assert python_floor == {"extensions/nvdiffrast/pyproject.toml",
                             "extensions/CuMesh/pyproject.toml"}
+
+
+def test_the_refusal_message_reads_its_ceilings_off_the_tables():
+    """It used to have "7.2" and "10.2" written into the sentence, which goes quietly wrong
+    the day either table grows."""
+    pytorch, amd = boot.newest_known()
+    assert pytorch == max(boot.TORCH)
+    assert amd == max(minimum for minimum, _, _ in host.AMD_TORCH_BUILDS)
+    _, why = boot.choose_route((5, 7), "/opt/rocm/bin/hipcc", ["gfx1100"])
+    assert f"{pytorch[0]}.{pytorch[1]}" in why
+    assert f"{amd[0]}.{amd[1]}" in why
+
+
+# --- proving the torch runs on this card before compiling anything against it -------------
+
+def _probe_result(code: int, stderr: str = ""):
+    """A stand-in for the probe's subprocess: what a torch that works, or one that does not,
+    prints. Passed to `gpu_probe` as its `run`, so the shipped function is what is tested."""
+    return lambda *args, **kwargs: types.SimpleNamespace(returncode=code, stderr=stderr,
+                                                           stdout="")
+
+
+def test_a_newer_rocm_gets_two_torch_candidates_not_one():
+    """The bug this guards, and it cost a full build plus a failed generation.
+
+    ROCm 10.2 sent this machine to AMD's index, and that wheel cannot run here at all: its
+    `.hip_fatbin` section is NOBITS -- declared at 322 MB, empty on disk, with no code object
+    anywhere beside it -- so the first kernel died with `hipErrorInvalidKernelFile`. PyTorch's
+    own rocm7.2 wheel carries 322 MB of real device code and runs on the same card under the
+    same ROCm 10.2 runtime. Which of the two works is a property of the machine, so both are
+    offered and the card decides.
+    """
+    candidates = boot.torch_candidates((10, 2))
+    assert [c.index for c in candidates] == [host.AMD_ROCM_INDEX,
+                                             host.torch_rocm_index(max(boot.TORCH))]
+    assert candidates[0].own_index is False, "AMD's is searched alongside PyPI, not instead"
+    assert candidates[-1].own_index is True
+
+
+def test_a_rocm_pytorch_still_publishes_offers_just_the_one():
+    """The fallback must not turn a machine that already works into a two-try install."""
+    candidates = boot.torch_candidates((7, 2))
+    assert len(candidates) == 1
+    assert candidates[0].index == host.torch_rocm_index((7, 2))
+
+
+def test_the_probe_asks_the_card_a_question_no_table_can():
+    assert "cuda" in boot.GPU_PROBE_SOURCE, "a CPU-only torch would pass anything weaker"
+    assert "synchronize" in boot.GPU_PROBE_SOURCE, "without it an async load failure hides"
+
+
+def test_the_probe_reports_a_working_torch():
+    assert boot.gpu_probe(PYTHON, run=_probe_result(0)) == (True, "")
+
+
+def test_the_probe_names_the_failure_that_matters():
+    boom = ("Traceback (most recent call last):\n"
+            "torch.AcceleratorError: CUDA error: invalid kernel file\n")
+    works, why = boot.gpu_probe(PYTHON, run=_probe_result(1, boom))
+    assert works is False
+    assert "invalid kernel file" in why, "an error nobody can act on is no error at all"
+
+
+def test_the_probe_survives_a_probe_that_cannot_run():
+    def explode(*args, **kwargs):
+        raise OSError("no such interpreter")
+
+    assert boot.gpu_probe(PYTHON, run=explode) == (False, "no such interpreter")
+
+
+def test_install_torch_falls_back_to_the_next_candidate(monkeypatch, capsys):
+    """The whole point: a torch that cannot launch a kernel is replaced, not reported."""
+    installed, probed = [], []
+
+    def fake_install(command, **kwargs):
+        installed.append(" ".join(command))
+
+    def fake_probe(python):
+        probed.append(python)
+        return (len(probed) > 1, "" if len(probed) > 1 else "invalid kernel file")
+
+    chosen = boot.install_torch("uv", (10, 2), {}, python=PYTHON, install=fake_install,
+                                probe=fake_probe)
+
+    assert len(installed) == 2, "the second candidate was never tried"
+    assert chosen.index == host.torch_rocm_index(max(boot.TORCH))
+    assert "2.14.0" in installed[0] and "2.14.1" in installed[1]
+    assert "does not run here" in capsys.readouterr().out
+
+
+def test_install_torch_does_not_fall_back_from_a_torch_that_works(monkeypatch, capsys):
+    installed = []
+    chosen = boot.install_torch("uv", (7, 2), {}, python=PYTHON,
+                                install=lambda c, **k: installed.append(" ".join(c)),
+                                probe=lambda p: (True, ""))
+    assert len(installed) == 1
+    assert chosen.index == host.torch_rocm_index((7, 2))
+    assert "does not run here" not in capsys.readouterr().out
+
+
+def test_install_torch_refuses_rather_than_building_against_a_dead_torch(monkeypatch, capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        boot.install_torch("uv", (10, 2), {}, python=PYTHON,
+                           install=lambda c, **k: None,
+                           probe=lambda p: (False, "invalid kernel file"))
+    said = str(exit_info.value) + capsys.readouterr().out
+    assert "invalid kernel file" in said
+    assert "nothing built against one would run" in said
+
+
+def test_the_marker_remembers_the_torch_that_actually_ran():
+    preferred = boot.torch_candidates((10, 2))[0]
+    fell_back = boot.torch_candidates((10, 2))[-1]
+    assert boot.build_record((10, 2), "source", ["gfx1151"])["torch"] == preferred.torch
+    assert boot.build_record((10, 2), "source", ["gfx1151"],
+                             fell_back)["torch_index"] == host.torch_rocm_index(max(boot.TORCH))
+
+
+# --- the build marker, written after a forty-minute compile ----------------------------------
+
+def test_the_build_record_is_writable_on_every_machine_the_route_accepts():
+    """The bug this guards: the marker used to read TORCH directly, which only knows PyTorch's
+    index. Every ROCm newer than 7.2 -- a machine the route had just installed, successfully,
+    after forty minutes -- died with a KeyError on that last line, and because the marker was
+    never written the studio still said "Setting up" and the next run redid the whole build.
+    """
+    for version in (*boot.TORCH, *(minimum for minimum, _, _ in host.AMD_TORCH_BUILDS)):
+        route, why = boot.choose_route(version, "/opt/rocm/bin/hipcc", ["gfx1100"])
+        assert route == "source", (version, why)
+        record = boot.build_record(version, route, ["gfx1100"])
+        assert record["torch"] == boot.torch_pair_for(version)[0], version
+        assert record["torchvision"] == boot.torch_pair_for(version)[1], version
+        assert record["rocm"] == f"{version[0]}.{version[1]}"
+        assert record["gfx"] == ["gfx1100"]
+        assert record["attention"] == boot.AULE_ATTENTION
+        json.loads(json.dumps(record)), "it has to be JSON, as written"
+
+
+def test_install_code_refuses_an_unsupported_machine_before_touching_anything(monkeypatch):
+    """AGENTS.md: check the environment before the expensive step, not after. A machine with no
+    torch pair should hear so in a second, not after a gigabyte of git and a compile."""
+    def nothing(*args, **kwargs):
+        pytest.fail("it started work before checking the machine could be installed for")
+
+    for name in ("fetch_checkout", "clone", "run", "venv_python", "install_torch"):
+        monkeypatch.setattr(boot, name, nothing)
+    with pytest.raises(ValueError, match="no torch for ROCm"):
+        boot.install_code((5, 7))
+
+
+def _stubbed_build(monkeypatch, tmp_path, *, patched: bool, gfx: list[str]) -> tuple[Path, list]:
+    """`install_code` with every expensive step replaced by a stub, returning the marker path
+    and the list the stubbed installs land in."""
+    marker = tmp_path / ".i2l-build-complete"
+    python = tmp_path / "python"
+    python.write_text("")
+    installed: list[list[str]] = []
+    monkeypatch.setattr(boot, "BUILT_MARKER", marker)
+    monkeypatch.setattr(boot, "venv_python", lambda *a, **k: python)
+    monkeypatch.setattr(boot, "fetch_checkout", lambda commit: None)
+    monkeypatch.setattr(boot, "clone", lambda *a, **k: None)
+    monkeypatch.setattr(boot, "install_env", lambda *a, **k: {})
+    monkeypatch.setattr(boot, "run", lambda command, **k: installed.append(command))
+    monkeypatch.setattr(boot, "install_torch",
+                        lambda uv, version, env, **k: boot.torch_candidates(version)[-1])
+    monkeypatch.setattr(boot, "rocm_patch",
+                        types.SimpleNamespace(apply=lambda root: [],
+                                              is_patched=lambda root: patched))
+    monkeypatch.setattr(boot, "bria_patch", types.SimpleNamespace(apply=lambda root: False))
+    monkeypatch.setattr(host, "rocm_gfx_targets", lambda *a, **k: gfx)
+    return marker, installed
+
+
+def test_install_code_writes_the_record_it_installed(monkeypatch, tmp_path):
+    """The whole build, with every expensive step stubbed: what must survive to the end is a
+    marker a later run and the studio can both trust."""
+    marker, installed = _stubbed_build(monkeypatch, tmp_path, patched=True, gfx=["gfx1151"])
+
+    boot.install_code((10, 2))
+
+    record = json.loads(marker.read_text())
+    # The last candidate, which is what the stub proves: a machine that had to fall back
+    # should say in the one file a later run reads that it did.
+    assert record["torch"] == "2.14.1" and record["rocm"] == "10.2"
+    assert record["torch_index"] == host.torch_rocm_index(max(boot.TORCH))
+    assert record["gfx"] == ["gfx1151"]
+    assert installed, "nothing was installed"
+    assert any("o-voxel" in " ".join(c) for c in installed)
+    torch_lines = [c for c in installed if any(a.startswith("torch==") for a in c)]
+    assert len(torch_lines) == 1, "one torch, installed once and proved"
+    assert "torch==2.14.1" in " ".join(torch_lines[0]), "the plan must build on what ran"
+
+
+def test_a_build_that_died_halfway_leaves_no_marker(monkeypatch, tmp_path):
+    """Written last, on purpose, so an interrupted build never looks finished."""
+    marker, _ = _stubbed_build(monkeypatch, tmp_path, patched=False, gfx=["gfx1100"])
+
+    with pytest.raises(SystemExit):
+        boot.install_code((7, 2))
+    assert not marker.exists()
 
 
 # --- ROCm's empty __noinline__ against a 2026 libstdc++ -------------------------------------

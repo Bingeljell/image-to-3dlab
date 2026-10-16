@@ -24,6 +24,14 @@ more:
 The BRIA guardrail (`patch_trellis_cuda_no_bria.py`) applies unchanged: upstream loads
 BRIA RMBG-2.0 by default and this repo must never load it.
 
+**The torch is chosen by asking the card, not by looking at a table.** PyTorch's own index
+carries device code for the ROCm releases it publishes and stops at rocm7.2; AMD's own index
+publishes for newer releases, and its rocm10.1 wheel ships with an *empty* `.hip_fatbin` — no
+code object at all — so on a ROCm 10.2 card it cannot launch a kernel and the failure lands
+two minutes into the first generation as `invalid kernel file`. So `torch_candidates` offers
+both, best first, and `install_torch` proves one on the card before a single extension is
+compiled against it. Forty minutes of compiling is too late to find out.
+
 Then the **weights**, about 16 GB: TRELLIS.2-4B, one decoder from TRELLIS-image-large, and
 the DINOv3 image encoder, which is **gated** (request access to
 facebook/dinov3-vitl16-pretrain-lvd1689m on Hugging Face, Meta approves by hand, then run
@@ -48,6 +56,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -118,6 +127,25 @@ TORCH = {
 # arch on this machine, and a mistake here compiles for the wrong card.
 ARCH_SEPARATOR = ";"
 
+# One candidate torch: where it comes from, what it is, and whether that index is the only
+# source for it (`--index-url`) or a second one to search alongside PyPI (`--extra-index-url`).
+@dataclass(frozen=True)
+class Torch:
+    index: str
+    torch: str
+    torchvision: str
+    own_index: bool
+    label: str
+
+
+def torch_command(uv: str, python: Path, candidate: Torch) -> list[str]:
+    """The one pip line that installs this candidate torch."""
+    flag = "--index-url" if candidate.own_index else "--extra-index-url"
+    return [uv, "pip", "install", "--python", str(python),
+            f"torch=={candidate.torch}", f"torchvision=={candidate.torchvision}",
+            flag, candidate.index]
+
+
 # ROCm's HIP headers define __noinline__ to nothing
 # (/opt/rocm/include/hip/amd_detail/host_defines.h). libstdc++ 16 writes
 # [[__gnu__::__noinline__]] in <format>, so once that macro is defined the header parses as
@@ -164,14 +192,22 @@ def total_gb() -> float:
     return sum(size for _, _, size in WEIGHTS)
 
 
+def newest_known() -> tuple[tuple[int, int], tuple[int, int]]:
+    """The newest ROCm each of the two indexes publishes a torch for, read off the tables
+    rather than written out, so the refusal message cannot go stale when they grow."""
+    pytorch = max(TORCH)
+    amd = max(minimum for minimum, _, _ in host.AMD_TORCH_BUILDS)
+    return pytorch, amd
+
+
 def choose_route(version: tuple[int, int] | None, hipcc: str | None,
                  gfx: list[str]) -> tuple[str | None, str]:
     """("source" | None, why). None means there is no way to install here.
 
-    Two indexes, not one. PyTorch's stops at rocm7.2; a newer machine gets the same torch
-    from AMD's own index, which is built against the newer runtime. Refusing a ROCm 10.x
-    card outright was wrong: the route does build on whatever machine it is run on, and
-    "newer than PyTorch's index" is a different index, not a different job.
+    Two indexes, not one. PyTorch's stops at rocm7.2; a newer machine gets a torch from AMD's
+    own index, and falls back to PyTorch's newest if that one turns out not to run on the card.
+    Refusing a ROCm 10.x card outright was wrong: the route does build on whatever machine it
+    is run on, and "newer than PyTorch's index" is a different index, not a different job.
     """
     if not gfx:
         return None, ("no AMD GPU target found. Needs rocminfo, or a readable "
@@ -182,18 +218,24 @@ def choose_route(version: tuple[int, int] | None, hipcc: str | None,
     if version is None:
         return None, ("the ROCm version could not be read. PyTorch ROCm builds are published "
                       "per ROCm release, so the route needs to know which one is installed")
-    if version in TORCH:
-        return "source", (f"PyTorch {TORCH[version][0]} for ROCm {version[0]}.{version[1]}, "
-                          f"extensions compiled for {ARCH_SEPARATOR.join(gfx)}")
-    pair = host.amd_torch_build(version)
-    if pair:
-        return "source", (f"PyTorch {pair[0]} + ROCm {version[0]}.{version[1]}, from AMD's own "
-                          f"index (PyTorch's stops at 7.2), extensions compiled for "
-                          f"{ARCH_SEPARATOR.join(gfx)}")
-    known = sorted({*(v for v in TORCH), *(minimum for minimum, _, _ in host.AMD_TORCH_BUILDS)})
-    supported = ", ".join(f"{v[0]}.{v[1]}" for v in known)
-    return None, (f"ROCm {version[0]}.{version[1]} is not one this route installs. PyTorch's "
-                  f"index stops at 7.2 and AMD's stops at 10.2; the route covers: {supported}")
+    try:
+        candidates = torch_candidates(version)
+    except ValueError:
+        pytorch_newest, amd_newest = newest_known()
+        known = sorted({*(v for v in TORCH),
+                        *(minimum for minimum, _, _ in host.AMD_TORCH_BUILDS)})
+        supported = ", ".join(f"{v[0]}.{v[1]}" for v in known)
+        return None, (f"ROCm {version[0]}.{version[1]} is not one this route installs. "
+                      f"PyTorch's index stops at {pytorch_newest[0]}.{pytorch_newest[1]} and "
+                      f"AMD's stops at {amd_newest[0]}.{amd_newest[1]}; the route covers: "
+                      f"{supported}")
+    first = candidates[0]
+    where = (f"from {first.label}" if len(candidates) == 1 else
+             f"from {first.label}, or {candidates[-1].torch} from {candidates[-1].label} if "
+             f"that cannot launch a kernel here")
+    return "source", (f"PyTorch {first.torch} for ROCm {version[0]}.{version[1]} {where}, "
+                      f"extensions compiled for {ARCH_SEPARATOR.join(gfx)}, the torch proved "
+                      f"on the card before anything is compiled")
 
 
 def detect() -> tuple[str | None, str]:
@@ -289,24 +331,89 @@ def basic_args(lock: Path = PACKAGE_LOCK) -> list[str]:
 def torch_index_for(version: tuple[int, int]) -> str:
     """Where torch comes from for this ROCm: PyTorch's index, or AMD's.
 
-    PyTorch's stops at rocm7.2, so a newer machine gets the identical torch from AMD's own
-    index, built against the newer runtime. One function so the announcement and the
-    install cannot disagree about which index the machine is on.
+    The first candidate's index, so the announcement and the install cannot disagree. A
+    machine whose first candidate turns out not to run on its card gets the next one, and the
+    install says so.
     """
-    return host.torch_rocm_index(version) if version in TORCH else host.AMD_ROCM_INDEX
+    return torch_candidates(version)[0].index
+
+
+# A GPU op, a reduction and a synchronise. Deliberately tiny: it asks "does this torch launch a
+# kernel on this card", which is the one question no table can answer and the one a generation
+# run answers two minutes too late.
+GPU_PROBE_SOURCE = (
+    "import torch\n"
+    "x = torch.randn(8, 8, device='cuda')\n"
+    "assert (x.abs() > 2).any().item()\n"
+    "(x @ x).sum().item()\n"
+    "torch.cuda.synchronize()\n"
+)
+
+
+def gpu_probe(python: Path = None, run=subprocess.run, timeout: int = 600) -> tuple[bool, str]:
+    """Does the torch in this venv launch a kernel on this card? (works, why not).
+
+    Seconds, and the difference between a build that starts and one that dies minutes into the
+    first generation with `hipErrorInvalidKernelFile` and nothing to act on.
+    """
+    command = [str(python or venv_python()), "-c", GPU_PROBE_SOURCE]
+    try:
+        result = run(command, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, str(error)
+    if result.returncode == 0:
+        return True, ""
+    lines = [line.strip() for line in (result.stderr or "").splitlines() if line.strip()]
+    return False, next((line for line in reversed(lines) if "Error" in line or "error" in line),
+                       lines[-1] if lines else f"exit {result.returncode}")
 
 
 def torch_pair_for(version: tuple[int, int]) -> tuple[str, str]:
-    """The torch and torchvision versions to install for this ROCm."""
+    """The torch and torchvision versions to install for this ROCm: the first candidate's."""
+    first = torch_candidates(version)[0]
+    return first.torch, first.torchvision
+
+
+def torch_candidates(version: tuple[int, int]) -> list[Torch]:
+    """Every torch worth trying on this ROCm, best first.
+
+    Two indexes, and which one a machine can actually run is a property of the machine, not of
+    either table. PyTorch's own index carries device code for each card it is built for; AMD's
+    multi-arch build does not always -- the rocm10.1 wheel installed here declared a 322 MB
+    `.hip_fatbin` that was empty (NOBITS, with no bundle anywhere beside it) and failed on the
+    first kernel with `hipErrorInvalidKernelFile`, while PyTorch's rocm7.2 wheel ran on the
+    same card under the same ROCm 10.2 runtime without a word of complaint.
+
+    So both are offered, in that order of preference, and `install_torch` proves one on the
+    card before anything is compiled against it. Picking by table alone is how a 40-minute
+    build ends in `invalid kernel file` two minutes into the first generation.
+    """
     if version in TORCH:
-        return TORCH[version]
-    pair = host.amd_torch_build(version)
-    if pair is None:
+        torch_version, vision_version = TORCH[version]
+        return [Torch(host.torch_rocm_index(version), torch_version, vision_version, True,
+                      f"PyTorch's ROCm {version[0]}.{version[1]} index")]
+    candidates: list[Torch] = []
+    amd = host.amd_torch_build(version)
+    if amd is None:
+        # Outside the range both tables cover. Refusing here rather than falling back to an
+        # arbitrarily old wheel is the older, deliberate answer: a machine this old is not a
+        # ROCm 10.x box that needs rescuing, it is a machine nobody has checked.
         raise ValueError(f"no torch for ROCm {version}")
-    return pair
+    candidates.append(Torch(host.AMD_ROCM_INDEX, *amd, False, "AMD's own index"))
+    # PyTorch stopped publishing at its newest tag, but a newer runtime runs an older wheel:
+    # that is the whole point of ROCm's compatibility promise, and it is what this machine
+    # needed once its first choice turned out to carry no device code.
+    newest = max(TORCH)
+    index = host.torch_rocm_index(newest)
+    if index:
+        torch_version, vision_version = TORCH[newest]
+        candidates.append(Torch(index, torch_version, vision_version, True,
+                                f"PyTorch's ROCm {newest[0]}.{newest[1]} index"))
+    return candidates
 
 
 def pip_commands(route: str, uv: str, python: Path, version: tuple[int, int] | None = None,
+                 torch: Torch = None,
                  checkout: Path = CHECKOUT,
                  extensions: Path = EXTENSIONS) -> list[list[str]]:
     """Every package install, in order. Pure, so the order and flags can be tested."""
@@ -314,15 +421,12 @@ def pip_commands(route: str, uv: str, python: Path, version: tuple[int, int] | N
         raise ValueError(f"no install plan for route {route!r}")
     if version is None:
         raise ValueError("no install plan without a ROCm version")
-    torch_version, vision_version = torch_pair_for(version)
+    torch = torch or torch_candidates(version)[0]
     pip = [uv, "pip", "install", "--python", str(python)]
     commands = [[*pip, "setuptools", "wheel", "ninja"]]
-    torch_command = [f"torch=={torch_version}", f"torchvision=={vision_version}"]
-    if version in TORCH:
-        torch_command += ["--index-url", host.torch_rocm_index(version)]
-    else:
-        torch_command += ["--extra-index-url", host.AMD_ROCM_INDEX]
-    commands.append([*pip, *torch_command])
+    # The torch line is here as well as in install_torch: it was already installed (and
+    # proved) by then, so re-running it costs an audit rather than a download.
+    commands.append(torch_command(uv, python, torch))
     commands.append([*pip, *basic_args()])
     commands.append([*pip, UTILS3D])
     # Pure Python and GPU-agnostic: the attention backend that replaces flash-attn here.
@@ -340,6 +444,36 @@ def pip_commands(route: str, uv: str, python: Path, version: tuple[int, int] | N
 def run(command: list[str], **kwargs) -> None:
     print("+", " ".join(command), flush=True)
     subprocess.run(command, check=True, **kwargs)
+
+
+def install_torch(uv: str, version: tuple[int, int], env: dict[str, str],
+                  python: Path = None, install=run, probe=gpu_probe) -> Torch:
+    """Install the first candidate torch that actually launches a kernel here, and return it.
+
+    Forty minutes of compiling four extensions against a torch whose first kernel will not load
+    is the worst way to find out, so this asks the card first. A candidate that fails is
+    reported with its own error and the next one is tried; if none can, nothing is built.
+    """
+    target = python or venv_python()
+    rejected: list[str] = []
+    for candidate in torch_candidates(version):
+        install(torch_command(uv, target, candidate), env=env)
+        works, why = probe(target)
+        if works:
+            if rejected:
+                print(f"torch {candidate.torch} from {candidate.label} runs on this card, "
+                      f"after {', '.join(rejected)} did not", flush=True)
+            else:
+                print(f"torch {candidate.torch} from {candidate.label} runs on this card",
+                      flush=True)
+            return candidate
+        print(f"torch {candidate.torch} from {candidate.label} does not run here: {why}",
+              flush=True)
+        rejected.append(f"{candidate.torch} ({candidate.label})")
+    raise SystemExit(
+        "No torch on the list launches a kernel on this card, so nothing built against one "
+        f"would run either: {'; '.join(rejected)}. Install the torch your ROCm release "
+        "publishes, or report this with the errors above.")
 
 
 def is_commit(ref: str | None) -> bool:
@@ -379,11 +513,29 @@ def build_present() -> bool:
     return BUILT_MARKER.is_file()
 
 
+def build_record(version: tuple[int, int], route: str, gfx: list[str],
+                 torch: Torch = None) -> dict[str, object]:
+    """What the build marker records. Pure, so it can be checked without a 40-minute build.
+
+    `torch` is the candidate that was proved on the card, not the one the tables preferred:
+    a machine that had to fall back should say so in the one file a later run reads.
+    """
+    torch = torch or torch_candidates(version)[0]
+    return {"route": route, "torch": torch.torch, "torchvision": torch.torchvision,
+            "torch_index": torch.index, "rocm": f"{version[0]}.{version[1]}",
+            "commit": pinned_commit(), "attention": AULE_ATTENTION, "gfx": list(gfx)}
+
+
 def install_code(version: tuple[int, int], route: str = "source") -> None:
     uv = shutil.which("uv")
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
     gfx = host.rocm_gfx_targets()
+    # The plan is settled, and the torch candidates resolved, before anything is cloned or
+    # compiled: a machine this route cannot install for should hear so in a second, not after
+    # a gigabyte of git. `torch_candidates` raises for a ROCm release nothing publishes for.
+    torch_candidates(version)
+    record = build_record(version, route, gfx)
     fetch_checkout(pinned_commit())
     for name, url, ref, recursive in SOURCE_EXTENSIONS:
         clone(url, EXTENSIONS / name, ref, recursive)
@@ -398,7 +550,10 @@ def install_code(version: tuple[int, int], route: str = "source") -> None:
     if not venv_python().is_file():
         run([uv, "venv", str(VENDOR / ".venv"), "--python", SOURCE_PYTHON])
     env = install_env(gfx)
-    for command in pip_commands(route, uv, venv_python(), version):
+    # Torch first, and proved, because everything after this point is compiled against it.
+    torch = install_torch(uv, version, env)
+    record = build_record(version, route, gfx, torch)
+    for command in pip_commands(route, uv, venv_python(), version, torch=torch):
         run(command, env=env)
 
     # Checked after the installs, not before: a patch that silently did not take would
@@ -406,9 +561,7 @@ def install_code(version: tuple[int, int], route: str = "source") -> None:
     if not rocm_patch.is_patched(VENDOR):
         raise SystemExit("the ROCm patches did not all apply. Do not run a generation on "
                          "this checkout.")
-    BUILT_MARKER.write_text(json.dumps(
-        {"route": route, "torch": TORCH[version][0], "commit": pinned_commit(),
-         "attention": AULE_ATTENTION, "gfx": gfx}) + "\n")
+    BUILT_MARKER.write_text(json.dumps(record) + "\n")
 
 
 def check_access(repo: str = GATED) -> None:

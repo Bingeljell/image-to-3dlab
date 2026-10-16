@@ -846,3 +846,18 @@ def test_finish_offers_the_nudge_switch_on_by_default_only_with_a_picture():
       console.log(JSON.stringify([asset('i/k.png'), asset(null)].map((a) => m.stepBody('finished', a, ctx))
         .map((html) => (html.match(/<input type="checkbox" data-k="nudge"( checked)?>/) || [null, null]).map(Boolean))));""")
     assert out == [[True, True], [False, False]]
+
+
+@needs_node
+def test_the_raw_model_stays_viewable_after_later_steps():
+    finished = {**KNIGHT, "rigged": None, "clips": [], "stage": "finished"}
+    raw_only = {**KNIGHT, "finished": None, "rigged": None, "clips": [], "stage": "model"}
+    out = _run("library.js", f"""
+      const cases = {json.dumps([KNIGHT, finished, raw_only, SHEET])};
+      console.log(JSON.stringify(cases.map((a) => ['model', 'finished', 'rigged'].map((s) => m.canViewStep(a, s)))));""")
+    assert out == [
+        [True, True, False],     # rigged: raw and finished both viewable; the rig is already on screen
+        [True, False, False],    # finished: the raw model is one click away
+        [False, False, False],   # raw only: it is already what the viewer shows
+        [False, False, False],   # a prop set shows its props
+    ]

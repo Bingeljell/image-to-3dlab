@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Nudge switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match first fits
   your picture onto the model; on some models, often with a turned head, that slides a face off
   its features and paints an eye twice. Untick it and Finish again. Agents pass `nudge=False`.
+- **View the raw 3D model** after Finish, Rig and Animate: the 3D model and Finish steps get a
+  **View** button beside Download, and **Show latest** goes back.
+- Agents can list **every version** of a character with `list_versions`: its 3D models,
+  Finishes and rigs, each with its files. Library rows say which family and version they are.
 - Agents can make a finished step **again as a new version** (another 3D model, another Finish,
   a re-rig) with `continue_asset(..., again=True)`.
 - **Open in the studio from a link:** `studio.html#asset=<id>` opens that asset, which is how

@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -20,6 +20,7 @@ let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
+let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
 const openFamilies = new Set();  // families whose versions are listed under their row
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
@@ -98,11 +99,24 @@ function renderSteps(asset) {
   $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
     if (viewingPictures) { show(asset); return; }
     viewingPictures = true;
+    viewingStep = null;
     viewer.setClips([]);
     viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? url(asset.back) : null);
     renderSteps(asset);
   });
-  setDownload(displayModel(asset));
+  $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
+    const stepId = button.dataset.viewstep;
+    if (viewingStep === stepId) { show(asset); return; }
+    const file = stepFile(asset, stepId);
+    viewingStep = stepId;
+    viewingPictures = false;
+    viewer.setFacing(null);
+    viewer.setClips([]);
+    viewer.load(url(file), { label: `${asset.name} · ${STEPS.find((s) => s.id === stepId)?.label ?? stepId}` });
+    renderSteps(asset);
+    setDownload(file);
+  }));
+  setDownload(viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
 }
 
 function stepLink(asset, stepId) {
@@ -110,7 +124,9 @@ function stepLink(asset, stepId) {
     return ` · <button type="button" class="linkish" data-pictures>${viewingPictures ? 'Show model' : `View picture${asset.back ? 's' : ''}`}</button>`;
   }
   const file = stepFile(asset, stepId);
-  return file ? ` · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
+  const view = canViewStep(asset, stepId)
+    ? ` · <button type="button" class="linkish" data-viewstep="${stepId}">${viewingStep === stepId ? 'Show latest' : 'View'}</button>` : '';
+  return file ? `${view} · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
 }
 
 function setDownload(file) {
@@ -141,6 +157,7 @@ function show(asset) {
   current = asset;
   viewingMaking = false;
   viewingPictures = false;
+  viewingStep = null;
   $('progress').hidden = true;
   renderLibrary();
   $('vTitle').textContent = asset?.name ?? '';

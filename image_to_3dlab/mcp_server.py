@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import re
 import subprocess
 import sys
 import time
@@ -174,13 +175,41 @@ def run_summary(run: dict[str, Any], studio: Studio) -> dict[str, Any]:
     out["made"] = {k: f"output/{v}" for k, v in (run.get("made") or {}).items()}
     out["stalled"] = run.get("stalled") or None
     if run.get("status") == "running":
-        out["log"] = run.get("log") or None
+        out["log"] = plain_log(run.get("log")) or None
     if run.get("status") == "error":
-        out["log"] = (run.get("full_log") or "")[-1500:] or None
-    if run.get("status") == "done":
+        out["log"] = plain_log(run.get("full_log"))[-1500:] or None
+    asset_id = None
+    if run.get("status") == "done" and run.get("made"):
+        asset_id = asset_for_run(studio.get("api/assets")["assets"], run["made"])
+    if asset_id:
+        out["asset_id"] = asset_id
+        out["next"] = "preview this asset_id and show the user; open_in_studio if they want a closer look."
+    elif run.get("status") == "done":
         out["next"] = "Find the new asset with list_assets, then preview it."
-    out["studio"] = studio.studio_link()
+    out["studio"] = studio.studio_link(asset_id)
     return {k: v for k, v in out.items() if v not in (None, [], {})}
+
+
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def plain_log(text: str | None) -> str:
+    """A log as words: terminal colour and line-erase codes stripped."""
+    return ANSI.sub("", str(text or "")).strip()
+
+
+def asset_for_run(assets: list[dict[str, Any]], made: dict[str, str]) -> str | None:
+    """The Library entry a run produced: the one holding the furthest file it made."""
+    for step in ("animated", "rigged", "finished", "model", "back", "picture"):
+        file = made.get(step)
+        if not file:
+            continue
+        for asset in assets:
+            if step == "animated" and any(c.get("file") == file for c in asset.get("clips", [])):
+                return asset["id"]
+            if asset.get(step) == file:
+                return asset["id"]
+    return None
 
 
 def made_from(asset: dict[str, Any]) -> dict[str, str]:

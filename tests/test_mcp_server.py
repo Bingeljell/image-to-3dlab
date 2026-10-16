@@ -269,3 +269,17 @@ def test_preview_can_show_a_move(studio):
     assert studio.http.last_params["move"] == "idle"
     ms.preview(studio, asset_id=DANCER["id"])
     assert "move" not in studio.http.last_params
+
+
+def test_a_finished_run_names_its_asset_and_logs_read_as_words(studio):
+    out = ms.run_summary({"id": "r", "status": "done", "made": {"picture": "images/k/k.png", "model": "k/k.glb",
+                                                                 "finished": "finish/k/k_20k.glb"}}, studio)
+    assert out["asset_id"] == KNIGHT["id"] and out["studio"].endswith("#asset=" + KNIGHT["id"])
+    running = ms.run_summary({"id": "r", "status": "running", "log": "|===>  | 2/8\x1b[K\n\x1b[1;32mdone\x1b[0m"}, studio)
+    assert running["log"] == "|===>  | 2/8\ndone"
+
+
+def test_a_new_move_is_traced_to_its_character():
+    assets = [KNIGHT, DANCER]
+    assert ms.asset_for_run(assets, {"rigged": "animate/d/d_rigged.glb", "animated": "animate/d/d_idle.glb"}) == DANCER["id"]
+    assert ms.asset_for_run(assets, {"picture": "images/nowhere.png"}) is None

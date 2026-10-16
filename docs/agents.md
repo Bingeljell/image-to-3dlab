@@ -8,6 +8,19 @@ Everything still runs on your own machine.
 Install AssetFurnace first ([Install](../README.md#install)). The examples below assume the
 default folder, `~/image-to-3dlab`. Change the path if you installed somewhere else.
 
+## Let your agent install it
+
+No AssetFurnace yet? Ask your agent: *"Install AssetFurnace from assetfurnace.com and connect it
+to yourself."* These are the steps it should follow (agents: run them as written):
+
+1. `curl -fsSL https://assetfurnace.com/install.sh | bash -s -- --dry-run` and tell the user what
+   it will do. It installs the code, Python 3.11 and its packages (roughly 1-2 GB), and **no model weights**.
+2. After the user says yes: `curl -fsSL https://assetfurnace.com/install.sh | bash -s -- --yes --no-start`
+3. Connect, using the matching line below (for Claude Code:
+   `claude mcp add assetfurnace -- ~/image-to-3dlab/lab mcp`).
+4. Tell the user to start a new session so the tools load. Then `status` and `list_engines`
+   show what to set up next, and `install_backend` asks before downloading any weights.
+
 ## Connect your agent
 
 **Claude Code**

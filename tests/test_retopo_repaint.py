@@ -243,3 +243,11 @@ def test_a_run_with_no_repaint_and_no_photo_needs_only_the_mesh():
     assert rr.required_inputs(with_views) == [Path("a.glb"), Path("a.png")]
     repaint = parser.parse_args(["a.glb", "a.png", "out.glb"])
     assert rr.required_inputs(repaint) == [Path("a.glb"), Path("a.png")]
+
+
+def test_edge_fade_is_on_unless_the_run_turns_it_off():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).no_edge_fade is False
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--no-edge-fade"]).no_edge_fade is True
+    assert rr.photo_settings().inner_edge > 0
+    off = rr.photo_settings(edge_fade=False)
+    assert off.inner_edge == 0.0 and off.cutout_edge > 0      # only the inner-edge fade goes

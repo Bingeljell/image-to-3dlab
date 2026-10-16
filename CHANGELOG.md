@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   million) and paints it with Pixel Match: the sharpest look we make, in under a minute. For
   renders and stills; it is too heavy for games, so rig a lighter version. Agents get it too
   (`finish_detail="full"`), along with every other Finish detail level and Pixel Match on or off.
+- **Edge fade switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match fades
+  the picture out where one part sits in front of another; on detailed models that can leave
+  coloured specks in hair and dark smudges over small eyes. Untick it and Finish again. Agents
+  pass `edge_fade=False`.
 - Agents can make a finished step **again as a new version** (another 3D model, another Finish,
   a re-rig) with `continue_asset(..., again=True)`.
 - **Open in the studio from a link:** `studio.html#asset=<id>` opens that asset, which is how

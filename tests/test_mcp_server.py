@@ -303,6 +303,16 @@ def test_finish_choices(detail, pm, expected):
     assert ms.finish_choices(detail, pm) == expected
 
 
+def test_edge_fade_is_on_unless_asked_and_means_nothing_without_pixel_match():
+    assert ms.finish_choices("full", True, edge_fade=False) == {"keep_mesh": True, "skip_edge_fade": True}
+    assert ms.finish_choices("game", False, edge_fade=False) == {"faces": 20000, "skip_photo": True}
+
+
+def test_edge_fade_travels_with_the_plan(studio):
+    ms.create(studio, want="prop", description="a barrel", finish_detail="full", edge_fade=False)
+    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True}
+
+
 @pytest.mark.parametrize("detail", ["huge", "500", "999999"])
 def test_unknown_finish_details_say_what_is_allowed(detail):
     with pytest.raises(ms.StudioError, match="finish_detail is one of"):

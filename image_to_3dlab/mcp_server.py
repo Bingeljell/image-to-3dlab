@@ -254,8 +254,9 @@ FINISH_DETAILS: dict[str, dict[str, Any]] = {
 STEPS_AFTER_FINISH = ("rigged", "animated")
 
 
-def finish_choices(detail: str | int | None, pixel_match: bool = True) -> dict[str, Any]:
-    """What a plan tells Finish: a detail level (a name above, or a triangle count) and Pixel Match."""
+def finish_choices(detail: str | int | None, pixel_match: bool = True, edge_fade: bool = True) -> dict[str, Any]:
+    """What a plan tells Finish: a detail level (a name above, or a triangle count), Pixel Match, and
+    Pixel Match's edge fade."""
     out: dict[str, Any] = {}
     if detail is not None and str(detail).strip():
         text = str(detail).strip().lower()
@@ -268,6 +269,8 @@ def finish_choices(detail: str | int | None, pixel_match: bool = True) -> dict[s
                               "1000 to 200000.")
     if not pixel_match:
         out["skip_photo"] = True
+    elif not edge_fade:
+        out["skip_edge_fade"] = True
     return out
 
 
@@ -344,7 +347,7 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
            model_path: str | None = None, stop_after_step: str | None = None, engine: str | None = None,
            front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
            finish_upload: bool = False, keep_everything: bool = False, finish_detail: str | int | None = None,
-           pixel_match: bool = True) -> dict[str, Any]:
+           pixel_match: bool = True, edge_fade: bool = True) -> dict[str, Any]:
     have = "model" if model_path else "picture" if image_path else "idea"
     if model_path and image_path:
         raise StudioError("Give an image or a model, not both.")
@@ -389,7 +392,7 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         form["first_move"] = move
     if keep_everything and "model" in steps:
         form["keep_everything"] = "1"
-    choices = finish_choices(finish_detail, pixel_match)
+    choices = finish_choices(finish_detail, pixel_match, edge_fade)
     refused = full_detail_refusal(steps, choices)
     if refused:
         raise StudioError(refused)
@@ -404,7 +407,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
 
 def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, want: str | None = None,
                    move: str | None = None, engine: str | None = None, again: bool = False,
-                   finish_detail: str | int | None = None, pixel_match: bool = True) -> dict[str, Any]:
+                   finish_detail: str | int | None = None, pixel_match: bool = True,
+                   edge_fade: bool = True) -> dict[str, Any]:
     asset = find_asset(studio, asset_id)
     want = want or want_for(asset)
     if up_to and up_to not in STEP_IDS:
@@ -418,7 +422,7 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     if not steps:
         return {"nothing_to_do": f"{asset['name']} has already reached {up_to or 'its last step'}. "
                                  "Pass again=True to make that step again as a new version."}
-    choices = finish_choices(finish_detail, pixel_match)
+    choices = finish_choices(finish_detail, pixel_match, edge_fade)
     refused = full_detail_refusal(steps, choices, asset)
     if refused:
         raise StudioError(refused)
@@ -582,7 +586,7 @@ def build_server(studio: Studio | None = None):
     def tool_create(want: str, description: str = "", image_path: str | None = None, model_path: str | None = None,
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
                   move: str | None = None, add_wording: bool = True, finish_upload: bool = False,
-                  finish_detail: str | None = None, pixel_match: bool = True):
+                  finish_detail: str | None = None, pixel_match: bool = True, edge_fade: bool = True):
         """Make something new, as the studio's Create does. Returns a run_id at once; the run takes minutes.
 
         want: "picture" | "prop" (one game-ready object) | "set" (a 3x3 sheet cut into nine props) |
@@ -596,24 +600,28 @@ def build_server(studio: Studio | None = None):
         finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), a count from
         1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
         stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
+        edge_fade: Pixel Match fades out beside inner edges (default on); False helps when hair gets
+        coloured specks or small eyes go dark, most often on full detail.
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
                                    front_and_back=front_and_back, move=move, add_wording=add_wording,
                                    finish_upload=finish_upload, finish_detail=finish_detail,
-                                   pixel_match=pixel_match))
+                                   pixel_match=pixel_match, edge_fade=edge_fade))
 
     @server.tool(name="continue_asset", structured_output=False)
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,
                           move: str | None = None, engine: str | None = None, again: bool = False,
-                          finish_detail: str | None = None, pixel_match: bool = True):
+                          finish_detail: str | None = None, pixel_match: bool = True,
+                          edge_fade: bool = True):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
         character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
         again=True makes the up_to step again as a new version (another 3D model, another Finish at a
-        different detail, a re-rig); the current one is kept. finish_detail and pixel_match: as in create."""
+        different detail, a re-rig); the current one is kept. finish_detail, pixel_match and edge_fade:
+        as in create."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
-                                           pixel_match=pixel_match))
+                                           pixel_match=pixel_match, edge_fade=edge_fade))
 
     @server.tool(name="run_status", structured_output=False)
     def tool_run_status(run_id: str | None = None, wait_seconds: int = 30):

@@ -596,3 +596,10 @@ def test_a_run_with_pixel_match_still_needs_its_picture(tmp_path):
     assert finish.needed_inputs(job, {"skip_photo": False}) == [job.asset_path, job.image_path]
     assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": False}) == [job.asset_path, job.image_path]
     assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": True}) == [job.asset_path]
+
+
+def test_turning_edge_fade_off_tells_the_worker():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    assert finish.normalise_settings({})["skip_edge_fade"] is False
+    assert "--no-edge-fade" not in finish.build_command(job, finish.normalise_settings({}))
+    assert "--no-edge-fade" in finish.build_command(job, finish.normalise_settings({"skip_edge_fade": True}))

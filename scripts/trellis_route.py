@@ -53,10 +53,15 @@ class Route:
     def environ(self, base: dict[str, str] | None = None) -> dict[str, str]:
         """Set this route's variables, and report what it set.
 
+        With no `base` this writes through to `os.environ`, which is the point: TRELLIS reads
+        these at import time in a module loaded later, so a copy that nothing points at
+        changes nothing. An explicit `base` is copied instead, so a caller passing a dict
+        keeps ownership of it.
+
         Hard-assigned, never inherited: a stale value in the viewer's environment once
         selected a backend that did not exist.
         """
-        env = dict(os.environ if base is None else base)
+        env = os.environ if base is None else dict(base)
         env.update(self.backend_env)
         env.update(self.extra_env)
         # Upstream's example.py and app.py set both.

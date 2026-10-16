@@ -569,12 +569,17 @@ CATALOG: tuple[Backend, ...] = (
         install="viewer",
         upstream=("TRELLIS.2", "https://github.com/microsoft/TRELLIS.2"),
         # Mac: the Metal port. Linux + NVIDIA: Microsoft's own code, built for CUDA.
-        # Windows is not supported for TRELLIS.2 yet (the bootstrap refuses it).
-        runs_on=(APPLE, NVIDIA),
+        # Linux + AMD: the same checkout, built with HIP. Windows is not supported for
+        # TRELLIS.2 yet (the bootstrap refuses it).
+        runs_on=(APPLE, NVIDIA, AMD),
         excludes=((NVIDIA, "windows"),),
-        install_by_host={NVIDIA: "scripts/bootstrap_trellis_cuda.py"},
+        install_by_host={
+            NVIDIA: "scripts/bootstrap_trellis_cuda.py",
+            AMD: "scripts/bootstrap_trellis_rocm.py",
+        },
         build_probes_by_host={
             NVIDIA: (REPO / "vendor" / "trellis-cuda" / ".i2l-build-complete",),
+            AMD: (REPO / "vendor" / "trellis-rocm" / ".i2l-build-complete",),
         },
         caveat=(
             "Its DINOv3 image encoder is gated: request access to "
@@ -595,6 +600,18 @@ CATALOG: tuple[Backend, ...] = (
                        "approves by hand) and sign in under Hugging Face sign-in at the top of this page. Setup checks "
                        "access before downloading anything."),
             # The CUDA bootstrap fetches the weights once the build is done.
+            "setup_fetches_weights": True,
+        }, AMD: {
+            "label": "TRELLIS.2 (AMD)",
+            "tradeoff": ("Microsoft's own code, built with HIP for your card. Its material "
+                         "model bleaches flat or vector-style illustrations. Prefer "
+                         "photographs or softly lit 3D-style references."),
+            "caveat": ("Its DINOv3 image encoder is gated: request access to "
+                       "facebook/dinov3-vitl16-pretrain-lvd1689m on Hugging Face (Meta "
+                       "approves by hand) and sign in under Hugging Face sign-in at the top of this page. Setup checks "
+                       "access before downloading anything. Attention runs on AuleAttention, "
+                       "because flash-attn cannot be built for ROCm."),
+            # The ROCm bootstrap fetches the weights once the build is done.
             "setup_fetches_weights": True,
         }},
         build_probes=(venv_python(REPO / "vendor" / "trellis-space-mac"),),

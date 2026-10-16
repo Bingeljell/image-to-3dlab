@@ -8,6 +8,7 @@ of things that must differ.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -72,6 +73,16 @@ def test_environ_does_not_mutate_the_caller_and_copies_by_default():
     assert "ATTN_BACKEND" not in base, "the caller's environment must not be written to"
     env["KEEP"] = "changed"
     assert base["KEEP"] == "me"
+
+
+def test_environ_with_no_base_writes_through_to_the_process(monkeypatch):
+    """TRELLIS reads these at import time, in a module loaded later. A copy nothing points
+    at changes nothing -- and the symptom is a run that selected flash_attn on an AMD card
+    without ever saying so."""
+    monkeypatch.delenv("ATTN_BACKEND", raising=False)
+    routes.ROCM.environ()
+    assert os.environ["ATTN_BACKEND"] == "aule"
+    assert os.environ["SPARSE_ATTN_BACKEND"] == "aule"
 
 
 def test_environ_sets_upstreams_openexr_flag():

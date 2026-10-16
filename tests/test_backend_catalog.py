@@ -217,8 +217,15 @@ def test_trellis_setup_is_a_build_not_a_download():
 
 
 def test_the_flag_reaches_the_browser():
-    trellis = next(b for b in bc.catalog_status()["backends"] if b["id"] == "trellis")
-    assert trellis["setup_fetches_weights"] is False
+    """The Mac port's bootstrap fetches no weights; the NVIDIA and AMD ones fetch them once
+    the build is done, and the card decides which flag the browser sees."""
+    def flag_for(host):
+        entry = next(b for b in bc.catalog_status(host)["backends"] if b["id"] == "trellis")
+        return entry["setup_fetches_weights"]
+
+    assert flag_for(bc.APPLE) is False
+    assert flag_for(bc.NVIDIA) is True
+    assert flag_for(bc.AMD) is True
 
 
 def test_a_built_trellis_with_no_weights_is_ready_not_missing():
@@ -384,7 +391,7 @@ def test_trellis_is_supported_on_nvidia_now_not_pointed_elsewhere():
     """TRELLIS.2 has its own NVIDIA route (Microsoft's code, built for CUDA), so an NVIDIA
     Linux machine gets a Set up button rather than a link to the official repo."""
     trellis = bc.BY_ID["trellis"]
-    assert trellis.runs_on == (bc.APPLE, bc.NVIDIA)
+    assert trellis.runs_on == (bc.APPLE, bc.NVIDIA, bc.AMD)
     entry = trellis.describe(bc.NVIDIA)
     if trellis.excluded_os(bc.NVIDIA):  # this test machine is Windows
         pytest.skip("TRELLIS.2 on NVIDIA is Linux only")
@@ -521,15 +528,24 @@ def test_amd_gets_a_3d_route_and_the_image_one():
     assert {"pixal3d", "qwen-image", "matte"} <= amd
 
 
-def test_amd_is_not_offered_the_nvidia_only_routes():
-    """TRELLIS.2 and Hunyuan3D-2.1 both need NVIDIA-only compiled extensions, so offering
-    them on an AMD card means a download that cannot finish. Pixal3D is the 3D route there."""
-    assert bc.AMD not in bc.BY_ID["trellis"].runs_on
+def test_trellis_is_offered_on_amd_but_hunyuan_cuda_is_not():
+    """TRELLIS.2 runs on AMD through its ROCm route; Hunyuan3D-2.1's CUDA route does not,
+    and offering it there means a download that cannot finish. Pixal3D works either way."""
+    assert bc.AMD in bc.BY_ID["trellis"].runs_on
     assert bc.AMD not in bc.BY_ID["hunyuan-cuda"].runs_on
     assert bc.BY_ID["pixal3d"].runs_here(bc.AMD) is True
 
 
-@pytest.mark.parametrize("backend_id", ["trellis", "hunyuan-cuda"])
+def test_trellis_uses_a_separate_rocm_checkout_from_the_cuda_one():
+    """A two-card machine keeps both installs: they are different builds of the same source,
+    so sharing a directory would mean one card's compiled extensions overwriting the other's."""
+    trellis = bc.BY_ID["trellis"]
+    assert trellis.install_by_host[bc.AMD] == "scripts/bootstrap_trellis_rocm.py"
+    assert trellis.build_probes_by_host[bc.AMD] != trellis.build_probes_by_host[bc.NVIDIA]
+    assert "trellis-rocm" in str(trellis.build_probes_by_host[bc.AMD][0])
+
+
+@pytest.mark.parametrize("backend_id", ["hunyuan-cuda"])
 def test_an_amd_user_is_told_why_not_and_what_to_use_instead(backend_id):
     """"Needs an NVIDIA GPU" is true of an AMD machine and explains nothing: it reads as a
     card problem rather than a port problem, and sends the user off to check their drivers.
@@ -540,10 +556,23 @@ def test_an_amd_user_is_told_why_not_and_what_to_use_instead(backend_id):
     assert "download gigabytes" not in note
 
 
-def test_the_amd_note_does_not_leak_into_other_tabs():
+def test_trellis_shows_no_amd_note_because_it_runs_there():
+    """A route that runs on the card has nothing to explain. `_platform_note` is only ever
+    shown when `runs_here` is False, so what matters is that the blocked-on-AMD note is not
+    the one this produces."""
     trellis = bc.BY_ID["trellis"]
-    assert "AMD" not in trellis._platform_note(bc.APPLE)
-    assert "AMD" not in trellis._platform_note(bc.NVIDIA)
+    assert trellis.runs_here(bc.AMD) is True
+    assert "Not on AMD" not in trellis._platform_note(bc.AMD)
+
+
+def test_the_amd_note_does_not_leak_into_other_tabs():
+    """What must not leak is the AMD *blockade* wording. The platform list naming AMD is
+    correct on any machine, because it is now true on all of them."""
+    trellis = bc.BY_ID["trellis"]
+    for host in (bc.APPLE, bc.NVIDIA):
+        note = trellis._platform_note(host)
+        assert "Not on AMD" not in note
+        assert "does not run on AMD" not in note
 
 
 def test_sf3d_is_no_longer_a_blocked_route_on_amd():
@@ -558,14 +587,14 @@ def test_sf3d_is_no_longer_a_blocked_route_on_amd():
     assert entry.describe(bc.AMD)["platform_note"] is None
 
 
-def test_a_route_that_cannot_run_on_amd_still_says_why():
-    """The remaining blocked routes have to keep explaining themselves: a reader with no
-    NVIDIA machine to act on cannot do anything with "needs an NVIDIA GPU"."""
-    trellis = bc.BY_ID["trellis"]._platform_note(bc.AMD)
-    assert "Not on AMD" in trellis
-    # TRELLIS is genuinely blocked by NVIDIA-only extensions, so it may name them.
-    assert "flash-attn" in trellis or "NVIDIA-only" in trellis
-    assert bc.BY_ID["trellis"].runs_here(bc.AMD, "linux") is False
+def test_trellis_is_no_longer_a_blocked_route_on_amd():
+    """It was blocked for a reason that turned out not to be the card: nvdiffrast, CuMesh and
+    AuleAttention all have working ROCm builds, and FlexGEMM needed one flag changed. The
+    note it used to show must be gone rather than reworded."""
+    trellis = bc.BY_ID["trellis"]
+    assert trellis.runs_here(bc.AMD, "linux") is True
+    assert "Not on AMD" not in trellis._platform_note(bc.AMD)
+    assert trellis.amd_blocked_reason in (None, "")
 
 
 def test_the_cuda_hunyuan_route_points_an_amd_card_at_the_rocm_one():

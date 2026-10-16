@@ -3,7 +3,7 @@
 
 import { followJob, plainError, statusUrlFor, jobEnd } from './jobs.js';
 import { freshSeed } from './create.js';
-import { finishFaces } from './library.js';
+import { finishDetailSettings } from './library.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -52,6 +52,7 @@ export function stepBody(stepId, asset, ctx) {
       ? '<p class="hint">Skipped so far. Finishing now makes a new finished model; rig it again to use it.</p>' : '';
     const controls = `${skipped}${finishDetail()}${photo}
       <details class="adv"><summary>Advanced</summary>
+        ${asset.picture ? '<label class="check"><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label><label class="check"><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label>' : ''}
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
       </details>
       <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
@@ -88,7 +89,10 @@ function finishDetail() {
       <option value="10000">10,000 triangles · light</option>
       <option value="20000" selected>20,000 triangles · game-ready</option>
       <option value="40000">40,000 triangles · more detail</option>
+      <option value="full">Full detail · every triangle, for renders (not games)</option>
       <option value="custom">Custom… (unexpected results)</option></select></label>
+    <p class="hint" data-full hidden>Keeps the 3D model's own mesh (often near a million triangles) and paints it with
+      Pixel Match: the sharpest look, in under a minute. Too heavy for a game; rig and animate a lighter version.</p>
     <div data-custom hidden>
       <label class="field">Triangles<input type="number" data-k="customFaces" min="1000" max="200000" step="1000" value="30000"></label>
       <p class="hint">Unexpected results: very low counts break up shapes and very high ones add rough patches. Try 10,000 to 40,000 first.</p>
@@ -117,14 +121,17 @@ export function wireStep(card, stepId, asset, ctx) {
   if (speed) speed.oninput = () => { card.querySelector('[data-o="speed"]').textContent = `${Number(speed.value).toFixed(2)}×`; };
   if (spread) spread.oninput = () => { card.querySelector('[data-o="spread"]').textContent = `${spread.value}°`; };
   const faces = k('faces');
-  if (faces) faces.onchange = () => { card.querySelector('[data-custom]').hidden = faces.value !== 'custom'; };
+  if (faces) faces.onchange = () => {
+    card.querySelector('[data-custom]').hidden = faces.value !== 'custom';
+    card.querySelector('[data-full]').hidden = faces.value !== 'full';
+  };
   if (engine) engine.onchange = () => { card.querySelector('[data-k="licence"]').textContent = ctx.engines.find((e) => e.id === engine.value)?.license || ''; };
 
   card.querySelectorAll('[data-run]').forEach((button) => button.onclick = async () => {
     // read every setting now: the progress card replaces these controls as soon as it starts
     const settings = {
       backend: engine?.value || ctx.engines[0]?.id,
-      faces: finishFaces(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, texture: Number(k('texture')?.value),
+      detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value),
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
@@ -132,7 +139,7 @@ export function wireStep(card, stepId, asset, ctx) {
     card.dataset.lastPreset = settings.preset || '';
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
-        : startFinish(asset, ctx, { faces: settings.faces, skip_photo: !settings.photo, texture_size: settings.texture })),
+        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture })),
       rigged: () => startRig(asset, settings.rigSource),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread) }[stepId];
     const note = button.dataset.humanoid === 'no'

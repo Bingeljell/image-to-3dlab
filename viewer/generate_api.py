@@ -84,8 +84,9 @@ from autorig_api import (
     source_record_for as animate_source_record,
     status_payload as animate_status_payload,
 )
-from assets_api import assets_payload, delete_version as delete_asset_version, plan_delete as plan_asset_delete, set_hidden as set_asset_hidden, set_main as set_asset_main, set_name as set_asset_name, thumbnail as asset_thumbnail
+from assets_api import assets_payload, list_assets, delete_version as delete_asset_version, plan_delete as plan_asset_delete, set_hidden as set_asset_hidden, set_main as set_asset_main, set_name as set_asset_name, thumbnail as asset_thumbnail
 import activity_api
+import preview_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from props_api import (
     PROPS_JOBS,
@@ -2448,6 +2449,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "activity"]:
             self._send_json(200, {"history": read_history(OUTPUT_ROOT)})
             return
+        if parts == ["api", "preview"]:
+            self._send_preview()
+            return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "delete-plan":
             try:
                 self._send_json(200, plan_asset_delete(OUTPUT_ROOT, parts[2]))
@@ -3285,6 +3289,34 @@ class Handler(SimpleHTTPRequestHandler):
                     break
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def _send_preview(self) -> None:
+        """One asset from four sides as a PNG (`?asset=<id>&stage=latest&look=paint`, or `&move=wave`
+        for four moments of a move), for agents."""
+        query = parse_qs(urlparse(self.path).query)
+        asset_id = query.get("asset", [""])[0]
+        asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == asset_id), None)
+        if asset is None:
+            self._send_json(404, {"error": f"no such asset: {asset_id}"})
+            return
+        try:
+            path, shown = preview_api.preview(OUTPUT_ROOT, asset, query.get("stage", ["latest"])[0],
+                                              query.get("look", ["paint"])[0], blender=find_blender(),
+                                              move=query.get("move", [""])[0] or None)
+            data = path.read_bytes()
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            self._send_json(503, {"error": str(exc)})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Preview-Stage", shown.encode("ascii", "replace").decode())
+        self.send_header("X-Preview-Path", str(path.relative_to(OUTPUT_ROOT)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def _backend_download(self, backend_id: str, action: str) -> None:
         """Start or stop one backend's weight download.

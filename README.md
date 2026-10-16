@@ -41,6 +41,8 @@ Apple Silicon deserves more love in the 3D and Image generation community. So th
   and one CLI.
 - **Game-size files.** Finish turns a heavy, 30 MB generated model into a light, compressed
   one. [More](#finishing-an-asset)
+- **Your agent can drive it.** Claude Code, Codex and other MCP clients make, check and
+  tweak assets for you. [More](#use-it-from-your-agent)
 - **Know what you can ship.** Every file carries a record of the licences behind it.
   [More](#licensing--provenance-non-negotiable)
 
@@ -167,6 +169,27 @@ severe colour drift on flat/vector-style illustrations; prefer photographs or so
 3D-style references. See [picking a picture for TRELLIS.2](docs/trellis2-flat-illustration-colour-drift.md).
 
 ---
+
+## Use it from your agent
+
+Claude Code, Codex, Kimi and other agents can drive AssetFurnace through **MCP** (the
+standard way agents plug in tools): make pictures, 3D models and animated characters, check
+on a run, look at the result, try another setting, and open it in the studio for you.
+Everything still runs on your machine.
+
+1. Install AssetFurnace (above). Or ask your agent: *"Install AssetFurnace from
+   assetfurnace.com and connect it to yourself."* It shows you what it will do first.
+2. Connect it. For Claude Code:
+   ```bash
+   claude mcp add assetfurnace -- ~/image-to-3dlab/lab mcp
+   ```
+   Codex: `codex mcp add assetfurnace -- ~/image-to-3dlab/lab mcp`. Kimi, Claude Desktop,
+   Cursor and others: [docs/agents.md](docs/agents.md). Use your own folder if you
+   installed elsewhere.
+3. Start a new agent session and ask: *"Make me a Pixar-style gator warrior and show me."*
+
+Your agent never downloads model weights without your yes, and can't delete or rename
+your assets. Mac and Linux; Windows is not tested yet.
 
 ## Setting up a backend
 

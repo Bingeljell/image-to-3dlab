@@ -812,3 +812,52 @@ def test_finish_offers_three_tested_detail_levels_and_warns_about_custom():
     assert [o[0] for o in detail if o[1]] == ["20000"]                           # 20,000 is the default
     assert "unexpected results" in detail[-1][2] and out["hint"] is True
     assert values
+
+
+@needs_node
+def test_an_agents_link_names_the_asset_to_open():
+    out = _run("library.js", """console.log(JSON.stringify(
+      ['#asset=03711bf99d31', 'asset=03711bf99d31', '#asset=../../x', '#asset=', '', null, '#other=1&asset=0123456789ab'].map(m.linkedAssetId)));""")
+    assert out == ["03711bf99d31", "03711bf99d31", None, None, None, None, "0123456789ab"]
+
+
+@needs_node
+def test_finish_detail_sends_a_triangle_count_or_full_detail():
+    out = _run("library.js", """console.log(JSON.stringify(
+      [m.finishDetailSettings('20000'), m.finishDetailSettings('custom', '30000'), m.finishDetailSettings('full')]));""")
+    assert out == [{"faces": 20000}, {"faces": 30000}, {"keep_mesh": True}]
+
+
+@needs_node
+def test_finish_offers_the_edge_fade_switch_on_by_default_only_with_a_picture():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const asset = (picture) => ({ kind: 'character', picture, model: 'm/k.glb', finished: null, clips: [] });
+      console.log(JSON.stringify([asset('i/k.png'), asset(null)].map((a) => m.stepBody('finished', a, ctx))
+        .map((html) => (html.match(/<input type="checkbox" data-k="edgefade"( checked)?>/) || [null, null]).map(Boolean))));""")
+    assert out == [[True, True], [False, False]]
+
+
+@needs_node
+def test_finish_offers_the_nudge_switch_on_by_default_only_with_a_picture():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const asset = (picture) => ({ kind: 'character', picture, model: 'm/k.glb', finished: null, clips: [] });
+      console.log(JSON.stringify([asset('i/k.png'), asset(null)].map((a) => m.stepBody('finished', a, ctx))
+        .map((html) => (html.match(/<input type="checkbox" data-k="nudge"( checked)?>/) || [null, null]).map(Boolean))));""")
+    assert out == [[True, True], [False, False]]
+
+
+@needs_node
+def test_the_raw_model_stays_viewable_after_later_steps():
+    finished = {**KNIGHT, "rigged": None, "clips": [], "stage": "finished"}
+    raw_only = {**KNIGHT, "finished": None, "rigged": None, "clips": [], "stage": "model"}
+    out = _run("library.js", f"""
+      const cases = {json.dumps([KNIGHT, finished, raw_only, SHEET])};
+      console.log(JSON.stringify(cases.map((a) => ['model', 'finished', 'rigged'].map((s) => m.canViewStep(a, s)))));""")
+    assert out == [
+        [True, True, False],     # rigged: raw and finished both viewable; the rig is already on screen
+        [True, False, False],    # finished: the raw model is one click away
+        [False, False, False],   # raw only: it is already what the viewer shows
+        [False, False, False],   # a prop set shows its props
+    ]

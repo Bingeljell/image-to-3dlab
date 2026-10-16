@@ -76,12 +76,16 @@ def emit_stage(phase: str, message: str) -> None:
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
-               photo: bool = False) -> list[str]:
+               photo: bool = False, keep_mesh: bool = False) -> list[str]:
     """The stages this run will execute, in order.
 
     Named separately from the running of them so a caller — the viewer's job API, say —
     can show the sequence before anything starts, and so the order is testable.
+    `keep_mesh` finishes the generator's own mesh as it is: no retopology, so nothing
+    to repaint or bake detail onto, just Pixel Match and the texture squeeze.
     """
+    if keep_mesh:
+        return (["photo"] if photo else []) + ([] if skip_compress else ["compress"])
     stages = ["retopologise"]
     if not skip_paint:
         stages.append("repaint")
@@ -159,7 +163,20 @@ def _run(command: list[str], log: Path, label: str) -> None:
         raise SystemExit(f"[{label}] failed (exit {process.returncode}); last lines:\n{tail}")
 
 
-def photo_stage(model: Path, views_dir: Path, output: Path, weights_png: Path) -> dict:
+def photo_settings(edge_fade: bool = True, nudge: bool = True):
+    """Pixel Match's settings. `edge_fade=False` stops it fading the picture out beside inner
+    depth edges: on a full-detail mesh deep eye sockets and hair layers count as edges, so the
+    fade can swallow a small eye and leave coloured specks along hair (2026-10-16 knight).
+    `nudge=False` paints from the pictures as they are: fitting the picture's outline to the
+    body's can slide a face off its features (2026-10-16 gator: a ghost eye on the snout)."""
+    sys.path.insert(0, str(REPO))
+    from image_to_3dlab import photo_paint as pp
+
+    return pp.Settings(align=nudge, **({} if edge_fade else {"inner_edge": 0.0}))
+
+
+def photo_stage(model: Path, views_dir: Path, output: Path, weights_png: Path,
+                edge_fade: bool = True, nudge: bool = True) -> dict:
     """Paint `model` with the real pixels of the photos in `views_dir`; see
     image_to_3dlab/photo_paint.py. In-process: numpy only, seconds on a Finish mesh."""
     sys.path.insert(0, str(REPO))
@@ -170,12 +187,13 @@ def photo_stage(model: Path, views_dir: Path, output: Path, weights_png: Path) -
 
     positions, uvs, faces, texture = pp.read_glb(model)
     views, mesh_scale = pp.load_views(views_dir)
-    painted, weight = pp.paint_texture(texture, positions, uvs, faces, views, mesh_scale)
+    painted, weight = pp.paint_texture(texture, positions, uvs, faces, views, mesh_scale,
+                                       settings=photo_settings(edge_fade, nudge))
     output.write_bytes(pp.replace_base_colour(model.read_bytes(), pp.encode_png(painted)))
     Image.fromarray(np.rint(weight * 255).astype(np.uint8)).save(weights_png)
     share = round(float((weight > 0.5).mean()), 3)
     print(f"[photo] {len(views)} view(s); {share:.0%} of the texture from the photo", flush=True)
-    return {"count": len(views), "texture_share": share}
+    return {"count": len(views), "texture_share": share, "edge_fade": edge_fade, "nudge": nudge}
 
 
 def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
@@ -249,10 +267,25 @@ def build_parser() -> argparse.ArgumentParser:
                              "original; the asset keeps flat surface settings")
     parser.add_argument("--skip-compress", action="store_true")
     parser.add_argument(
+        "--keep-mesh", action="store_true",
+        help="full detail: keep every triangle of the source (no retopology, repaint or "
+             "bake); Pixel Match paints it directly. For renders and stills, not games",
+    )
+    parser.add_argument(
         "--views", type=Path, default=None,
         help="transforms.json directory holding the source photo(s) and their cameras "
              "(a Pixal3D run's .svviews). Given, every surface a photo can see takes the "
              "photo's real pixels after the repaint, which keeps text and logos exact",
+    )
+    parser.add_argument(
+        "--no-edge-fade", action="store_true",
+        help="Pixel Match paints right up to inner edges (an ear in front of a head) instead of "
+             "fading out beside them. Try it when hair gets coloured specks or small eyes go dark",
+    )
+    parser.add_argument(
+        "--no-nudge", action="store_true",
+        help="Pixel Match paints from the pictures as they are instead of first nudging them onto "
+             "the model. Try it when a feature lands twice (a ghost eye) or slides off its place",
     )
     parser.add_argument(
         "--steps-dir", type=Path, default=None,
@@ -296,8 +329,10 @@ def main() -> int:
         args.steps_dir.mkdir(parents=True, exist_ok=True)
     if args.views is not None and not (args.views / "transforms.json").is_file():
         raise SystemExit(f"--views has no transforms.json: {args.views}")
+    if args.keep_mesh:
+        args.skip_paint = args.skip_bake = True   # nothing simplified, so nothing to repaint or bake onto
     stages = stage_plan(args.skip_paint, args.skip_compress, args.skip_bake,
-                        photo=args.views is not None)
+                        photo=args.views is not None, keep_mesh=args.keep_mesh)
     print(f"[retopo-repaint] {args.source.name} -> {args.output.name}: "
           f"{' -> '.join(stages)}", flush=True)
 
@@ -306,7 +341,9 @@ def main() -> int:
 
     retopo_glb = steps["retopo"]
     step = time.time()
-    if reuse(retopo_glb, args.resume):
+    if args.keep_mesh:
+        retopo_glb = args.source   # full detail: Pixel Match works on the generator's own mesh
+    elif reuse(retopo_glb, args.resume):
         emit_stage("retopologise", f"Reusing {retopo_glb.name}")
     else:
         emit_stage("retopologise", f"Retopologising to {args.faces:,} faces")
@@ -317,7 +354,8 @@ def main() -> int:
             ),
             steps["retopo_log"], "retopologise",
         )
-    timings["retopologise"] = round(time.time() - step, 1)
+    if not args.keep_mesh:
+        timings["retopologise"] = round(time.time() - step, 1)
 
     current = retopo_glb
     if not args.skip_paint:
@@ -348,7 +386,8 @@ def main() -> int:
         else:
             emit_stage("photo", "Pixel Match: keeping the photo's real pixels where it can see")
             photo_record = photo_stage(current, args.views, photo_glb,
-                                       steps["photo_weights"])
+                                       steps["photo_weights"], edge_fade=not args.no_edge_fade,
+                                       nudge=not args.no_nudge)
         timings["photo"] = round(time.time() - step, 1)
         current = photo_glb
 
@@ -394,8 +433,9 @@ def main() -> int:
         "stages": stages,
         "seconds": timings,
         "total_seconds": round(time.time() - started, 1),
-        "retopology": {"faces": args.faces, "atlas": args.atlas, "voxel": args.voxel,
-                       "angle": args.angle},
+        "retopology": None if args.keep_mesh else {"faces": args.faces, "atlas": args.atlas,
+                                                   "voxel": args.voxel, "angle": args.angle},
+        "full_detail": args.keep_mesh,
         "surface": {"metallic": args.metallic, "roughness": args.roughness, "ior": args.ior},
         "bake": None if args.skip_bake else {"size": args.atlas},
         "paint": None if args.skip_paint else {

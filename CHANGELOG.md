@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Use AssetFurnace from your agent.** `./lab mcp` is an MCP server for Claude Code, Codex,
+  Kimi and others: make pictures, models and animated characters, check on a run, give a
+  character another move, and install engines (only after you say yes). Setup for each agent:
+  `docs/agents.md`, including how to let your agent install AssetFurnace itself. `./lab mcp
+  --http` serves the same tools at a local web address.
+- **Previews your agent can see:** any asset as one picture from the front, three-quarter,
+  side and back, or four moments of one of its moves, so the agent can check its work and
+  show you.
+- **Full detail Finish.** A new Detail choice keeps every triangle of the 3D model (often near a
+  million) and paints it with Pixel Match: the sharpest look we make, in under a minute. For
+  renders and stills; it is too heavy for games, so rig a lighter version. Agents get it too
+  (`finish_detail="full"`), along with every other Finish detail level and Pixel Match on or off.
+- **Edge fade switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match fades
+  the picture out where one part sits in front of another; on detailed models that can leave
+  coloured specks in hair and dark smudges over small eyes. Untick it and Finish again. Agents
+  pass `advanced={"edge_fade": false}`.
+- **Nudge switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match first fits
+  your picture onto the model; on some models, often with a turned head, that slides a face off
+  its features and paints an eye twice. Untick it and Finish again. Agents pass `advanced={"nudge": false}`.
+- **View the raw 3D model** after Finish, Rig and Animate: the 3D model and Finish steps get a
+  **View** button beside Download, and **Show latest** goes back.
+- **Every studio knob reaches agents.** `options` lists them all, with what each does, its
+  default and when to try it; `create` and `continue_asset` take the Advanced ones as
+  `advanced` (Pixel Match edge fade and nudge, texture size, rig the raw model, move speed,
+  arms away from the body, keep everything). A test fails if a studio control has no twin.
+- Agents can list **every version** of a character with `list_versions`: its 3D models,
+  Finishes and rigs, each with its files. Library rows say which family and version they are.
+- Agents can make a finished step **again as a new version** (another 3D model, another Finish,
+  a re-rig) with `continue_asset(..., again=True)`.
+- **Open in the studio from a link:** `studio.html#asset=<id>` opens that asset, which is how
+  an agent hands you something to spin round and play.
+
 ## [0.4.4] - 2026-10-14
 
 ### Added

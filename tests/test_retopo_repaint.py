@@ -56,10 +56,22 @@ def test_skipping_compress_leaves_the_asset_uncompressed():
     ]
 
 
-def test_retopology_is_never_skipped():
-    """It is what makes the repaint affordable; there is no route that omits it."""
+def test_retopology_is_never_skipped_for_a_game_ready_finish():
+    """It is what makes the repaint affordable; only full detail leaves it out."""
     assert rr.stage_plan(skip_paint=True, skip_compress=True, skip_bake=True) == [
         "retopologise"]
+
+
+def test_full_detail_keeps_the_mesh_and_only_pixel_matches_and_squeezes():
+    """Nothing simplified means nothing to repaint or bake onto, whatever else was asked."""
+    assert rr.stage_plan(skip_paint=False, skip_compress=False, photo=True, keep_mesh=True) == ["photo", "compress"]
+    assert rr.stage_plan(skip_paint=True, skip_compress=False, keep_mesh=True) == ["compress"]
+
+
+def test_full_detail_is_a_flag_on_the_command_line():
+    args = rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--keep-mesh"])
+    assert args.keep_mesh is True
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).keep_mesh is False
 
 
 def test_the_blender_command_passes_arguments_in_the_documented_order():
@@ -231,3 +243,21 @@ def test_a_run_with_no_repaint_and_no_photo_needs_only_the_mesh():
     assert rr.required_inputs(with_views) == [Path("a.glb"), Path("a.png")]
     repaint = parser.parse_args(["a.glb", "a.png", "out.glb"])
     assert rr.required_inputs(repaint) == [Path("a.glb"), Path("a.png")]
+
+
+def test_edge_fade_is_on_unless_the_run_turns_it_off():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).no_edge_fade is False
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--no-edge-fade"]).no_edge_fade is True
+    assert rr.photo_settings().inner_edge > 0
+    off = rr.photo_settings(edge_fade=False)
+    assert off.inner_edge == 0.0 and off.cutout_edge > 0      # only the inner-edge fade goes
+
+
+def test_nudge_is_on_unless_the_run_turns_it_off():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).no_nudge is False
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--no-nudge"]).no_nudge is True
+    assert rr.photo_settings().align is True
+    off = rr.photo_settings(nudge=False)
+    assert off.align is False and off.inner_edge > 0          # edge fade untouched
+    both = rr.photo_settings(edge_fade=False, nudge=False)
+    assert both.align is False and both.inner_edge == 0.0

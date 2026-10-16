@@ -84,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **A build that lost part of itself now says so.** When a route's venv or build marker
+  disappears, the Setup card said "Set up" and nothing else — which sends people to the
+  install script rather than to the directory that is missing. It now distinguishes a route
+  that was never installed from one that was and is no longer complete, and names the file.
 - **The Setup card no longer offers to re-download TRELLIS.2 weights it already has.** It
   measured only the Hugging Face cache, so a machine whose weights sit in a local directory
   was told "partly downloaded · 1.4 GB of 16.7 GB" and offered a resume — on the machine

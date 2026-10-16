@@ -117,6 +117,15 @@ function backendCard(backend, { readOnly = false } = {}) {
     button.onclick = () => confirmDownload(backend, button);
     action.appendChild(button);
   }
+  // A build that lost part of itself -- the venv gone, the marker gone -- otherwise reads
+  // as "needs setup" with nothing to act on, which sends people to the install script
+  // instead of to the directory that is missing.
+  if (backend.build_hint && backend.action === 'build') {
+    const note = document.createElement('p');
+    note.className = 'setup-build-hint';
+    note.textContent = backend.build_hint;
+    action.appendChild(note);
+  }
   // An installed build that predates one of this repo's patches (Pixal3D's 8 steps).
   // Recompiling downloads nothing, so it gets a short question, not the size dialog.
   if (backend.rebuild_reason && backend.supported_here !== false) {

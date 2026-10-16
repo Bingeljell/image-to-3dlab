@@ -56,6 +56,9 @@
 /* Routes the viewer cannot install for you. The command is the whole point, so it is
    selectable text rather than a tooltip on a dead button. */
 .setup-manual { color: #8a8f98; font-size: 12px; text-align: right; display: block; }
+/* A build that lost part of itself. Says which file, because "Set up" on its own sends
+   people to the install script rather than to the directory that went missing. */
+.setup-build-hint { color: #e8c48a; font-size: 11px; margin: 4px 0 0; text-align: right; }
 .setup-manual code { color: #ffe2cc; user-select: all; word-break: break-all; }
 .setup-card-best { font-size: 12px; margin: 8px 0 2px; }
 .setup-card-trade { font-size: 12px; opacity: .7; margin: 0; }

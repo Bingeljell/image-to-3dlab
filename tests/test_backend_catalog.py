@@ -558,6 +558,89 @@ def test_an_amd_user_is_told_why_not_and_what_to_use_instead(backend_id):
     assert "download gigabytes" not in note
 
 
+# --- a build that lost part of itself -------------------------------------------------------
+#
+# "Set up" with nothing else is what a vanished venv looks like, and it sends people to the
+# install script rather than to the directory that is missing. The card now names the file.
+
+
+def _backend_with_probes(probes, **kwargs):
+    return bc.Backend(id="x", label="Stable Fast 3D", kind="3d", best_for="", tradeoff="",
+                      license_name="", license_url="", weights=(), install="viewer",
+                      build_probes_by_host={bc.AMD: probes}, **kwargs)
+
+
+def test_a_complete_build_says_nothing(tmp_path):
+    probes = (tmp_path / "marker", tmp_path / "venv" / "bin" / "python")
+    probes[0].write_text("{}")
+    probes[1].parent.mkdir(parents=True)
+    probes[1].write_text("")
+    backend = _backend_with_probes(probes)
+    assert backend.missing_build_probes(bc.AMD) == []
+    assert backend.build_hint(bc.AMD) is None
+
+
+def test_a_never_installed_route_is_not_dressed_up_as_a_loss(tmp_path):
+    """Both look like `action == build`. One deserves a rebuild message and one does not."""
+    backend = _backend_with_probes((tmp_path / "marker", tmp_path / "venv"))
+    assert "not installed" in backend.build_hint(bc.AMD)
+    assert "was installed here" not in backend.build_hint(bc.AMD)
+
+
+def test_a_lost_build_names_the_file_that_is_missing(tmp_path):
+    marker = tmp_path / "marker"
+    marker.write_text("{}")
+    python = tmp_path / "venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    backend = _backend_with_probes((marker, python))
+
+    python.unlink()          # the venv is what has gone
+    hint = backend.build_hint(bc.AMD)
+    assert "was installed here" in hint
+    assert "venv/bin/python" in hint
+    assert backend.missing_build_probes(bc.AMD) == [python]
+
+
+def test_the_hint_reaches_the_payload_the_card_reads(tmp_path):
+    """A field nothing renders is a field nobody benefits from."""
+    backend = _backend_with_probes((tmp_path / "marker", tmp_path / "venv"))
+    described = backend.describe(bc.AMD)
+    assert described["build_present"] is False
+    assert described["build_missing"]
+    assert described["build_hint"]
+
+
+def test_a_build_with_all_its_probes_present_reports_none_missing(tmp_path):
+    """Synthetic, not the live catalogue: whether a route happens to be built on the machine
+    running the tests is not a property of this code, and a test that reads it passes for the
+    wrong reason on a developer who built everything and fails on a fresh clone."""
+    marker, python = tmp_path / "marker", tmp_path / "venv" / "bin" / "python"
+    marker.write_text("{}")
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    backend = _backend_with_probes((marker, python))
+    assert backend.missing_build_probes(bc.AMD) == []
+    assert backend.describe(bc.AMD)["build_missing"] == []
+    assert backend.describe(bc.AMD)["build_hint"] is None
+
+
+def test_every_declared_probe_is_a_path():
+    """A probe that is a string would silently always exist, and every route would read as
+    built on every machine."""
+    for backend in bc.CATALOG:
+        for host in (bc.APPLE, bc.NVIDIA, bc.AMD):
+            for probe in backend.probes_for(host):
+                assert isinstance(probe, Path), f"{backend.id}/{host}: {probe!r}"
+
+
+def test_the_setup_page_renders_the_hint():
+    """Pinned in the page's own source: the payload alone proves nothing about the screen."""
+    source = (REPO / "viewer" / "studio" / "setup.js").read_text()
+    assert "build_hint" in source
+    assert "setup-build-hint" in (REPO / "viewer" / "studio" / "setup.css").read_text()
+
+
 def test_trellis_shows_no_amd_note_because_it_runs_there():
     """A route that runs on the card has nothing to explain. `_platform_note` is only ever
     shown when `runs_here` is False, so what matters is that the blocked-on-AMD note is not

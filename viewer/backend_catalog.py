@@ -346,6 +346,27 @@ class Backend:
         said = self.overrides_by_host.get(host or host_platform(), {})
         return said.get("setup_fetches_weights", self.setup_fetches_weights)
 
+    def missing_build_probes(self, host: str | None = None) -> list[Path]:
+        """Which declared build files are not there.
+
+        "Needs setup" with nothing else is what a build that quietly lost its venv looks
+        like, and it sends people looking at the install script rather than at the checkout.
+        Naming the absent file turns that into a one-glance answer.
+        """
+        return [p for p in self.probes_for(host) if not p.exists()]
+
+    def build_hint(self, host: str | None = None) -> str | None:
+        """Why this is not built, naming what is absent, or None when it is."""
+        missing = self.missing_build_probes(host)
+        if not missing:
+            return None
+        if len(missing) == len(self.probes_for(host)):
+            return f"{self.label} is not installed on this machine."
+        listed = ", ".join(str(p.relative_to(REPO)) if p.is_relative_to(REPO) else str(p)
+                           for p in missing)
+        return (f"{self.label} was installed here and is no longer: {listed} is missing. "
+                f"Setup will rebuild it.")
+
     def describe(self, host: str | None = None) -> dict[str, Any]:
         weights = [w.describe() for w in self.weights]
         present = _total_present(weights)
@@ -355,6 +376,8 @@ class Backend:
         fetches = self.setup_fetches_on(host)
         return {
             "build_present": built,
+            "build_missing": [str(p) for p in self.missing_build_probes(host)],
+            "build_hint": self.build_hint(host),
             "supported_here": supported,
             "requires": runs_on_phrase(self),
             # Said once, in words, so the screen can explain instead of a button failing.

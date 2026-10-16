@@ -74,6 +74,8 @@ EXTRA_PACKAGES = ("scipy",)
 
 
 def venv_python(root: Path = VENDOR) -> Path:
+    if sys.platform == "win32":
+        return root / ".venv" / "Scripts" / "python.exe"
     return root / ".venv" / "bin" / "python"
 
 
@@ -184,7 +186,10 @@ def link_checkpoint(snapshot_file: Path, root: Path, checkpoint: Checkpoint) -> 
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_symlink() or target.exists():
         target.unlink()
-    target.symlink_to(snapshot_file)
+    try:
+        target.symlink_to(snapshot_file)
+    except OSError:
+        shutil.copy2(snapshot_file, target)
     return target
 
 

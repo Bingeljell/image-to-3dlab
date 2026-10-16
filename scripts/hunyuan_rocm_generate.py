@@ -259,6 +259,50 @@ def realesrgan_path(vendor_root: Path) -> Path:
     return vendor_root / bootstrap.REALESRGAN.relative_to(bootstrap.VENDOR)
 
 
+def hf_hub_dir(environ: dict[str, str] | None = None) -> Path:
+    """The Hugging Face cache upstream's paint stage reads, honouring the usual variables."""
+    environ = os.environ if environ is None else environ
+    if environ.get("HF_HUB_CACHE"):
+        return Path(environ["HF_HUB_CACHE"])
+    home = environ.get("HF_HOME") or str(Path.home() / ".cache" / "huggingface")
+    return Path(home) / "hub"
+
+
+def _cached(hub: Path, repo: str, inside: str) -> bool:
+    """Whether `inside` (a file or folder) is in any snapshot of `repo` in the cache."""
+    snapshots = hub / f"models--{repo.replace('/', '--')}" / "snapshots"
+    return any(snapshots.glob(f"*/{inside}"))
+
+
+def missing_weights(vendor_root: Path, hub: Path | None = None,
+                    shape_only: bool = False) -> list[str]:
+    """Weights the run would otherwise fetch on its own, 8-15 GB of them, unannounced.
+
+    Upstream downloads whatever it cannot find. That is the one thing this repo never lets
+    happen without a choice (CLAUDE.md), so a gap is a refusal that names the bootstrap.
+    """
+    hub = hf_hub_dir() if hub is None else hub
+    shape = vendor_root / bootstrap.MODELS.name / bootstrap.HUNYUAN_REPO
+    checks = {
+        "Hunyuan3D-2.1 shape model": (shape / "hunyuan3d-dit-v2-1").is_dir(),
+        "Hunyuan3D-2.1 shape VAE": (shape / "hunyuan3d-vae-v2-1").is_dir(),
+    }
+    if not shape_only:
+        checks.update({
+            "Hunyuan3D-2.1 PBR paint": _cached(hub, bootstrap.HUNYUAN_REPO,
+                                                "hunyuan3d-paintpbr-v2-1"),
+            "DINOv2-giant image encoder": _cached(hub, bootstrap.DINO_REPO,
+                                                  "model.safetensors"),
+            "RealESRGAN upscaler": realesrgan_path(vendor_root).is_file(),
+        })
+    return [f"missing weights: {name}" for name, present in checks.items() if not present]
+
+
+WEIGHTS_HINT = ("Fetch them on purpose (about 19.5 GB, Tencent Hunyuan Community License, "
+                "not licensed in the EU, UK or South Korea):\n"
+                "  python scripts/bootstrap_hunyuan_rocm.py --weights-only")
+
+
 def paint_config_overrides(vendor_root: Path) -> dict[str, str]:
     """Absolute paths for the fields upstream's config leaves relative to its own cwd."""
     root = checkout(vendor_root)
@@ -403,12 +447,12 @@ def _free_gpu() -> None:
 
 def check_environment(vendor_root: Path) -> int:
     """Seconds, no model load: paths, the GPU, and the imports a run needs."""
-    problems = verify_paths(vendor_root)
-    if not realesrgan_path(vendor_root).is_file():
-        problems.append(f"missing RealESRGAN weights: {realesrgan_path(vendor_root)}")
+    problems = verify_paths(vendor_root) + missing_weights(vendor_root)
     if problems:
         for problem in problems:
             print(f"  FAIL: {problem}", flush=True)
+        if any(problem.startswith("missing weights") for problem in problems):
+            print(WEIGHTS_HINT, flush=True)
         return 1
     _enter_upstream(vendor_root)
     import torch
@@ -533,6 +577,10 @@ def generate(image_path: Path, output: Path, vendor_root: Path, settings: dict[s
     if problems:
         raise SystemExit("Hunyuan3D-2.1 is not installed:\n  " + "\n  ".join(problems) +
                          "\nRun: python scripts/bootstrap_hunyuan_rocm.py")
+    absent = missing_weights(vendor_root, shape_only=shape_only)
+    if absent:
+        raise SystemExit("Refusing to let upstream download weights unannounced:\n  " +
+                         "\n  ".join(absent) + "\n" + WEIGHTS_HINT)
     print(describe_fit(fitted, free_bytes), flush=True)
     prepared, matte_model = prepare_image(image_path, output, force_matte=force_matte)
     _enter_upstream(vendor_root, fitted["sdpa_query_chunk"])

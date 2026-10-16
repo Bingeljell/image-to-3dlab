@@ -287,7 +287,6 @@ def test_the_intermediate_files_are_named_after_the_output():
     assert gen.work_dir(Path("/o/fox.glb")).name == "fox__hunyuan"
     assert gen.matted_path(Path("/o/fox.glb")).name == "fox__matted.png"
 
-
 def test_a_small_card_gets_fewer_views_when_nobody_asked_for_more():
     """The defaults used to be filled in before the fit, so they read as a request and the
     ladder only ever chose the chunk: 6 views at 256px on a card with 4 GB free."""
@@ -319,3 +318,58 @@ def test_a_black_texture_at_the_top_size_suggests_a_smaller_one(tmp_path):
     with pytest.raises(SystemExit) as raised:
         gen._refuse_a_blank_texture(tmp_path, {"paint_resolution": 256})
     assert "--paint-resolution 128" in str(raised.value)
+
+
+def _all_weights(vendor: Path, hub: Path) -> None:
+    shape = vendor / "models" / "tencent" / "Hunyuan3D-2.1"
+    (shape / "hunyuan3d-dit-v2-1").mkdir(parents=True)
+    (shape / "hunyuan3d-vae-v2-1").mkdir(parents=True)
+    paint = hub / "models--tencent--Hunyuan3D-2.1" / "snapshots" / "abc"
+    (paint / "hunyuan3d-paintpbr-v2-1").mkdir(parents=True)
+    dino = hub / "models--facebook--dinov2-giant" / "snapshots" / "abc"
+    dino.mkdir(parents=True)
+    (dino / "model.safetensors").write_bytes(b"x")
+    gen.realesrgan_path(vendor).parent.mkdir(parents=True)
+    gen.realesrgan_path(vendor).write_bytes(b"x")
+
+
+def test_nothing_missing_means_nothing_to_refuse(tmp_path):
+    _all_weights(tmp_path / "vendor", tmp_path / "hub")
+    assert gen.missing_weights(tmp_path / "vendor", tmp_path / "hub") == []
+
+
+def test_every_missing_weight_set_is_named(tmp_path):
+    missing = gen.missing_weights(tmp_path / "vendor", tmp_path / "hub")
+    text = "\n".join(missing)
+    for name in ("shape model", "shape VAE", "PBR paint", "DINOv2", "RealESRGAN"):
+        assert name in text
+
+
+def test_shape_only_does_not_ask_for_the_paint_weights(tmp_path):
+    missing = gen.missing_weights(tmp_path / "vendor", tmp_path / "hub", shape_only=True)
+    assert len(missing) == 2 and all("shape" in line for line in missing)
+
+
+def test_the_cache_follows_the_usual_variables(tmp_path):
+    assert gen.hf_hub_dir({"HF_HUB_CACHE": "/x"}) == Path("/x")
+    assert gen.hf_hub_dir({"HF_HOME": "/y"}) == Path("/y/hub")
+
+
+def test_a_run_with_no_weights_refuses_instead_of_downloading(tmp_path, monkeypatch):
+    vendor = tmp_path / "vendor"
+    for problem in gen.verify_paths(vendor):  # a built checkout, minus the weights
+        path = Path(problem.rsplit(": ", 1)[1])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+    monkeypatch.setattr(gen, "prepare_image", lambda *a, **k: pytest.fail("got past the check"))
+    with pytest.raises(SystemExit, match="unannounced") as refused:
+        gen.generate(tmp_path / "in.png", tmp_path / "out.glb", vendor, {})
+    assert "bootstrap_hunyuan_rocm.py --weights-only" in str(refused.value)
+
+
+def test_check_reports_missing_weights_without_loading_anything(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+    monkeypatch.setattr(gen, "_enter_upstream", lambda *a, **k: pytest.fail("loaded upstream"))
+    assert gen.check_environment(tmp_path / "vendor") == 1
+    assert "--weights-only" in capsys.readouterr().out

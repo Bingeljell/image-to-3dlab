@@ -35,6 +35,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_trellis_cuda.py` | Install TRELLIS.2 for Linux with an NVIDIA card: Microsoft's own code, built for CUDA. |
 | `bootstrap_hunyuan_cuda.py` | Install Hunyuan3D-2.1 for Linux with an NVIDIA card: Tencent's own code, built for CUDA. |
 | `bootstrap_hunyuan_rocm.py` | Install Hunyuan3D-2.1 for Linux with an AMD card: Tencent's own code, built with HIP. |
+| `bootstrap_trellis_rocm.py` | Install TRELLIS.2 for Linux with an AMD card: Microsoft's own code, built with HIP. |
 | `bootstrap_sf3d.py` | Install Stable Fast 3D: its code and compiled extensions, then its gated weights. |
 | `patch_sf3d_linux.py` | Let Stable Fast 3D compile its GPU texture baker on an AMD card. |
 | `bootstrap_sf3d_rocm.py` | Install Stable Fast 3D for Linux with an AMD card: its own venv, built with HIP. |
@@ -233,7 +234,7 @@ Numbers about the project itself, not about any asset.
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |
 | `patch_trellis_no_bria.py` | Disable TRELLIS' configured background model for license-controlled runs. |
 | `patch_trellis_cuda_no_bria.py` | Stop the NVIDIA TRELLIS.2 checkout loading BRIA RMBG-2.0, before it ever downloads it. |
-| `patch_trellis_rocm.py` | Make TRELLIS.2 run on an AMD card: give it an attention backend, and fix the build. |
+| `patch_trellis_rocm.py` | Make TRELLIS.2 run on an AMD card: an attention backend, and a build that compiles. |
 | `patch_trellis_mlx_attention.py` | Add an `mlx` sparse-attention backend to a vendored TRELLIS.2 checkout. |
 | `render_glb_comparison.py` | Render several GLBs from one fixed camera and lay them out as a comparison image. |
 | `patch_ovoxel_pack_options.py` | Let `o_voxel.postprocess.to_glb` forward xatlas packing options. |

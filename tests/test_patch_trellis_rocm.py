@@ -102,7 +102,8 @@ def scaled_dot_product_attention(qkv, kv=None, q_seqlen=None, kv_seqlen=None, *a
         return out.reshape(N, L, H, -1)
 """
 
-# nvdiffrast nests this flag one level deeper than the other three: it is inside `if _rocm:`.
+# nvdiffrast nests the device-bitcode flag one level deeper than a plain list, because it is
+# inside `if _rocm:`. It sets no C++ standard at all, so torch's default applies.
 NVDIFFRAST_SETUP_SOURCE = '''\
 import os
 import torch
@@ -127,28 +128,81 @@ if IS_HIP:
     }
 '''
 
+# Upstream CuMesh, at the commit the NVIDIA route pins. It already dispatches on HIP, and it
+# does NOT hardcode the device-bitcode path, so it only needs the C++ standard.
 CUMESH_SETUP_SOURCE = '''\
 import os
 import torch
 from torch.utils.cpp_extension import CUDAExtension, BuildExtension, IS_HIP_EXTENSION
 
-
-def src(path):
-    if IS_HIP and path.endswith(".cu"):
-        return path[:-3] + ".hip"
-    return path
-
+IS_HIP = bool(IS_HIP_EXTENSION)
 
 if not IS_HIP:
     cc_flag = ["--use_fast_math"]
 else:
     archs = os.getenv("GPU_ARCHS", "native").split(";")
-    _rocm = os.getenv("ROCM_PATH", "")
-    cc_flag = [f"--offload-arch={a}" for a in archs] + [
-        f"--hip-path={_rocm}", f"--rocm-path={_rocm}",
-        f"--rocm-device-lib-path={os.path.join(_rocm,'lib','llvm','amdgcn','bitcode')}",
-        "-fms-extensions", "-Wno-c++11-narrowing",
-    ]
+    cc_flag = [f"--offload-arch={a}" for a in archs]
+
+if platform.system() == "Windows":
+    extra_compile_args = {
+        "nvcc": ["-O3", "-std=c++17", "-Xcompiler=/EHsc"] + cc_flag,
+    }
+else:
+    cxx11_abi = "1" if torch.compiled_with_cxx11_abi() else "0"
+    extra_compile_args = {
+        "cxx": ["-O3", "-std=c++17", "-fopenmp", f"-D_GLIBCXX_USE_CXX11_ABI={cxx11_abi}"],
+        "nvcc": ["-O3", "-std=c++17"] + cc_flag,
+    }
+'''
+
+FLEXGEMM_SETUP_SOURCE = CUMESH_SETUP_SOURCE
+
+# Upstream o-voxel, from the TRELLIS.2 checkout rather than extensions/. Two occurrences,
+# not three: it has no Windows branch.
+OVOXEL_SETUP_SOURCE = '''\
+import os
+import torch
+from torch.utils.cpp_extension import CUDAExtension, BuildExtension, IS_HIP_EXTENSION
+
+if IS_HIP_EXTENSION:
+    IS_HIP = True
+else:
+    IS_HIP = False
+
+if not IS_HIP:
+    cc_flag = []
+else:
+    archs = os.getenv("GPU_ARCHS", "native").split(";")
+    cc_flag = [f"--offload-arch={arch}" for arch in archs]
+
+setup(
+    name="o_voxel",
+    ext_modules=[
+        CUDAExtension(
+            name="o_voxel._C",
+            sources=["csrc/*.cu"],
+            extra_compile_args={
+                "cxx": ["-O3", "-std=c++17"],
+                "nvcc": ["-O3", "-std=c++17"] + cc_flag,
+            },
+        ),
+    ],
+)
+'''
+
+NVDFRAST_PYPROJECT = '''\
+[build-system]
+requires = ["setuptools>=77", "wheel", "ninja"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nvdiffrast"
+version = "0.4.0+rocm10.0"
+description = "nvdiffrast (AMD ROCm fork)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "LicenseRef-NSCL"
+dependencies = ["numpy"]
 '''
 
 UPSTREAM_SOURCES = {
@@ -156,10 +210,11 @@ UPSTREAM_SOURCES = {
     "TRELLIS.2/trellis2/modules/attention/config.py": DENSE_CONFIG_SOURCE,
     "TRELLIS.2/trellis2/modules/attention/full_attn.py": DENSE_ATTN_SOURCE,
     "TRELLIS.2/trellis2/modules/sparse/attention/full_attn.py": SPARSE_ATTN_SOURCE,
+    "TRELLIS.2/o-voxel/setup.py": OVOXEL_SETUP_SOURCE,
     "extensions/nvdiffrast/setup.py": NVDIFFRAST_SETUP_SOURCE,
+    "extensions/nvdiffrast/pyproject.toml": NVDFRAST_PYPROJECT,
     "extensions/CuMesh/setup.py": CUMESH_SETUP_SOURCE,
-    "extensions/FlexGEMM/setup.py": CUMESH_SETUP_SOURCE,
-    "extensions/o-voxel/setup.py": CUMESH_SETUP_SOURCE,
+    "extensions/FlexGEMM/setup.py": FLEXGEMM_SETUP_SOURCE,
 }
 
 
@@ -262,11 +317,30 @@ def test_patched_text_is_still_valid_python(root: Path):
     """A patch that does not parse is the worst outcome: the file is left unreadable."""
     trellis_rocm.apply(root)
     for name in UPSTREAM_SOURCES:
+        if not name.endswith(".py"):
+            continue
         path = root / name
         try:
             compile(path.read_text(), str(path), "exec")
         except SyntaxError as exc:  # pragma: no cover - only on a bad patch
             pytest.fail(f"{name} no longer parses after patching: {exc}")
+
+
+# --- the Python floor the nvdiffrast port invented ------------------------------------------
+
+def test_the_python_floor_is_lowered(root: Path):
+    """uv refuses >=3.12 on this repo's 3.11, and nothing in nvdiffrast needs 3.12."""
+    trellis_rocm.apply(root)
+    text = read(root, "extensions/nvdiffrast/pyproject.toml")
+    assert '">=3.12"' not in text
+    assert trellis_rocm.REQUIRES_PYTHON_PROOF in text
+
+
+def test_the_python_floor_allows_this_interpreter():
+    """Guards against a floor that is lowered but still above 3.11."""
+    floor = trellis_rocm.REQUIRES_PYTHON_REPLACEMENT.split('"')[1].lstrip(">=")
+    major, minor = (int(part) for part in floor.split(".")[:2])
+    assert (major, minor) <= (3, 11), f"{floor} still excludes this repo's Python"
 
 
 def test_indentation_follows_the_anchor(root: Path):
@@ -276,21 +350,39 @@ def test_indentation_follows_the_anchor(root: Path):
     what the first version of this patch did. The invariant is that the patched line sits at
     the same depth the anchor did, not a guessed number.
     """
-    before = {name: read(root, name) for name in UPSTREAM_SOURCES}
-    trellis_rocm.apply(root)
     needle = trellis_rocm.DEVICE_LIB_NEEDLE
-    depths = set()
-    for name in UPSTREAM_SOURCES:
-        if not name.endswith("setup.py"):
-            continue
-        original = next(l for l in before[name].splitlines() if needle in l)
-        original_indent = original[: original.index(needle)]
-        patched = next(l for l in read(root, name).splitlines()
-                       if '"--rocm-device-lib-path=" +' in l)
-        assert patched.startswith(original_indent), (
-            f"{name}: patched to {patched!r}, anchor was at {original_indent!r}")
-        depths.add(len(original_indent))
-    assert len(depths) > 1, "all four forks nest it the same way, so this proves nothing"
+    # And the one this route actually patches lands at its own anchor's depth.
+    trellis_rocm.apply(root)
+    name = "extensions/nvdiffrast/setup.py"
+    original = next(l for l in NVDIFFRAST_SETUP_SOURCE.splitlines() if needle in l)
+    patched = next(l for l in read(root, name).splitlines()
+                   if '"--rocm-device-lib-path=" +' in l)
+    assert patched.startswith(original[: original.index(needle)]), repr(patched)
+
+
+# --- the C++ standard torch 2.14 requires --------------------------------------------------
+
+def test_every_cxx20_occurrence_is_replaced(root: Path):
+    """torch 2.14's headers #error below C++20, so a single missed flag fails the build."""
+    trellis_rocm.apply(root)
+    for path, count in trellis_rocm.CXX20_FILES:
+        text = read(root, path)
+        assert "-std=c++17" not in text, f"{path}: a C++17 flag survived"
+        assert text.count("-std=c++20") == count, (
+            f"{path}: {text.count('-std=c++20')} of {count} flags were changed")
+
+
+def test_nvdiffrast_is_left_alone_by_the_cxx20_patch(root: Path):
+    """It sets no standard at all, so torch's own default applies and there is nothing to do."""
+    assert "extensions/nvdiffrast/setup.py" not in {p for p, _ in trellis_rocm.CXX20_FILES}
+    trellis_rocm.apply(root)
+    assert "-std=c++" not in read(root, "extensions/nvdiffrast/setup.py")
+
+
+def test_the_cxx20_anchor_count_is_what_upstream_has():
+    """A refactor that adds or drops a flag means the count wants re-reading, not guessing."""
+    for path, count in trellis_rocm.CXX20_FILES:
+        assert UPSTREAM_SOURCES[path].count("-std=c++17") == count, path
 
 
 # --- the device-bitcode expression resolves ------------------------------------------------
@@ -388,8 +480,8 @@ def test_missing_files_are_named_rather_than_silently_skipped(tmp_path: Path):
 
 def test_is_patched_is_false_when_one_file_is_reverted(root: Path):
     trellis_rocm.apply(root)
-    name = "extensions/FlexGEMM/setup.py"
-    (root / name).write_text(CUMESH_SETUP_SOURCE)
+    name = "extensions/nvdiffrast/setup.py"
+    (root / name).write_text(NVDIFFRAST_SETUP_SOURCE)
     assert not trellis_rocm.is_patched(root)
     assert "NOT applied" in trellis_rocm.describe(root)
 

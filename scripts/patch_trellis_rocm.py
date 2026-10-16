@@ -1,23 +1,34 @@
 #!/usr/bin/env python3
-"""Make TRELLIS.2 run on an AMD card: give it an attention backend, and fix the build.
+"""Make TRELLIS.2 run on an AMD card: an attention backend, and a build that compiles.
 
-Two separate problems, two separate sets of edits.
+Three separate things stop this route, and all three are fixed here.
 
 **Attention.** TRELLIS.2's sparse attention (`SPARSE_ATTN_BACKEND`) has three backends and
-all three are NVIDIA-only: xformers and flash_attn need compiled CUDA extensions, and the
-sparse one has no SDPA branch at all. So on a card without them there is nothing to select
-and the run dies before the first forward pass. This adds `aule` (AuleAttention,
-https://github.com/xenn0010/Aule-Attention) as a fourth backend. It is a Triton flash
-attention with no CUDA extension to compile, ships as a pure-Python wheel, and runs on
-ROCm — where it was checked against torch's own SDPA and agrees to 5e-4. The edit is the
-dispatch branch upstream lacks, in both the sparse and the dense attention paths.
+all three need a compiled CUDA extension: xformers, flash-attn and flash-attn-3. So on a
+card without them there is nothing to select and the run dies before the first forward
+pass. This adds `aule` (AuleAttention, https://github.com/xenn0010/Aule-Attention) as a
+fourth. It is a Triton flash attention with no extension to compile, ships as a
+pure-Python wheel, and runs on ROCm — where it was checked against torch's own SDPA and
+agrees to 5e-4. The edit is the dispatch branch upstream lacks, in both the sparse and the
+dense attention paths.
 
-**The build.** The ROCm forks of TRELLIS.2's four compiled extensions
-(nvdiffrast, CuMesh, FlexGEMM, o-voxel) all hardcode the ROCm 10 device-bitcode path
-`<root>/lib/llvm/amdgcn/bitcode`. ROCm 7.x keeps it at `<root>/amdgcn/bitcode`, so every
-one of them stops with `cannot find ROCm device library`. This makes each honour
+**The device bitcode.** The ROCm port of nvdiffrast hardcodes the ROCm 10 device-bitcode
+path `<root>/lib/llvm/amdgcn/bitcode`. ROCm 7.x keeps it at `<root>/amdgcn/bitcode`, so the
+build stops with `cannot find ROCm device library`. This makes it honour
 `HIP_DEVICE_LIB_PATH` (hipcc's own variable) and then whichever of the two layouts the
 install actually has.
+
+**The C++ standard.** torch 2.14's headers need C++20 and these extensions are pinned at
+commits that say `-std=c++17`, so the compile dies inside `c10/util/intrusive_ptr.h` on
+`std::strong_ordering` before reaching a line of the extension's own. That is a three-word
+change here, rather than building from the community ROCm forks — which do this and, for
+nvdiffrast, the one thing above. CuMesh, FlexGEMM and o-voxel are therefore the same pinned
+commits the NVIDIA route uses, and the two cards run identical source.
+
+**The Python floor.** `dmonkman/nvdiffrast-ROCm` declares `requires-python = ">=3.12"`,
+which stops uv installing it on the 3.11 this repo uses everywhere. NVIDIA's own v0.4.0
+declares no floor at all — the constraint is theirs, and it exists because their published
+wheels are cp312.
 
 Deliberately *not* copied from the community forks: those wrap every existing backend in a
 bare `except Exception` and fall back to SDPA, and they replace the `raise ValueError` for
@@ -187,12 +198,12 @@ DEVICE_LIB_REPLACEMENT = (
 )
 DEVICE_LIB_PROOF = "ROCm 7.x keeps the device bitcode"
 
-# nvdiffrast, CuMesh, FlexGEMM and o-voxel, each with its own hardcoded copy.
+# Only nvdiffrast, and only because upstream is CUDA-only: it has no HIP path at all, so
+# there is nothing to patch into. CuMesh, FlexGEMM and o-voxel all carry HIP support
+# upstream — they read IS_HIP_EXTENSION and pass --offload-arch — so this route builds
+# those from the same pinned commits as the NVIDIA route.
 DEVICE_LIB_FILES = (
     f"{EXTENSIONS}/nvdiffrast/setup.py",
-    f"{EXTENSIONS}/CuMesh/setup.py",
-    f"{EXTENSIONS}/FlexGEMM/setup.py",
-    f"{EXTENSIONS}/o-voxel/setup.py",
 )
 
 
@@ -219,7 +230,47 @@ DEVICE_LIB_PATCHES = tuple(
     for path in DEVICE_LIB_FILES
 )
 
-PATCHES = AULE_PATCHES + DEVICE_LIB_PATCHES
+# --- 3. C++20, which torch 2.14's headers require ------------------------------------------
+#
+# All three of these extensions are pinned at commits that compile with `-std=c++17`, and
+# torch 2.14's headers `#error` below C++20: the build fails inside c10/util/intrusive_ptr.h
+# on `std::strong_ordering` before it reaches a line of the extension's own. Every community
+# ROCm fork fixes this, and it is the *only* thing most of them change. So it is three words
+# here instead of three third-party checkouts, and the AMD and NVIDIA builds come from the
+# same pinned source.
+CXX17_NEEDLE = "-std=c++17"
+CXX17_REPLACEMENT = "-std=c++20"
+CXX17_PROOF = "-std=c++20"
+
+# (file, how many occurrences upstream has). nvdiffrast sets no standard at all and is not
+# here; it also is not built from upstream, see above.
+CXX20_FILES = (
+    (f"{EXTENSIONS}/FlexGEMM/setup.py", 3),
+    (f"{EXTENSIONS}/CuMesh/setup.py", 3),
+    (f"{CHECKOUT}/o-voxel/setup.py", 2),
+)
+
+CXX20_PATCHES = tuple(
+    Patch(path, CXX17_NEEDLE, CXX17_REPLACEMENT, proof=CXX17_PROOF, expected=count)
+    for path, count in CXX20_FILES
+)
+
+# --- 4. The Python floor the nvdiffrast port invented ---------------------------------------
+#
+# dmonkman/nvdiffrast-ROCm declares `requires-python = ">=3.12"`, and uv refuses to install
+# it on the 3.11 this route (and every other route here) uses. NVIDIA's own v0.4.0 setup.py
+# declares no python_requires at all, so the floor is theirs: their published wheels are
+# cp312. Nothing in the code needs 3.12.
+REQUIRES_PYTHON_NEEDLE = 'requires-python = ">=3.12"'
+REQUIRES_PYTHON_REPLACEMENT = 'requires-python = ">=3.9"'
+REQUIRES_PYTHON_PROOF = 'requires-python = ">=3.9"'
+
+REQUIRES_PYTHON_PATCHES = (
+    Patch(f"{EXTENSIONS}/nvdiffrast/pyproject.toml", REQUIRES_PYTHON_NEEDLE,
+          REQUIRES_PYTHON_REPLACEMENT, proof=REQUIRES_PYTHON_PROOF),
+)
+
+PATCHES = AULE_PATCHES + DEVICE_LIB_PATCHES + CXX20_PATCHES + REQUIRES_PYTHON_PATCHES
 
 
 def anchor_indent(source: str, needle: str) -> str:

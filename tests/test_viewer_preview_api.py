@@ -81,3 +81,24 @@ def test_files_outside_output_are_refused(tmp_path):
         pa.preview(tmp_path, {"model": "../../etc/hosts.glb"}, blender=None)
     with pytest.raises(ValueError, match="look"):
         pa.preview(tmp_path, {"model": "m.glb"}, look="neon")
+
+
+def test_a_move_is_four_moments_from_one_angle_and_a_model_is_four_sides():
+    move = pa.shots_for(True)
+    assert [frac for _, _, frac in move] == list(pa.MOMENTS) and {az for _, az, _ in move} == {pa.MOVE_AZIMUTH}
+    assert [name for name, _, _ in pa.shots_for(False)] == ["Front", "Three-quarter", "Side", "Back"]
+    assert pa.shots_arg([("Front", 0.0, None), ("m0", 35.0, 0.1)]) == "Front=0.0=;m0=35.0=0.1"
+    assert pa.moment_label(1.04) == "1.0 s" and pa.moment_label(None) == ""
+
+
+def test_a_move_is_found_by_name_and_a_missing_one_lists_what_there_is():
+    asset = {"name": "dancer", "clips": [{"name": "wave", "file": "animate/d/d_wave.glb"}]}
+    assert pa.find_move(asset, "wave") == "animate/d/d_wave.glb"
+    with pytest.raises(ValueError, match="it has: wave"):
+        pa.find_move(asset, "moonwalk")
+
+
+def test_moves_and_models_never_share_a_cached_picture(tmp_path):
+    glb = tmp_path / "a.glb"
+    glb.write_bytes(b"x")
+    assert pa.cache_key(glb, 0.0, "paint") != pa.cache_key(glb, 0.0, "paint:move")

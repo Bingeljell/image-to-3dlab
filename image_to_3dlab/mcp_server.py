@@ -353,8 +353,12 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         if not form["first_move"]:
             raise StudioError("Animation is not set up. The studio's Setup page installs it.")
     run = studio.post("api/chains", data=form)
-    return {"run_id": run["id"], "steps": steps, "watch": "run_status with this run_id",
-            "studio": studio.studio_link(asset_id)}
+    out = {"run_id": run["id"], "steps": steps, "watch": "run_status with this run_id",
+           "studio": studio.studio_link(asset_id)}
+    if form.get("first_move") in {c.get("name") for c in asset.get("clips", [])}:
+        out["replaces"] = (f"{asset['name']} already had {form['first_move']!r}; this makes it again and the "
+                           "new one replaces the old. Tell the user.")
+    return out
 
 
 def run_status(studio: Studio, *, run_id: str | None = None, wait_seconds: int = 0,
@@ -390,8 +394,10 @@ def list_assets(studio: Studio, *, search: str = "", kind: str | None = None, li
     return {"total": len(assets), "assets": [asset_summary(a) for a in assets[: max(1, min(limit, 100))]]}
 
 
-def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint") -> tuple[bytes, dict[str, Any]]:
-    response = studio.get_bytes("api/preview", asset=asset_id, stage=stage, look=look)
+def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint",
+            move: str | None = None) -> tuple[bytes, dict[str, Any]]:
+    params = {"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
+    response = studio.get_bytes("api/preview", **params)
     path = REPO / "output" / response.headers.get("X-Preview-Path", "")
     return response.content, {
         "shown": response.headers.get("X-Preview-Stage", stage),
@@ -524,12 +530,13 @@ def build_server(studio: Studio | None = None):
         return safe(lambda: list_assets(studio, search=search, kind=kind, limit=limit))
 
     @server.tool(name="preview", structured_output=False)
-    def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint"):
+    def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None):
         """A picture of an asset from the front, three-quarter, side and back, so you can SEE the result
         and show it to the user. stage: latest | picture | model | finished | rigged. look: paint | clay
-        (clay = shape only, no colours). First render ~5 s with Blender installed, then cached."""
+        (clay = shape only, no colours). move: one of the asset's moves (see list_assets) to show four
+        moments of it instead. A few seconds with Blender installed, then cached."""
         try:
-            data, info = preview(studio, asset_id=asset_id, stage=stage, look=look)
+            data, info = preview(studio, asset_id=asset_id, stage=stage, look=look, move=move)
         except StudioError as exc:
             return {"error": str(exc)}
         return [Image(data=data, format="png"), json.dumps(info)]

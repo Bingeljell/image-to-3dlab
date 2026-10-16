@@ -54,6 +54,7 @@ class FakeHttp:
 
     def get(self, url, params=None, timeout=None):
         path = url.split("8777/", 1)[1]
+        self.last_params = params
         if not self.alive:
             raise ConnectionError("refused")
         body = {
@@ -197,6 +198,12 @@ def test_an_animated_character_can_be_given_another_move(studio):
     assert json.loads(form["steps"]) == ["animated"] and form["first_move"] == "wave"
 
 
+def test_remaking_a_move_it_already_has_says_so(studio):
+    assert "replaces" not in ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="wave")
+    out = ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="idle")
+    assert "already had 'idle'" in out["replaces"]
+
+
 def test_a_picture_goes_on_to_3d_with_a_back_view_when_installed(studio):
     ms.continue_asset(studio, asset_id=PICTURE["id"], up_to="model")
     assert json.loads(sent(studio)["steps"]) == ["back", "model"]
@@ -255,3 +262,10 @@ def test_a_remote_studio_is_never_started_from_here():
     http.alive = False
     with pytest.raises(ms.StudioError, match="not this machine"):
         ms.Studio("http://10.0.0.5:8777", http=http)._ensure()
+
+
+def test_preview_can_show_a_move(studio):
+    ms.preview(studio, asset_id=DANCER["id"], move="idle")
+    assert studio.http.last_params["move"] == "idle"
+    ms.preview(studio, asset_id=DANCER["id"])
+    assert "move" not in studio.http.last_params

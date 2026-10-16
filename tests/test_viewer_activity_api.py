@@ -35,14 +35,14 @@ class FakeJobs:
         if kind == self.fail:
             return 200, {"status": "error", "error": "MemoryError: out of memory", "log_tail": "ggml_noise\nKilled"}
         made = {"picture": "images/p/pic.png", "back": "images/p/pic__back.png", "model": "pixal3d/m/model.glb",
-                "finished": "finish/f/finished.glb", "rigged": "animate/r/rigged.glb"}
+                "finished": "finish/f/finished.glb", "rigged": "animate/r/rigged.glb", "animated": "animate/r/rigged_walk.glb"}
         for rel in made.values():
             (self.output / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.output / rel).write_bytes(b"x")
         event = {"phase": "done", "message": f"{kind} done", "overall_pct": 100}
         if kind == "rigged" and self.four_legged:
             event.update(humanoid=False, message="Rigged. Preset moves are for humanoids only for now.")
-        if kind in ("finished", "rigged"):
+        if kind in ("finished", "rigged", "animated"):
             event["path"] = made[kind]
         return 200, {"status": "done", "last_event": event, "log_tail": f"{kind} ok",
                      "picture": made[kind] if kind in ("picture", "back") else None,
@@ -68,6 +68,8 @@ def test_a_whole_character_runs_and_each_step_gets_the_last_ones_file(tmp_path):
     assert [h["step"] for h in history] == ["animated", "rigged", "finished", "model", "picture"]  # newest first
     assert all(h["result"] == "done" for h in history)
     assert {h["prompt"] for h in history} == {"a sensei"}   # Activity shows what was asked for
+    assert chain.made["animated"] == "animate/r/rigged_walk.glb"   # the move's own file, for agents
+    assert history[0]["made"] == "animate/r/rigged_walk.glb"
 
 
 def test_a_failure_stops_the_chain_in_plain_words_and_is_kept_in_history(tmp_path):

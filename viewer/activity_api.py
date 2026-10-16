@@ -239,6 +239,8 @@ class ChainRunner:
             chain.made["rigged"] = event.get("path")
             if event.get("humanoid") is False:
                 chain.note = event.get("message") or "This rig does not fit the preset moves."
+        elif step == "animated":
+            chain.made["animated"] = event.get("path")  # the move's own GLB, so an agent can hand it over
 
     # ------------------------------------------------------------------ starting each step
     def _file(self, relative: str) -> tuple[str, bytes]:
@@ -327,7 +329,8 @@ class ChainRunner:
                   "title": chain.title, "prompt": chain.prompt, "want": chain.want, "step": step, "result": result,
                   "seconds": round(self.now() - started, 1), "note": note,
                   "made": chain.made.get({"picture": "picture", "back": "back", "model": "model",
-                                          "finished": "finished", "rigged": "rigged"}.get(step, ""), None),
+                                          "finished": "finished", "rigged": "rigged",
+                                          "animated": "animated"}.get(step, ""), None),
                   "log": str(log or "")[-3000:]}
         append_history(self.output, record)
 

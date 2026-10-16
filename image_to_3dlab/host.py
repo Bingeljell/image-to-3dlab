@@ -157,6 +157,25 @@ def rocm_root(hipcc: str | None = None) -> Path | None:
     return Path(compiler).resolve().parent.parent
 
 
+def with_rocm_libraries(env: dict[str, str], root: Path | None = None) -> dict[str, str]:
+    """`env` with ROCm's library folder on the loader path, when ROCm is here and it is not.
+
+    A prebuilt HIP binary (stable-diffusion.cpp's ROCm build) carries only its own ggml
+    libraries and looks for `libamdhip64` and rocBLAS beside itself. Without ROCm's folder on
+    the path the HIP backend does not load, and the run grinds on the CPU instead.
+    """
+    # /opt/rocm as the fallback: a runtime-only ROCm has no hipcc to find it by.
+    root = root or rocm_root() or ROCM_BIN.parent
+    directory = root / "lib"
+    env = dict(env)
+    if not directory.is_dir():
+        return env
+    existing = env.get("LD_LIBRARY_PATH", "")
+    if str(directory) not in existing.split(":"):
+        env["LD_LIBRARY_PATH"] = f"{directory}:{existing}" if existing else str(directory)
+    return env
+
+
 def driver_cuda_version(which: Callable = shutil.which,
                         run: Callable = subprocess.run) -> tuple[int, int] | None:
     """The newest CUDA the installed driver supports, from `nvidia-smi`'s header.

@@ -582,3 +582,22 @@ def test_torch_has_rocm_is_false_for_a_cuda_or_cpu_torch(capsys):
     assert host.main(["torch-has-rocm"], torch_hip=lambda: None) == 1
     assert host.main(["torch-has-rocm"], torch_hip=lambda: "7.2.53211") == 0
     assert capsys.readouterr().err == ""
+
+
+def test_rocm_libraries_go_on_the_loader_path_once(tmp_path):
+    """stable-diffusion.cpp's ROCm build finds libamdhip64 only beside itself, so without
+    ROCm's folder on the path the HIP backend never loads and the run uses the CPU."""
+    (tmp_path / "lib").mkdir()
+    lib = str(tmp_path / "lib")
+    assert host.with_rocm_libraries({}, tmp_path)["LD_LIBRARY_PATH"] == lib
+    assert host.with_rocm_libraries({"LD_LIBRARY_PATH": "/x"}, tmp_path)["LD_LIBRARY_PATH"] \
+        == f"{lib}:/x"
+    already = {"LD_LIBRARY_PATH": f"/x:{lib}"}
+    assert host.with_rocm_libraries(already, tmp_path) == already
+    base = {"KEEP": "1"}
+    host.with_rocm_libraries(base, tmp_path)
+    assert base == {"KEEP": "1"}, "the caller's environment is not written to"
+
+
+def test_no_rocm_leaves_the_environment_alone(tmp_path):
+    assert host.with_rocm_libraries({"A": "1"}, tmp_path / "missing") == {"A": "1"}

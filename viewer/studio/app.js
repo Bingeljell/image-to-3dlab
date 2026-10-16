@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -429,8 +429,21 @@ async function boot() {
   const running = await runningChain();
   if (openingView(running) === 'running') {
     if (!making) startChain({ steps: running.steps, description: running.title, firstMove: running.first_move, want: running.want }, running.id);
-  } else openCreateSheet();
+  } else if (!showLinked()) openCreateSheet();
 }
+
+// an agent's "open in the studio" link: studio.html#asset=<id>
+function showLinked() {
+  const id = linkedAssetId(location.hash);
+  const asset = id && assets.find((a) => a.id === id);
+  if (!asset) return false;
+  show(asset);
+  return true;
+}
+window.addEventListener('hashchange', async () => {
+  if (linkedAssetId(location.hash) && !assets.some((a) => a.id === linkedAssetId(location.hash))) await refreshAssets();
+  showLinked();
+});
 
 // rename: click the title, type, Enter (Escape keeps the old name). Only the Library's label
 // changes; files keep their names.

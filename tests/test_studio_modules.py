@@ -812,3 +812,10 @@ def test_finish_offers_three_tested_detail_levels_and_warns_about_custom():
     assert [o[0] for o in detail if o[1]] == ["20000"]                           # 20,000 is the default
     assert "unexpected results" in detail[-1][2] and out["hint"] is True
     assert values
+
+
+@needs_node
+def test_an_agents_link_names_the_asset_to_open():
+    out = _run("library.js", """console.log(JSON.stringify(
+      ['#asset=03711bf99d31', 'asset=03711bf99d31', '#asset=../../x', '#asset=', '', null, '#other=1&asset=0123456789ab'].map(m.linkedAssetId)));""")
+    assert out == ["03711bf99d31", "03711bf99d31", None, None, None, None, "0123456789ab"]

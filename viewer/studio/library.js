@@ -173,6 +173,12 @@ export function openingView(running) {
   return running ? 'running' : 'create';
 }
 
+/** The asset a link asks for (`studio.html#asset=<id>`, what an agent opens), or null. */
+export function linkedAssetId(hash) {
+  const id = new URLSearchParams(String(hash || '').replace(/^#/, '')).get('asset');
+  return id && /^[0-9a-f]{12}$/.test(id) ? id : null;
+}
+
 /** Whether a file can be opened in the viewer. GLB only: a .gltf points at files beside it that a dropped file doesn't bring. */
 export function isModelFile(name) {
   return /.\.glb$/i.test(name || '');

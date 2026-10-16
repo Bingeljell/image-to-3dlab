@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Use AssetFurnace from your agent.** `./lab mcp` is an MCP server for Claude Code, Codex,
+  Kimi and others: make pictures, models and animated characters, check on a run, give a
+  character another move, and install engines (only after you say yes). Setup for each agent:
+  `docs/agents.md`. `./lab mcp --http` serves the same tools at a local web address.
+- **Previews your agent can see:** any asset as one picture from the front, three-quarter,
+  side and back, so the agent can check its work and show you.
+- **Open in the studio from a link:** `studio.html#asset=<id>` opens that asset, which is how
+  an agent hands you something to spin round and play.
+
 ## [0.4.4] - 2026-10-14
 
 ### Added

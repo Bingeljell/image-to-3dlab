@@ -112,6 +112,11 @@ run the same line again.
 For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
 (`--dry-run` shows what it would do).
 
+**Use it from your agent.** Claude Code, Codex, Kimi and others can drive AssetFurnace over
+MCP, look at what they made, and open it in the studio for you:
+`claude mcp add assetfurnace -- ~/image-to-3dlab/lab mcp`. Setup for every agent:
+[docs/agents.md](docs/agents.md).
+
 **No picture to start from?** Press **+ Create** in the studio and type a sentence: it makes
 the picture first, then carries on to 3D. It runs Qwen-Image 2.1 on your own machine.
 

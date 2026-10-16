@@ -110,6 +110,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     looks beside itself, so without it the run fell back to the CPU.
   - **`bootstrap_matte.py`** without `--yes` and without a terminal now says so instead of
     crashing on `EOFError`.
+  - **Hunyuan3D-2.1 (AMD) never downloads weights on its own.** A run, or `--check`, with
+    shape, paint, DINOv2 or RealESRGAN weights missing stops and names the bootstrap,
+    instead of letting upstream quietly fetch 8-15 GB.
+  - **TRELLIS.2 (AMD) checks its attention before loading the model.** `--check`, the run
+    and the Generate tab now require the AMD patches and an installed `aule`. Windowed
+    attention gets an `aule` branch and names an unknown backend, instead of an
+    `UnboundLocalError`. A missing ROCm device bitcode folder now stops the build with
+    where it looked, instead of `--rocm-device-lib-path=` and a puzzling compile error.
+  - **TRELLIS.2 weights under either route's folder are used by both.** The Setup card
+    counted both; the run looked only under its own and then downloaded 16 GB.
+  - **Pixal3D on AMD without hipcc** can still run `--weights-only`, `--multiview`, or a
+    re-run over a finished build. Only compiling needs the compiler.
+  - **Stable Fast 3D (AMD)** keeps a finished build on a re-run (say, after a gated-licence
+    failure) instead of compiling again; `--rebuild` forces it. A marker beside a missing
+    venv no longer counts as built. Its tests could delete the real SF3D venv; they cannot
+    now.
+  - **SF3D and auto-rig on AMD prove torch on the card** (one kernel, the TRELLIS probe)
+    before building on it. The auto-rig prompt now names the route and torch index.
 
 - **Hunyuan on AMD installs a working onnxruntime instead of one that cannot load.** Upstream
   pins `onnxruntime==1.16.3`, whose shared object asks the loader for an executable stack; a

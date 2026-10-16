@@ -84,6 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **TRELLIS.2 now builds on an AMD card newer than PyTorch's index.** `choose_route` refused
+  anything above ROCm 7.2 outright, so a ROCm 10.x machine — a Strix Halo, an AI 395 — got
+  "Cannot install TRELLIS.2 here" and nothing else. That was wrong twice over: the build does
+  happen on the machine it is installed on, and "newer than PyTorch's index" is a *different
+  index*, not a different job.
+  - AMD publishes PyTorch wheels for ROCm versions PyTorch does not carry, as plain
+    multi-arch builds. On 2026-10-16 its index has `torch 2.14.0+rocm10.1.0` for **gfx1151**
+    — the same torch this box runs on rocm7.2, just built against the newer runtime. So a
+    10.x machine gets the identical stack from `stable.repo.amd.com/rocm/whl-next/` instead of
+    `download.pytorch.org`.
+  - The refusal now names both indexes' ranges, and only fires where there genuinely is
+    nothing: below AMD's oldest supported tag.
 - **A build that lost part of itself now says so.** When a route's venv or build marker
   disappears, the Setup card said "Set up" and nothing else — which sends people to the
   install script rather than to the directory that is missing. It now distinguishes a route

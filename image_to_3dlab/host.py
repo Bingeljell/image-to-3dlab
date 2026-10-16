@@ -355,6 +355,21 @@ TORCH_ROCM_BUILDS: tuple[tuple[tuple[int, int], str], ...] = (
     ((6, 3), "rocm6.3"),
     ((6, 2), "rocm6.2"),
 )
+
+# AMD publishes its own PyTorch wheels for ROCm versions PyTorch's index does not carry
+# (a ROCm 10.x machine has no download.pytorch.org entry at all). Plain multi-arch builds,
+# no per-device tag, so one pair covers every card the runtime runs on.
+AMD_ROCM_INDEX = "https://stable.repo.amd.com/rocm/whl-next/"
+
+# The torch/torchvision pair per ROCm tag on that index. Same numbering PyTorch uses, so a
+# machine on the AMD index runs the same torch it would have on its own -- only the runtime
+# it is built against differs. Checked live: torch 2.14.0+rocm10.1.0 and
+# torchvision 0.29.0+rocm10.0.0 for gfx1151 (Strix Halo) on 2026-10-16.
+AMD_TORCH_BUILDS: tuple[tuple[tuple[int, int], str, str], ...] = (
+    ((10, 2), "2.14.0", "0.29.0"),
+    ((10, 1), "2.14.0", "0.29.0"),
+    ((10, 0), "2.13.0", "0.28.0"),
+)
 # Where ROCm records its own version: the install root, not its `bin`. The symlinked
 # /opt/rocm points at the installed runtime, so this follows a ROCm upgrade rather than
 # reading a versioned path by hand.
@@ -398,6 +413,22 @@ def torch_rocm_index(version: tuple[int, int] | None) -> str | None:
     for minimum, tag in TORCH_ROCM_BUILDS:
         if version >= minimum:
             return TORCH_INDEX + tag
+    return None
+
+
+def amd_torch_build(version: tuple[int, int] | None) -> tuple[str, str] | None:
+    """The (torch, torchvision) pair on AMD's own index for this ROCm, or None.
+
+    PyTorch's index stops at rocm7.2. A newer machine is not a newer problem -- it is a
+    different index -- so this falls back to AMD's, which publishes the same torch built
+    against the newer runtime. That matters because there is nothing to compile for the
+    card without a torch to compile against, and PyTorch will not provide one.
+    """
+    if version is None:
+        return None
+    for minimum, torch_version, vision_version in AMD_TORCH_BUILDS:
+        if version >= minimum:
+            return torch_version, vision_version
     return None
 
 

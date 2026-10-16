@@ -38,13 +38,19 @@ def test_this_machine_has_a_route():
 @pytest.mark.parametrize("version, hipcc, gfx, expected", [
     ((7, 2), "/opt/rocm/bin/hipcc", ["gfx1100"], "source"),
     ((6, 4), "/opt/rocm/bin/hipcc", ["gfx1030"], "source"),
+    # Newer than PyTorch's index: AMD's own publishes the same torch for it, so this is
+    # a different index rather than a different job.
+    ((10, 2), "/opt/rocm/bin/hipcc", ["gfx1151"], "source"),
+    ((10, 1), "/opt/rocm/bin/hipcc", ["gfx1151"], "source"),
     # No card: nothing to compile for, so nothing to install.
     (None, "/opt/rocm/bin/hipcc", [], None),
     ((7, 2), "/opt/rocm/bin/hipcc", [], None),
     # No toolkit: these extensions are compiled, so hipcc is not optional.
     ((7, 2), None, ["gfx1100"], None),
-    # Unreadable ROCm version: the PyTorch wheel is published per ROCm release.
+    # Unreadable ROCm version: the torch wheel is published per ROCm release.
     (None, "/opt/rocm/bin/hipcc", ["gfx1100"], None),
+    # Below AMD's oldest supported tag there is genuinely nothing.
+    ((5, 7), "/opt/rocm/bin/hipcc", ["gfx1100"], None),
 ])
 def test_choose_route(version, hipcc, gfx, expected):
     route, why = boot.choose_route(version, hipcc, gfx)
@@ -155,8 +161,65 @@ def test_onnxruntime_is_installed_so_rembg_can_cut_a_picture():
     assert any("onnxruntime" in c for c in joined)
 
 
+def test_amd_publishes_torch_for_rocm_versions_pytorch_does_not():
+    """PyTorch's index stops at rocm7.2. A newer machine is a different index, not a dead end.
+
+    Checked live against AMD's index on 2026-10-16: torch 2.14.0+rocm10.1.0 for gfx1151
+    (Strix Halo), paired with torchvision 0.29.0 -- the same torch this box runs on 7.2.
+    """
+    assert host.amd_torch_build((10, 2)) == ("2.14.0", "0.29.0")
+    assert host.amd_torch_build((10, 1)) == ("2.14.0", "0.29.0")
+    assert host.amd_torch_build((10, 0)) == ("2.13.0", "0.28.0")
+    assert host.amd_torch_build((7, 2)) is None, "7.2 is PyTorch's, not AMD's"
+    assert host.amd_torch_build(None) is None
+
+
+def test_a_newer_rocm_machine_gets_amd_torch_from_amd_s_index():
+    """The whole point: a ROCm 10.x card gets the same torch, from the index that has it."""
+    route, why = boot.choose_route((10, 2), "/opt/rocm/bin/hipcc", ["gfx1151"])
+    assert route == "source"
+    assert "AMD" in why, "the message should say where the torch is coming from"
+
+    joined = [" ".join(c) for c in boot.pip_commands("source", "uv", PYTHON, (10, 2))]
+    torch_line = next(c for c in joined if "torch==" in c)
+    assert "--extra-index-url" in torch_line
+    assert "stable.repo.amd.com" in torch_line
+    assert "torch==2.14.0" in torch_line and "torchvision==0.29.0" in torch_line
+    # And it must not also force PyTorch's index, which has no rocm10 wheels.
+    assert "--index-url" not in torch_line
+
+
+def test_an_older_machine_still_comes_from_pytorch():
+    """The fallback must not have quietly replaced the path that already works."""
+    joined = [" ".join(c) for c in boot.pip_commands("source", "uv", PYTHON, (7, 2))]
+    torch_line = next(c for c in joined if "torch==" in c)
+    assert torch_line.endswith("https://download.pytorch.org/whl/rocm7.2")
+    assert "amd.com" not in torch_line
+
+
+def test_torch_index_for_picks_the_index_that_has_this_version():
+    assert boot.torch_index_for((7, 2)) == "https://download.pytorch.org/whl/rocm7.2"
+    assert boot.torch_index_for((10, 2)) == host.AMD_ROCM_INDEX
+
+
+def test_the_announcement_says_which_index_it_will_use():
+    text = boot.announcement("source", boot.choose_route(
+        (10, 2), "/opt/rocm/bin/hipcc", ["gfx1151"])[1], code=True, weights=False)
+    assert "AMD" in text, "a reader should be able to see the torch comes from AMD's index"
+
+
+def test_torch_pair_for_never_strays_outside_what_is_published():
+    """A pair guessed from the torch version would pair 2.14.0 with a torchvision that may
+    not exist on that index."""
+    for version in ((10, 2), (10, 1), (10, 0)):
+        torch_version, vision_version = boot.torch_pair_for(version)
+        assert torch_version.count(".") == 2, version
+        assert vision_version.count(".") == 2, version
+
+
 def test_an_unsupported_rocm_release_has_no_plan():
-    with pytest.raises(ValueError, match="no PyTorch build"):
+    """Below AMD's oldest supported tag there is genuinely nothing, and the plan should say so."""
+    with pytest.raises(ValueError, match="no torch for ROCm"):
         boot.pip_commands("source", "uv", PYTHON, (5, 7))
     with pytest.raises(ValueError, match="no install plan"):
         boot.pip_commands("pinned", "uv", PYTHON, (7, 2))

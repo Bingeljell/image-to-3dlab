@@ -166,7 +166,13 @@ def total_gb() -> float:
 
 def choose_route(version: tuple[int, int] | None, hipcc: str | None,
                  gfx: list[str]) -> tuple[str | None, str]:
-    """("source" | None, why). None means there is no way to install here."""
+    """("source" | None, why). None means there is no way to install here.
+
+    Two indexes, not one. PyTorch's stops at rocm7.2; a newer machine gets the same torch
+    from AMD's own index, which is built against the newer runtime. Refusing a ROCm 10.x
+    card outright was wrong: the route does build on whatever machine it is run on, and
+    "newer than PyTorch's index" is a different index, not a different job.
+    """
     if not gfx:
         return None, ("no AMD GPU target found. Needs rocminfo, or a readable "
                       "/sys/class/kfd/kfd/topology; check the driver")
@@ -176,12 +182,18 @@ def choose_route(version: tuple[int, int] | None, hipcc: str | None,
     if version is None:
         return None, ("the ROCm version could not be read. PyTorch ROCm builds are published "
                       "per ROCm release, so the route needs to know which one is installed")
-    if version not in TORCH:
-        supported = ", ".join(f"{v[0]}.{v[1]}" for v in sorted(TORCH))
-        return None, (f"ROCm {version[0]}.{version[1]} is not one this route installs. "
-                      f"PyTorch publishes ROCm builds for: {supported}")
-    return "source", (f"PyTorch {TORCH[version][0]} for ROCm {version[0]}.{version[1]}, "
-                      f"extensions compiled for {ARCH_SEPARATOR.join(gfx)}")
+    if version in TORCH:
+        return "source", (f"PyTorch {TORCH[version][0]} for ROCm {version[0]}.{version[1]}, "
+                          f"extensions compiled for {ARCH_SEPARATOR.join(gfx)}")
+    pair = host.amd_torch_build(version)
+    if pair:
+        return "source", (f"PyTorch {pair[0]} + ROCm {version[0]}.{version[1]}, from AMD's own "
+                          f"index (PyTorch's stops at 7.2), extensions compiled for "
+                          f"{ARCH_SEPARATOR.join(gfx)}")
+    known = sorted({*(v for v in TORCH), *(minimum for minimum, _, _ in host.AMD_TORCH_BUILDS)})
+    supported = ", ".join(f"{v[0]}.{v[1]}" for v in known)
+    return None, (f"ROCm {version[0]}.{version[1]} is not one this route installs. PyTorch's "
+                  f"index stops at 7.2 and AMD's stops at 10.2; the route covers: {supported}")
 
 
 def detect() -> tuple[str | None, str]:
@@ -274,19 +286,43 @@ def basic_args(lock: Path = PACKAGE_LOCK) -> list[str]:
     return list(BASIC_ROCM)
 
 
+def torch_index_for(version: tuple[int, int]) -> str:
+    """Where torch comes from for this ROCm: PyTorch's index, or AMD's.
+
+    PyTorch's stops at rocm7.2, so a newer machine gets the identical torch from AMD's own
+    index, built against the newer runtime. One function so the announcement and the
+    install cannot disagree about which index the machine is on.
+    """
+    return host.torch_rocm_index(version) if version in TORCH else host.AMD_ROCM_INDEX
+
+
+def torch_pair_for(version: tuple[int, int]) -> tuple[str, str]:
+    """The torch and torchvision versions to install for this ROCm."""
+    if version in TORCH:
+        return TORCH[version]
+    pair = host.amd_torch_build(version)
+    if pair is None:
+        raise ValueError(f"no torch for ROCm {version}")
+    return pair
+
+
 def pip_commands(route: str, uv: str, python: Path, version: tuple[int, int] | None = None,
                  checkout: Path = CHECKOUT,
                  extensions: Path = EXTENSIONS) -> list[list[str]]:
     """Every package install, in order. Pure, so the order and flags can be tested."""
     if route != "source":
         raise ValueError(f"no install plan for route {route!r}")
-    if version is None or version not in TORCH:
-        raise ValueError(f"no PyTorch build for ROCm {version}")
-    torch_version, vision_version = TORCH[version]
+    if version is None:
+        raise ValueError("no install plan without a ROCm version")
+    torch_version, vision_version = torch_pair_for(version)
     pip = [uv, "pip", "install", "--python", str(python)]
     commands = [[*pip, "setuptools", "wheel", "ninja"]]
-    commands.append([*pip, f"torch=={torch_version}", f"torchvision=={vision_version}",
-                     "--index-url", host.torch_rocm_index(version)])
+    torch_command = [f"torch=={torch_version}", f"torchvision=={vision_version}"]
+    if version in TORCH:
+        torch_command += ["--index-url", host.torch_rocm_index(version)]
+    else:
+        torch_command += ["--extra-index-url", host.AMD_ROCM_INDEX]
+    commands.append([*pip, *torch_command])
     commands.append([*pip, *basic_args()])
     commands.append([*pip, UTILS3D])
     # Pure Python and GPU-agnostic: the attention backend that replaces flash-attn here.

@@ -84,6 +84,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **Hunyuan on AMD installs a working onnxruntime instead of one that cannot load.** Upstream
+  pins `onnxruntime==1.16.3`, whose shared object asks the loader for an executable stack; a
+  kernel that refuses one answers *"cannot enable executable stack as shared object requires"*,
+  which killed the first generation as an `ImportError` from inside `diffusers`.
+  - This route's skip list was **never applied at all**. Its `filter_requirements` just called
+    the CUDA route's, which read that module's globals, so every name the AMD list added went
+    in anyway — and three tests passed the whole time, because all three asserted the
+    *constant* rather than running the filter. `skip` and `replace` are parameters now, so a
+    route cannot declare a list that is quietly ignored.
+  - Skipping the package was also the wrong remedy, and would have traded one ImportError for
+    another. `hy3dshape.rembg` imports it, `image_to_3dlab/matte.py` imports it, and rembg
+    imports onnxruntime at module import — so the first picture without an alpha would have
+    raised `ModuleNotFoundError`. The **pin** is now replaced with the `onnxruntime>=1.18`
+    floor `requirements.txt` already asks for, which resolves to 1.31.0: an ordinary shared
+    object. The CUDA route keeps upstream's pin; it has its own generated lock.
+  - A test runs `import onnxruntime, rembg` in this repo's own Hunyuan venv, so the pin is
+    checked against something that actually loads rather than against a comment.
 - **A ROCm 10.x machine now gets a torch that actually runs.** The route sent anything newer
   than PyTorch's rocm7.2 index to AMD's own, and took whatever that index offered without
   asking the card. On a ROCm 10.2 machine that wheel cannot launch a kernel at all: its

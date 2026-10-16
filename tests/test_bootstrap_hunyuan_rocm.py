@@ -92,22 +92,52 @@ def test_the_cuda_only_wheels_stay_out():
     steps = [" ".join(c) for c in
              boot.pip_commands("rocm7.2", "uv", Path("/venv/bin/python"),
                                boot.filter_requirements(_UPSTREAM_REQUIREMENTS))]
-    for banned in ("cupy-cuda12x", "gradio", "deepspeed", "onnxruntime"):
+    for banned in ("cupy-cuda12x", "gradio", "deepspeed", "onnxruntime=="):
         assert all(banned not in step for step in steps), banned
 
 
-def test_onnxruntime_is_skipped_here_and_not_on_the_nvidia_route():
-    """Nothing in Hunyuan imports onnxruntime; `diffusers` resolves it lazily anyway, and the
-    pinned wheel asks the loader for an executable stack, which this kernel refuses. The
-    CUDA route keeps it because that is not what broke there."""
-    assert "onnxruntime" in boot.SKIP_REQUIREMENTS
-    assert "onnxruntime" not in cuda.SKIP_REQUIREMENTS
+def test_onnxruntime_is_replaced_not_skipped():
+    """Upstream's pin cannot load here; skipping the package was the wrong remedy.
+
+    `hy3dshape.rembg` imports it, `image_to_3dlab/matte.py` imports it, and rembg imports
+    onnxruntime at module import — so a venv built by the skip would have raised
+    ModuleNotFoundError the first time it cut out a background, having traded one ImportError
+    for another. The pin is replaced with the floor requirements.txt already asks for, which
+    resolves to an ordinary shared object.
+    """
+    assert "onnxruntime" not in boot.SKIP_REQUIREMENTS, "rembg needs it; do not drop it"
+    assert boot.REPLACED["onnxruntime"] == "onnxruntime>=1.18"
+    filtered = boot.filter_requirements(_UPSTREAM_REQUIREMENTS)
+    assert "onnxruntime>=1.18" in filtered
+    assert "onnxruntime==1.16.3" not in filtered, "the wheel that cannot load is still pinned"
+    # The CUDA route keeps upstream's pin: it has its own generated lock, resolved elsewhere.
+    assert "onnxruntime==1.16.3" in cuda.filter_requirements(_UPSTREAM_REQUIREMENTS)
+
+
+def test_the_replacement_actually_loads_rather_than_being_believed():
+    """A pin nobody has run is a guess. onnxruntime 1.31 is what this resolves to, it imports,
+    and rembg imports through it — checked against this repo's own venv, not a comment."""
+    import importlib.util
+    import subprocess
+
+    torch_free = ["hunyuan-rocm", "trellis-rocm"]
+    for route in torch_free:
+        python = REPO / "vendor" / route / ".venv" / "bin" / "python"
+        if not python.is_file():
+            pytest.skip(f"{route} is not installed on this machine")
+        found = subprocess.run(
+            [str(python), "-c", "import onnxruntime, rembg; print(onnxruntime.__version__)"],
+            capture_output=True, text=True)
+        assert found.returncode == 0, f"{route}: {found.stderr.strip()[-300:]}"
 
 
 def test_the_skip_list_does_not_grow_by_accident():
     """Every entry has to be one that genuinely is unused on the inference path."""
-    for name in boot.SKIP_REQUIREMENTS - cuda.SKIP_REQUIREMENTS:
-        assert name == "onnxruntime", name
+    assert not boot.SKIP_REQUIREMENTS - cuda.SKIP_REQUIREMENTS, (
+        "a new skip needs its own reasoning; replacing a pin is usually the right answer, "
+        "because something that is merely unimported today may import it tomorrow")
+    for name in boot.SKIP_REQUIREMENTS:
+        assert name not in boot.REPLACED, name
 
 
 def test_the_bpy_pin_survives_the_filter():
@@ -272,6 +302,8 @@ _UPSTREAM_REQUIREMENTS = """\
 --extra-index-url https://mirrors.cloud.tencent.com/pypi/simple/
 gradio==5.33.0
 fastapi==0.115.12
+uvicorn==0.34.3
+pythreejs
 deepspeed
 cupy-cuda12x==13.4.1
 bpy==4.0
@@ -279,4 +311,16 @@ torchmetrics==1.6.0
 transformers==4.46.0
 # a comment
 numpy==1.24.4
+onnxruntime==1.16.3
 """
+
+
+def test_the_fixture_is_upstreams_real_list():
+    """Every name this route skips must appear in the fixture, or the filter tests below pass
+    on a list that never had anything to skip. Upstream's requirements.txt really does pin
+    `onnxruntime==1.16.3`, under an "# ONNX Runtime" heading, and that is the line that leaked.
+    """
+    listed = {line.split("==")[0].strip() for line in _UPSTREAM_REQUIREMENTS.splitlines()
+              if line.strip() and not line.startswith(("#", "-"))}
+    missing = boot.SKIP_REQUIREMENTS - listed
+    assert not missing, f"the fixture never mentions {missing}, so nothing tests skipping it"

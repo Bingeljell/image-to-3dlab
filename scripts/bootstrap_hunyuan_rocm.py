@@ -88,12 +88,20 @@ TORCH = {
 
 # cupy-cuda12x is already in the shared skip list: nothing on the inference path imports
 # it, and it is a CUDA wheel.
+SKIP_REQUIREMENTS = cuda.SKIP_REQUIREMENTS
+
+# Upstream pins onnxruntime==1.16.3, whose shared object asks the loader for an executable
+# stack. A kernel that refuses one answers "cannot enable executable stack as shared object
+# requires" — and it did, on the first import diffusers made of its lazy module table, taking
+# the paint stage down on an import nothing in Hunyuan had asked for.
 #
-# onnxruntime is skipped here and not on the CUDA route. No Hunyuan file imports it -- it
-# is only reached because `diffusers.utils.import_utils` resolves its lazy module table on
-# first use, and the 1.16.3 wheel's shared object asks for an executable stack, which the
-# loader refuses on this kernel. So the paint stage died on an import it never made use of.
-SKIP_REQUIREMENTS = cuda.SKIP_REQUIREMENTS | {"onnxruntime"}
+# It was "fixed" here by skipping the package. That was the wrong remedy: the module that
+# actually imports it is real. `hy3dshape.rembg` does, `image_to_3dlab/matte.py` does, and
+# rembg imports onnxruntime at module import — so a machine that took the skip would have
+# swapped an ImportError for a ModuleNotFoundError the first time it cut out a background.
+# So the pin is replaced instead, with the same floor requirements.txt already asks for. The
+# current wheel is an ordinary shared object and loads.
+REPLACED = {"onnxruntime": "onnxruntime>=1.18"}
 
 HUNYUAN_REPO = cuda.HUNYUAN_REPO
 DINO_REPO = cuda.DINO_REPO
@@ -197,7 +205,13 @@ def install_env(base: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def filter_requirements(text: str) -> list[str]:
-    return cuda.filter_requirements(text)
+    """Upstream's list with *this route's* skips and replacements applied.
+
+    Handing ours over is the whole point: a wrapper that just called the shared filter let it
+    read the CUDA module's globals, so this route's extra skip and its extra replacement were
+    both ignored and every upstream pin went in exactly as written.
+    """
+    return cuda.filter_requirements(text, SKIP_REQUIREMENTS, REPLACED)
 
 
 def requirement_args(checkout: Path = CHECKOUT) -> list[str]:

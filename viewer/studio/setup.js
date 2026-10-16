@@ -12,13 +12,16 @@
 // natural home later for account and preferences.
 
 import { showsCaveat } from '../components/gated-caveat.js';
+import { panelState, runTitle } from '../components/setup-progress.js';
 
 const s = (id) => document.getElementById(id);
 
 // `panelFor` is the backend whose download the progress panel shows. It outlives the run
-// so the finished result stays under the card that started it.
-const state = { catalog: null, source: null, running: null, panelFor: null, tab: null,
-  renderToken: 0, hfAccess: {} };
+// so the finished result stays under the card that started it. `panel` is that same backend
+// and `action` is what it was asked to do, so the panel's title can be recomputed from any
+// event without hunting through the catalogue again.
+const state = { catalog: null, source: null, running: null, panelFor: null, panel: null,
+  action: 'download', tab: null, renderToken: 0, hfAccess: {} };
 
 /** Put the progress panel right under the card it belongs to. It used to sit below every
  * card, so on a long list the bar was off-screen and a click on Set up looked like it had
@@ -265,15 +268,13 @@ async function startDownload(backend, button, action = 'download') {
   button.disabled = true;
   s('setup-run').hidden = false;
   s('setup-run-cancel').hidden = false;
-  // A route with no build yet compiles before it downloads anything.
-  const verb = action === 'rebuild' ? 'Rebuilding'
-    : !backend.build_present ? 'Setting up'
-    : backend.setup_fetches_weights ? 'Downloading' : 'Building';
-  s('setup-run-title').textContent = `${verb} ${backend.label}`;
+  s('setup-run-title').textContent = runTitle(backend, action, null);
   s('setup-run-detail').textContent = 'starting…';
   s('setup-log').textContent = '';
   s('setup-run-bar').style.width = '0%';
   state.panelFor = backend.id;
+  state.panel = backend;
+  state.action = action;
   placeRunPanel();
   s('setup-run').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   try {
@@ -291,18 +292,18 @@ async function startDownload(backend, button, action = 'download') {
 }
 
 function resume(run) {
-  const backend = state.catalog.backends.find((b) => b.id === run.backend);
-  const label = backend ? backend.label : run.backend;
-  const verb = run.rebuild ? 'Rebuilding'
-    : backend && !backend.build_present ? 'Setting up'
-    : backend && backend.setup_fetches_weights ? 'Downloading' : 'Building';
+  const found = state.catalog.backends.find((b) => b.id === run.backend);
+  const backend = found || { label: run.backend };
+  const action = run.rebuild ? 'rebuild' : 'download';
   s('setup-run').hidden = false;
   s('setup-run-cancel').hidden = false;
-  s('setup-run-title').textContent = `${verb} ${label}`;
+  s('setup-run-title').textContent = runTitle(backend, action, null);
   s('setup-run-detail').textContent = 'reconnecting…';
   s('setup-log').textContent = '';
   state.running = run.backend;
   state.panelFor = run.backend;
+  state.panel = backend;
+  state.action = action;
   placeRunPanel();
   watch(run);
 }
@@ -324,6 +325,11 @@ function applyEvent(event) {
   // A compile has no percentage to show; an empty bar for half an hour reads as stuck.
   s('setup-run-bar').parentElement.classList.toggle('busy',
     event.phase === 'building' || event.phase === 'queued');
+  // The title follows the run, so a finished setup says so instead of announcing a download
+  // that ended ten minutes ago. It is the line the log scrolls away from, and the state it is
+  // painted with: a finished panel goes green rather than sitting at 100% looking unfinished.
+  s('setup-run-title').textContent = runTitle(state.panel, state.action, event);
+  s('setup-run').className = `setup-run ${panelState(event)}`;
   if (event.detail) s('setup-run-detail').textContent = event.detail;
   if (event.log) {
     const log = s('setup-log');

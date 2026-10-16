@@ -76,7 +76,9 @@ export async function openActivity(stage) {
       </div></details></li>`).join('')}</ul>`).join('');
 }
 
-const MARK = { done: '✓', error: '!', cancelled: '■' };
+// How a finished thing is marked. Shared with the Setup page's progress panel, which has the
+// same three endings and should not invent its own glyphs.
+export const MARK = { done: '✓', error: '!', cancelled: '■' };
 
 /** One Activity line: "✓ Rig · blocky toy knight · 17:19 · 42 s" (and "· stopped" or
  *  "· failed" when it did not finish). */

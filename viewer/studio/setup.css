@@ -71,6 +71,17 @@
 .setup-card-licence, .setup-card-extra { opacity: .7; margin: 6px 0 0; }
 .setup-run { margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: var(--panel);
   border: 1px solid var(--line); }
+/* How a run ended. A finished panel that still looks like a running download — bar at 100%,
+   title still saying "Downloading" — reads as a page that gave up halfway. */
+.setup-run.done { border-color: #2f5a43; }
+.setup-run.done .setup-run-title, .setup-run.done .progress-track > div { color: #7fd6a0;
+  background: #7fd6a0; }
+.setup-run.error { border-color: #5a4630; }
+.setup-run.error .setup-run-title, .setup-run.error .progress-track > div { color: #e8c37a;
+  background: #e8c37a; }
+.setup-run.cancelled .setup-run-title { opacity: .7; }
+.setup-run.running .progress-track > div {
+  background: linear-gradient(90deg, var(--ember), #ff9447); }
 .setup-backends .setup-run { margin-top: 0; }
 .setup-run-head { display: flex; justify-content: space-between; align-items: center; }
 .setup-run-detail { font-size: 12px; opacity: .8; margin-top: 4px; }

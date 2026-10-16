@@ -84,6 +84,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **A finished download now looks finished.** The Setup page's progress panel kept its
+  running appearance forever: the bar sat at 100% in the same ember gradient it wore while
+  downloading, the border stayed neutral, and only a small log line said anything had happened.
+  A panel that is done but still painted like a transfer in progress reads as a page that gave
+  up halfway. It now carries the outcome — green bar, border and title on success, amber on
+  failure, grey on cancel — and the title leads with the same ✓ / ! / ■ the Activity list uses,
+  borrowed from `viewer/studio/pages.js` rather than invented a second time.
+- **The Setup panel now says a download finished.** Its title was written once, when the
+  download started, and never touched again — so a 16.8 GB fetch that ended perfectly sat
+  there announcing "Downloading TRELLIS.2 (AMD)" beside a full bar and a detail line reading
+  "done · 16.8 GB on disk", and nothing in the panel ever claimed the backend was installed.
+  The title now follows the run's own events: *Installed* when it is done, *Setup failed* when
+  it exits non-zero, *Setup cancelled* when it is stopped. The wording lives in one pure module
+  (`viewer/components/setup-progress.js`) instead of two copies of a ternary.
 - **TRELLIS.2 now builds on an AMD card newer than PyTorch's index.** `choose_route` refused
   anything above ROCm 7.2 outright, so a ROCm 10.x machine — a Strix Halo, an AI 395 — got
   "Cannot install TRELLIS.2 here" and nothing else. That was wrong twice over: the build does

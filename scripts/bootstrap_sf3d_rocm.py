@@ -34,6 +34,7 @@ for non-interactive use. Defaulting to yes is not allowed, so it does not.
     python scripts/bootstrap_sf3d_rocm.py --yes      # for the viewer and for agents
     python scripts/bootstrap_sf3d_rocm.py --code-only
     python scripts/bootstrap_sf3d_rocm.py --weights-only
+    python scripts/bootstrap_sf3d_rocm.py --rebuild  # build again over a finished build
 """
 
 from __future__ import annotations
@@ -190,7 +191,8 @@ def venv_python() -> Path:
 
 
 def build_present() -> bool:
-    return BUILT_MARKER.is_file()
+    """Finished, and still there: a marker beside a deleted venv is not a build to keep."""
+    return BUILT_MARKER.is_file() and venv_python().is_file()
 
 
 def fetch_checkout(commit: str = COMMIT) -> None:
@@ -212,14 +214,42 @@ def install_code(route: str) -> None:
     # Before anything builds: an unpatched setup.py compiles a CPU-only baker and says
     # nothing, so this has to run first rather than be noticed afterwards.
     sf3d_patch.patch(CHECKOUT)
+    # The venv folder is read off venv_python(), never spelled out again: a second spelling
+    # is how a test that pointed venv_python() elsewhere deleted the real venv.
+    venv = venv_python().parents[1]
     if not venv_python().is_file():
-        shutil.rmtree(VENDOR / ".venv", ignore_errors=True)
-        run([uv, "venv", str(VENDOR / ".venv"), "--python", PYTHON_VERSION])
+        shutil.rmtree(venv, ignore_errors=True)
+        run([uv, "venv", str(venv), "--python", PYTHON_VERSION])
     env = install_env()
-    for command in pip_commands(route, uv, venv_python()):
+    torch, *rest = pip_commands(route, uv, venv_python())
+    run(torch, env=env, cwd=str(CHECKOUT))
+    prove_torch(venv_python())
+    for command in rest:
         run(command, env=env, cwd=str(CHECKOUT))
     BUILT_MARKER.write_text(json.dumps({"route": route, "torch": TORCH[route][0],
                                         "commit": COMMIT}) + "\n")
+
+
+def prove_torch(python: Path, probe=None) -> None:
+    """Launch one kernel with the torch just installed, before the baker compiles on it.
+
+    The same probe TRELLIS uses: a ROCm torch can install cleanly and carry no code for
+    this card, and that otherwise surfaces as `hipErrorInvalidKernelFile` mid-generation.
+    """
+    if probe is None:
+        from bootstrap_trellis_rocm import gpu_probe as probe
+    ok, why = probe(python)
+    if not ok:
+        raise SystemExit(f"The ROCm torch just installed does not run on this card: {why}. "
+                         "The texture baker was not compiled.")
+
+
+def code_plan(code: bool, built: bool, rebuild: bool) -> str:
+    """"build", "keep" or "skip". A finished build is kept unless --rebuild says otherwise,
+    so a re-run after a gated-licence failure goes straight to the weights."""
+    if not code:
+        return "skip"
+    return "build" if rebuild or not built else "keep"
 
 
 def install_weights() -> None:
@@ -262,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Install the code and compile its extensions, leaving the weights.")
     parser.add_argument("--weights-only", action="store_true",
                         help="Fetch the weights only.")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Rebuild the code even if a finished build is already there.")
     args = parser.parse_args(argv)
 
     if host.build_target() != "linux-amd":
@@ -269,12 +301,18 @@ def main(argv: list[str] | None = None) -> int:
               "use bootstrap_sf3d.py. Nothing downloaded.")
         return 1
 
-    code = not args.weights_only
+    plan = code_plan(not args.weights_only, build_present(), args.rebuild)
+    code = plan == "build"
     weights = not args.code_only
     route, why = detect()
     if code and route is None:
         print(f"Cannot install Stable Fast 3D here: {why}. Nothing downloaded.")
         return 1
+    if plan == "keep":
+        print(f"Stable Fast 3D is already built in {VENDOR}, leaving it alone "
+              "(--rebuild builds it again).")
+    if not code and not weights:
+        return 0
     print(announcement(route, why, code=code, weights=weights))
 
     if not args.yes:

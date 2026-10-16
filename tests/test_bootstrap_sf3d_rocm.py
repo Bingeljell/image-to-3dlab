@@ -118,6 +118,7 @@ def test_the_patches_run_before_anything_builds(monkeypatch, tmp_path):
     monkeypatch.setattr(boot, "BUILT_MARKER", tmp_path / ".i2l-build-complete")
     monkeypatch.setattr(boot.shutil, "which", lambda name: "uv")
     monkeypatch.setattr(boot, "run", lambda *a, **k: None)
+    monkeypatch.setattr(boot, "prove_torch", lambda *a, **k: None)
     boot.install_code("rocm7.2")
     assert order.index("patch") < len(order)
     assert order[0] == "clone" and order[1] == "patch"
@@ -165,6 +166,7 @@ def test_it_refuses_to_run_on_the_wrong_machine_before_asking_anything(monkeypat
 def test_it_refuses_without_rocm(monkeypatch, capsys):
     monkeypatch.setattr(boot.host, "build_target", lambda: "linux-amd")
     monkeypatch.setattr(boot, "detect", lambda: (None, "no ROCm"))
+    monkeypatch.setattr(boot, "build_present", lambda: False)
     assert boot.main(["--yes"]) == 1
     assert "Nothing downloaded" in capsys.readouterr().out
 
@@ -210,3 +212,97 @@ def test_the_background_remover_is_announced_and_fetched_with_the_weights(monkey
     fetched = []
     boot.install_background_remover(tmp_path / "lite.onnx", download=fetched.append)
     assert fetched == [tmp_path / "lite.onnx"]
+
+
+def _amd_main(monkeypatch, built: bool) -> list[str]:
+    """main() on an AMD box with every slow step replaced by a note of having run."""
+    done: list[str] = []
+    monkeypatch.setattr(boot.host, "build_target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "detect", lambda: ("rocm7.2", "PyTorch 2.14.1"))
+    monkeypatch.setattr(boot, "build_present", lambda: built)
+    monkeypatch.setattr(boot, "install_code", lambda route: done.append("code"))
+    monkeypatch.setattr(boot, "install_weights", lambda: done.append("weights"))
+    return done
+
+
+def test_a_rerun_after_a_gated_licence_failure_skips_the_build(monkeypatch, capsys):
+    """The build finished, the gated weights did not. Again should not mean another
+    compile."""
+    done = _amd_main(monkeypatch, built=True)
+    assert boot.main(["--yes"]) == 0
+    assert done == ["weights"]
+    out = capsys.readouterr().out
+    assert "already built" in out and "--rebuild" in out
+
+
+def test_rebuild_builds_over_a_finished_build(monkeypatch):
+    done = _amd_main(monkeypatch, built=True)
+    assert boot.main(["--yes", "--rebuild"]) == 0
+    assert done == ["code", "weights"]
+
+
+def test_a_first_install_builds_then_fetches(monkeypatch):
+    done = _amd_main(monkeypatch, built=False)
+    assert boot.main(["--yes"]) == 0
+    assert done == ["code", "weights"]
+
+
+def test_code_only_on_a_finished_build_does_nothing_and_asks_nothing(monkeypatch):
+    done = _amd_main(monkeypatch, built=True)
+    monkeypatch.setattr(sys, "stdin", None)  # a prompt would refuse, not pass
+    assert boot.main(["--code-only"]) == 0
+    assert done == []
+
+
+def test_a_torch_that_cannot_run_on_the_card_stops_before_the_baker_compiles(monkeypatch,
+                                                                            tmp_path):
+    ran: list[list[str]] = []
+    marker = tmp_path / ".i2l-build-complete"
+    monkeypatch.setattr(boot, "fetch_checkout", lambda *a, **k: None)
+    monkeypatch.setattr(boot.sf3d_patch, "patch", lambda *a, **k: None)
+    monkeypatch.setattr(boot, "venv_python", lambda: tmp_path / ".venv" / "bin" / "python")
+    monkeypatch.setattr(boot, "install_env", dict)
+    monkeypatch.setattr(boot, "BUILT_MARKER", marker)
+    monkeypatch.setattr(boot.shutil, "which", lambda name: "uv")
+    monkeypatch.setattr(boot, "run", lambda command, **k: ran.append(command))
+    import bootstrap_trellis_rocm
+
+    monkeypatch.setattr(bootstrap_trellis_rocm, "gpu_probe",
+                        lambda python: (False, "hipErrorInvalidKernelFile"))
+    with pytest.raises(SystemExit, match="hipErrorInvalidKernelFile"):
+        boot.install_code("rocm7.2")
+    assert len(ran) == 2 and "torch==" in " ".join(ran[1]), "the baker compiled anyway"
+    assert not marker.exists()
+
+
+def test_install_code_only_ever_deletes_the_venv_it_was_pointed_at(monkeypatch, tmp_path):
+    """It used to delete VENDOR/.venv by name, so every test that faked venv_python() wiped
+    the real SF3D venv on the machine running the suite."""
+    real = tmp_path / "real" / ".venv"
+    real.mkdir(parents=True)
+    monkeypatch.setattr(boot, "VENDOR", tmp_path / "real")
+    monkeypatch.setattr(boot, "fetch_checkout", lambda *a, **k: None)
+    monkeypatch.setattr(boot.sf3d_patch, "patch", lambda *a, **k: None)
+    monkeypatch.setattr(boot, "venv_python", lambda: tmp_path / "fake" / ".venv" / "bin" / "python")
+    monkeypatch.setattr(boot, "pip_commands", lambda *a, **k: [["uv", "pip", "install", "x"]])
+    monkeypatch.setattr(boot, "install_env", dict)
+    monkeypatch.setattr(boot, "BUILT_MARKER", tmp_path / ".i2l-build-complete")
+    monkeypatch.setattr(boot.shutil, "which", lambda name: "uv")
+    ran: list[list[str]] = []
+    monkeypatch.setattr(boot, "run", lambda command, **k: ran.append(command))
+    monkeypatch.setattr(boot, "prove_torch", lambda *a, **k: None)
+    boot.install_code("rocm7.2")
+    assert real.is_dir(), "deleted a venv it was not pointed at"
+    assert ran[0][:3] == ["uv", "venv", str(tmp_path / "fake" / ".venv")]
+
+
+def test_a_marker_without_its_venv_is_not_a_build(monkeypatch, tmp_path):
+    marker = tmp_path / ".i2l-build-complete"
+    python = tmp_path / ".venv" / "bin" / "python"
+    monkeypatch.setattr(boot, "BUILT_MARKER", marker)
+    monkeypatch.setattr(boot, "venv_python", lambda: python)
+    marker.write_text("{}")
+    assert boot.build_present() is False
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    assert boot.build_present() is True

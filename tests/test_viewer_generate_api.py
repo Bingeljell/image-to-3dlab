@@ -806,8 +806,8 @@ def test_image_has_transparent_alpha_false_for_fully_opaque_rgba(tmp_path):
 # --- "has alpha" is not "is cut out" (2026-09-03): a letterboxed image passed the alpha
 # check on its bars alone, and its opaque backdrop was rebuilt as 3D geometry ---
 def _save(tmp_path, name, alpha_rows):
-    from PIL import Image
     import numpy as np
+    from PIL import Image
 
     a = np.zeros((64, 64, 4), dtype=np.uint8)
     a[..., :3] = 200
@@ -1409,24 +1409,36 @@ def test_trellis_on_nvidia_runs_the_cuda_generator():
     assert spec.readiness is api.cuda_setup_status
 
 
-AMD = api.backend_catalog.AMD
-
-
-def test_trellis_is_not_offered_on_an_amd_card(monkeypatch):
-    """Microsoft's route needs flash-attn, nvdiffrast, nvdiffrec, CuMesh and FlexGEMM, all
-    NVIDIA-only. Handing an AMD machine that spec means a download of 15 GB of weights that
-    can never build, so the catalogue has to be the thing that keeps it out of the
-    dropdown. The spec itself is the Mac one: only a Mac can run it, and the dropdown is
-    what decides, not this function."""
-    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: AMD)
+def test_trellis_is_offered_on_an_amd_card(monkeypatch):
+    """It used not to be, for a reason that turned out not to be the card: the extensions
+    all have working ROCm builds, and attention moved to AuleAttention. What matters now is
+    that the spec names the ROCm venv rather than this interpreter or the NVIDIA one."""
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.AMD)
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
-    assert here["trellis"] is False
-    assert api.trellis_spec(AMD).interpreter == api.PYTHON
+    assert here["trellis"] is True
+
+    spec = api.trellis_spec(api.AMD)
+    assert spec.interpreter == api.TRELLIS_ROCM_PYTHON
+    assert "trellis-rocm" in str(spec.interpreter)
+    assert spec.wrapper == api.TRELLIS_ROCM_WRAPPER
+    # Like the NVIDIA route it mattes images itself, so it must not demand alpha.
+    assert spec.requires_alpha is False
+
+
+def test_the_two_linux_trellis_specs_differ_only_in_where_they_run():
+    """One pipeline, two cards: the settings, stages and line parser must not diverge."""
+    cuda_spec = api.trellis_spec(api.NVIDIA)
+    amd_spec = api.trellis_spec(api.AMD)
+    assert amd_spec.default_settings == cuda_spec.default_settings
+    assert amd_spec.stages == cuda_spec.stages
+    assert amd_spec.parse_line is cuda_spec.parse_line
+    assert amd_spec.validate_settings is cuda_spec.validate_settings
+    assert amd_spec.interpreter != cuda_spec.interpreter
 
 
 def test_pixal3d_runs_on_an_amd_card(monkeypatch):
-    """The one 3D route with an AMD install, so the Generate dropdown must keep it there."""
-    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: AMD)
+    """The one 3D route with an api.AMD install, so the Generate dropdown must keep it there."""
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.AMD)
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
     assert here["pixal3d"] is True
 
@@ -1480,9 +1492,21 @@ def test_cuda_route_is_not_ready_without_the_bria_patch(tmp_path, monkeypatch):
 
 def test_cuda_route_not_built_points_at_its_bootstrap(tmp_path, monkeypatch):
     _cuda_install(tmp_path, monkeypatch, built=False)
-    status = api.cuda_setup_status()
+    status = api.cuda_setup_status(api.NVIDIA)
     assert status["ready"] is False
     assert "bootstrap_trellis_cuda.py" in status["build"]["hint"]
+
+
+def test_the_rocm_route_not_built_points_at_its_own_bootstrap(tmp_path, monkeypatch):
+    """A hint naming the CUDA bootstrap would send an api.AMD user to a script that refuses
+    their card. The ROCm install is faked here because this machine has one, and a test
+    that depends on what happens to be built passes for the wrong reason."""
+    monkeypatch.setattr(api, "TRELLIS_ROCM_PYTHON", tmp_path / "nope" / "python")
+    monkeypatch.setattr(api, "TRELLIS_ROCM_MARKER", tmp_path / "nope" / "marker")
+    status = api.cuda_setup_status(api.AMD)
+    assert status["ready"] is False
+    assert "bootstrap_trellis_rocm.py" in status["build"]["hint"]
+    assert "api.NVIDIA" not in status["build"]["hint"]
 
 
 def test_bria_patch_probe_reads_the_real_checkout_rule(tmp_path):
@@ -1749,7 +1773,8 @@ def test_matted_upload_records_the_remover(tmp_path):
 
 def test_matte_upload_cuts_out_and_keeps_the_original(tmp_path, monkeypatch):
     from PIL import Image
-    import image_to_3dlab.matte as matte
+
+    from image_to_3dlab import matte
 
     upload = tmp_path / "input.jpg"
     Image.new("RGB", (8, 8), "white").save(upload)

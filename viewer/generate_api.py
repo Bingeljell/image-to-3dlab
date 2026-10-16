@@ -115,6 +115,14 @@ TRELLIS_CUDA_VENDOR = REPO / "vendor" / "trellis-cuda"
 TRELLIS_CUDA_WRAPPER = REPO / "scripts" / "trellis_cuda_generate.py"
 TRELLIS_CUDA_PYTHON = TRELLIS_CUDA_VENDOR / ".venv" / "bin" / "python"
 TRELLIS_CUDA_MARKER = TRELLIS_CUDA_VENDOR / ".i2l-build-complete"
+# TRELLIS.2 on Linux + AMD: the same pinned checkout, built with HIP by
+# scripts/bootstrap_trellis_rocm.py. Its own venv and its own build, because the two are
+# different compiled builds of one source and sharing a directory would have one card's
+# extensions overwriting the other's.
+TRELLIS_ROCM_VENDOR = REPO / "vendor" / "trellis-rocm"
+TRELLIS_ROCM_WRAPPER = REPO / "scripts" / "trellis_rocm_generate.py"
+TRELLIS_ROCM_PYTHON = TRELLIS_ROCM_VENDOR / ".venv" / "bin" / "python"
+TRELLIS_ROCM_MARKER = TRELLIS_ROCM_VENDOR / ".i2l-build-complete"
 # Hunyuan3D-2.1 on Linux + NVIDIA: Tencent's own checkout, built by
 # scripts/bootstrap_hunyuan_cuda.py. NVIDIA only; the Mac keeps the MLX routes.
 HUNYUAN_CUDA_VENDOR = REPO / "vendor" / "hunyuan-cuda"
@@ -165,6 +173,10 @@ SELF_CUTTING: dict[tuple[str, str | None], str] = {
     ("hunyuan-cuda", None): "scripts/hunyuan_cuda_generate.py",
     ("hunyuan-rocm", None): "scripts/hunyuan_rocm_generate.py",
     ("trellis", "nvidia"): "scripts/trellis_cuda_generate.py",
+    # The AMD wrapper re-exports this script's prepare_image rather than copying it, so the
+    # file that does the cutting is the same on both Linux cards. Naming the AMD wrapper
+    # here would point the check at a file with no matte call in it.
+    ("trellis", "amd"): "scripts/trellis_cuda_generate.py",
 }
 
 # Xiong's paint+shape code is MIT and tracked in-repo at hunyuan_mlx/ (moved out of
@@ -452,28 +464,40 @@ def trellis_cuda_bria_patched(checkout: Path | None = None) -> bool:
     return patch_trellis_cuda_no_bria.is_patched(checkout or TRELLIS_CUDA_VENDOR / "TRELLIS.2")
 
 
-def cuda_setup_status() -> dict[str, Any]:
-    """Readiness of the NVIDIA TRELLIS.2 route, for the Generate tab's readiness strip.
+def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
+    """Readiness of the Linux TRELLIS.2 routes, for the Generate tab's readiness strip.
+
+    One function for both cards because the readiness question is the same one: is there a
+    finished build, and is the BRIA guardrail in place. Which venv that build lives in is
+    what differs.
 
     Not ready without the BRIA patch, even when everything else is built: the generator
     would refuse anyway, and the button should not promise a run that cannot start.
     """
-    built = (TRELLIS_CUDA_MARKER.is_file() and TRELLIS_CUDA_PYTHON.is_file()
-             and TRELLIS_CUDA_WRAPPER.is_file())
-    patched = trellis_cuda_bria_patched() if built else False
+    on_amd = (host or host_platform()) == AMD
+    vendor = TRELLIS_ROCM_VENDOR if on_amd else TRELLIS_CUDA_VENDOR
+    python = TRELLIS_ROCM_PYTHON if on_amd else TRELLIS_CUDA_PYTHON
+    wrapper = TRELLIS_ROCM_WRAPPER if on_amd else TRELLIS_CUDA_WRAPPER
+    marker = TRELLIS_ROCM_MARKER if on_amd else TRELLIS_CUDA_MARKER
+    bootstrap = ("scripts/bootstrap_trellis_rocm.py" if on_amd
+                 else "scripts/bootstrap_trellis_cuda.py")
+    card = "AMD" if on_amd else "NVIDIA"
+
+    built = marker.is_file() and python.is_file() and wrapper.is_file()
+    patched = trellis_cuda_bria_patched(vendor / "TRELLIS.2") if built else False
     weights = weights_on_disk()
     missing = [w["label"] for w in weights.values() if not w["present"]]
     hint = None
     if not built:
-        hint = ("TRELLIS.2 for NVIDIA is not installed. Set it up from Setup & Status, or run "
-                "python scripts/bootstrap_trellis_cuda.py (Linux only, ~15 GB of weights).")
+        hint = (f"TRELLIS.2 for {card} is not installed. Set it up from Setup & Status, or "
+                f"run python {bootstrap} (Linux only, ~16 GB of weights).")
     elif not patched:
         hint = ("The TRELLIS.2 checkout still loads BRIA RMBG-2.0. Run "
                 "python scripts/patch_trellis_cuda_no_bria.py first.")
     return {
         "schema_version": 1,
-        "build": {"present": built and patched, "interpreter": str(TRELLIS_CUDA_PYTHON),
-                  "wrapper": str(TRELLIS_CUDA_WRAPPER), "hint": hint},
+        "build": {"present": built and patched, "interpreter": str(python),
+                  "wrapper": str(wrapper), "hint": hint},
         "weights": weights,
         "missing_weights": missing,
         "bria_patched": patched,
@@ -1924,21 +1948,36 @@ def _pixal3d_readiness() -> dict[str, Any]:
 
 
 def trellis_spec(host: str | None = None) -> BackendSpec:
-    """TRELLIS.2 for this machine: the Metal port on a Mac, Microsoft's code on NVIDIA.
+    """TRELLIS.2 for this machine: the Metal port on a Mac, Microsoft's code on NVIDIA and AMD.
 
-    One id, two installs. The NVIDIA spec mattes images itself with our remover, so it
-    does not demand a transparent upload the way the Mac port does.
+    One id, three installs. The Linux specs are the same shape because the pipeline is the
+    same — both are Microsoft's own checkout and both matte images themselves with our
+    remover, so neither demands a transparent upload the way the Mac port does. What differs
+    is the venv each one runs in.
 
-    There is no AMD install. Microsoft's route needs flash-attn, nvdiffrast, nvdiffrec,
-    CuMesh and FlexGEMM, all NVIDIA-only, and nothing upstream ships an ROCm build of them.
-    A third spec would be a lie about what is installed, so an AMD machine is given the Mac
-    port's spec and the catalogue's `runs_on` keeps the route out of its dropdown. What an
-    AMD user gets instead is Pixal3D, which does build with HIP.
+    The AMD install is Microsoft's checkout built with HIP: nvdiffrast and CuMesh from their
+    ROCm ports, FlexGEMM and o-voxel from upstream with one compiler flag changed, and
+    AuleAttention in place of flash-attn. See scripts/bootstrap_trellis_rocm.py.
     """
     if (host or host_platform()) == NVIDIA:
         return BackendSpec(
             id="trellis", label="TRELLIS.2 (NVIDIA)",
             interpreter=TRELLIS_CUDA_PYTHON, wrapper=TRELLIS_CUDA_WRAPPER,
+            default_settings=DEFAULT_SETTINGS, stages=STAGES, stage_labels=PHASE_LABELS,
+            requires_alpha=False,
+            validate_settings=validate_settings, build_args=_trellis_cuda_build_args,
+            parse_line=_trellis_parse_line, readiness=cuda_setup_status,
+            baseline_path=BASELINE_PATH,
+            hidden_fields=("generate-attention",),
+        )
+    if (host or host_platform()) == AMD:
+        # Same spec as NVIDIA but the ROCm venv: like it, this route mattes images itself
+        # with our remover, so it does not demand a transparent upload the way the Mac port
+        # does. The attention field is hidden because the backend is not a choice here --
+        # AuleAttention is the only one that exists for this card.
+        return BackendSpec(
+            id="trellis", label="TRELLIS.2 (AMD)",
+            interpreter=TRELLIS_ROCM_PYTHON, wrapper=TRELLIS_ROCM_WRAPPER,
             default_settings=DEFAULT_SETTINGS, stages=STAGES, stage_labels=PHASE_LABELS,
             requires_alpha=False,
             validate_settings=validate_settings, build_args=_trellis_cuda_build_args,

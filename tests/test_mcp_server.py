@@ -283,3 +283,61 @@ def test_a_new_move_is_traced_to_its_character():
     assets = [KNIGHT, DANCER]
     assert ms.asset_for_run(assets, {"rigged": "animate/d/d_rigged.glb", "animated": "animate/d/d_idle.glb"}) == DANCER["id"]
     assert ms.asset_for_run(assets, {"picture": "images/nowhere.png"}) is None
+
+
+# --------------------------------------------------------------------------- Finish choices
+def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
+    source = (REPO / "viewer" / "studio" / "steps.js").read_text()
+    menu = source[source.index("function finishDetail()"):]
+    menu = menu[: menu.index("</select>")]
+    studio_values = set(re.findall(r'<option value="([^"]+)"', menu)) - {"custom"}
+    ours = {str(v.get("faces")) if "faces" in v else "full" for v in ms.FINISH_DETAILS.values()}
+    assert studio_values == ours, "The studio's Finish Detail menu and FINISH_DETAILS in mcp_server.py disagree."
+
+
+@pytest.mark.parametrize("detail, pm, expected", [
+    (None, True, {}), ("full", True, {"keep_mesh": True}), ("game", False, {"faces": 20000, "skip_photo": True}),
+    ("30000", True, {"faces": 30000}), (12000, True, {"faces": 12000}),
+])
+def test_finish_choices(detail, pm, expected):
+    assert ms.finish_choices(detail, pm) == expected
+
+
+@pytest.mark.parametrize("detail", ["huge", "500", "999999"])
+def test_unknown_finish_details_say_what_is_allowed(detail):
+    with pytest.raises(ms.StudioError, match="finish_detail is one of"):
+        ms.finish_choices(detail)
+
+
+def test_a_full_detail_finish_travels_with_the_plan(studio):
+    ms.create(studio, want="prop", description="a barrel", finish_detail="full")
+    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True}
+
+
+def test_no_finish_choice_leaves_finish_on_its_defaults(studio):
+    ms.create(studio, want="prop", description="a barrel")
+    assert "finish_settings" not in sent(studio)
+
+
+def test_full_detail_is_never_rigged(studio):
+    with pytest.raises(ms.StudioError, match="not rigging"):
+        ms.create(studio, want="character", description="a knight", finish_detail="full")
+    full = {**KNIGHT, "finished": "finish/k/k_full.glb"}
+    assert "not rigging" in ms.full_detail_refusal(["rigged", "animated"], {}, full)   # an existing full version
+    assert ms.full_detail_refusal(["finished"], {"keep_mesh": True}) is None              # finishing alone is fine
+    assert ms.full_detail_refusal(["rigged"], {}, KNIGHT) is None
+
+
+def test_finish_again_makes_a_new_version_at_another_detail(studio):
+    ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="finished", again=True, finish_detail="full")
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["finished"]
+    assert json.loads(form["finish_settings"]) == {"keep_mesh": True}
+    assert json.loads(form["made"])["model"] == "k/k.glb"
+
+
+def test_again_needs_a_step_that_can_be_remade(studio):
+    with pytest.raises(ms.StudioError, match="again=True works with"):
+        ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="picture", again=True)
+    with pytest.raises(ms.StudioError, match="has no model"):
+        ms.continue_asset(studio, asset_id=PICTURE["id"], up_to="finished", again=True)

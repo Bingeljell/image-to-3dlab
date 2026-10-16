@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Previews your agent can see:** any asset as one picture from the front, three-quarter,
   side and back, or four moments of one of its moves, so the agent can check its work and
   show you.
+- **Full detail Finish.** A new Detail choice keeps every triangle of the 3D model (often near a
+  million) and paints it with Pixel Match: the sharpest look we make, in under a minute. For
+  renders and stills; it is too heavy for games, so rig a lighter version. Agents get it too
+  (`finish_detail="full"`), along with every other Finish detail level and Pixel Match on or off.
+- Agents can make a finished step **again as a new version** (another 3D model, another Finish,
+  a re-rig) with `continue_asset(..., again=True)`.
 - **Open in the studio from a link:** `studio.html#asset=<id>` opens that asset, which is how
   an agent hands you something to spin round and play.
 

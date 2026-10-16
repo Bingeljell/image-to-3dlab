@@ -63,7 +63,7 @@ The studio does not need to be open: the first tool call starts it in the backgr
 | `list_engines` | Every engine, whether it's ready, its licence and download size |
 | `list_moves` | The animation moves (idle, walk, run, wave, ...) |
 | `create` | Make something new: a picture, one prop, nine props, or an animated character, from an idea, a picture or a GLB |
-| `continue_asset` | Take an existing asset further: picture to 3D, model to rigged, or another move |
+| `continue_asset` | Take an existing asset further (picture to 3D, rig it, another move), or make a step again as a new version, such as a full-detail Finish |
 | `run_status` | How a run is going (it waits, so the agent isn't spamming) |
 | `cancel_run` | Stop a run |
 | `list_assets` | Your Library |

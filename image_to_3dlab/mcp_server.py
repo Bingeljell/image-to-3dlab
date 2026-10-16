@@ -232,8 +232,54 @@ def continue_steps(asset: dict[str, Any], want: str, up_to: str | None, front_ba
     return todo
 
 
+def again_steps(asset: dict[str, Any], step: str | None) -> list[str]:
+    """One finished step made again, as a new version (the Steps panel's redo)."""
+    needs = {"model": "picture", "finished": "model", "rigged": "finished", "animated": "rigged"}
+    if step not in needs:
+        raise StudioError(f"again=True works with up_to = {', '.join(needs)}.")
+    source = asset.get(needs[step]) or (asset.get("model") if step == "rigged" else None)
+    if not source:
+        raise StudioError(f"{asset.get('name')} has no {needs[step]} to make the {step} step from.")
+    return [step]
+
+
 def want_for(asset: dict[str, Any]) -> str:
     return {"prop": "prop", "prop set": "set"}.get(asset.get("kind", ""), "character")
+
+
+# Finish's Detail choices, as the Steps panel offers them (tests check the two lists agree).
+FINISH_DETAILS: dict[str, dict[str, Any]] = {
+    "light": {"faces": 10000}, "game": {"faces": 20000}, "more": {"faces": 40000}, "full": {"keep_mesh": True},
+}
+STEPS_AFTER_FINISH = ("rigged", "animated")
+
+
+def finish_choices(detail: str | int | None, pixel_match: bool = True) -> dict[str, Any]:
+    """What a plan tells Finish: a detail level (a name above, or a triangle count) and Pixel Match."""
+    out: dict[str, Any] = {}
+    if detail is not None and str(detail).strip():
+        text = str(detail).strip().lower()
+        if text in FINISH_DETAILS:
+            out.update(FINISH_DETAILS[text])
+        elif text.isdigit() and 1000 <= int(text) <= 200000:
+            out["faces"] = int(text)
+        else:
+            raise StudioError(f"finish_detail is one of {', '.join(FINISH_DETAILS)} or a triangle count from "
+                              "1000 to 200000.")
+    if not pixel_match:
+        out["skip_photo"] = True
+    return out
+
+
+def full_detail_refusal(steps: list[str], choices: dict[str, Any], asset: dict[str, Any] | None = None) -> str | None:
+    """Rigging a full-detail model (often a million triangles) is slow and too heavy for a game."""
+    full = (choices.get("keep_mesh") and "finished" in steps) or (
+        "finished" not in steps and str((asset or {}).get("finished") or "").endswith("_full.glb"))
+    if full and any(s in steps for s in STEPS_AFTER_FINISH):
+        return ("Full detail is for renders and stills, not rigging. Stop after 'finished', then make a "
+                "game-ready version (continue_asset with up_to='finished', again=True, finish_detail='game') "
+                "and rig that one.")
+    return None
 
 
 def find_asset(studio: Studio, asset_id: str) -> dict[str, Any]:
@@ -297,7 +343,8 @@ def list_moves(studio: Studio) -> dict[str, Any]:
 def create(studio: Studio, *, want: str, description: str = "", image_path: str | None = None,
            model_path: str | None = None, stop_after_step: str | None = None, engine: str | None = None,
            front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
-           finish_upload: bool = False, keep_everything: bool = False) -> dict[str, Any]:
+           finish_upload: bool = False, keep_everything: bool = False, finish_detail: str | int | None = None,
+           pixel_match: bool = True) -> dict[str, Any]:
     have = "model" if model_path else "picture" if image_path else "idea"
     if model_path and image_path:
         raise StudioError("Give an image or a model, not both.")
@@ -342,6 +389,12 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         form["first_move"] = move
     if keep_everything and "model" in steps:
         form["keep_everything"] = "1"
+    choices = finish_choices(finish_detail, pixel_match)
+    refused = full_detail_refusal(steps, choices)
+    if refused:
+        raise StudioError(refused)
+    if choices and "finished" in steps:
+        form["finish_settings"] = json.dumps(choices)
     upload = _upload(image_path, (".png", ".jpg", ".jpeg", ".webp")) or _upload(model_path, (".glb",))
     run = studio.post("api/chains", data=form, files={"file": upload} if upload else None)
     return {"run_id": run["id"], "steps": steps, "engine": form.get("engine"), "move": form.get("first_move"),
@@ -350,22 +403,33 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
 
 
 def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, want: str | None = None,
-                   move: str | None = None, engine: str | None = None) -> dict[str, Any]:
+                   move: str | None = None, engine: str | None = None, again: bool = False,
+                   finish_detail: str | int | None = None, pixel_match: bool = True) -> dict[str, Any]:
     asset = find_asset(studio, asset_id)
     want = want or want_for(asset)
     if up_to and up_to not in STEP_IDS:
         raise StudioError(f"up_to must be one of {', '.join(STEP_IDS)}.")
     catalog = studio.get("api/catalog")
     fb_ready = bool((catalog.get("front_back") or {}).get("ready"))
-    steps = continue_steps(asset, want, up_to, fb_ready)
+    if again:
+        steps = again_steps(asset, up_to)
+    else:
+        steps = continue_steps(asset, want, up_to, fb_ready)
     if not steps:
-        return {"nothing_to_do": f"{asset['name']} has already reached {up_to or 'its last step'}."}
+        return {"nothing_to_do": f"{asset['name']} has already reached {up_to or 'its last step'}. "
+                                 "Pass again=True to make that step again as a new version."}
+    choices = finish_choices(finish_detail, pixel_match)
+    refused = full_detail_refusal(steps, choices, asset)
+    if refused:
+        raise StudioError(refused)
     engines = ready_engines(catalog)
     engine = engine or (engines[0]["id"] if engines else None)
     if "back" in steps and engine != "pixal3d":
         steps = [s for s in steps if s != "back"]
     form = {"title": asset.get("name") or "Asset", "steps": json.dumps(steps), "want": want,
             "made": json.dumps(made_from(asset))}
+    if choices and "finished" in steps:
+        form["finish_settings"] = json.dumps(choices)
     if "picture" in steps and asset.get("prompt"):
         form["prompt"] = asset["prompt"]
     if "model" in steps:
@@ -517,7 +581,8 @@ def build_server(studio: Studio | None = None):
     @server.tool(name="create", structured_output=False)
     def tool_create(want: str, description: str = "", image_path: str | None = None, model_path: str | None = None,
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
-                  move: str | None = None, add_wording: bool = True, finish_upload: bool = False):
+                  move: str | None = None, add_wording: bool = True, finish_upload: bool = False,
+                  finish_detail: str | None = None, pixel_match: bool = True):
         """Make something new, as the studio's Create does. Returns a run_id at once; the run takes minutes.
 
         want: "picture" | "prop" (one game-ready object) | "set" (a 3x3 sheet cut into nine props) |
@@ -528,18 +593,27 @@ def build_server(studio: Studio | None = None):
         picture for a fuller model (default: on when installed). move: first animation (see list_moves).
         add_wording: append the studio's proven prompt wording (pose, background, ...) to a description.
         finish_upload: also run Finish on an uploaded GLB.
+        finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), a count from
+        1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
+        stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
                                    front_and_back=front_and_back, move=move, add_wording=add_wording,
-                                   finish_upload=finish_upload))
+                                   finish_upload=finish_upload, finish_detail=finish_detail,
+                                   pixel_match=pixel_match))
 
     @server.tool(name="continue_asset", structured_output=False)
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,
-                          move: str | None = None, engine: str | None = None):
+                          move: str | None = None, engine: str | None = None, again: bool = False,
+                          finish_detail: str | None = None, pixel_match: bool = True):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
-        character another move (up_to="animated", move=...). up_to: the last step to run (default: all)."""
-        return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move, engine=engine))
+        character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
+        again=True makes the up_to step again as a new version (another 3D model, another Finish at a
+        different detail, a re-rig); the current one is kept. finish_detail and pixel_match: as in create."""
+        return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
+                                           engine=engine, again=again, finish_detail=finish_detail,
+                                           pixel_match=pixel_match))
 
     @server.tool(name="run_status", structured_output=False)
     def tool_run_status(run_id: str | None = None, wait_seconds: int = 30):

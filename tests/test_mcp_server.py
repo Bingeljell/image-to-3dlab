@@ -134,7 +134,7 @@ def test_the_server_registers_every_tool():
     server = ms.build_server(ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None))
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
-                     "list_assets", "preview", "open_in_studio", "install_backend"}
+                     "list_assets", "list_versions", "preview", "open_in_studio", "install_backend"}
 
 
 # --------------------------------------------------------------------------- create
@@ -362,3 +362,33 @@ def test_again_needs_a_step_that_can_be_remade(studio):
         ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="picture", again=True)
     with pytest.raises(ms.StudioError, match="has no model"):
         ms.continue_asset(studio, asset_id=PICTURE["id"], up_to="finished", again=True)
+
+
+# --------------------------------------------------------------------------- versions
+def test_list_versions_gathers_one_family_oldest_first_from_any_member():
+    v1 = {**KNIGHT, "family": "fam", "version": 1, "main": True}
+    v2 = {**KNIGHT, "id": "dddddddddddd", "family": "fam", "version": 2, "finished": "finish/k2/k_full.glb", "hidden": True}
+    other = {**PICTURE, "family": "other"}
+    studio = ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None)
+    studio.get = lambda path, **_: {"assets": [v2, other, v1]}
+    out = ms.list_versions(studio, asset_id="dddddddddddd")
+    assert out["family"] == "fam" and out["prompt"] == "a knight"
+    assert [(v["id"], v["version"], v["main"], v["hidden"]) for v in out["versions"]] == [
+        ("aaaaaaaaaaaa", 1, True, False), ("dddddddddddd", 2, False, True)]
+    assert out["versions"][1]["files"]["model"] == "output/k/k.glb"       # the raw model, before Finish
+    assert out["versions"][1]["files"]["finished"] == "output/finish/k2/k_full.glb"
+
+
+def test_an_asset_without_a_family_is_its_own_family(studio):
+    out = ms.list_versions(studio, asset_id="cccccccccccc")
+    assert out["family"] == "cccccccccccc" and [v["id"] for v in out["versions"]] == ["cccccccccccc"]
+
+
+def test_list_versions_names_an_unknown_id(studio):
+    with pytest.raises(ms.StudioError, match="No asset with id"):
+        ms.list_versions(studio, asset_id="nope")
+
+
+def test_list_assets_rows_say_their_family_and_version(studio):
+    row = ms.list_assets(studio)["assets"][0]
+    assert row["family"] == row["id"] and row["version"] == 1

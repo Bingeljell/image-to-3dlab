@@ -160,6 +160,7 @@ def asset_summary(asset: dict[str, Any]) -> dict[str, Any]:
     files = {k: asset[k] for k in ("picture", "back", "model", "finished", "rigged") if asset.get(k)}
     return {
         "id": asset["id"], "name": asset.get("name"), "kind": asset.get("kind"), "stage": asset.get("stage"),
+        "family": asset.get("family") or asset["id"], "version": asset.get("version") or 1,
         "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(asset.get("updated", 0))),
         "files": {k: f"output/{v}" for k, v in files.items()},
         "moves": [c["name"] for c in asset.get("clips", [])],
@@ -496,6 +497,27 @@ def list_assets(studio: Studio, *, search: str = "", kind: str | None = None, li
     return {"total": len(assets), "assets": [asset_summary(a) for a in assets[: max(1, min(limit, 100))]]}
 
 
+def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
+    """Every version of one character or prop (one picture -> its 3D models -> finishes -> rigs),
+    oldest first, hidden ones included and marked. Any version's id finds the whole family."""
+    assets = studio.get("api/assets")["assets"]
+    asset = next((a for a in assets if a["id"] == asset_id), None)
+    if asset is None:
+        raise StudioError(f"No asset with id {asset_id!r}. list_assets shows what there is.")
+    family = asset.get("family") or asset["id"]
+    members = sorted((a for a in assets if (a.get("family") or a["id"]) == family),
+                     key=lambda a: a.get("version") or 1)
+    versions = []
+    for member in members:
+        row = asset_summary(member)
+        row.pop("prompt", None)
+        row["main"] = bool(member.get("main"))
+        row["hidden"] = bool(member.get("hidden"))
+        versions.append(row)
+    return {"family": family, "prompt": asset.get("prompt"), "versions": versions,
+            "tip": "files.model is each version's raw 3D model (before Finish); preview(stage='model') shows it."}
+
+
 def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint",
             move: str | None = None) -> tuple[bytes, dict[str, Any]]:
     params = {"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
@@ -648,6 +670,12 @@ def build_server(studio: Studio | None = None):
         """The Library, newest first: ids, names, how far each got, file paths, moves.
         kind: picture | character | prop | "prop set" | model. search: words in the name or prompt."""
         return safe(lambda: list_assets(studio, search=search, kind=kind, limit=limit))
+
+    @server.tool(name="list_versions", structured_output=False)
+    def tool_list_versions(asset_id: str):
+        """Every version of one character or prop, oldest first: the same picture's 3D models,
+        Finishes and rigs, each with its files (the raw 3D model too). Any version's id works."""
+        return safe(lambda: list_versions(studio, asset_id=asset_id))
 
     @server.tool(name="preview", structured_output=False)
     def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None):

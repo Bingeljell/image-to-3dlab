@@ -57,22 +57,32 @@ BAKER_REPLACEMENT = (
 )
 
 # `rembg[gpu]` pulls onnxruntime-gpu, which is a CUDA wheel and reports no device on an
-# AMD card. SF3D imports rembg at module scope but only calls it when its own
-# `remove_background` runs, and this repo never calls it: image_to_3dlab/sf3d_backend.py
-# cuts the subject out with image_to_3dlab/matte.py instead. So the CPU wheel is enough.
+# AMD card, so the CPU wheel goes in its place.
+#
+# And a newer rembg than upstream's 2.0.57. image_to_3dlab/sf3d_backend.py cuts the subject
+# out with image_to_3dlab/matte.py, which asks rembg for BiRefNet-lite -- and 2.0.57 has no
+# BiRefNet session, so it quietly handed back u2net (downloaded unasked, and worse on thin
+# parts) while the provenance said BiRefNet. 2.0.69 is what requirements.txt uses; [cpu]
+# because from 2.0.5x on plain rembg no longer brings onnxruntime. Checked to resolve
+# against SF3D's numpy 1.26.4.
+REMBG_PIN = "rembg[cpu]==2.0.69; sys_platform != 'darwin'"
 REQUIREMENTS_FILE = "requirements.txt"
 REQUIREMENTS_NEEDLE = "rembg[gpu]==2.0.57; sys_platform != 'darwin'"
 REQUIREMENTS_REPLACEMENT = (
     "# image-to-3dlab: plain rembg, not [gpu]: onnxruntime-gpu is a CUDA wheel and cannot\n"
-    "# load on an AMD card. Unused here -- our own remover cuts the picture out first.\n"
-    "rembg==2.0.57; sys_platform != 'darwin'"
+    "# load on an AMD card. 2.0.69 for BiRefNet, which image_to_3dlab/matte.py asks for.\n"
+    + REMBG_PIN
 )
+# A checkout patched before the version bump has the comment (so the patch above calls it
+# done) but still pins 2.0.57. This moves that line on.
+OLD_PATCHED_PIN = "rembg==2.0.57; sys_platform != 'darwin'"
 
 PATCHES = (
     Patch(BAKER_FILE, BAKER_NEEDLE, BAKER_REPLACEMENT,
           proof="or torch.version.hip is not None"),
     Patch(REQUIREMENTS_FILE, REQUIREMENTS_NEEDLE, REQUIREMENTS_REPLACEMENT,
           proof="plain rembg, not [gpu]"),
+    Patch(REQUIREMENTS_FILE, OLD_PATCHED_PIN, REMBG_PIN, proof=REMBG_PIN),
 )
 
 

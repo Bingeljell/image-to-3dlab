@@ -39,11 +39,20 @@ def cut_out(image, remove_background, session):
     return remove_background(image, session, force=True)
 
 
+def setup_command(platform_id: str | None = None) -> str:
+    """The script that installs SF3D on this machine: on AMD it is a venv of its own."""
+    from image_to_3dlab import host
+
+    if (platform_id or host.host_platform()) == host.AMD:
+        return "scripts/bootstrap_sf3d_rocm.py"
+    return "scripts/bootstrap_sf3d.py"
+
+
 def _load_sf3d(repo: Path):
     repo = repo.expanduser().resolve()
     if not (repo / "sf3d" / "system.py").is_file():
         raise RuntimeError(
-            f"SF3D checkout not found at {repo}. Run scripts/bootstrap_macos.sh first, "
+            f"SF3D checkout not found at {repo}. Run {setup_command()} first, "
             "or pass --sf3d-repo."
         )
     if str(repo) not in sys.path:
@@ -53,7 +62,7 @@ def _load_sf3d(repo: Path):
         from sf3d.utils import remove_background, resize_foreground
     except ImportError as exc:
         raise RuntimeError(
-            "SF3D or a compiled extension could not be imported. Run scripts/bootstrap_sf3d.py. "
+            f"SF3D or a compiled extension could not be imported. Run {setup_command()}. "
             f"Original error: {exc}"
         ) from exc
     return SF3D, remove_background, resize_foreground

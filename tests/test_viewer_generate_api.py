@@ -1240,9 +1240,25 @@ def test_sf3d_readiness_proves_the_right_install_for_each_machine(monkeypatch):
     # the two routes share.
     monkeypatch.setattr(api, "SF3D_ROCM_MARKER", Path(__file__))
     monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", Path(sys.executable))
+    monkeypatch.setattr(api, "_sf3d_weights", lambda: [
+        {"label": "Stable Fast 3D", "present": True, "human_present": "3.8 GB"}])
     installed = api._sf3d_readiness(api.AMD)
     assert installed["ready"] is True and installed["build"]["hint"] is None
     assert str(api.SF3D_ROCM_PYTHON) in installed["build"]["interpreter"]
+
+
+def test_sf3d_on_amd_is_not_ready_without_its_weights(monkeypatch):
+    """Built but never downloaded (code-only, or stopped by the gated licence): a run would
+    have fetched ~4.9 GB nobody agreed to."""
+    monkeypatch.setattr(api, "SF3D_ROCM_MARKER", Path(__file__))
+    monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", Path(sys.executable))
+    monkeypatch.setattr(api, "_sf3d_weights", lambda: [
+        {"label": "Stable Fast 3D", "present": False, "human_present": "0 B"},
+        {"label": "DINOv2 image encoder", "present": True, "human_present": "1.1 GB"}])
+    readiness = api._sf3d_readiness(api.AMD)
+    assert readiness["ready"] is False
+    assert readiness["missing_weights"] == ["Stable Fast 3D"]
+    assert "--weights-only" in readiness["build"]["hint"]
 
 def test_sf3d_is_offered_on_an_amd_card_and_still_on_a_mac():
     import backend_catalog

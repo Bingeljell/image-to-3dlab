@@ -201,3 +201,12 @@ def test_the_catalogue_readiness_probe_is_this_routes_venv_not_the_apple_checkou
     assert any(".venv" in str(p) for p in amd_probes), amd_probes
     assert any(p.name.endswith(".i2l-build-complete") for p in amd_probes), amd_probes
     assert apple_probes != amd_probes
+
+def test_the_background_remover_is_announced_and_fetched_with_the_weights(monkeypatch,
+                                                                          tmp_path):
+    """sf3d_backend.py cuts pictures out with BiRefNet-lite. A setup that skips it leaves the
+    first run to fetch u2net nobody agreed to."""
+    assert "BiRefNet-lite" in boot.announcement("rocm7.2", "x", code=False, weights=True)
+    fetched = []
+    boot.install_background_remover(tmp_path / "lite.onnx", download=fetched.append)
+    assert fetched == [tmp_path / "lite.onnx"]

@@ -66,7 +66,7 @@ def test_patching_ten_times_does_not_stack(checkout: Path):
     text = (checkout / gen.BAKER_FILE).read_text()
     assert text.count("or torch.version.hip is not None") == 1
     assert text.count("use_cuda = use_cuda and") == 1
-    assert (checkout / gen.REQUIREMENTS_FILE).read_text().count("rembg==2.0.57; sys_platform != 'darwin'") == 1
+    assert (checkout / gen.REQUIREMENTS_FILE).read_text().count(gen.REMBG_PIN) == 1
 
 
 def test_the_gpu_kernels_are_no_longer_dropped(checkout: Path):
@@ -91,7 +91,7 @@ def test_the_cuda_only_onnxruntime_extra_is_dropped(checkout: Path):
     gen.patch(checkout)
     text = (checkout / gen.REQUIREMENTS_FILE).read_text()
     assert "rembg[gpu]" not in text
-    assert "rembg==2.0.57; sys_platform != 'darwin'" in text
+    assert gen.REMBG_PIN in text
     # The macOS line is untouched: it was already the CPU wheel.
     assert "rembg==2.0.57; sys_platform == 'darwin'" in text
 
@@ -129,3 +129,22 @@ def test_check_reports_without_changing_anything(checkout: Path, capsys):
     gen.patch(checkout)
     assert gen.main(["--check", "--root", str(checkout)]) == 0
     assert "patched" in capsys.readouterr().out
+
+def test_the_linux_rembg_can_make_a_birefnet_session(checkout: Path):
+    """rembg 2.0.57 has no BiRefNet: matte.py's request quietly became u2net, fetched
+    unasked, while the provenance still named BiRefNet."""
+    gen.patch(checkout)
+    text = (checkout / gen.REQUIREMENTS_FILE).read_text()
+    assert "rembg[cpu]==2.0.69; sys_platform != 'darwin'" in text
+    assert "rembg==2.0.57; sys_platform != 'darwin'" not in text
+
+
+def test_a_checkout_patched_before_the_bump_is_moved_on(checkout: Path):
+    path = checkout / gen.REQUIREMENTS_FILE
+    path.write_text(path.read_text().replace(
+        gen.REQUIREMENTS_NEEDLE,
+        "# image-to-3dlab: plain rembg, not [gpu]: old comment\n" + gen.OLD_PATCHED_PIN))
+    gen.patch(checkout)
+    gen.patch(checkout)
+    text = path.read_text()
+    assert text.count(gen.REMBG_PIN) == 1 and gen.OLD_PATCHED_PIN not in text

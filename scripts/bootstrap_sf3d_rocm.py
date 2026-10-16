@@ -53,7 +53,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 import bootstrap_sf3d as apple  # noqa: E402, RUF100
 import patch_sf3d_linux as sf3d_patch  # noqa: E402, RUF100
 
-from image_to_3dlab import host  # noqa: E402, RUF100
+from image_to_3dlab import host, matte  # noqa: E402, RUF100
 
 # The same checkout the Apple route uses: one clone, and each machine's venv beside it.
 VENDOR = apple.VENDOR
@@ -126,6 +126,8 @@ def announcement(route: str | None, why: str, code: bool = True,
         for repo, _, size in WEIGHTS:
             lines.append(f"             {size:>5.2f} GB  {repo}")
         lines.append("           stabilityai/stable-fast-3d is gated (see licence below)")
+        lines.append(f"  and:     BiRefNet-lite background remover, "
+                     f"{matte.LITE_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LITE_MODEL)}")
     lines += ["", "  licence: " + LICENCE, ""]
     return "\n".join(lines)
 
@@ -239,6 +241,16 @@ def install_weights() -> None:
                     f"Nothing else was changed.") from error
             raise
     del hf_hub_download
+    install_background_remover()
+
+
+def install_background_remover(target: Path | None = None, download=None) -> None:
+    """The cut-out sf3d_backend.py runs on every upload without alpha. Without it the first
+    generation fell back to u2net and fetched it unannounced, as every other AMD route
+    already guards against."""
+    from bootstrap_matte import install_if_missing
+
+    install_if_missing(target, download)
 
 
 def main(argv: list[str] | None = None) -> int:

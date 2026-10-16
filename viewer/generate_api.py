@@ -1489,6 +1489,13 @@ def _sf3d_parse_line(job: Job, line: str) -> None:
         job.emit({"phase": "running", "message": stripped[:200]})
 
 
+def _sf3d_weights() -> list[dict[str, Any]]:
+    """SF3D's weights as the Setup card counts them, so the two screens agree."""
+    import backend_catalog
+
+    return backend_catalog.BY_ID["sf3d"].describe(AMD)["weights"]
+
+
 def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
     """Is SF3D usable here. The two installs are not interchangeable.
 
@@ -1499,13 +1506,24 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
     """
     if (host or host_platform()) == AMD:
         present = SF3D_ROCM_MARKER.is_file() and SF3D_ROCM_PYTHON.is_file()
-        hint = None if present else (
-            "Stable Fast 3D for AMD is not installed. Run "
-            "scripts/bootstrap_sf3d_rocm.py (Linux with ROCm, ~4.9 GB of weights).")
+        # The weights too: a code-only install (or one stopped by the gated licence) would
+        # otherwise start a run, and SF3D would fetch ~4.9 GB that nobody agreed to.
+        weights = {w["label"]: {"label": w["label"], "present": w["present"],
+                                "human": w["human_present"]} for w in _sf3d_weights()}
+        missing = [label for label, w in weights.items() if not w["present"]]
+        hint = None
+        if not present:
+            hint = ("Stable Fast 3D for AMD is not installed. Run "
+                    "scripts/bootstrap_sf3d_rocm.py (Linux with ROCm, ~4.9 GB of weights).")
+        elif missing:
+            hint = ("Stable Fast 3D weights are missing: " + "; ".join(missing) + ". Press "
+                    "Download on its Setup card, or run python scripts/bootstrap_sf3d_rocm.py "
+                    "--weights-only.")
         return {
             "schema_version": 1,
             "build": {"present": present, "interpreter": str(SF3D_ROCM_PYTHON), "hint": hint},
-            "weights": {}, "missing_weights": [], "ready": present, "warning": None,
+            "weights": weights, "missing_weights": missing,
+            "ready": present and not missing, "warning": None,
         }
     present = (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
     return {

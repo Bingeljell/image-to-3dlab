@@ -308,6 +308,17 @@ def test_edge_fade_is_on_unless_asked_and_means_nothing_without_pixel_match():
     assert ms.finish_choices("game", False, edge_fade=False) == {"faces": 20000, "skip_photo": True}
 
 
+def test_nudge_is_on_unless_asked_and_means_nothing_without_pixel_match():
+    assert ms.finish_choices("game", True, nudge=False) == {"faces": 20000, "skip_nudge": True}
+    assert ms.finish_choices(None, True, edge_fade=False, nudge=False) == {"skip_edge_fade": True, "skip_nudge": True}
+    assert ms.finish_choices("game", False, nudge=False) == {"faces": 20000, "skip_photo": True}
+
+
+def test_nudge_travels_with_the_plan(studio):
+    ms.create(studio, want="prop", description="a barrel", nudge=False)
+    assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True}
+
+
 def test_edge_fade_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", finish_detail="full", edge_fade=False)
     assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True}

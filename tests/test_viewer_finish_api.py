@@ -603,3 +603,10 @@ def test_turning_edge_fade_off_tells_the_worker():
     assert finish.normalise_settings({})["skip_edge_fade"] is False
     assert "--no-edge-fade" not in finish.build_command(job, finish.normalise_settings({}))
     assert "--no-edge-fade" in finish.build_command(job, finish.normalise_settings({"skip_edge_fade": True}))
+
+
+def test_turning_nudge_off_tells_the_worker():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    assert finish.normalise_settings({})["skip_nudge"] is False
+    assert "--no-nudge" not in finish.build_command(job, finish.normalise_settings({}))
+    assert "--no-nudge" in finish.build_command(job, finish.normalise_settings({"skip_nudge": True}))

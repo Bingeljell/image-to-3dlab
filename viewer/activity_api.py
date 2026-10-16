@@ -28,7 +28,7 @@ LABELS = {"picture": "Picture", "back": "Back picture", "model": "3D model", "fi
 KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "finish", "split": "props",
         "rigged": "animate", "animated": "animate"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
-FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "texture_size")
+FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)

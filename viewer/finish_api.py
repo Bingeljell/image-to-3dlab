@@ -73,10 +73,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "metallic": 0.25, "roughness": 0.65, "ior": 1.45,
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
-    "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False,
+    "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
 }
 
-BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade"}
+BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -217,6 +217,8 @@ def build_command(
         command.append("--keep-mesh")
     if settings.get("skip_edge_fade"):
         command.append("--no-edge-fade")
+    if settings.get("skip_nudge"):
+        command.append("--no-nudge")
     if resume:
         command.append("--resume")
     return command

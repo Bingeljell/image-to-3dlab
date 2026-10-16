@@ -836,3 +836,13 @@ def test_finish_offers_the_edge_fade_switch_on_by_default_only_with_a_picture():
       console.log(JSON.stringify([asset('i/k.png'), asset(null)].map((a) => m.stepBody('finished', a, ctx))
         .map((html) => (html.match(/<input type="checkbox" data-k="edgefade"( checked)?>/) || [null, null]).map(Boolean))));""")
     assert out == [[True, True], [False, False]]
+
+
+@needs_node
+def test_finish_offers_the_nudge_switch_on_by_default_only_with_a_picture():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const asset = (picture) => ({ kind: 'character', picture, model: 'm/k.glb', finished: null, clips: [] });
+      console.log(JSON.stringify([asset('i/k.png'), asset(null)].map((a) => m.stepBody('finished', a, ctx))
+        .map((html) => (html.match(/<input type="checkbox" data-k="nudge"( checked)?>/) || [null, null]).map(Boolean))));""")
+    assert out == [[True, True], [False, False]]

@@ -251,3 +251,13 @@ def test_edge_fade_is_on_unless_the_run_turns_it_off():
     assert rr.photo_settings().inner_edge > 0
     off = rr.photo_settings(edge_fade=False)
     assert off.inner_edge == 0.0 and off.cutout_edge > 0      # only the inner-edge fade goes
+
+
+def test_nudge_is_on_unless_the_run_turns_it_off():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).no_nudge is False
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--no-nudge"]).no_nudge is True
+    assert rr.photo_settings().align is True
+    off = rr.photo_settings(nudge=False)
+    assert off.align is False and off.inner_edge > 0          # edge fade untouched
+    both = rr.photo_settings(edge_fade=False, nudge=False)
+    assert both.align is False and both.inner_edge == 0.0

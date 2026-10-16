@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the picture out where one part sits in front of another; on detailed models that can leave
   coloured specks in hair and dark smudges over small eyes. Untick it and Finish again. Agents
   pass `edge_fade=False`.
+- **Nudge switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match first fits
+  your picture onto the model; on some models, often with a turned head, that slides a face off
+  its features and paints an eye twice. Untick it and Finish again. Agents pass `nudge=False`.
 - Agents can make a finished step **again as a new version** (another 3D model, another Finish,
   a re-rig) with `continue_asset(..., again=True)`.
 - **Open in the studio from a link:** `studio.html#asset=<id>` opens that asset, which is how

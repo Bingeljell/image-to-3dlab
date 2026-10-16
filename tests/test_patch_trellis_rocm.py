@@ -128,8 +128,9 @@ if IS_HIP:
     }
 '''
 
-# Upstream CuMesh, at the commit the NVIDIA route pins. It already dispatches on HIP, and it
-# does NOT hardcode the device-bitcode path, so it only needs the C++ standard.
+# dmonkman/CuMesh-ROCm, which this route builds. Unlike upstream it *does* hardcode the
+# device-bitcode path and already compiles as C++20, so it needs the device patch but not the
+# C++20 one. Kept faithful on both counts: 3 device flags is not the point, the anchors are.
 CUMESH_SETUP_SOURCE = '''\
 import os
 import torch
@@ -138,13 +139,52 @@ from torch.utils.cpp_extension import CUDAExtension, BuildExtension, IS_HIP_EXTE
 IS_HIP = bool(IS_HIP_EXTENSION)
 
 if not IS_HIP:
-    cc_flag = ["--use_fast_math"]
+    hip_cxx = ["-O3", "-std=c++20"]
 else:
     archs = os.getenv("GPU_ARCHS", "native").split(";")
-    cc_flag = [f"--offload-arch={a}" for a in archs]
+    _rocm = os.getenv("ROCM_PATH", "")
+    cc_flag = [f"--offload-arch={a}" for a in archs] + [
+        f"--hip-path={_rocm}", f"--rocm-path={_rocm}",
+        f"--rocm-device-lib-path={os.path.join(_rocm,'lib','llvm','amdgcn','bitcode')}",
+        "-fms-extensions", "-Wno-c++11-narrowing",
+    ]
 
 if platform.system() == "Windows":
     extra_compile_args = {
+        "cxx": ["-O3", "-std=c++20", "-EHsc"],
+    }
+else:
+    cxx11_abi = "1" if torch.compiled_with_cxx11_abi() else "0"
+    extra_compile_args = {
+        "cxx": ["-O3", "-std=c++20", "-fopenmp", f"-D_GLIBCXX_USE_CXX11_ABI={cxx11_abi}"],
+        "nvcc": ["-O3", "-std=c++20"] + cc_flag,
+    }
+'''
+
+# Upstream FlexGEMM, at the commit the NVIDIA route pins and this route also uses. It reads
+# IS_HIP_EXTENSION and passes --offload-arch already, and it does NOT hardcode the
+# device-bitcode path, so the C++20 change is all it needs.
+FLEXGEMM_SETUP_SOURCE = '''\
+import os
+import platform
+import torch
+from torch.utils.cpp_extension import CUDAExtension, BuildExtension, IS_HIP_EXTENSION
+
+BUILD_TARGET = os.environ.get("BUILD_TARGET", "auto")
+if BUILD_TARGET == "auto":
+    IS_HIP = bool(IS_HIP_EXTENSION)
+else:
+    IS_HIP = BUILD_TARGET == "rocm"
+
+if not IS_HIP:
+    cc_flag = ["--use_fast_math", "-allow-unsupported-compiler"]
+else:
+    archs = os.getenv("GPU_ARCHS", "gfx1030").split(";")
+    cc_flag = [f"--offload-arch={arch}" for arch in archs]
+
+if platform.system() == "Windows":
+    extra_compile_args = {
+        "cxx": ["/O2", "/std:c++17", "/EHsc"],
         "nvcc": ["-O3", "-std=c++17", "-Xcompiler=/EHsc"] + cc_flag,
     }
 else:
@@ -154,8 +194,6 @@ else:
         "nvcc": ["-O3", "-std=c++17"] + cc_flag,
     }
 '''
-
-FLEXGEMM_SETUP_SOURCE = CUMESH_SETUP_SOURCE
 
 # Upstream o-voxel, from the TRELLIS.2 checkout rather than extensions/. Two occurrences,
 # not three: it has no Windows branch.
@@ -214,6 +252,7 @@ UPSTREAM_SOURCES = {
     "extensions/nvdiffrast/setup.py": NVDIFFRAST_SETUP_SOURCE,
     "extensions/nvdiffrast/pyproject.toml": NVDFRAST_PYPROJECT,
     "extensions/CuMesh/setup.py": CUMESH_SETUP_SOURCE,
+    "extensions/CuMesh/pyproject.toml": NVDFRAST_PYPROJECT,
     "extensions/FlexGEMM/setup.py": FLEXGEMM_SETUP_SOURCE,
 }
 

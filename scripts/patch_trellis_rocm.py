@@ -12,23 +12,21 @@ pure-Python wheel, and runs on ROCm — where it was checked against torch's own
 agrees to 5e-4. The edit is the dispatch branch upstream lacks, in both the sparse and the
 dense attention paths.
 
-**The device bitcode.** The ROCm port of nvdiffrast hardcodes the ROCm 10 device-bitcode
-path `<root>/lib/llvm/amdgcn/bitcode`. ROCm 7.x keeps it at `<root>/amdgcn/bitcode`, so the
-build stops with `cannot find ROCm device library`. This makes it honour
-`HIP_DEVICE_LIB_PATH` (hipcc's own variable) and then whichever of the two layouts the
-install actually has.
+**The device bitcode.** The ROCm ports of nvdiffrast and CuMesh hardcode the ROCm 10
+device-bitcode path `<root>/lib/llvm/amdgcn/bitcode`. ROCm 7.x keeps it at
+`<root>/amdgcn/bitcode`, so the build stops with `cannot find ROCm device library`. This
+makes each honour `HIP_DEVICE_LIB_PATH` (hipcc's own variable) and then whichever of the two
+layouts the install actually has.
 
-**The C++ standard.** torch 2.14's headers need C++20 and these extensions are pinned at
-commits that say `-std=c++17`, so the compile dies inside `c10/util/intrusive_ptr.h` on
-`std::strong_ordering` before reaching a line of the extension's own. That is a three-word
-change here, rather than building from the community ROCm forks — which do this and, for
-nvdiffrast, the one thing above. CuMesh, FlexGEMM and o-voxel are therefore the same pinned
-commits the NVIDIA route uses, and the two cards run identical source.
+**The C++ standard.** torch 2.14's headers need C++20, and FlexGEMM and o-voxel are pinned
+at upstream commits that say `-std=c++17`, so the compile dies inside
+`c10/util/intrusive_ptr.h` on `std::strong_ordering` before reaching a line of the
+extension's own. For those two that is a three-word change rather than two more
+third-party checkouts, and both cards build them from identical source.
 
-**The Python floor.** `dmonkman/nvdiffrast-ROCm` declares `requires-python = ">=3.12"`,
-which stops uv installing it on the 3.11 this repo uses everywhere. NVIDIA's own v0.4.0
-declares no floor at all — the constraint is theirs, and it exists because their published
-wheels are cp312.
+**The Python floor.** Both dmonkman ports declare `requires-python = ">=3.12"`, which stops
+uv installing them on the 3.11 this repo uses everywhere. Neither upstream sets that floor —
+it exists because their published wheels are cp312.
 
 Deliberately *not* copied from the community forks: those wrap every existing backend in a
 bare `except Exception` and fall back to SDPA, and they replace the `raise ValueError` for
@@ -198,12 +196,13 @@ DEVICE_LIB_REPLACEMENT = (
 )
 DEVICE_LIB_PROOF = "ROCm 7.x keeps the device bitcode"
 
-# Only nvdiffrast, and only because upstream is CUDA-only: it has no HIP path at all, so
-# there is nothing to patch into. CuMesh, FlexGEMM and o-voxel all carry HIP support
-# upstream — they read IS_HIP_EXTENSION and pass --offload-arch — so this route builds
-# those from the same pinned commits as the NVIDIA route.
+# The two extensions this route takes from dmonkman's ROCm ports rather than upstream.
+# nvdiffrast because upstream has no HIP path at all; CuMesh because its sources need a
+# hipify (cuda:: to hip, cub:: to hipcub::, eight .cu files rewritten) that is machine
+# generated and not something to hand-edit here. Both hardcode the ROCm 10 bitcode path.
 DEVICE_LIB_FILES = (
     f"{EXTENSIONS}/nvdiffrast/setup.py",
+    f"{EXTENSIONS}/CuMesh/setup.py",
 )
 
 
@@ -232,21 +231,21 @@ DEVICE_LIB_PATCHES = tuple(
 
 # --- 3. C++20, which torch 2.14's headers require ------------------------------------------
 #
-# All three of these extensions are pinned at commits that compile with `-std=c++17`, and
+# FlexGEMM and o-voxel are pinned at upstream commits that compile with `-std=c++17`, and
 # torch 2.14's headers `#error` below C++20: the build fails inside c10/util/intrusive_ptr.h
 # on `std::strong_ordering` before it reaches a line of the extension's own. Every community
-# ROCm fork fixes this, and it is the *only* thing most of them change. So it is three words
-# here instead of three third-party checkouts, and the AMD and NVIDIA builds come from the
-# same pinned source.
+# ROCm fork fixes this, and for these two it is the *only* thing they change. So it is a
+# three-word change here instead of two more third-party checkouts, and these two builds on
+# AMD come from the same pinned source as the NVIDIA build.
+#
+# CuMesh is absent: its ROCm port already compiles as C++20.
 CXX17_NEEDLE = "-std=c++17"
 CXX17_REPLACEMENT = "-std=c++20"
 CXX17_PROOF = "-std=c++20"
 
-# (file, how many occurrences upstream has). nvdiffrast sets no standard at all and is not
-# here; it also is not built from upstream, see above.
+# (file, how many occurrences upstream has).
 CXX20_FILES = (
     (f"{EXTENSIONS}/FlexGEMM/setup.py", 3),
-    (f"{EXTENSIONS}/CuMesh/setup.py", 3),
     (f"{CHECKOUT}/o-voxel/setup.py", 2),
 )
 
@@ -255,19 +254,20 @@ CXX20_PATCHES = tuple(
     for path, count in CXX20_FILES
 )
 
-# --- 4. The Python floor the nvdiffrast port invented ---------------------------------------
+# --- 4. The Python floor the ROCm ports invented --------------------------------------------
 #
-# dmonkman/nvdiffrast-ROCm declares `requires-python = ">=3.12"`, and uv refuses to install
-# it on the 3.11 this route (and every other route here) uses. NVIDIA's own v0.4.0 setup.py
-# declares no python_requires at all, so the floor is theirs: their published wheels are
-# cp312. Nothing in the code needs 3.12.
+# Both dmonkman ports declare `requires-python = ">=3.12"`, and uv refuses to install them on
+# the 3.11 this route (and every other route here) uses. Upstream declares no floor at all --
+# nvdiffrast's v0.4.0 setup.py has no python_requires, and CuMesh's says >=3.8 -- so the floor
+# is theirs, and it exists because their published wheels are cp312.
 REQUIRES_PYTHON_NEEDLE = 'requires-python = ">=3.12"'
 REQUIRES_PYTHON_REPLACEMENT = 'requires-python = ">=3.9"'
 REQUIRES_PYTHON_PROOF = 'requires-python = ">=3.9"'
 
-REQUIRES_PYTHON_PATCHES = (
-    Patch(f"{EXTENSIONS}/nvdiffrast/pyproject.toml", REQUIRES_PYTHON_NEEDLE,
-          REQUIRES_PYTHON_REPLACEMENT, proof=REQUIRES_PYTHON_PROOF),
+REQUIRES_PYTHON_PATCHES = tuple(
+    Patch(path, REQUIRES_PYTHON_NEEDLE, REQUIRES_PYTHON_REPLACEMENT,
+          proof=REQUIRES_PYTHON_PROOF)
+    for path in (f"{EXTENSIONS}/nvdiffrast/pyproject.toml", f"{EXTENSIONS}/CuMesh/pyproject.toml")
 )
 
 PATCHES = AULE_PATCHES + DEVICE_LIB_PATCHES + CXX20_PATCHES + REQUIRES_PYTHON_PATCHES

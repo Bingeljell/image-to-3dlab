@@ -2,18 +2,20 @@
 """Install TRELLIS.2 for Linux with an AMD card: Microsoft's own code, built with HIP.
 
 The AMD twin of `bootstrap_trellis_cuda.py`. It runs the same pinned
-`microsoft/TRELLIS.2` checkout, the same pipeline and the same weights; only the four
-compiled pieces differ, and three of those need no port at all.
+`microsoft/TRELLIS.2` checkout, the same pipeline and the same weights. Of the four compiled
+extensions, one is NVIDIA's own at the same pinned commit as the CUDA route, and three need
+more:
 
-- **CuMesh, FlexGEMM and o-voxel are already HIP-capable upstream.** Their `setup.py` reads
-  `IS_HIP_EXTENSION` from torch and passes `--offload-arch`, which is all a ROCm torch
-  needs. The only thing missing is `-std=c++20`, because torch 2.14's headers require it
-  and those commits say C++17. So this route builds the *same pinned commits* as the NVIDIA
-  route, with a three-word patch, and both cards run identical source. Verified by building
-  them from upstream on an RX 7900 XT, not assumed.
-- **nvdiffrast is the exception.** Upstream is CUDA-only with no HIP path to patch into, so
-  this takes `dmonkman/nvdiffrast-ROCm`, and applies `patch_trellis_rocm.py` to fix the
-  device-bitcode path it hardcodes for ROCm 10.
+- **FlexGEMM and o-voxel are upstream**, at the same commits the NVIDIA route uses. Both
+  already dispatch on `IS_HIP_EXTENSION` and pass `--offload-arch`, and both only call the raw
+  CUDA runtime, which hipcc aliases. Their one genuine problem is `-std=c++17` against
+  torch 2.14's C++20 headers, which is three words in `patch_trellis_rocm.py`. So these two
+  builds run identical source on both cards.
+- **CuMesh and nvdiffrast come from dmonkman's ROCm ports.** nvdiffrast because upstream is
+  CUDA-only with no HIP path to patch into. CuMesh because its eight `.cu` sources need a
+  hipify — `cuda::` to hip, `cub::` to `hipcub::` — which is machine generated rather than
+  something to hand-edit. Both ports still hardcode the ROCm 10 device-bitcode path and
+  declare `requires-python >=3.12`; the same patch fixes both.
 - **Attention needs a backend that has no CUDA extension at all.** TRELLIS.2's three are
   xformers, flash-attn and flash-attn-3, all compiled against CUDA. This installs
   AuleAttention, a Triton flash attention that needs no compilation, and the same patch
@@ -45,6 +47,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -73,19 +76,25 @@ WEIGHTS = cuda.WEIGHTS
 UTILS3D = cuda.UTILS3D
 PACKAGE_LOCK = cuda.PACKAGE_LOCK
 
-# The one extension upstream cannot build for HIP, and the one community port of it.
-# dmonkman/nvdiffrast-ROCm is NVIDIA's v0.4.0 plus a HIP path and the device-bitcode fix
-# scripts/patch_trellis_rocm.py still has to make.
+# Two extensions come from dmonkman's ROCm ports, for two different reasons, and it matters
+# which is which.
+#
+# nvdiffrast: upstream is CUDA-only with no HIP path to patch into, so there is no choice.
+#   dmonkman/nvdiffrast-ROCm is NVIDIA's v0.4.0 plus that path.
+# CuMesh: upstream dispatches on HIP, but its eight .cu sources need a hipify -- cuda:: to
+#   hip, cub:: to hipcub:: -- which is machine generated and not something to hand-edit. The
+#   fork is that hipify, applied to the commit pinned below. Checked by diff, not assumed:
+#   building upstream CuMesh here fails on `no member named 'cuda' in the global namespace`.
 NVDIFFRAST = ("nvdiffrast", "https://github.com/dmonkman/nvdiffrast-ROCm.git",
               "dd6f84d115d6c4c2a31d5cbcb7b225d5f7a46c5a", False)
-# These two are NVIDIA's own, at the same commits the CUDA route uses. Upstream already reads
-# IS_HIP_EXTENSION and passes --offload-arch, so they need no fork: the only change this
-# route makes is the C++20 bump the ROCm forks all make too. Checked, not assumed — built
-# from upstream at these commits on an RX 7900 XT (gfx1100, ROCm 7.2, torch 2.14.1).
+CUMESH = ("CuMesh", "https://github.com/dmonkman/CuMesh-ROCm.git",
+          "e28fe419201ce134deeccf0947bb97b8228f2e82", False)
+# This one is NVIDIA's own, at the same commit the CUDA route uses. It needs no fork: it only
+# calls the raw CUDA runtime, which hipcc aliases, and its one genuine problem was the C++
+# standard. Verified by building it from upstream on this card, not assumed.
 SOURCE_EXTENSIONS = (
     NVDIFFRAST,
-    ("CuMesh", "https://github.com/JeffreyXiang/CuMesh.git",
-     "12289e1062f0603f2f0d0771b02e1395d247f26f", True),
+    CUMESH,
     ("FlexGEMM", "https://github.com/JeffreyXiang/FlexGEMM.git",
      "6dd94a859c26ee8246888502eada3dd8ad85532e", True),
 )
@@ -108,6 +117,24 @@ TORCH = {
 # These forks split GPU_ARCHS on a semicolon, not the comma PYTORCH_ROCM_ARCH uses. One
 # arch on this machine, and a mistake here compiles for the wrong card.
 ARCH_SEPARATOR = ";"
+
+# ROCm's HIP headers define __noinline__ to nothing
+# (/opt/rocm/include/hip/amd_detail/host_defines.h). libstdc++ 16 writes
+# [[__gnu__::__noinline__]] in <format>, so once that macro is defined the header parses as
+# [[__gnu__::]] and every .cpp that reaches <chrono> fails with "expected an identifier for
+# the attribute name". It is a collision between ROCm's headers and a 2026-era libstdc++,
+# not a fault in the extensions.
+#
+# Reading <format> before the HIP headers define the macro fixes it: CPPFLAGS is honoured by
+# setuptools and reaches exactly the host-compiler invocations, which are the ones that
+# break. It is only added when the probe below says it is needed, so a machine with an older
+# libstdc++ gets nothing.
+FORMAT_WORKAROUND_FLAGS = "-include format"
+NOINLINE_PROBE_SOURCE = (
+    "#define __noinline__\n"      # what ROCm's host_defines.h does
+    "#include <format>\n"         # what libstdc++ 16 then cannot parse
+    "int main() { return 0; }\n"
+)
 
 # Upstream's --basic list minus what only training or the Gradio demo uses. onnxruntime is
 # dropped: its 1.16.3 wheel asks for an executable stack the kernel here refuses, and nothing
@@ -167,9 +194,11 @@ def announcement(route: str | None, why: str, code: bool = True,
     if code:
         lines.append(f"  code:    microsoft/TRELLIS.2 @ {pinned_commit()[:7]} -> "
                      "vendor/trellis-rocm/, plus its own venv (several GB of packages)")
-        lines.append("           nvdiffrast from the dmonkman ROCm port; CuMesh, FlexGEMM and "
-                     "o-voxel from")
-        lines.append("           upstream at the same commits the NVIDIA route uses")
+        lines.append("           nvdiffrast and CuMesh from the dmonkman ROCm ports (nvdiffrast has no "
+                     "HIP path upstream;")
+        lines.append("           CuMesh's sources need a hipify); FlexGEMM and o-voxel from "
+                     "upstream at the")
+        lines.append("           same commits the NVIDIA route uses")
         lines.append(f"           all four compiled with hipcc for "
                      f"{ARCH_SEPARATOR.join(gfx) or 'your card'}: count on 20-40 minutes")
     if weights:
@@ -188,8 +217,25 @@ def arch_list(gfx: list[str]) -> str | None:
     return ARCH_SEPARATOR.join(gfx) if gfx else None
 
 
+def noinline_collides(compiler: str = "c++", tmp_dir: Path | None = None) -> bool:
+    """Does this machine's libstdc++ collide with ROCm's empty __noinline__?
+
+    Compiles one line with the macro defined, exactly as ROCm's headers define it. Seconds,
+    and it is the difference between a build that starts and one that dies twenty minutes in
+    with an error in a system header nobody asked for.
+    """
+    with tempfile.TemporaryDirectory(dir=tmp_dir) as work:
+        probe = Path(work) / "noinline_probe.cpp"
+        probe.write_text(NOINLINE_PROBE_SOURCE)
+        result = subprocess.run(
+            [compiler, "-std=c++20", "-c", str(probe), "-o", os.devnull],
+            capture_output=True, text=True, check=False)
+        return result.returncode != 0
+
+
 def build_env(gfx: list[str], hipcc: str | None,
-              base: dict[str, str] | None = None) -> dict[str, str]:
+              base: dict[str, str] | None = None,
+              format_workaround: bool | None = None) -> dict[str, str]:
     """Environment for compiling the extensions with hipcc on this machine."""
     env = dict(os.environ if base is None else base)
     arch = arch_list(gfx)
@@ -201,6 +247,9 @@ def build_env(gfx: list[str], hipcc: str | None,
         if root:
             env["ROCM_PATH"] = str(root)
         env["PATH"] = os.pathsep.join([str(Path(hipcc).parent), env.get("PATH", "")])
+    needs = noinline_collides() if format_workaround is None else format_workaround
+    if needs:
+        env["CPPFLAGS"] = FORMAT_WORKAROUND_FLAGS
     return env
 
 

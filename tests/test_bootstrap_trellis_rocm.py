@@ -11,6 +11,7 @@ that stops a silent 16 GB download.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -177,7 +178,7 @@ def test_archs_are_semicolon_separated():
 
 
 def test_the_build_environment_names_the_card_the_toolkit_and_the_jobs():
-    env = boot.build_env(["gfx1100"], "/opt/rocm/bin/hipcc", {})
+    env = boot.build_env(["gfx1100"], "/opt/rocm/bin/hipcc", {}, format_workaround=False)
     assert env["GPU_ARCHS"] == "gfx1100"
     assert env["ROCM_PATH"] == "/opt/rocm"
     assert "/opt/rocm/bin" in env["PATH"]
@@ -191,19 +192,68 @@ def test_the_build_environment_without_a_toolkit_still_names_the_card():
     assert "ROCM_PATH" not in env
 
 
-def test_only_nvdiffrast_comes_from_a_fork():
-    """CuMesh, FlexGEMM and o-voxel carry HIP support upstream. Forking them would mean
-    running different source on the two cards for no reason."""
+def test_which_extensions_come_from_a_fork():
+    """nvdiffrast has no HIP upstream; CuMesh's sources need a hipify. FlexGEMM does not.
+
+    Forking FlexGEMM would mean the two cards ran different code for no reason, and its
+    upstream build was checked on this card rather than assumed.
+    """
     urls = {name: url for name, url, _, _ in boot.SOURCE_EXTENSIONS}
     assert "dmonkman" in urls["nvdiffrast"]
-    for name in ("CuMesh", "FlexGEMM"):
-        assert "dmonkman" not in urls[name], f"{name} should be upstream"
-    # ... and the build patch has to agree.
+    assert "dmonkman" in urls["CuMesh"]
+    assert "dmonkman" not in urls["FlexGEMM"], "FlexGEMM should be upstream"
+    assert urls["FlexGEMM"] == "https://github.com/JeffreyXiang/FlexGEMM.git"
+    # ... and the build patch has to agree with that.
     patched = {path for path, _ in boot.rocm_patch.CXX20_FILES}
-    assert "extensions/CuMesh/setup.py" in patched
     assert "extensions/FlexGEMM/setup.py" in patched
     assert "TRELLIS.2/o-voxel/setup.py" in patched
-    assert boot.rocm_patch.DEVICE_LIB_FILES == ("extensions/nvdiffrast/setup.py",)
+    # CuMesh's port is already C++20, so it must not be asked for a C++20 change.
+    assert "extensions/CuMesh/setup.py" not in patched
+    assert set(boot.rocm_patch.DEVICE_LIB_FILES) == {"extensions/nvdiffrast/setup.py",
+                                                    "extensions/CuMesh/setup.py"}
+    python_floor = {spec.file for spec in boot.rocm_patch.REQUIRES_PYTHON_PATCHES}
+    assert python_floor == {"extensions/nvdiffrast/pyproject.toml",
+                            "extensions/CuMesh/pyproject.toml"}
+
+
+# --- ROCm's empty __noinline__ against a 2026 libstdc++ -------------------------------------
+
+def test_the_probe_reproduces_the_collision_it_guards():
+    """The probe has to fail on a machine that has the collision, or it guards nothing."""
+    if shutil.which("c++") is None:
+        pytest.skip("no C++ compiler")
+    assert boot.noinline_collides() in {True, False}   # runs, and returns a bool
+    # The source is the collision itself, not a guess at it.
+    assert "#define __noinline__" in boot.NOINLINE_PROBE_SOURCE
+    assert "#include <format>" in boot.NOINLINE_PROBE_SOURCE
+
+
+def test_the_probe_says_false_for_a_compiler_that_always_works(tmp_path):
+    fake = tmp_path / "always-ok"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    assert boot.noinline_collides(compiler=str(fake), tmp_dir=tmp_path) is False
+
+
+def test_the_probe_says_true_for_a_compiler_that_always_fails(tmp_path):
+    fake = tmp_path / "always-fails"
+    fake.write_text("#!/bin/sh\nexit 1\n")
+    fake.chmod(0o755)
+    assert boot.noinline_collides(compiler=str(fake), tmp_dir=tmp_path) is True
+
+
+def test_the_workaround_is_added_only_where_it_is_needed():
+    env = boot.build_env(["gfx1100"], "/opt/rocm/bin/hipcc", {}, format_workaround=True)
+    assert env["CPPFLAGS"] == "-include format", (
+        "without it every .cpp that reaches <chrono> fails inside a system header")
+    assert "CPPFLAGS" not in boot.build_env(["gfx1100"], "/opt/rocm/bin/hipcc", {},
+                                           format_workaround=False)
+
+
+def test_the_workaround_reaches_the_host_compiler_only():
+    """CPPFLAGS goes to setuptools' preprocessor options, which is the host-compiler path.
+    The HIP compiles go through hipcc and are unaffected either way."""
+    assert boot.FORMAT_WORKAROUND_FLAGS == "-include format"
 
 
 # --- the command line -----------------------------------------------------------------------

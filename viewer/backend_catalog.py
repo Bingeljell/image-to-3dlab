@@ -47,7 +47,7 @@ HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingfac
 TRELLIS_MODEL_PATH_ENV = "I2L_TRELLIS_MODEL_PATH"
 
 #: Where a locally-assembled TRELLIS.2 weights tree goes, per route. A machine with both
-#: cards can use either; the generator looks under its own route first (see
+#: cards can use either; the generator looks under its own route first, then the other (see
 #: scripts/trellis_route.py). This is a convention rather than a requirement: the cache and
 #: the environment variable both work.
 TRELLIS_LOCAL_MODEL_DIR = "TRELLIS.2-4B"

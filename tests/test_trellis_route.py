@@ -128,7 +128,6 @@ def test_the_build_marker_is_the_same_name_on_both_routes():
     """Both bootstraps write `.i2l-build-complete`; readiness reads what the route asks for."""
     assert routes.CUDA.marker_name == routes.ROCM.marker_name == ".i2l-build-complete"
 
-
 def test_the_rocm_route_drops_an_inherited_allocator_setting():
     """expandable_segments gives silent NaNs on ROCm. Not setting it is not enough when the
     viewer was started from a shell that exports it."""
@@ -136,3 +135,29 @@ def test_the_rocm_route_drops_an_inherited_allocator_setting():
                                "PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True"})
     assert "PYTORCH_CUDA_ALLOC_CONF" not in env and "PYTORCH_HIP_ALLOC_CONF" not in env
     assert routes.CUDA.environ({})["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+
+
+def test_a_tree_under_the_other_route_is_used_too(monkeypatch, tmp_path):
+    """The Setup card counts weights under either route; a run that only looked under its
+    own would read "present" and then download 16 GB."""
+    monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
+    route = dataclasses.replace(routes.ROCM, vendor=tmp_path / "trellis-rocm")
+    other = tmp_path / "trellis-cuda" / "models" / "TRELLIS.2-4B"
+    other.mkdir(parents=True)
+    (other / "pipeline.json").write_text("{}")
+    assert route.model_path() == str(other)
+    own = route.vendor / "models" / "TRELLIS.2-4B"
+    own.mkdir(parents=True)
+    (own / "pipeline.json").write_text("{}")
+    assert route.model_path() == str(own), "its own tree still comes first"
+
+
+def test_the_run_and_the_setup_card_look_in_the_same_places():
+    sys.path.insert(0, str(REPO))
+    from viewer import backend_catalog
+
+    assert routes.ROUTE_DIRS == backend_catalog.TRELLIS_ROUTE_DIRS
+    assert routes.LOCAL_MODEL_DIR == backend_catalog.TRELLIS_LOCAL_MODEL_DIR
+    for route in (routes.CUDA, routes.ROCM):
+        assert set(route.local_trees()) == set(backend_catalog._local_trellis()) - {
+            backend_catalog.trellis_local_models()}

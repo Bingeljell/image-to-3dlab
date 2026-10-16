@@ -23,6 +23,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
+#: Every route's vendor folder name. A weights tree under either serves both routes, since
+#: they load the same files; viewer/backend_catalog.py counts the same list.
+ROUTE_DIRS = ("trellis-cuda", "trellis-rocm")
+LOCAL_MODEL_DIR = "TRELLIS.2-4B"
+
 
 @dataclass(frozen=True)
 class Route:
@@ -60,10 +65,11 @@ class Route:
         """Where to load the weights from: a local directory if there is one, else the repo.
 
         Two ways to have a local one. `I2L_TRELLIS_MODEL_PATH` names it outright; otherwise
-        this route's own `vendor/<route>/models/TRELLIS.2-4B` is used when it exists. The
-        override exists for machines whose weights are somewhere else entirely -- a shared
-        store, an offline box -- where re-downloading 16 GB is not on. The default is a
-        convention, not a requirement: the Hugging Face cache works as it always did.
+        this route's own `vendor/<route>/models/TRELLIS.2-4B` is used when it exists, then the
+        other route's. The override exists for machines whose weights are somewhere else
+        entirely -- a shared store, an offline box -- where re-downloading 16 GB is not on.
+        The default is a convention, not a requirement: the Hugging Face cache works as it
+        always did.
 
         The Setup card counts the same places (`viewer/backend_catalog.py`), so a route
         whose weights are local does not read as partly downloaded on the machine that
@@ -72,8 +78,19 @@ class Route:
         named = os.environ.get("I2L_TRELLIS_MODEL_PATH")
         if named:
             return named
-        local = self.vendor / "models" / "TRELLIS.2-4B"
-        return str(local) if (local / "pipeline.json").is_file() else self.model_repo
+        for local in self.local_trees():
+            if (local / "pipeline.json").is_file():
+                return str(local)
+        return self.model_repo
+
+    def local_trees(self) -> list[Path]:
+        """This route's own weights folder, then the other route's.
+
+        The card counts both, so the run must too: otherwise a machine whose weights sit
+        under the other route reads "present" and then downloads 16 GB anyway.
+        """
+        others = [self.vendor.parent / name for name in ROUTE_DIRS if name != self.vendor.name]
+        return [root / "models" / LOCAL_MODEL_DIR for root in [self.vendor, *others]]
 
     def environ(self, base: dict[str, str] | None = None) -> dict[str, str]:
         """Set this route's variables, and report what it set.

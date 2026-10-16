@@ -157,7 +157,9 @@ REQS="$DIR/requirements.lock"
 # runtime (tested in tests/test_host.py); the CUDA and Apple paths keep the plain install.
 if [ "$GPU" = amd ] && [ -f "$REQS" ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
   ROCM_LOCK="$DIR/requirements.rocm.lock"
-  run "$PY" -m image_to_3dlab.host without-cuda "$REQS" >"$ROCM_LOCK"
+  # From inside $DIR: `-m` finds the package in the current folder, and under
+  # `curl | bash` that folder is wherever the user happened to be.
+  (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$REQS") >"$ROCM_LOCK"
   REQS="$ROCM_LOCK"
 fi
 
@@ -166,7 +168,7 @@ run "$UV" pip install --quiet --python "$PY" -r "$REQS"
 # After the requirements, so it wins over the PyPI wheel: --reinstall-package is what makes
 # uv swap the build rather than consider the requirement satisfied.
 if [ "$GPU" = amd ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
-  ROCM_INDEX="$("$PY" -m image_to_3dlab.host torch-rocm-index | tr -d '[:space:]')"
+  ROCM_INDEX="$(cd "$DIR" && "$PY" -m image_to_3dlab.host torch-rocm-index | tr -d '[:space:]')"
   if ! (cd "$DIR" && "$PY" -m image_to_3dlab.host torch-has-rocm); then
     if [ -n "$ROCM_INDEX" ]; then
       say "Installing PyTorch with ROCm from $ROCM_INDEX"

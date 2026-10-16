@@ -336,6 +336,10 @@ def amd_venv(tmp_path: Path):
         python = bin_dir / "python"
         python.write_text(f"""#!/bin/sh
 if [ "$1" = "-m" ] && [ "$2" = "image_to_3dlab.host" ]; then
+  # Like real Python: `-m` only finds the package from inside the install folder.
+  if [ "$PWD" != "{tmp_path / 'lab'}" ]; then
+    echo "No module named image_to_3dlab" >&2; exit 1
+  fi
   shift 2
   case "$1" in
     torch-has-rocm) exit {0 if rocm_already else 1} ;;

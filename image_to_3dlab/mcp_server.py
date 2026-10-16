@@ -290,6 +290,97 @@ def full_detail_refusal(steps: list[str], choices: dict[str, Any], asset: dict[s
     return None
 
 
+# The studio's Advanced knobs, for agents. `options` hands this to them as it is, and
+# `read_advanced` accepts exactly these keys; a test checks every studio control has a twin.
+ADVANCED: dict[str, dict[str, Any]] = {
+    "edge_fade": {
+        "step": "finished", "type": "bool", "default": True,
+        "what": "Pixel Match fades your picture out where one part sits in front of another (an ear in front of a head).",
+        "try_off_when": "hair gets coloured specks or small eyes go dark, most often with finish_detail='full'."},
+    "nudge": {
+        "step": "finished", "type": "bool", "default": True,
+        "what": "Pixel Match first fits each picture onto the model's outline before painting.",
+        "try_off_when": "a feature shows up twice (a ghost eye) or slides off its place, often on a turned head."},
+    "texture_size": {
+        "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,
+        "what": "Pixel size of the finished model's texture. Bigger is sharper and a bigger file."},
+    "rig_from": {
+        "step": "rigged", "type": "str", "choices": ["finished", "model"], "default": "finished",
+        "what": "Which model gets the skeleton: the finished one, or the raw 3D model (skips Finish)."},
+    "speed": {
+        "step": "animated", "type": "float", "min": 0.5, "max": 2.0, "default": "the move's own pace",
+        "what": "Playback speed of the move."},
+    "arms_away": {
+        "step": "animated", "type": "float", "min": 0, "max": 25, "default": 0, "unit": "degrees",
+        "what": "Moves hanging arms outward so bulky characters (armour, big shoulders) don't hide hands in hips."},
+    "keep_everything": {
+        "step": "model", "type": "bool", "default": False,
+        "what": "The 3D step keeps its in-between textures, meshes and caches (several GB) for inspection."},
+}
+
+
+def read_advanced(advanced: dict[str, Any] | None) -> dict[str, Any]:
+    """Check an agent's `advanced` choices against ADVANCED and fill in the defaults."""
+    advanced = advanced or {}
+    if not isinstance(advanced, dict):
+        raise StudioError("advanced is a set of named choices, e.g. {\"nudge\": false}. options lists them.")
+    unknown = sorted(set(advanced) - set(ADVANCED))
+    if unknown:
+        raise StudioError(f"Unknown advanced choice {', '.join(map(repr, unknown))}. "
+                          f"Known: {', '.join(ADVANCED)}. options explains each.")
+    out: dict[str, Any] = {}
+    for name, spec in ADVANCED.items():
+        if name not in advanced or advanced[name] is None:
+            out[name] = None if isinstance(spec["default"], str) else spec["default"]
+            continue
+        value = advanced[name]
+        if spec["type"] == "bool":
+            if not isinstance(value, bool):
+                raise StudioError(f"advanced {name} is true or false.")
+        elif "choices" in spec:
+            if value not in spec["choices"]:
+                raise StudioError(f"advanced {name} is one of {', '.join(map(str, spec['choices']))}.")
+        else:
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                raise StudioError(f"advanced {name} is a number.") from None
+            if not spec["min"] <= value <= spec["max"]:
+                raise StudioError(f"advanced {name} is from {spec['min']:g} to {spec['max']:g}.")
+        out[name] = value
+    return out
+
+
+def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool) -> tuple[dict, dict]:
+    """(finish_settings, move_settings) for a plan, from the main Finish choices and `read_advanced`."""
+    finish = finish_choices(detail, pixel_match, adv["edge_fade"], adv["nudge"])
+    if adv["texture_size"] != ADVANCED["texture_size"]["default"]:
+        finish["texture_size"] = adv["texture_size"]
+    move = {k: v for k, v in (("speed", adv["speed"]), ("arm_spread", adv["arms_away"])) if v}
+    return finish, move
+
+
+def options() -> dict[str, Any]:
+    """Every knob, as the studio shows them: main ones on create/continue_asset, the rest in `advanced`."""
+    return {
+        "main": {
+            "want": "picture | prop | set | character (create only).",
+            "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
+            "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
+            "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
+            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | a count 1000-200000 | "
+                             "full (every triangle, for stills; not for rigging).",
+            "pixel_match": "Paint the picture's real pixels onto the model in Finish. Default: on.",
+            "move": "The animation to make (list_moves).",
+            "stop_after / up_to": "The last step to run: picture, back, model, finished, split, rigged, animated.",
+            "again": "continue_asset only: make that step again as a new version; the current one is kept.",
+        },
+        "advanced": ADVANCED,
+        "how": "Pass any of these as advanced, e.g. continue_asset(asset_id, up_to='finished', again=True, "
+               "advanced={'nudge': False}). Change one at a time and preview before and after.",
+    }
+
+
 def find_asset(studio: Studio, asset_id: str) -> dict[str, Any]:
     assets = studio.get("api/assets")["assets"]
     asset = next((a for a in assets if a["id"] == asset_id), None)
@@ -351,9 +442,9 @@ def list_moves(studio: Studio) -> dict[str, Any]:
 def create(studio: Studio, *, want: str, description: str = "", image_path: str | None = None,
            model_path: str | None = None, stop_after_step: str | None = None, engine: str | None = None,
            front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
-           finish_upload: bool = False, keep_everything: bool = False, finish_detail: str | int | None = None,
-           pixel_match: bool = True, edge_fade: bool = True,
-           nudge: bool = True) -> dict[str, Any]:
+           finish_upload: bool = False, finish_detail: str | int | None = None,
+           pixel_match: bool = True, advanced: dict[str, Any] | None = None) -> dict[str, Any]:
+    adv = read_advanced(advanced)
     have = "model" if model_path else "picture" if image_path else "idea"
     if model_path and image_path:
         raise StudioError("Give an image or a model, not both.")
@@ -371,6 +462,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     if front_back and not fb_ready:
         raise StudioError("Front and back isn't installed. The studio's Setup page adds it.")
     steps = stop_after(plan_for(have, want, finish_upload=finish_upload, front_back=front_back), stop_after_step)
+    if adv["rig_from"] == "model" and "rigged" in steps:
+        steps = [s for s in steps if s != "finished"]   # rig the raw model, as the studio's "skips Finish"
     engine = engine or (engines[0]["id"] if engines else None)
     if "back" in steps and engine != "pixal3d":
         steps = [s for s in steps if s != "back"]   # only Pixal3D builds from front and back
@@ -396,14 +489,16 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         form["model_seed"] = str(int.from_bytes(os.urandom(3), "big"))  # a new try each time, like Create
     if move and "animated" in steps:
         form["first_move"] = move
-    if keep_everything and "model" in steps:
+    if adv["keep_everything"] and "model" in steps:
         form["keep_everything"] = "1"
-    choices = finish_choices(finish_detail, pixel_match, edge_fade, nudge)
+    choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
     refused = full_detail_refusal(steps, choices)
     if refused:
         raise StudioError(refused)
     if choices and "finished" in steps:
         form["finish_settings"] = json.dumps(choices)
+    if move_settings and "animated" in steps:
+        form["move_settings"] = json.dumps(move_settings)
     upload = _upload(image_path, (".png", ".jpg", ".jpeg", ".webp")) or _upload(model_path, (".glb",))
     run = studio.post("api/chains", data=form, files={"file": upload} if upload else None)
     return {"run_id": run["id"], "steps": steps, "engine": form.get("engine"), "move": form.get("first_move"),
@@ -414,7 +509,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
 def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, want: str | None = None,
                    move: str | None = None, engine: str | None = None, again: bool = False,
                    finish_detail: str | int | None = None, pixel_match: bool = True,
-                   edge_fade: bool = True, nudge: bool = True) -> dict[str, Any]:
+                   advanced: dict[str, Any] | None = None) -> dict[str, Any]:
+    adv = read_advanced(advanced)
     asset = find_asset(studio, asset_id)
     want = want or want_for(asset)
     if up_to and up_to not in STEP_IDS:
@@ -428,8 +524,15 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     if not steps:
         return {"nothing_to_do": f"{asset['name']} has already reached {up_to or 'its last step'}. "
                                  "Pass again=True to make that step again as a new version."}
-    choices = finish_choices(finish_detail, pixel_match, edge_fade, nudge)
-    refused = full_detail_refusal(steps, choices, asset)
+    made = made_from(asset)
+    if adv["rig_from"] == "model" and "rigged" in steps:
+        if not made.get("model"):
+            raise StudioError("This asset has no raw 3D model to rig; leave rig_from as 'finished'.")
+        steps = [s for s in steps if s != "finished"]
+        made.pop("finished", None)                      # the rig step then takes the raw model
+        made.pop("rigged", None)
+    choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
+    refused = full_detail_refusal(steps, choices, {**asset, "finished": made.get("finished")})
     if refused:
         raise StudioError(refused)
     engines = ready_engines(catalog)
@@ -437,9 +540,11 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     if "back" in steps and engine != "pixal3d":
         steps = [s for s in steps if s != "back"]
     form = {"title": asset.get("name") or "Asset", "steps": json.dumps(steps), "want": want,
-            "made": json.dumps(made_from(asset))}
+            "made": json.dumps(made)}
     if choices and "finished" in steps:
         form["finish_settings"] = json.dumps(choices)
+    if move_settings and "animated" in steps:
+        form["move_settings"] = json.dumps(move_settings)
     if "picture" in steps and asset.get("prompt"):
         form["prompt"] = asset["prompt"]
     if "model" in steps:
@@ -447,6 +552,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
             raise StudioError("No 3D engine is installed yet.")
         form["engine"] = engine
         form["model_seed"] = str(int.from_bytes(os.urandom(3), "big"))
+        if adv["keep_everything"]:
+            form["keep_everything"] = "1"
     if "animated" in steps:
         moves = studio.get("api/animate/models")
         presets = moves.get("presets", []) if moves.get("installed") else []
@@ -577,7 +684,10 @@ INSTRUCTIONS = """AssetFurnace makes game-ready 3D assets on this machine: a pic
 3D model, then a finished game-ready model, then a rigged and animated character. Runs take minutes
 (a 3D model is ~5-15 min), one at a time. Typical flow: status -> create -> run_status (wait) ->
 list_assets -> preview (show the user the picture) -> open_in_studio if they want to look closer.
-Never download model weights without the user's explicit yes (install_backend asks first)."""
+If a result looks off, call options: it lists every knob (Pixel Match's edge fade and nudge, texture
+size, rigging the raw model, move speed, ...) with when to try it; redo one step with
+continue_asset(again=True, advanced={...}), changing one knob at a time. list_versions shows every
+version of a character. Never download model weights without the user's explicit yes (install_backend asks first)."""
 
 
 def build_server(studio: Studio | None = None):
@@ -609,12 +719,18 @@ def build_server(studio: Studio | None = None):
         """The animation moves a rigged character can be given (idle, walk, run, ...)."""
         return safe(lambda: list_moves(studio))
 
+    @server.tool(name="options", structured_output=False)
+    def tool_options():
+        """Every knob there is, as the studio shows them: the main ones on create and continue_asset, and
+        the Advanced ones (Pixel Match edge fade and nudge, texture size, rig from the raw model, move speed,
+        arms away from the body, ...) with what each does, its default and when to try it."""
+        return options()
+
     @server.tool(name="create", structured_output=False)
     def tool_create(want: str, description: str = "", image_path: str | None = None, model_path: str | None = None,
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
                   move: str | None = None, add_wording: bool = True, finish_upload: bool = False,
-                  finish_detail: str | None = None, pixel_match: bool = True, edge_fade: bool = True,
-                  nudge: bool = True):
+                  finish_detail: str | None = None, pixel_match: bool = True, advanced: dict | None = None):
         """Make something new, as the studio's Create does. Returns a run_id at once; the run takes minutes.
 
         want: "picture" | "prop" (one game-ready object) | "set" (a 3x3 sheet cut into nine props) |
@@ -628,31 +744,27 @@ def build_server(studio: Studio | None = None):
         finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), a count from
         1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
         stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
-        edge_fade: Pixel Match fades out beside inner edges (default on); False helps when hair gets
-        coloured specks or small eyes go dark, most often on full detail. nudge: Pixel Match first
-        fits each picture onto the model (default on); False helps when a feature lands twice (a ghost
-        eye) or slides off its place.
+        advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
                                    front_and_back=front_and_back, move=move, add_wording=add_wording,
                                    finish_upload=finish_upload, finish_detail=finish_detail,
-                                   pixel_match=pixel_match, edge_fade=edge_fade,
-                                   nudge=nudge))
+                                   pixel_match=pixel_match, advanced=advanced))
 
     @server.tool(name="continue_asset", structured_output=False)
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,
                           move: str | None = None, engine: str | None = None, again: bool = False,
                           finish_detail: str | None = None, pixel_match: bool = True,
-                          edge_fade: bool = True, nudge: bool = True):
+                          advanced: dict | None = None):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
         character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
         again=True makes the up_to step again as a new version (another 3D model, another Finish at a
-        different detail, a re-rig); the current one is kept. finish_detail, pixel_match, edge_fade and
-        nudge: as in create."""
+        different detail, a re-rig); the current one is kept. finish_detail, pixel_match and advanced:
+        as in create (options lists every advanced knob)."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
-                                           pixel_match=pixel_match, edge_fade=edge_fade, nudge=nudge))
+                                           pixel_match=pixel_match, advanced=advanced))
 
     @server.tool(name="run_status", structured_output=False)
     def tool_run_status(run_id: str | None = None, wait_seconds: int = 30):

@@ -134,7 +134,7 @@ def test_the_server_registers_every_tool():
     server = ms.build_server(ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None))
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
-                     "list_assets", "list_versions", "preview", "open_in_studio", "install_backend"}
+                     "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend"}
 
 
 # --------------------------------------------------------------------------- create
@@ -315,12 +315,12 @@ def test_nudge_is_on_unless_asked_and_means_nothing_without_pixel_match():
 
 
 def test_nudge_travels_with_the_plan(studio):
-    ms.create(studio, want="prop", description="a barrel", nudge=False)
+    ms.create(studio, want="prop", description="a barrel", advanced={"nudge": False})
     assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True}
 
 
 def test_edge_fade_travels_with_the_plan(studio):
-    ms.create(studio, want="prop", description="a barrel", finish_detail="full", edge_fade=False)
+    ms.create(studio, want="prop", description="a barrel", finish_detail="full", advanced={"edge_fade": False})
     assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True}
 
 
@@ -392,3 +392,60 @@ def test_list_versions_names_an_unknown_id(studio):
 def test_list_assets_rows_say_their_family_and_version(studio):
     row = ms.list_assets(studio)["assets"][0]
     assert row["family"] == row["id"] and row["version"] == 1
+
+
+# --------------------------------------------------------------------------- advanced knobs
+def test_options_lists_the_main_and_every_advanced_knob():
+    out = ms.options()
+    assert set(out["advanced"]) == {"edge_fade", "nudge", "texture_size", "rig_from", "speed", "arms_away",
+                                    "keep_everything"}
+    assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
+    assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
+
+
+def test_every_studio_control_has_an_mcp_twin():
+    """The studio's Create and Steps controls, each matched to its main or advanced MCP knob."""
+    source = "".join((REPO / "viewer" / "studio" / f).read_text() for f in ("steps.js", "create.js"))
+    controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
+    twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
+            "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
+            "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
+            "speed": "speed", "spread": "arms_away", "keep": "keep_everything"}
+    missing = sorted(controls - set(twin))
+    assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
+    known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
+    assert {twin[c] for c in controls} <= known
+
+
+@pytest.mark.parametrize("advanced, error", [
+    ({"colour": "red"}, "Unknown advanced choice 'colour'"), ({"nudge": "no"}, "nudge is true or false"),
+    ({"texture_size": 3000}, "texture_size is one of"), ({"speed": 5}, "speed is from 0.5 to 2"),
+    ({"rig_from": "picture"}, "rig_from is one of"),
+])
+def test_bad_advanced_choices_say_what_is_allowed(advanced, error):
+    with pytest.raises(ms.StudioError, match=error):
+        ms.read_advanced(advanced)
+
+
+def test_advanced_texture_speed_and_arms_travel_with_the_plan(studio):
+    ms.create(studio, want="character", description="a knight",
+              advanced={"texture_size": 4096, "speed": 1.5, "arms_away": 10, "keep_everything": True})
+    form = sent(studio)
+    assert json.loads(form["finish_settings"]) == {"texture_size": 4096}
+    assert json.loads(form["move_settings"]) == {"speed": 1.5, "arm_spread": 10}
+    assert form["keep_everything"] == "1"
+
+
+def test_defaults_add_nothing_to_the_plan(studio):
+    ms.create(studio, want="character", description="a knight", advanced={})
+    form = sent(studio)
+    assert "finish_settings" not in form and "move_settings" not in form and "keep_everything" not in form
+
+
+def test_rig_from_the_raw_model_skips_finish(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"rig_from": "model"})
+    assert "finished" not in json.loads(sent(studio)["steps"])
+    ms.continue_asset(studio, asset_id="aaaaaaaaaaaa", up_to="rigged", advanced={"rig_from": "model"})
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["rigged"]
+    assert "finished" not in json.loads(form["made"]) and json.loads(form["made"])["model"] == "k/k.glb"

@@ -23,12 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Edge fade switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match fades
   the picture out where one part sits in front of another; on detailed models that can leave
   coloured specks in hair and dark smudges over small eyes. Untick it and Finish again. Agents
-  pass `edge_fade=False`.
+  pass `advanced={"edge_fade": false}`.
 - **Nudge switch** for Pixel Match (Finish > Advanced, on by default). Pixel Match first fits
   your picture onto the model; on some models, often with a turned head, that slides a face off
-  its features and paints an eye twice. Untick it and Finish again. Agents pass `nudge=False`.
+  its features and paints an eye twice. Untick it and Finish again. Agents pass `advanced={"nudge": false}`.
 - **View the raw 3D model** after Finish, Rig and Animate: the 3D model and Finish steps get a
   **View** button beside Download, and **Show latest** goes back.
+- **Every studio knob reaches agents.** `options` lists them all, with what each does, its
+  default and when to try it; `create` and `continue_asset` take the Advanced ones as
+  `advanced` (Pixel Match edge fade and nudge, texture size, rig the raw model, move speed,
+  arms away from the body, keep everything). A test fails if a studio control has no twin.
 - Agents can list **every version** of a character with `list_versions`: its 3D models,
   Finishes and rigs, each with its files. Library rows say which family and version they are.
 - Agents can make a finished step **again as a new version** (another 3D model, another Finish,

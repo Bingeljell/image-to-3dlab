@@ -268,3 +268,23 @@ def test_each_finished_step_reports_how_long_it_took(tmp_path):
     seconds = chain.to_dict()["step_seconds"]
     assert set(seconds) == {"picture", "back", "model"} and all(s > 0 for s in seconds.values())
     assert [h["made"] for h in aa.read_history(tmp_path) if h["step"] == "back"] == ["images/p/pic__back.png"]
+
+
+def test_a_plan_carries_its_finish_choices_to_the_finish_job(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "made": {"value": json.dumps({"model": "pixal3d/m/model.glb", "picture": "images/p/pic.png"})},
+            "finish_settings": {"value": json.dumps({"keep_mesh": True, "skip_photo": False, "voxel": 9})}}
+    for rel in ("pixal3d/m/model.glb", "images/p/pic.png"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(b"x")
+    chain = aa.chain_from_form(form)
+    assert chain.finish_settings == {"keep_mesh": True, "skip_photo": False}   # unknown keys never reach Finish
+    runner.submit(chain, background=False)
+    body = next(b for m, p, b in jobs.calls if p == "/api/finish")
+    assert b'{"keep_mesh": true, "skip_photo": false}' in body
+
+
+def test_a_plan_without_finish_choices_gets_finishs_defaults(tmp_path):
+    chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])}})
+    assert chain.finish_settings == {}

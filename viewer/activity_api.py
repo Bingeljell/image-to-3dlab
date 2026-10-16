@@ -27,6 +27,8 @@ LABELS = {"picture": "Picture", "back": "Back picture", "model": "3D model", "fi
           "split": "Split into props", "rigged": "Rig", "animated": "Animate"}
 KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "finish", "split": "props",
         "rigged": "animate", "animated": "animate"}
+# The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
+FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "texture_size")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)
@@ -84,6 +86,7 @@ class Chain:
     picture_settings: dict[str, Any] = field(default_factory=dict)  # size, steps, seed (the image job checks them)
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
+    finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
@@ -293,7 +296,7 @@ class ChainRunner:
         if step == "finished":
             if not chain.made.get("model"):
                 raise ValueError("Finish needs a 3D model, and there is none yet")
-            body, ctype = multipart({"settings": "{}"},
+            body, ctype = multipart({"settings": json.dumps(chain.finish_settings)},
                                     {"asset": self._file(chain.made["model"]), "image": self._picture(chain)})
             return kind, self._post("/api/finish", body, ctype)
         if step == "rigged":
@@ -400,6 +403,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         steps = json.loads(text("steps") or "[]")
         made = json.loads(text("made") or "{}")
         picture = json.loads(text("picture_settings") or "{}")
+        finish = json.loads(text("finish_settings") or "{}")
     except ValueError as exc:
         raise ValueError(f"the plan is not readable: {exc}") from exc
     upload = form.get("file")
@@ -410,6 +414,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         if isinstance(picture, dict) else {},
         model_seed=int(text("model_seed")) if (text("model_seed") or "").isdigit() else None,
         keep_everything=text("keep_everything") in ("1", "true"),
+        finish_settings={k: finish[k] for k in FINISH_KEYS if k in finish} if isinstance(finish, dict) else {},
         made={k: str(v) for k, v in made.items() if k in ("picture", "back", "model", "finished", "rigged") and v},
         upload=(upload.get("filename") or "upload", upload["data"]) if upload and upload.get("filename") and upload.get("data") else None,
     )

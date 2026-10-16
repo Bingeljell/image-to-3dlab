@@ -84,6 +84,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extra from rembg, a CUDA wheel this route never calls.
 
 ### Fixed
+- **AMD review: setup and runs.** A pass over the Setup tab and every AMD route.
+  - **Setup tab.** The Rebuild button had vanished since the per-machine tabs arrived (the
+    reason sat on a list the page no longer draws). TRELLIS.2's 16 GB download on NVIDIA
+    and AMD showed a clock instead of bytes. A compile error ending in "... before '}'
+    token" was blamed on Hugging Face sign-in.
+  - **`install.sh` on AMD** ran `python -m image_to_3dlab.host` from wherever the user
+    happened to be, so `curl | bash` stopped at "No module named image_to_3dlab".
+  - **TRELLIS.2 (AMD) setup.** The card check used random numbers and rejected a working
+    torch about one run in twenty; it uses ones now. A rejected torch is uninstalled before
+    the next is tried, instead of leaving two Tritons writing one folder. A re-run drops the
+    old "installed" marker first and tries the torch the last build proved, rather than
+    swapping in the known-bad one and back. An inherited `PYTORCH_CUDA_ALLOC_CONF` (silent
+    NaNs on ROCm) is now removed for the run.
+  - **Hunyuan3D-2.1 (AMD).** The memory ladder never chose views or resolution, because
+    the defaults were filled in first and read as a request. Free memory now comes from
+    torch: on an APU the vendor tool sees a 1 GB slice of a 124 GB shared pool, and ROCm 10
+    has no `rocm-smi` at all. A black texture at 256px now suggests 128, not 256 again.
+  - **Stable Fast 3D (AMD).** Its rembg 2.0.57 has no BiRefNet, so the cut-out quietly
+    became u2net (fetched unasked) while provenance said BiRefNet; it now gets
+    `rembg[cpu]==2.0.69`. Setup fetches BiRefNet-lite like the other routes, Generate waits
+    for the weights instead of letting a run download 4.9 GB, and its errors name the AMD
+    installer.
+  - **Qwen-Image on AMD** gets ROCm's library folder on the loader path; the prebuilt only
+    looks beside itself, so without it the run fell back to the CPU.
+  - **`bootstrap_matte.py`** without `--yes` and without a terminal now says so instead of
+    crashing on `EOFError`.
+
 - **Hunyuan on AMD installs a working onnxruntime instead of one that cannot load.** Upstream
   pins `onnxruntime==1.16.3`, whose shared object asks the loader for an executable stack; a
   kernel that refuses one answers *"cannot enable executable stack as shared object requires"*,

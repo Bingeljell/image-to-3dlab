@@ -365,9 +365,10 @@ def test_install_torch_falls_back_to_the_next_candidate(monkeypatch, capsys):
     chosen = boot.install_torch("uv", (10, 2), {}, python=PYTHON, install=fake_install,
                                 probe=fake_probe)
 
-    assert len(installed) == 2, "the second candidate was never tried"
+    installs = [c for c in installed if " install " in c]
+    assert len(installs) == 2, "the second candidate was never tried"
     assert chosen.index == host.torch_rocm_index(max(boot.TORCH))
-    assert "2.14.0" in installed[0] and "2.14.1" in installed[1]
+    assert "2.14.0" in installs[0] and "2.14.1" in installs[1]
     assert "does not run here" in capsys.readouterr().out
 
 
@@ -574,3 +575,54 @@ def test_a_gated_model_stops_with_instructions(monkeypatch, capsys):
     assert boot.main(["--yes"]) == 1
     out = capsys.readouterr().out
     assert "gated" in out and "hf auth login" in out
+
+def test_the_gpu_probe_cannot_fail_by_chance():
+    """It asserted that one of 64 random numbers exceeded 2, which fails about one run in
+    twenty on a perfectly good torch."""
+    assert "randn" not in boot.GPU_PROBE_SOURCE and "rand(" not in boot.GPU_PROBE_SOURCE
+    assert "== 512" in boot.GPU_PROBE_SOURCE
+
+
+def test_a_rejected_torch_is_taken_out_before_the_next_goes_in(capsys):
+    """Two indexes ship Triton under two names into one folder: left side by side, a later
+    uninstall of either breaks the attention backend."""
+    installed = []
+    boot.install_torch("uv", (10, 2), {}, python=PYTHON,
+                       install=lambda c, **k: installed.append(c),
+                       probe=lambda p: (len(installed) > 1, "invalid kernel file"))
+    assert installed[1][:3] == ["uv", "pip", "uninstall"]
+    assert {"torch", "triton", "triton-rocm", "rocm-sdk-core"} <= set(installed[1])
+    assert installed[2][2] == "install"
+
+
+def test_nothing_is_uninstalled_when_the_first_torch_works():
+    installed = []
+    boot.install_torch("uv", (7, 2), {}, python=PYTHON,
+                       install=lambda c, **k: installed.append(c), probe=lambda p: (True, ""))
+    assert all("uninstall" not in c for c in installed)
+
+
+def test_a_rerun_tries_the_torch_the_last_build_proved_first():
+    """Otherwise every re-run downgrades to the known-bad candidate and back again."""
+    proved = boot.torch_candidates((10, 2))[-1]
+    installed = []
+    chosen = boot.install_torch("uv", (10, 2), {}, python=PYTHON, prefer=proved.index,
+                                install=lambda c, **k: installed.append(c),
+                                probe=lambda p: (True, ""))
+    assert chosen == proved and len(installed) == 1
+
+
+def test_a_rerun_drops_the_old_marker_before_it_changes_anything(monkeypatch, tmp_path):
+    marker, _ = _stubbed_build(monkeypatch, tmp_path, patched=True, gfx=["gfx1151"])
+    marker.write_text('{"torch_index": "old"}')
+    seen = {}
+
+    def fetch(commit):
+        seen["marker"] = marker.exists()
+
+    monkeypatch.setattr(boot, "fetch_checkout", fetch)
+    monkeypatch.setattr(boot, "install_torch", lambda uv, version, env, **k: (
+        seen.setdefault("prefer", k.get("prefer")), boot.torch_candidates(version)[-1])[1])
+    boot.install_code((10, 2))
+    assert seen == {"marker": False, "prefer": "old"}
+    assert marker.exists(), "and a finished build writes a new one"

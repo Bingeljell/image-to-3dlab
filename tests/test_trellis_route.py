@@ -127,3 +127,12 @@ def test_the_weights_can_be_pointed_at_a_local_directory(monkeypatch, tmp_path):
 def test_the_build_marker_is_the_same_name_on_both_routes():
     """Both bootstraps write `.i2l-build-complete`; readiness reads what the route asks for."""
     assert routes.CUDA.marker_name == routes.ROCM.marker_name == ".i2l-build-complete"
+
+
+def test_the_rocm_route_drops_an_inherited_allocator_setting():
+    """expandable_segments gives silent NaNs on ROCm. Not setting it is not enough when the
+    viewer was started from a shell that exports it."""
+    env = routes.ROCM.environ({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+                               "PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True"})
+    assert "PYTORCH_CUDA_ALLOC_CONF" not in env and "PYTORCH_HIP_ALLOC_CONF" not in env
+    assert routes.CUDA.environ({})["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"

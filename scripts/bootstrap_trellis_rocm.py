@@ -341,13 +341,27 @@ def torch_index_for(version: tuple[int, int]) -> str:
 # A GPU op, a reduction and a synchronise. Deliberately tiny: it asks "does this torch launch a
 # kernel on this card", which is the one question no table can answer and the one a generation
 # run answers two minutes too late.
+#
+# Ones, not random numbers: a check that a random draw can fail rejects a working torch about
+# one run in twenty (64 normal values all under 2 in size is not rare), and on a machine with
+# one candidate that stops the whole setup.
 GPU_PROBE_SOURCE = (
     "import torch\n"
-    "x = torch.randn(8, 8, device='cuda')\n"
-    "assert (x.abs() > 2).any().item()\n"
-    "(x @ x).sum().item()\n"
+    "x = torch.ones(8, 8, device='cuda')\n"
+    "assert (x @ x).sum().item() == 512\n"
     "torch.cuda.synchronize()\n"
 )
+
+# Everything a candidate torch brings with it. Two indexes ship Triton under two names that
+# write into one `triton/` folder, so a rejected candidate left in place is a later uninstall
+# away from breaking the attention backend. Cleared before the next one goes in.
+TORCH_FAMILY = ("torch", "torchvision", "triton", "triton-rocm", "pytorch-triton-rocm",
+                "rocm", "rocm-bootstrap", "rocm-sdk-core", "rocm-sdk-libraries")
+
+
+def clear_torch_command(uv: str, python: Path) -> list[str]:
+    """Take a rejected candidate out again. uv skips names that are not installed."""
+    return [uv, "pip", "uninstall", "--python", str(python), *TORCH_FAMILY]
 
 
 def gpu_probe(python: Path = None, run=subprocess.run, timeout: int = 600) -> tuple[bool, str]:
@@ -447,16 +461,24 @@ def run(command: list[str], **kwargs) -> None:
 
 
 def install_torch(uv: str, version: tuple[int, int], env: dict[str, str],
-                  python: Path = None, install=run, probe=gpu_probe) -> Torch:
+                  python: Path = None, install=run, probe=gpu_probe,
+                  prefer: str | None = None) -> Torch:
     """Install the first candidate torch that actually launches a kernel here, and return it.
 
     Forty minutes of compiling four extensions against a torch whose first kernel will not load
     is the worst way to find out, so this asks the card first. A candidate that fails is
-    reported with its own error and the next one is tried; if none can, nothing is built.
+    reported with its own error, taken out again, and the next one is tried; if none can,
+    nothing is built.
+
+    `prefer` is the index a previous build proved here. Tried first, so a re-run keeps the
+    torch it has rather than swapping in a known-bad one only to swap it back out.
     """
     target = python or venv_python()
     rejected: list[str] = []
-    for candidate in torch_candidates(version):
+    candidates = sorted(torch_candidates(version), key=lambda c: c.index != prefer)
+    for candidate in candidates:
+        if rejected:
+            install(clear_torch_command(uv, target), env=env)
         install(torch_command(uv, target, candidate), env=env)
         works, why = probe(target)
         if works:
@@ -513,6 +535,14 @@ def build_present() -> bool:
     return BUILT_MARKER.is_file()
 
 
+def recorded_torch_index(marker: Path | None = None) -> str | None:
+    """The torch index the last finished build proved on this card, or None."""
+    try:
+        return json.loads((marker or BUILT_MARKER).read_text()).get("torch_index")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def build_record(version: tuple[int, int], route: str, gfx: list[str],
                  torch: Torch = None) -> dict[str, object]:
     """What the build marker records. Pure, so it can be checked without a 40-minute build.
@@ -536,6 +566,10 @@ def install_code(version: tuple[int, int], route: str = "source") -> None:
     # a gigabyte of git. `torch_candidates` raises for a ROCm release nothing publishes for.
     torch_candidates(version)
     record = build_record(version, route, gfx)
+    # The old marker goes before anything changes: a re-run that stops halfway leaves a venv
+    # that is no longer the one it describes, and the card would still call it installed.
+    proved = recorded_torch_index()
+    BUILT_MARKER.unlink(missing_ok=True)
     fetch_checkout(pinned_commit())
     for name, url, ref, recursive in SOURCE_EXTENSIONS:
         clone(url, EXTENSIONS / name, ref, recursive)
@@ -551,7 +585,7 @@ def install_code(version: tuple[int, int], route: str = "source") -> None:
         run([uv, "venv", str(VENDOR / ".venv"), "--python", SOURCE_PYTHON])
     env = install_env(gfx)
     # Torch first, and proved, because everything after this point is compiled against it.
-    torch = install_torch(uv, version, env)
+    torch = install_torch(uv, version, env, prefer=proved)
     record = build_record(version, route, gfx, torch)
     for command in pip_commands(route, uv, venv_python(), version, torch=torch):
         run(command, env=env)

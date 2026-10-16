@@ -744,8 +744,8 @@ CATALOG: tuple[Backend, ...] = (
                       note="Advisory only. Generation works without it."),
             WeightSet("BiRefNet-lite background remover", _matte.LITE_URL, _matte.LITE_BYTES,
                       _matte.model_file(_matte.LITE_MODEL),
-                      note="Cuts out pictures without alpha on NVIDIA. Fetched by the "
-                           "NVIDIA setup; the Mac port wants pre-masked images."),
+                      note="Cuts out pictures without alpha on NVIDIA and AMD. Fetched by "
+                           "those setups; the Mac port wants pre-masked images."),
         ),
     ),
     Backend(

@@ -40,6 +40,8 @@ class Route:
     backend_env: dict[str, str]
     #: Other environment this route needs, or deliberately does not.
     extra_env: dict[str, str] = field(default_factory=dict)
+    #: Variables this route must not inherit from the shell that started it.
+    unset_env: tuple[str, ...] = ()
     #: What torch calls the device on this stack. ROCm's torch says "cuda" too, which is
     #: correct and not a copy-paste slip: that is the API name both vendors implement.
     device: str = "cuda"
@@ -87,6 +89,8 @@ class Route:
         env = os.environ if base is None else dict(base)
         env.update(self.backend_env)
         env.update(self.extra_env)
+        for key in self.unset_env:
+            env.pop(key, None)
         # Upstream's example.py and app.py set both.
         env.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
         return env
@@ -120,6 +124,9 @@ ROCM = Route(
         "SPARSE_CONV_BACKEND": "flex_gemm",
     },
     extra_env={},  # no expandable_segments: silent NaNs on ROCm, not a crash
+    # And not inherited either: a shell that exports it for an NVIDIA habit would bring
+    # the same NaNs back with nothing in this repo setting it.
+    unset_env=("PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_HIP_ALLOC_CONF"),
     port="microsoft/TRELLIS.2 (official, ROCm)",
     provenance_route="amd-rocm",
 )

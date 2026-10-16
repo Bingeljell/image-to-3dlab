@@ -18,3 +18,5 @@ opencv-python-headless>=4.8
 fast_simplification>=0.1.7
 rtree>=1.2
 
+# The MCP server agents connect to (./lab mcp). 2.x: FastMCP became MCPServer.
+mcp>=2.3,<3

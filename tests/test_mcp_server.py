@@ -1,0 +1,257 @@
+"""The MCP server: what agents can reach, what they send, and the download consent rule."""
+
+from __future__ import annotations
+
+import inspect
+import json
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+from image_to_3dlab import mcp_server as ms
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "viewer"))
+
+
+# --------------------------------------------------------------------------- a fake studio
+class Response:
+    def __init__(self, status: int, body=None, content: bytes = b"", headers=None):
+        self.status_code, self._body, self.content, self.headers = status, body, content, headers or {}
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no json")
+        return self._body
+
+
+CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True}, "backends": [
+    {"id": "trellis", "kind": "3d", "rank": 3, "state": "ready", "license": {"name": "MIT"}},
+    {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "license": {"name": "MIT"}},
+    {"id": "qwen", "kind": "image", "rank": 1, "state": "ready"},
+    {"id": "hunyuan", "kind": "3d", "rank": 2, "state": "missing", "supported_here": True, "label": "Hunyuan3D",
+     "license": {"name": "Tencent Hunyuan Community", "url": "https://example.test/licence"},
+     "caveat": "Not licensed in the EU, UK or South Korea.", "human_expected": "12 GB", "best_for": "Detail",
+     "weights": [{"label": "shape", "source": "tencent/x", "human_expected": "12 GB", "present": False}]},
+]}
+PRESETS = {"installed": True, "presets": [{"id": "idle", "label": "Idle", "take": 0}, {"id": "idle_b", "label": "Idle B", "take": 1},
+                                          {"id": "wave", "label": "Wave", "take": 0}]}
+KNIGHT = {"id": "aaaaaaaaaaaa", "name": "knight", "kind": "character", "stage": "finished", "updated": 0,
+          "picture": "images/k/k.png", "model": "k/k.glb", "finished": "finish/k/k_20k.glb", "clips": [], "props": [],
+          "prompt": "a knight"}
+DANCER = {**KNIGHT, "id": "bbbbbbbbbbbb", "name": "dancer", "stage": "animated", "rigged": "animate/d/d_rigged.glb",
+          "clips": [{"name": "idle", "file": "animate/d/d_idle.glb"}]}
+PICTURE = {"id": "cccccccccccc", "name": "fox", "kind": "picture", "stage": "picture", "updated": 0,
+           "picture": "images/f/f.png", "clips": [], "props": []}
+
+
+class FakeHttp:
+    def __init__(self):
+        self.posts: list[tuple[str, dict]] = []
+        self.alive = True
+
+    def get(self, url, params=None, timeout=None):
+        path = url.split("8777/", 1)[1]
+        if not self.alive:
+            raise ConnectionError("refused")
+        body = {
+            "api/catalog": CATALOG, "api/animate/models": PRESETS,
+            "api/recipes": {"goals": {"character": {"wording": "A-pose, plain background"}}},
+            "api/assets": {"assets": [KNIGHT, DANCER, PICTURE]},
+            "api/chains": {"running": None, "recent": [{"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}}]},
+            "api/chains/r1": {"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}},
+        }.get(path)
+        if path == "api/preview":
+            return Response(200, content=b"PNG", headers={"X-Preview-Stage": "finished", "X-Preview-Path": ".previews/x.png"})
+        return Response(200, body) if body is not None else Response(404, {"error": f"no {path}"})
+
+    def post(self, url, files=None, timeout=None):
+        path = url.split("8777/", 1)[1]
+        self.posts.append((path, files or {}))
+        if path == "api/chains":
+            return Response(202, {"id": "new-run"})
+        if path.endswith("/cancel"):
+            return Response(200, {"cancelled": True})
+        return Response(202, {"status_url": "/api/setup/hunyuan/status"})
+
+
+@pytest.fixture
+def studio():
+    return ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None)
+
+
+def sent(studio) -> dict:
+    """The last plan posted, as plain fields."""
+    path, files = studio.http.posts[-1]
+    assert path == "api/chains"
+    return {k: (v[1] if v[0] is None else v) for k, v in files.items()}
+
+
+# --------------------------------------------------------------------------- every studio action is covered
+def post_routes() -> set[str]:
+    """Every POST route the studio server answers, read from its handler."""
+    import generate_api
+
+    source = inspect.getsource(generate_api.Handler.do_POST)
+    routes = set()
+    for cond in re.findall(r"if (.*?):\n", source):
+        if "parts" not in cond or "api" not in cond:
+            continue
+        fixed = re.search(r"parts == \[(.*?)\]", cond)
+        if fixed:
+            routes.add("/".join(json.loads(f"[{fixed[1]}]")))
+            continue
+        head = re.search(r"parts\[:(\d)\] == \[(.*?)\]", cond)
+        length = re.search(r"len\(parts\) == (\d)", cond)
+        if not (head and length):
+            continue
+        parts = json.loads(f"[{head[2]}]") + ["*"] * (int(length[1]) - int(head[1]))
+        last = int(length[1]) - 1
+        tail = re.search(rf"parts\[{last}\] == \"(\w[\w-]*)\"", cond)
+        options = re.search(rf"parts\[{last}\] in \{{(.*?)\}}", cond)
+        for word in ([tail[1]] if tail else json.loads(f"[{options[1]}]") if options else ["*"]):
+            routes.add("/".join(parts[:-1] + [word]))
+    return routes
+
+
+def test_every_studio_action_is_a_tool_or_marked_studio_only():
+    routes = post_routes()
+    assert {"api/chains", "api/setup/*/download", "api/assets/*/delete"} <= routes  # the reader still works
+    unaccounted = routes - set(ms.STUDIO_ONLY) - ms.USED
+    assert not unaccounted, (f"New studio actions agents can't reach: {sorted(unaccounted)}. "
+                             "Add a tool in image_to_3dlab/mcp_server.py, or list them in STUDIO_ONLY with a reason.")
+    stale = (set(ms.STUDIO_ONLY) | ms.USED) - routes
+    assert not stale, f"Listed but gone from the server: {sorted(stale)}"
+
+
+def test_the_server_registers_every_tool():
+    pytest.importorskip("mcp")
+    import asyncio
+
+    server = ms.build_server(ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None))
+    names = {t.name for t in asyncio.run(server.list_tools())}
+    assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
+                     "list_assets", "preview", "open_in_studio", "install_backend"}
+
+
+# --------------------------------------------------------------------------- create
+def test_an_idea_for_a_character_runs_the_studios_full_plan_with_its_wording(studio):
+    out = ms.create(studio, want="character", description="a knight.")
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["picture", "back", "model", "finished", "rigged", "animated"]
+    assert form["prompt"] == "a knight, A-pose, plain background"
+    assert form["engine"] == "pixal3d"             # best ready engine, not the first listed
+    assert form["first_move"] == "idle"            # the first move that is not a second take
+    assert out["run_id"] == "new-run"
+
+
+def test_wording_can_be_left_off_and_the_plan_cut_short(studio):
+    ms.create(studio, want="character", description="a knight", add_wording=False, stop_after_step="model")
+    form = sent(studio)
+    assert form["prompt"] == "a knight"
+    assert json.loads(form["steps"]) == ["picture", "back", "model"]
+    assert "first_move" not in form
+
+
+def test_back_picture_only_with_an_engine_that_uses_it(studio):
+    ms.create(studio, want="prop", description="a barrel", engine="trellis")
+    assert json.loads(sent(studio)["steps"]) == ["picture", "model", "finished"]
+
+
+def test_a_picture_on_disk_is_uploaded_and_skips_drawing(studio, tmp_path):
+    image = tmp_path / "hero.png"
+    image.write_bytes(b"\x89PNG fake")
+    ms.create(studio, want="prop", image_path=str(image), front_and_back=False)
+    form = sent(studio)
+    assert form["file"][0] == "hero.png" and form["file"][1] == b"\x89PNG fake"
+    assert json.loads(form["steps"]) == ["model", "finished"]
+    assert "prompt" not in form
+
+
+@pytest.mark.parametrize("kwargs, words", [
+    ({"want": "dragon", "description": "x"}, "want must be"),
+    ({"want": "character"}, "Describe what you want"),
+    ({"want": "character", "description": "x", "engine": "hunyuan"}, "isn't ready"),
+    ({"want": "character", "description": "x", "move": "moonwalk"}, "No move"),
+    ({"want": "prop", "image_path": "/nope/missing.png"}, "No file"),
+])
+def test_bad_requests_say_why_and_send_nothing(studio, kwargs, words):
+    with pytest.raises(ms.StudioError, match=words):
+        ms.create(studio, **kwargs)
+    assert studio.http.posts == []
+
+
+# --------------------------------------------------------------------------- continue
+def test_continuing_a_finished_character_rigs_and_animates_from_its_files(studio):
+    ms.continue_asset(studio, asset_id=KNIGHT["id"])
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["rigged", "animated"]
+    assert json.loads(form["made"]) == {"picture": "images/k/k.png", "model": "k/k.glb", "finished": "finish/k/k_20k.glb"}
+
+
+def test_an_animated_character_can_be_given_another_move(studio):
+    ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="wave")
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["animated"] and form["first_move"] == "wave"
+
+
+def test_a_picture_goes_on_to_3d_with_a_back_view_when_installed(studio):
+    ms.continue_asset(studio, asset_id=PICTURE["id"], up_to="model")
+    assert json.loads(sent(studio)["steps"]) == ["back", "model"]
+
+
+def test_nothing_to_do_sends_nothing(studio):
+    out = ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="finished")
+    assert "nothing_to_do" in out and studio.http.posts == []
+
+
+# --------------------------------------------------------------------------- the rest
+def test_run_status_without_an_id_reports_the_latest_run(studio):
+    out = ms.run_status(studio, sleep=lambda s: None)
+    assert out["status"] == "done" and out["made"] == {"picture": "output/images/x.png"}
+
+
+def test_install_asks_first_and_downloads_nothing_without_confirm(studio):
+    plan = ms.install_backend(studio, backend_id="hunyuan")
+    assert studio.http.posts == []
+    assert plan["total_size"] == "12 GB" and "EU" in plan["caveat"] and plan["licence"].startswith("Tencent")
+    assert "confirm=true" in plan["to_start"]
+    ms.install_backend(studio, backend_id="hunyuan", confirm=True)
+    assert studio.http.posts[-1][0] == "api/setup/hunyuan/download"
+
+
+def test_preview_returns_the_picture_and_a_studio_link(studio):
+    data, info = ms.preview(studio, asset_id=KNIGHT["id"])
+    assert data == b"PNG" and info["shown"] == "finished"
+    assert info["studio"].endswith("/viewer/studio.html#asset=aaaaaaaaaaaa")
+
+
+def test_open_in_studio_opens_the_assets_link(studio):
+    opened = []
+    out = ms.open_in_studio(studio, asset_id=KNIGHT["id"], opener=lambda url: opened.append(url) or True)
+    assert opened == [out["link"]] and out["link"].endswith("#asset=aaaaaaaaaaaa")
+    with pytest.raises(ms.StudioError):
+        ms.open_in_studio(studio, asset_id="ffffffffffff", opener=lambda url: True)
+
+
+def test_a_studio_that_is_not_running_is_started_once():
+    http, started = FakeHttp(), []
+    http.alive = False
+
+    def start():
+        started.append(1)
+        http.alive = True
+
+    studio = ms.Studio("http://127.0.0.1:8777", http=http, start=start)
+    ms.status(studio)
+    ms.status(studio)
+    assert started == [1]
+
+
+def test_a_remote_studio_is_never_started_from_here():
+    http = FakeHttp()
+    http.alive = False
+    with pytest.raises(ms.StudioError, match="not this machine"):
+        ms.Studio("http://10.0.0.5:8777", http=http)._ensure()

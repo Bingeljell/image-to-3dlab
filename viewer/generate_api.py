@@ -422,8 +422,12 @@ def catalog_payload() -> dict:
 def with_rebuild_reasons(catalog: dict[str, Any],
                          reason: Callable[[str], str | None] = rebuild_reason) -> dict[str, Any]:
     """Say which installed backends want recompiling, so the page can offer a Rebuild
-    button instead of a Terminal command."""
-    for backend in catalog.get("backends", []):
+    button instead of a Terminal command.
+
+    The page draws this machine's tab from `views`, not `backends`, so both lists carry it.
+    Only `backends` did once, and the button vanished when the tabs arrived."""
+    here = catalog.get("views", {}).get(catalog.get("host", {}).get("id"), [])
+    for backend in [*catalog.get("backends", []), *here]:
         backend["rebuild_reason"] = reason(backend["id"]) if backend.get("supported_here") else None
     return catalog
 

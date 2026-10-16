@@ -396,6 +396,18 @@ def test_the_catalog_carries_a_rebuild_reason_only_where_the_backend_runs():
     assert out["backends"][1]["rebuild_reason"] is None
 
 
+def test_the_tab_the_setup_page_draws_carries_the_rebuild_reason_too():
+    """setup.js renders `views[host]`, not `backends`; a reason only on `backends` meant the
+    Rebuild button never appeared once the page grew one tab per machine."""
+    import generate_api
+    from backend_catalog import AMD, catalog_status
+
+    out = generate_api.with_rebuild_reasons(catalog_status(AMD),
+                                            reason=lambda backend_id: "stale")
+    pixal = next(b for b in out["views"][AMD] if b["id"] == "pixal3d")
+    assert pixal["rebuild_reason"] == "stale"
+
+
 def test_a_page_loaded_mid_setup_can_find_the_run_again(monkeypatch):
     # A setup runs 30-60 minutes; a refreshed or reopened Setup page must reattach to it
     # instead of showing idle "Set up" buttons that refuse with "already running".
@@ -544,3 +556,26 @@ def test_a_patterned_weight_does_not_make_its_whole_folder_shared(tmp_path):
         assert not is_shared(qwen, whole)
     finally:
         backend_catalog.BY_ID.pop("q-test"), backend_catalog.BY_ID.pop("x-test")
+
+
+def test_trellis_on_a_linux_card_shows_bytes_not_a_clock():
+    """TRELLIS.2's setup on NVIDIA and AMD fetches 16 GB after the build. The size watcher
+    was chosen from the Mac's answer (fetches nothing), so that download showed only
+    "minutes elapsed"."""
+    run = dl.DownloadRun(dl.BY_ID["trellis"])
+    assert dl.measures_bytes(run, dl.AMD)
+    assert dl.measures_bytes(run, dl.NVIDIA)
+    assert not dl.measures_bytes(run, "apple-silicon")
+    assert not dl.measures_bytes(dl.DownloadRun(dl.BY_ID["pixal3d"], rebuild=True), dl.AMD)
+
+
+def test_a_compile_error_is_not_mistaken_for_a_sign_in_problem():
+    """GCC and hipcc both end a syntax error with "... before '}' token". The AMD builds
+    compile for half an hour, so that line is a likely last word, not a login hint."""
+    message = dl._explain(1, ["custom_rasterizer.cpp:12: error: expected ';' before '}' token"])
+    assert "login" not in message
+    assert "before '}' token" in message
+
+
+def test_a_bad_token_is_still_a_sign_in_problem():
+    assert "login" in dl._explain(1, ["huggingface_hub.errors: Invalid user token."])

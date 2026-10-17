@@ -56,6 +56,7 @@ REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"
 sys.path.insert(0, str(REPO))
 
+from image_to_3dlab import pixal3d_native
 from image_to_3dlab.blender import MAC_APP, find_blender, missing_help
 from image_to_3dlab.host import APPLE, host_platform
 
@@ -73,6 +74,15 @@ STAGE_MARKER = "I2L_STAGE"
 def emit_stage(phase: str, message: str) -> None:
     """Announce a stage boundary on stdout, for whatever is watching."""
     print(f"{STAGE_MARKER}::{phase}::{message}", flush=True)
+
+
+def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool) -> bool:
+    """Whether this run takes Pixal3D's own clean-up instead of the classic retopology.
+
+    Needs the run's dump and a post-replay build. Full detail keeps the generator's mesh,
+    so there is nothing to clean up again.
+    """
+    return native_dump is not None and not keep_mesh and replay_available
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
@@ -288,6 +298,12 @@ def build_parser() -> argparse.ArgumentParser:
              "the model. Try it when a feature lands twice (a ghost eye) or slides off its place",
     )
     parser.add_argument(
+        "--native-dump", type=Path, default=None,
+        help="Pixal3D's own clean-up input (<run>.post.bin, saved by pixal3d_generate.py): "
+             "rerun Pixal3D's clean-up at --faces instead of retopologising. Cleaner on "
+             "every model tested. Falls back to the classic route when post-replay is missing",
+    )
+    parser.add_argument(
         "--steps-dir", type=Path, default=None,
         help="put the in-between files in this folder, numbered by stage "
              "(1_retopo.glb, 2_painted.glb, ...), instead of beside the output",
@@ -307,9 +323,10 @@ def build_parser() -> argparse.ArgumentParser:
 def required_inputs(args: argparse.Namespace) -> list[Path]:
     """The files this run must find. The picture feeds only the repaint and the photo
     stage, so a run with neither (a model that came with no picture) needs just the mesh."""
+    dump = [args.native_dump] if getattr(args, "native_dump", None) is not None else []
     if args.skip_paint and args.views is None:
-        return [args.source]
-    return [args.source, args.image]
+        return [args.source, *dump]
+    return [args.source, args.image, *dump]
 
 
 def main() -> int:
@@ -339,13 +356,23 @@ def main() -> int:
     started = time.time()
     timings: dict[str, float] = {}
 
+    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available())
+    native_record = None
     retopo_glb = steps["retopo"]
     step = time.time()
     if args.keep_mesh:
         retopo_glb = args.source   # full detail: Pixel Match works on the generator's own mesh
     elif reuse(retopo_glb, args.resume):
         emit_stage("retopologise", f"Reusing {retopo_glb.name}")
+    elif native:
+        emit_stage("retopologise", f"Pixal3D's own clean-up to {args.faces:,} faces")
+        native_record = pixal3d_native.native_retopo(
+            args.native_dump, args.source, retopo_glb, args.faces, args.atlas,
+            steps["retopo_log"])
     else:
+        if args.native_dump is not None and not args.keep_mesh:
+            print("[retopo-repaint] note: post-replay is not built here, so Pixal3D's own "
+                  "clean-up cannot run; using the classic route", flush=True)
         emit_stage("retopologise", f"Retopologising to {args.faces:,} faces")
         _run(
             retopo_command(
@@ -433,8 +460,10 @@ def main() -> int:
         "stages": stages,
         "seconds": timings,
         "total_seconds": round(time.time() - started, 1),
-        "retopology": None if args.keep_mesh else {"faces": args.faces, "atlas": args.atlas,
-                                                   "voxel": args.voxel, "angle": args.angle},
+        "retopology": None if args.keep_mesh else (
+            {**native_record, "atlas": args.atlas} if native_record else
+            {"route": "pixal3d" if native else "classic", "faces": args.faces,
+             "atlas": args.atlas, "voxel": args.voxel, "angle": args.angle}),
         "full_detail": args.keep_mesh,
         "surface": {"metallic": args.metallic, "roughness": args.roughness, "ior": args.ior},
         "bake": None if args.skip_bake else {"size": args.atlas},

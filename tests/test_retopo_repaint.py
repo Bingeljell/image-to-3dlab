@@ -261,3 +261,27 @@ def test_nudge_is_on_unless_the_run_turns_it_off():
     assert off.align is False and off.inner_edge > 0          # edge fade untouched
     both = rr.photo_settings(edge_fade=False, nudge=False)
     assert both.align is False and both.inner_edge == 0.0
+
+
+# --- The Pixal3D route: Pixal3D's own clean-up instead of the classic retopology --------------
+
+
+@pytest.mark.parametrize("dump, keep_mesh, available, expected", [
+    (Path("run.post.bin"), False, True, True),
+    (None, False, True, False),                  # no dump: an older model, or another engine
+    (Path("run.post.bin"), False, False, False),  # no post-replay: upstream's prebuilt download
+    (Path("run.post.bin"), True, True, False),    # full detail keeps the generator's mesh
+])
+def test_the_pixal3d_route_needs_a_dump_and_post_replay(dump, keep_mesh, available, expected):
+    assert rr.finish_route(dump, keep_mesh, available) is expected
+
+
+def test_the_dump_is_a_required_input_when_given(tmp_path):
+    args = rr.build_parser().parse_args(
+        ["in.glb", "in.png", "out.glb", "--skip-paint", "--native-dump", "run.post.bin"])
+    assert Path("run.post.bin") in rr.required_inputs(args)
+
+
+def test_without_a_dump_the_inputs_are_unchanged():
+    args = rr.build_parser().parse_args(["in.glb", "in.png", "out.glb", "--skip-paint"])
+    assert rr.required_inputs(args) == [Path("in.glb")]

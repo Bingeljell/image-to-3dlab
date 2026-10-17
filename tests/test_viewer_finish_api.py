@@ -404,6 +404,17 @@ def test_face_counts_are_named_the_way_people_say_them(faces, label):
 def test_the_final_model_is_named_after_the_asset_and_its_faces():
     assert finish.final_name("vanguard__pixal3d__finish__20260929-101010", 5000) == "vanguard_5k.glb"
     assert finish.final_name("fox__finish__20260921-122518", 40000) == "fox_40k.glb"
+    assert finish.final_name("fox__finish__20260921-122518", 20000, full=True) == "fox_full.glb"
+
+
+def test_full_detail_skips_the_repaint_and_bake_and_tells_the_worker():
+    settings = finish.normalise_settings({"keep_mesh": True, "skip_paint": False})
+    assert settings["skip_paint"] and settings["skip_bake"]
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    job.settings = settings
+    command = finish.build_command(job, settings)
+    assert "--keep-mesh" in command and job.result_glb.name == "fox_full.glb"
+    assert "--keep-mesh" not in finish.build_command(job, finish.normalise_settings({}))
 
 
 def test_a_new_run_keeps_inputs_and_steps_out_of_the_top_folder(tmp_path):
@@ -585,3 +596,17 @@ def test_a_run_with_pixel_match_still_needs_its_picture(tmp_path):
     assert finish.needed_inputs(job, {"skip_photo": False}) == [job.asset_path, job.image_path]
     assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": False}) == [job.asset_path, job.image_path]
     assert finish.needed_inputs(job, {"skip_photo": True, "skip_paint": True}) == [job.asset_path]
+
+
+def test_turning_edge_fade_off_tells_the_worker():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    assert finish.normalise_settings({})["skip_edge_fade"] is False
+    assert "--no-edge-fade" not in finish.build_command(job, finish.normalise_settings({}))
+    assert "--no-edge-fade" in finish.build_command(job, finish.normalise_settings({"skip_edge_fade": True}))
+
+
+def test_turning_nudge_off_tells_the_worker():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    assert finish.normalise_settings({})["skip_nudge"] is False
+    assert "--no-nudge" not in finish.build_command(job, finish.normalise_settings({}))
+    assert "--no-nudge" in finish.build_command(job, finish.normalise_settings({"skip_nudge": True}))

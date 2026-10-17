@@ -55,6 +55,11 @@ export function finishFaces(choice, custom) {
   return Math.round(Number(choice === 'custom' ? custom : choice));
 }
 
+/** What Finish's Detail control sends: a triangle count, or full detail (every triangle kept). */
+export function finishDetailSettings(choice, custom) {
+  return choice === 'full' ? { keep_mesh: true } : { faces: finishFaces(choice, custom) };
+}
+
 /** One short line for the Library card. */
 export function statusText(asset) {
   if (asset.kind === 'prop set') {
@@ -88,6 +93,15 @@ export function displayModel(asset) {
  *  model from before Finish and Pixel Match, not only the latest one. */
 export function stepFile(asset, stepId) {
   return { model: asset.model, finished: asset.finished, rigged: asset.rigged }[stepId] || null;
+}
+
+/** Whether a done step offers "View": it made its own GLB and that is not the one the viewer
+ *  already shows. This is how the raw 3D model (Pixal3D, TRELLIS, ...) stays one click away
+ *  after Finish, Rig and Animate have moved past it. */
+export function canViewStep(asset, stepId) {
+  if (asset.kind === 'prop set' || stepId === 'rigged') return false;
+  const file = stepFile(asset, stepId);
+  return !!file && file !== displayModel(asset);
 }
 
 /** Whether the Picture step offers "View pictures": there is a picture, and a model is
@@ -171,6 +185,12 @@ export function madeVersion(before, after, familyKey) {
  */
 export function openingView(running) {
   return running ? 'running' : 'create';
+}
+
+/** The asset a link asks for (`studio.html#asset=<id>`, what an agent opens), or null. */
+export function linkedAssetId(hash) {
+  const id = new URLSearchParams(String(hash || '').replace(/^#/, '')).get('asset');
+  return id && /^[0-9a-f]{12}$/.test(id) ? id : null;
 }
 
 /** Whether a file can be opened in the viewer. GLB only: a .gltf points at files beside it that a dropped file doesn't bring. */

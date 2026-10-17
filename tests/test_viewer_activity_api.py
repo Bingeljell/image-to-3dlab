@@ -35,14 +35,14 @@ class FakeJobs:
         if kind == self.fail:
             return 200, {"status": "error", "error": "MemoryError: out of memory", "log_tail": "ggml_noise\nKilled"}
         made = {"picture": "images/p/pic.png", "back": "images/p/pic__back.png", "model": "pixal3d/m/model.glb",
-                "finished": "finish/f/finished.glb", "rigged": "animate/r/rigged.glb"}
+                "finished": "finish/f/finished.glb", "rigged": "animate/r/rigged.glb", "animated": "animate/r/rigged_walk.glb"}
         for rel in made.values():
             (self.output / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.output / rel).write_bytes(b"x")
         event = {"phase": "done", "message": f"{kind} done", "overall_pct": 100}
         if kind == "rigged" and self.four_legged:
             event.update(humanoid=False, message="Rigged. Preset moves are for humanoids only for now.")
-        if kind in ("finished", "rigged"):
+        if kind in ("finished", "rigged", "animated"):
             event["path"] = made[kind]
         return 200, {"status": "done", "last_event": event, "log_tail": f"{kind} ok",
                      "picture": made[kind] if kind in ("picture", "back") else None,
@@ -68,6 +68,8 @@ def test_a_whole_character_runs_and_each_step_gets_the_last_ones_file(tmp_path):
     assert [h["step"] for h in history] == ["animated", "rigged", "finished", "model", "picture"]  # newest first
     assert all(h["result"] == "done" for h in history)
     assert {h["prompt"] for h in history} == {"a sensei"}   # Activity shows what was asked for
+    assert chain.made["animated"] == "animate/r/rigged_walk.glb"   # the move's own file, for agents
+    assert history[0]["made"] == "animate/r/rigged_walk.glb"
 
 
 def test_a_failure_stops_the_chain_in_plain_words_and_is_kept_in_history(tmp_path):
@@ -266,3 +268,48 @@ def test_each_finished_step_reports_how_long_it_took(tmp_path):
     seconds = chain.to_dict()["step_seconds"]
     assert set(seconds) == {"picture", "back", "model"} and all(s > 0 for s in seconds.values())
     assert [h["made"] for h in aa.read_history(tmp_path) if h["step"] == "back"] == ["images/p/pic__back.png"]
+
+
+def test_a_plan_carries_its_finish_choices_to_the_finish_job(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "made": {"value": json.dumps({"model": "pixal3d/m/model.glb", "picture": "images/p/pic.png"})},
+            "finish_settings": {"value": json.dumps({"keep_mesh": True, "skip_photo": False, "voxel": 9})}}
+    for rel in ("pixal3d/m/model.glb", "images/p/pic.png"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(b"x")
+    chain = aa.chain_from_form(form)
+    assert chain.finish_settings == {"keep_mesh": True, "skip_photo": False}   # unknown keys never reach Finish
+    runner.submit(chain, background=False)
+    body = next(b for m, p, b in jobs.calls if p == "/api/finish")
+    assert b'{"keep_mesh": true, "skip_photo": false}' in body
+
+
+def test_a_plan_without_finish_choices_gets_finishs_defaults(tmp_path):
+    chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])}})
+    assert chain.finish_settings == {}
+
+
+def test_a_plan_carries_edge_fade_to_the_finish_job():
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+            "finish_settings": {"value": json.dumps({"keep_mesh": True, "skip_edge_fade": True, "skip_nudge": True})}}
+    assert aa.chain_from_form(form).finish_settings == {"keep_mesh": True, "skip_edge_fade": True, "skip_nudge": True}
+
+
+def test_a_plan_carries_move_speed_and_arm_spread_to_the_animate_job(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["animated"])}, "first_move": {"value": "wave"},
+            "made": {"value": json.dumps({"rigged": "animate/k/k_rigged.glb"})},
+            "move_settings": {"value": json.dumps({"speed": 1.5, "arm_spread": 10, "colour": "red"})}}
+    (tmp_path / "animate/k").mkdir(parents=True)
+    (tmp_path / "animate/k/k_rigged.glb").write_bytes(b"x")
+    chain = aa.chain_from_form(form)
+    assert chain.move_settings == {"speed": 1.5, "arm_spread": 10}     # unknown keys never reach Animate
+    runner.submit(chain, background=False)
+    body = next(b for m, p, b in jobs.calls if p == "/api/animate/play")
+    assert json.loads(body) == {"model": "animate/k/k_rigged.glb", "preset": "wave", "speed": 1.5, "arm_spread": 10}
+
+
+def test_a_plan_without_move_settings_lets_the_move_use_its_own_pace():
+    chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["animated"])}})
+    assert chain.move_settings == {}

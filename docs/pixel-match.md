@@ -74,6 +74,15 @@ are left alone. A Finish mesh takes seconds; a million-triangle raw model under 
 
 - **Some assets come out worse than the raw model.** When that happens, untick Pixel
   Match or download the pre-Finish model (see [known issues](info_and_credits.md)).
+- **Coloured specks in hair, or small eyes gone dark.** The inner-edge fade mistakes deep
+  eye sockets and layered hair for "one part in front of another" and fades the picture out
+  there, most often on Full detail. Turn off **Edge fade** (Finish > Advanced; agents pass
+  `advanced={"edge_fade": false}`; the command line takes `--no-edge-fade`) and Finish again.
+- **A feature lands twice (a ghost eye) or slides off its place.** Before painting, Pixel
+  Match fits each picture's outline onto the model's. A better fitting outline does not
+  always mean a better fitting face, most often on a turned head. Turn off **Nudge**
+  (Finish > Advanced; agents pass `advanced={"nudge": false}`; the command line takes `--no-nudge`) and
+  Finish again.
 - **The model has to still line up with its camera.** Finish's retopology keeps
   coordinates, so a normal Finish run lines up; a model you moved, edited or re-exported
   elsewhere may not, and the photo lands slightly off.

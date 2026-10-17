@@ -2,4 +2,10 @@
 # Start the lab: ./lab
 # It picks how to listen for this machine (your browser opens locally; on a RunPod pod it
 # prints the pod's link; over SSH it prints the tunnel command). See viewer/serve.py --auto.
-cd "$(dirname "$0")" && exec .venv/bin/python viewer/serve.py --auto "$@"
+#   ./lab mcp    runs the MCP server an agent (Claude Code, Codex, ...) connects to
+cd "$(dirname "$0")" || exit 1
+if [ "$1" = "mcp" ]; then
+  shift
+  exec .venv/bin/python -m image_to_3dlab.mcp_server "$@"
+fi
+exec .venv/bin/python viewer/serve.py --auto "$@"

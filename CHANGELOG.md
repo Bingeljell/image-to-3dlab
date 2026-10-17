@@ -18,17 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     runs on AuleAttention, because flash-attn has no ROCm build. Setup tests torch on the
     card before compiling anything, and on a ROCm newer than PyTorch's index (10.x, such as
     Strix Halo) it tries AMD's index and PyTorch's newest ROCm build and keeps the one that
-    runs. Tested on an RX 7900 XT (a model in about 4 minutes) and a Strix Halo (about 22).
+    runs. Tested on an RX 7900 XTX (a model in about 4 minutes) and a Strix Halo (about 22).
   - **Hunyuan3D-2.1 (AMD):** Tencent's own shape and PBR paint. Paint settings are fitted
     to free GPU memory, read through torch so a shared-memory chip (an APU) is measured
     right. Textures are capped at 256 px: at 512 px this card returns an all-black texture
     with no error, and the cause is not pinned down yet. A run that bakes a black texture
     stops rather than saving it. A run with weights missing stops and says how to fetch
-    them, instead of letting upstream download 8-15 GB. Tested on an RX 7900 XT.
+    them, instead of letting upstream download 8-15 GB. Tested on an RX 7900 XTX.
   - **Stable Fast 3D (AMD):** in a venv of its own, so its old pins cannot reach the viewer,
     with the texture baker's GPU kernels compiled for the card (under ROCm, upstream quietly
     built a CPU-only one). It cuts pictures out with BiRefNet-lite like the other routes, and
-    Generate waits until its weights are downloaded. Tested on an RX 7900 XT.
+    Generate waits until its weights are downloaded. Tested on an RX 7900 XTX.
 - `I2L_TRELLIS_MODEL_PATH` points TRELLIS.2 at a local folder of weights instead of
   downloading them. A tree under `vendor/trellis-cuda/models` or `vendor/trellis-rocm/models`
   is found too, by both routes, and Setup counts it instead of offering to download it again.

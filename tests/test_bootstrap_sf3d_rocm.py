@@ -18,10 +18,9 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO / "viewer"))
 
-import backend_catalog  # noqa: E402
-import bootstrap_sf3d as apple  # noqa: E402
-import bootstrap_sf3d_rocm as boot  # noqa: E402
-from image_to_3dlab import host  # noqa: E402
+import backend_catalog
+import bootstrap_sf3d as apple
+import bootstrap_sf3d_rocm as boot
 
 HIPCC = "/opt/rocm/bin/hipcc"
 GFX = ["gfx1100"]
@@ -114,7 +113,7 @@ def test_the_patches_run_before_anything_builds(monkeypatch, tmp_path):
                         lambda *a, **k: order.append("patch"))
     monkeypatch.setattr(boot, "venv_python", lambda: tmp_path / ".venv" / "bin" / "python")
     monkeypatch.setattr(boot, "pip_commands", lambda *a, **k: [["uv", "pip", "install", "x"]])
-    monkeypatch.setattr(boot, "install_env", lambda: {})
+    monkeypatch.setattr(boot, "install_env", dict)
     monkeypatch.setattr(boot, "BUILT_MARKER", tmp_path / ".i2l-build-complete")
     monkeypatch.setattr(boot.shutil, "which", lambda name: "uv")
     monkeypatch.setattr(boot, "run", lambda *a, **k: None)
@@ -130,7 +129,7 @@ def test_a_build_that_dies_leaves_no_marker(monkeypatch, tmp_path):
     monkeypatch.setattr(boot.sf3d_patch, "patch", lambda *a, **k: None)
     monkeypatch.setattr(boot, "venv_python", lambda: tmp_path / ".venv" / "bin" / "python")
     monkeypatch.setattr(boot, "pip_commands", lambda *a, **k: [["uv", "pip", "install", "x"]])
-    monkeypatch.setattr(boot, "install_env", lambda: {})
+    monkeypatch.setattr(boot, "install_env", dict)
     monkeypatch.setattr(boot, "BUILT_MARKER", marker)
     monkeypatch.setattr(boot.shutil, "which", lambda name: "uv")
     monkeypatch.setattr(boot, "run",

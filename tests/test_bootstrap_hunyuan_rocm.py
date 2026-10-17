@@ -117,7 +117,6 @@ def test_onnxruntime_is_replaced_not_skipped():
 def test_the_replacement_actually_loads_rather_than_being_believed():
     """A pin nobody has run is a guess. onnxruntime 1.31 is what this resolves to, it imports,
     and rembg imports through it — checked against this repo's own venv, not a comment."""
-    import importlib.util
     import subprocess
 
     torch_free = ["hunyuan-rocm", "trellis-rocm"]
@@ -127,7 +126,7 @@ def test_the_replacement_actually_loads_rather_than_being_believed():
             pytest.skip(f"{route} is not installed on this machine")
         found = subprocess.run(
             [str(python), "-c", "import onnxruntime, rembg; print(onnxruntime.__version__)"],
-            capture_output=True, text=True)
+            capture_output=True, text=True, check=False)
         assert found.returncode == 0, f"{route}: {found.stderr.strip()[-300:]}"
 
 

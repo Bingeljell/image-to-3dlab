@@ -364,7 +364,7 @@ def clear_torch_command(uv: str, python: Path) -> list[str]:
     return [uv, "pip", "uninstall", "--python", str(python), *TORCH_FAMILY]
 
 
-def gpu_probe(python: Path = None, run=subprocess.run, timeout: int = 600) -> tuple[bool, str]:
+def gpu_probe(python: Path | None = None, run=subprocess.run, timeout: int = 600) -> tuple[bool, str]:
     """Does the torch in this venv launch a kernel on this card? (works, why not).
 
     Seconds, and the difference between a build that starts and one that dies minutes into the
@@ -461,7 +461,7 @@ def run(command: list[str], **kwargs) -> None:
 
 
 def install_torch(uv: str, version: tuple[int, int], env: dict[str, str],
-                  python: Path = None, install=run, probe=gpu_probe,
+                  python: Path | None = None, install=run, probe=gpu_probe,
                   prefer: str | None = None) -> Torch:
     """Install the first candidate torch that actually launches a kernel here, and return it.
 

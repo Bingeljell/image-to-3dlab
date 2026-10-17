@@ -343,7 +343,7 @@ def test_the_banner_it_prints_names_amd_as_a_supported_machine():
     """The sentence the banner builds lists what every backend needs, so it is only honest
     while AMD is in that list. This is the fact the banner above used to contradict."""
     sys.path.insert(0, str(REPO / "viewer"))
-    from backend_catalog import catalog_status  # noqa: PLC0415
+    from backend_catalog import catalog_status
 
     supported = catalog_status(host="other")["host"]["supported"]
     assert any("AMD" in entry for entry in supported), supported

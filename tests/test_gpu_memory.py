@@ -47,7 +47,7 @@ def test_a_mixed_box_reports_the_roomier_card_not_the_first_one():
     """A box with an NVIDIA card and an AMD one answers both questions. Reporting whichever
     came first would understate the room, and a caller fitting settings to VRAM -- the AMD
     Hunyuan route's paint ladder -- would then pick settings for the smaller card."""
-    nvidia_free, rocm_free = 4 * GB, 18 * GB
+    nvidia_free = 4 * GB
 
     def which(name):
         return {"nvidia-smi": "/usr/bin/nvidia-smi", "rocm-smi": "/opt/rocm/bin/rocm-smi"}.get(name)

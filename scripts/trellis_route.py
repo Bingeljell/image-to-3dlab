@@ -100,12 +100,14 @@ class Route:
         changes nothing. An explicit `base` is copied instead, so a caller passing a dict
         keeps ownership of it.
 
-        Hard-assigned, never inherited: a stale value in the viewer's environment once
-        selected a backend that did not exist.
+        The backends are hard-assigned, never inherited: a stale value in the viewer's
+        environment once selected a backend that did not exist.
         """
         env = os.environ if base is None else dict(base)
         env.update(self.backend_env)
-        env.update(self.extra_env)
+        # Defaults, not rules: a value the user set for their own card is kept.
+        for key, value in self.extra_env.items():
+            env.setdefault(key, value)
         for key in self.unset_env:
             env.pop(key, None)
         # Upstream's example.py and app.py set both.

@@ -35,7 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **An AMD install gets the ROCm build of PyTorch.** The installer handed every AMD card
-  PyPI's CUDA torch, plus about 6 GB of NVIDIA wheels it cannot load.
+  PyPI's CUDA torch, plus about 6 GB of NVIDIA wheels it cannot load. A ROCm too old for
+  any ROCm build gets the CPU build until it is updated, rather than no PyTorch at all.
 - **Generate Image on AMD uses the card.** Its ROCm build needs ROCm's own libraries, which
   are now put on its path; a run that still falls back to the CPU is caught and explained,
   pointing at `rocminfo` rather than `nvidia-smi`.

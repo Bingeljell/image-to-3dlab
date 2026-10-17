@@ -156,7 +156,8 @@ REQS="$DIR/requirements.lock"
 # is put in its place. image_to_3dlab.host picks the ROCm build that matches the installed
 # runtime (tested in tests/test_host.py); the CUDA and Apple paths keep the plain install.
 if [ "$GPU" = amd ] && [ -f "$REQS" ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
-  ROCM_LOCK="$DIR/requirements.rocm.lock"
+  # Inside the venv: it belongs to this install, and git already ignores it there.
+  ROCM_LOCK="$DIR/.venv/requirements.rocm.lock"
   # From inside $DIR: `-m` finds the package in the current folder, and under
   # `curl | bash` that folder is wherever the user happened to be.
   (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$REQS") >"$ROCM_LOCK"
@@ -175,8 +176,12 @@ if [ "$GPU" = amd ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
       run "$UV" pip install --quiet --python "$PY" --reinstall-package torch \
         --reinstall-package torchvision --index-url "$ROCM_INDEX" torch torchvision
     else
+      # The lock went in without torch, so without this there would be no PyTorch at all.
       say "Your ROCm is older than PyTorch's ROCm builds (they need ROCm 6.2 or newer)."
-      say "Install a newer ROCm, then run this again. Until then PyTorch will use the CPU."
+      say "Installing the CPU build of PyTorch for now. Install a newer ROCm, then run this"
+      say "again to get the GPU build."
+      run "$UV" pip install --quiet --python "$PY" \
+        --index-url https://download.pytorch.org/whl/cpu torch torchvision
     fi
   fi
 fi

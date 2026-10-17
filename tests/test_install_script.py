@@ -396,7 +396,7 @@ def test_an_amd_install_never_puts_cuda_wheels_on_the_card(tmp_path, upstream, f
     # The filtered lock is what gets installed, and the untouched one is not.
     assert "requirements.lock" not in uv_calls.replace("requirements.rocm.lock", "")
     # And it really was filtered, by the real code rather than a sed in the script.
-    filtered = (tmp_path / "lab" / "requirements.rocm.lock").read_text()
+    filtered = (tmp_path / "lab" / ".venv" / "requirements.rocm.lock").read_text()
     assert "numpy==1.26.4" in filtered and "accelerate==1.12.0" in filtered
     assert "torch==" not in filtered
     assert "nvidia-cudnn-cu13" not in filtered and "cuda-toolkit" not in filtered
@@ -430,7 +430,7 @@ def test_an_amd_that_already_has_rocm_torch_is_left_alone(tmp_path, upstream, fa
     assert "--reinstall-package torch" not in (tmp_path / "uv.log").read_text()
 
 
-def test_an_amd_with_too_old_a_rocm_is_told_to_update_rather_than_left_on_the_cpu(
+def test_an_amd_with_too_old_a_rocm_is_told_to_update_and_gets_cpu_torch(
         tmp_path, upstream, fake_bin, amd_venv):
     (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
     _git(upstream, "add", ".")
@@ -440,7 +440,22 @@ def test_an_amd_with_too_old_a_rocm_is_told_to_update_rather_than_left_on_the_cp
     done = _amd_run(tmp_path, fake_bin, upstream, amd_venv, index="")
     assert done.returncode == 0, done.stderr
     assert "older than PyTorch's ROCm builds" in done.stdout
-    assert "--reinstall-package torch" not in (tmp_path / "uv.log").read_text()
+    uv_calls = (tmp_path / "uv.log").read_text()
+    assert "--reinstall-package torch" not in uv_calls
+    # The lock went in without torch, so the CPU build has to fill the gap.
+    assert "https://download.pytorch.org/whl/cpu torch torchvision" in uv_calls
+
+
+def test_an_amd_install_leaves_no_stray_file_in_the_checkout(tmp_path, upstream, fake_bin,
+                                                             amd_venv):
+    (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-q", "-m", "lock")
+    _git(upstream, "tag", "v0.2.9")
+
+    done = _amd_run(tmp_path, fake_bin, upstream, amd_venv)
+    assert done.returncode == 0, done.stderr
+    assert not (tmp_path / "lab" / "requirements.rocm.lock").exists()
 
 
 def test_an_nvidia_install_is_left_alone(tmp_path, upstream, fake_bin, amd_venv):

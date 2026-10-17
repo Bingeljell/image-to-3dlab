@@ -94,6 +94,15 @@ def test_a_gated_repo_is_explained_as_a_login_problem():
     assert "login" in message and "retry" in message
 
 
+def test_a_repo_named_tokens_is_not_mistaken_for_a_login_problem():
+    """A Windows user's symlink error was blamed on Hugging Face sign-in, because the old
+    check matched "token" inside SkinTokens' own path."""
+    log = ["Fetching experiments/articulation_xl_quantization_256_token_4/grpo_1400.ckpt",
+           ("OSError: [WinError 1314] A required privilege is not held by the client: "
+            "'C:\\hub\\models--VAST-AI--SkinTokens\\grpo_1400.ckpt'")]
+    assert "Hugging Face" not in dl._explain(1, log)
+
+
 def test_a_full_disk_is_explained_as_a_full_disk():
     assert "disk space" in dl._explain(1, ["OSError: [Errno 28] No space left on device"])
 

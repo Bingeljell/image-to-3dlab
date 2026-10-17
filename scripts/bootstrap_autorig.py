@@ -215,12 +215,22 @@ def install_packages(root: Path = VENDOR, runner=run, index: str | None = None,
 
 def link_checkpoint(snapshot_file: Path, root: Path, checkpoint: Checkpoint) -> Path:
     """Point upstream's expected path at the cached file. A symlink, so the 1.6 GB lives
-    once in the shared cache and survives a re-clone of vendor/."""
+    once in the shared cache and survives a re-clone of vendor/.
+
+    Windows refuses symlinks without Developer Mode or admin rights. A hard link needs
+    neither and is still the cached file, so no second copy; only when the cache sits on
+    another drive does this fall back to copying it."""
     target = root / checkpoint.path
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_symlink() or target.exists():
         target.unlink()
-    target.symlink_to(snapshot_file)
+    try:
+        target.symlink_to(snapshot_file)
+    except OSError:
+        try:
+            target.hardlink_to(snapshot_file.resolve())
+        except OSError:
+            shutil.copy2(snapshot_file, target)
     return target
 
 

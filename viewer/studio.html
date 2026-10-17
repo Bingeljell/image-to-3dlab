@@ -56,7 +56,16 @@
       <button class="ghost small tip-left" id="hideBtn" data-tip="Hide from the Library. Nothing is deleted; turn on Show hidden to see it again." hidden>Hide</button></span></div>
     <div class="delbar" id="deleteBar" role="alertdialog" aria-live="polite" hidden></div>
     <div class="scroll"><ol class="steps" id="steps"></ol></div>
-    <div class="side-foot"><a class="primary export" id="download" data-tip="Download this model as a GLB for Godot, Unity, Unreal, Blender or three.js." hidden download>Download GLB</a></div>
+    <div class="side-foot">
+      <section class="file-card" id="fileCard" hidden aria-label="This model">
+        <h3>This model</h3>
+        <dl class="model-stats" id="modelStats" hidden></dl>
+        <div class="file-actions" id="fileActions">
+          <button class="ghost small" id="revealBtn" data-tip="Open the folder this file is in, with the file selected." hidden>Show in folder</button>
+          <button class="ghost small" id="copyPathBtn" data-tip="Copy the file's full path on this computer.">Copy path</button>
+        </div>
+      </section>
+      <a class="primary export" id="download" data-tip="Download this model as a GLB for Godot, Unity, Unreal, Blender or three.js." hidden download>Download GLB</a></div>
   </aside>
 </div>
 

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Model stats in the studio:** triangles, vertices, texture sizes, bones, moves and file
+  size, under the Steps panel for whichever version you are viewing. GLB files store
+  triangles only, so there is no quad count.
+- **Show in folder** and **Copy path** buttons beside Download GLB. Show in folder only
+  appears when the studio is open on the computer running it.
+- Agents get the same through two new MCP tools, `model_info` and `show_in_folder`.
 - **TRELLIS.2, Hunyuan3D-2.1 and Stable Fast 3D on AMD** (Linux, ROCm), building on the AMD
   support [@dlm21](https://github.com/dlm21) brought in 0.4.1 (#92). That release ran Pixal3D,
   Generate Image and Auto-rig on an AMD card and said these three needed NVIDIA-only parts;

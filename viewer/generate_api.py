@@ -35,6 +35,7 @@ import activity_api
 import backend_catalog
 import hf_api
 import image_api
+import model_info_api
 import preview_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from assets_api import assets_payload, list_assets
@@ -2579,6 +2580,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self._send_json(200, {"id": parts[2], "main": bool(body.get("main", True))})
             return
+        if parts == ["api", "reveal"]:
+            self._reveal()
+            return
         if len(parts) == 4 and parts[:2] == ["api", "image"] and parts[3] == "cancel":
             self._cancel_image_job(parts[2])
             return
@@ -2773,6 +2777,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "preview"]:
             self._send_preview()
+            return
+        if parts == ["api", "model-info"]:
+            self._send_model_info()
             return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "delete-plan":
             try:
@@ -3623,6 +3630,43 @@ class Handler(SimpleHTTPRequestHandler):
                     break
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def _send_model_info(self) -> None:
+        """Stats and full path for one file: `?file=<output-relative>` (the studio panel), or
+        `?asset=<id>&stage=latest` (agents)."""
+        query = parse_qs(urlparse(self.path).query)
+        relative = query.get("file", [""])[0]
+        try:
+            if not relative:
+                asset_id = query.get("asset", [""])[0]
+                asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == asset_id), None)
+                if asset is None:
+                    raise ValueError(f"no such asset: {asset_id}")
+                found = preview_api.stage_file(asset, query.get("stage", ["latest"])[0])
+                if found is None:
+                    raise ValueError("this asset has no file for that step yet")
+                relative = found[1]
+            self._send_json(200, model_info_api.model_info(OUTPUT_ROOT, relative))
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+
+    def _reveal(self) -> None:
+        """Show one output file in Finder / Explorer / the file manager, on this machine."""
+        if not model_info_api.is_local(self.client_address[0]):
+            self._send_json(403, {"error": "Show in folder only works on the computer running the studio. "
+                                           "Use Download instead."})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            path = model_info_api.reveal(OUTPUT_ROOT, str(body.get("file", "")))
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except OSError as exc:
+            self._send_json(503, {"error": f"could not open the folder: {exc}"})
+            return
+        self._send_json(200, {"shown": str(path)})
 
     def _send_preview(self) -> None:
         """One asset from four sides as a PNG (`?asset=<id>&stage=latest&look=paint`, or `&move=wave`

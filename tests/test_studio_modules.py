@@ -883,3 +883,27 @@ def test_the_raw_model_stays_viewable_after_later_steps():
         [False, False, False],   # raw only: it is already what the viewer shows
         [False, False, False],   # a prop set shows its props
     ]
+
+
+@needs_node
+def test_model_stats_read_as_short_rows():
+    out = _run("library.js", """console.log(JSON.stringify({
+        rigged: m.statsRows({triangles: 19981, vertices: 23130, materials: 1, bones: 52, moves: ['idle', 'walk'],
+                             bytes: 4.6 * 1024 ** 2,
+                             textures: [{width: 2048, height: 2048}, {width: 2048, height: 2048}, {width: 1024, height: 1024}]}),
+        plain: m.statsRows({triangles: 3, vertices: 3, materials: 0, bones: 0, moves: [], bytes: 2048,
+                            textures: [{width: null, height: null}]}),
+        none: m.statsRows(null),
+      }));""")
+    assert out["rigged"] == [["Triangles", "19,981"], ["Vertices", "23,130"],
+                             ["Textures", "2 × 2048², 1 × 1024²"], ["Bones", "52"], ["Moves", "2"],
+                             ["File size", "5 MB"]]
+    assert out["plain"] == [["Triangles", "3"], ["Vertices", "3"], ["Textures", "1"], ["File size", "2 KB"]]
+    assert out["none"] == []
+
+
+@needs_node
+def test_show_in_folder_is_offered_only_on_the_studios_own_machine():
+    out = _run("library.js", """console.log(JSON.stringify(
+        ['localhost', '127.0.0.1', '[::1]', '100.64.1.2', 'my-mac.local'].map(m.canReveal)));""")
+    assert out == [True, True, True, False, False]

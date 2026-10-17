@@ -142,7 +142,9 @@ a { color: inherit; }
 .step .sum .step-dl { color: inherit; text-decoration: underline; }
 .step .sum .linkish { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
 .step .body { padding: 0 12px 12px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--ash); }
-.side-foot { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.side-foot { padding: 12px; border-top: 1px solid var(--line-hi); background: var(--coal); display: grid; gap: 12px; }
+.file-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.file-card h3 { margin: 0; font: 600 11px/1.2 var(--f-ui); color: var(--ash); letter-spacing: .08em; text-transform: uppercase; }
 .model-stats { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
 .model-stats div { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
 .model-stats .wide { grid-column: 1 / -1; }  /* "2 × 2048², 1 × 1024²" needs the room */

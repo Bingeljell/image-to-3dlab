@@ -143,8 +143,7 @@ async function showModelInfo(file) {
   infoFor = file;
   const stats = $('modelStats');
   const actions = $('fileActions');
-  stats.hidden = true;
-  actions.hidden = true;
+  $('fileCard').hidden = true;
   if (!file) return;
   const response = await fetch(`/api/model-info?file=${encodeURIComponent(file)}`).catch(() => null);
   const info = response?.ok ? await response.json() : null;
@@ -156,7 +155,7 @@ async function showModelInfo(file) {
   }).join('');
   stats.hidden = !info.stats;
   $('revealBtn').hidden = !canReveal(location.hostname);
-  actions.hidden = false;
+  $('fileCard').hidden = false;
   actions.dataset.file = info.file;
   actions.dataset.path = info.path;
 }

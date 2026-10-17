@@ -148,6 +148,12 @@ def test_aule_is_installed_and_flash_attn_is_not():
     assert not any("flash-attn" in c or "flash_attn" in c for c in joined)
 
 
+def test_aule_is_pinned_to_one_release():
+    """It runs on every AMD install, so it is the version that was tested, not whatever is
+    newest on PyPI that day."""
+    assert boot.AULE_ATTENTION.startswith("aule-attention==")
+
+
 def test_torch_comes_from_the_rocm_index_not_the_default_one():
     commands = boot.pip_commands("source", "uv", PYTHON, (7, 2))
     torch_command = next(c for c in commands if any("torch==" in a for a in c))

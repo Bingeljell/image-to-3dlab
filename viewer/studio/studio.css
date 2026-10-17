@@ -333,3 +333,16 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .lib-filters select { min-width: 0; font-size: 12px; padding: 4px 6px; background: var(--raise); color: var(--bone); border: 1px solid var(--line-hi); border-radius: 8px; }
 .lib-filters .check { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ash); cursor: pointer; }
 .lib-filters .check input { accent-color: var(--ember); }
+
+/* Report a bug: an ember outline in the top bar, so it is easy to find without competing with + Create */
+.ghost.report-btn { border-color: rgba(253, 109, 20, .55); color: var(--flame); }
+.ghost.report-btn:hover { border-color: var(--ember); color: var(--bone); }
+.report .field { display: grid; gap: 6px; font-size: 13px; color: var(--ash); }
+.report textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); color: var(--bone); font: 400 14px/1.5 var(--f-ui); resize: vertical; }
+.report textarea:focus { outline: none; border-color: var(--ember); }
+.report-details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
+.report-details summary { cursor: pointer; color: var(--bone); font-size: 13px; }
+.report-details textarea { font: 400 12px/1.5 var(--f-num); color: var(--ash); background: var(--coal); }
+.report-send { display: grid; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.report-send .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.report-send .meta a { color: var(--flame); }

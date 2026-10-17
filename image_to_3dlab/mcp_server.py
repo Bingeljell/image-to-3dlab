@@ -63,7 +63,7 @@ STUDIO_ONLY = {
     "api/animate/*/cancel": "via cancel_run", "api/rig/rebind/*/cancel": "via cancel_run",
 }
 # Server actions the tools below call.
-USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal"}
+USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report"}
 
 
 class StudioError(RuntimeError):
@@ -665,6 +665,15 @@ def show_in_folder(studio: Studio, *, asset_id: str, stage: str = "latest") -> d
     return studio.post_json("api/reveal", {"file": file})
 
 
+def report_bug(studio: Studio, *, message: str, include_prompt: bool = False) -> dict[str, Any]:
+    params = {"prompt": "1"} if include_prompt else {}
+    details = studio.get("api/bug-report", **params)["details"]
+    links = studio.post_json("api/bug-report", {"message": message, "details": details})
+    return {"report": links["text"], "send_here": links["site"], "github": links["github"], "discord": links["discord"],
+            "tip": "Nothing has been sent. Show the user the report, then give them send_here (sign in with email) "
+                   "or github; or they can paste the report into #bugs on the Discord. The user sends it, not you."}
+
+
 def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -> dict[str, Any]:
     """Name the download, its size and licence; only `confirm=True` starts it (AGENTS.md)."""
     catalog = studio.get("api/catalog")
@@ -835,6 +844,13 @@ def build_server(studio: Studio | None = None):
         """Open the folder holding an asset's file in Finder / Explorer, with the file selected, for a user
         who wants the file itself. stage: latest | picture | model | finished | rigged."""
         return safe(lambda: show_in_folder(studio, asset_id=asset_id, stage=stage))
+
+    @server.tool(name="report_bug", structured_output=False)
+    def tool_report_bug(message: str, include_prompt: bool = False):
+        """Draft a bug report for the AssetFurnace team: the user's words plus the version, machine and the
+        last failed step's log (home folder hidden). Sends NOTHING: it returns the report and links for the
+        USER to send it themselves. include_prompt: add the failed run's prompt (ask the user first)."""
+        return safe(lambda: report_bug(studio, message=message, include_prompt=include_prompt))
 
     @server.tool(name="install_backend", structured_output=False)
     def tool_install_backend(backend_id: str, confirm: bool = False):

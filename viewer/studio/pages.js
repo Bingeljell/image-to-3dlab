@@ -70,10 +70,13 @@ export async function openActivity(stage) {
     <li class="act ${escape(r.result)}"><details><summary title="${escape(activityLine(r))}">${activityParts(r).map((part, i) => `<span class="${i ? 'meta' : 'act-title'}">${escape(part)}</span>`).join('')}</summary>
       <div class="act-more">
         ${r.result === 'error' && r.note ? `<p class="act-why">${escape(r.note)}</p>` : ''}
+        ${r.result === 'error' && r.chain ? `<p><button type="button" class="ghost small" data-report-chain="${escape(r.chain)}" data-report-step="${escape(r.step)}">Report this</button></p>` : ''}
         ${r.prompt ? `<p><span class="meta">Prompt</span><br>${escape(r.prompt)}</p>` : ''}
         ${r.made ? `<p><span class="meta">Made</span><br>${escape(r.made)}</p>` : ''}
         ${r.log ? `<pre class="log">${escape(r.log)}</pre>` : '<p class="meta">No log kept for this step.</p>'}
       </div></details></li>`).join('')}</ul>`).join('');
+  box.querySelectorAll('[data-report-chain]').forEach((button) => button.addEventListener('click', () =>
+    openReport(stage, { chain: button.dataset.reportChain, step: button.dataset.reportStep })));
 }
 
 // How a finished thing is marked. Shared with the Setup page's progress panel, which has the
@@ -165,6 +168,7 @@ export const GUIDE = [
   ['7. Take it into your game', 'Download GLB saves the model, or the move that is playing. It opens in Godot, Unity, Unreal, Blender and three.js.'],
   ['Open GLB', 'Look at any GLB from your computer, or drop one anywhere on the page. View only: nothing is copied into your Library.'],
   ['Activity', 'Everything that has run, finished, stopped or failed, with logs when something breaks.'],
+  ['Report a bug', 'Tell us what broke. The studio adds the version, your machine and the error; you read it all, then send it through our site, GitHub or Discord.'],
   ['Setup', 'Install engines and see disk use. Nothing downloads until you say yes, and each download says how big it is first.'],
   ['About', 'What AssetFurnace is, the open models it builds on, and their licences.'],
 ];
@@ -173,4 +177,54 @@ export function openGuide(stage) {
   sheet(stage, `<div class="sheet-card guide">
     <div class="sheet-top"><h2>How to use <span>AssetFurnace</span></h2><button type="button" class="ghost" data-close>Close</button></div>
     <dl>${GUIDE.map(([title, text]) => `<dt>${escape(title)}</dt><dd>${escape(text)}</dd>`).join('')}</dl></div>`);
+}
+
+/** Report a bug: what went wrong in the person's words, plus what the studio fills in (version,
+ *  machine, the failed step's log, home folder shown as ~). Nothing is sent from here: each button
+ *  hands the report to a place the person sends it from themselves. `chain`/`step` name a failure
+ *  from Activity; without them the newest failure is used. */
+export async function openReport(stage, { chain = '', step = '' } = {}) {
+  const el = sheet(stage, `<div class="sheet-card report">
+    <div class="sheet-top"><h2>Report a <span>bug</span></h2><button type="button" class="ghost" data-close>Close</button></div>
+    <p class="meta">Tell us what went wrong. You see everything that is sent, and nothing leaves this computer until you send it.</p>
+    <label class="field">What went wrong?<textarea data-message rows="4" placeholder="What you did, what you expected, and what happened instead."></textarea></label>
+    <details class="report-details"><summary>Included automatically <span class="meta" data-summary>Loading…</span></summary>
+      <textarea data-details rows="9" spellcheck="false"></textarea>
+      <p class="meta">Edit or delete anything. Your home folder is shown as ~.</p></details>
+    <label class="check" data-prompt-row hidden><input type="checkbox" data-prompt><span>Include my prompt</span></label>
+    <div class="report-send">
+      <button type="button" class="primary" data-send="site">Send via assetfurnace.com</button>
+      <p class="meta">Opens our site. You sign in with your email first, so we can reply.</p>
+      <div class="row"><button type="button" class="ghost" data-send="github">Open on GitHub</button><button type="button" class="ghost" data-send="copy">Copy report</button></div>
+      <p class="meta" data-note>GitHub needs an account. Or copy the report and paste it in <a href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">#bugs on our Discord</a>.</p>
+    </div></div>`);
+  const $ = (sel) => el.querySelector(sel);
+  const load = async () => {
+    const query = new URLSearchParams({ chain, step, prompt: $('[data-prompt]').checked ? '1' : '' });
+    const info = await (await fetch(`/api/bug-report?${query}`)).json().catch(() => ({}));
+    $('[data-details]').value = info.details || '';
+    $('[data-summary]').textContent = info.failure ? '· version, machine and the last error' : '· version and machine';
+    $('[data-prompt-row]').hidden = !info.has_prompt;
+  };
+  $('[data-prompt]').addEventListener('change', load);
+  el.querySelectorAll('[data-send]').forEach((button) => button.addEventListener('click', async () => {
+    const message = $('[data-message]').value.trim();
+    if (!message) { $('[data-message]').focus(); $('[data-message]').placeholder = 'Say what went wrong first, in a sentence or two.'; return; }
+    const response = await fetch('/api/bug-report', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, details: $('[data-details]').value }) });
+    const links = await response.json().catch(() => ({}));
+    if (!response.ok) { $('[data-note]').textContent = links.error || 'The report could not be made.'; return; }
+    if (button.dataset.send === 'copy') {
+      try {
+        await navigator.clipboard.writeText(links.text);
+        $('[data-note]').innerHTML = `Copied. Now paste it in <a href="${escape(links.discord)}" target="_blank" rel="noopener">#bugs on our Discord</a>.`;
+      } catch {
+        $('[data-note]').textContent = 'Could not copy. Select the text above and copy it by hand.';
+      }
+      return;
+    }
+    window.open(button.dataset.send === 'site' ? links.site : links.github, '_blank', 'noopener');
+  }));
+  $('[data-message]').focus();
+  await load();
 }

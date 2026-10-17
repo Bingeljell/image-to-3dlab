@@ -6,7 +6,7 @@ import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
-import { openActivity, openAbout, openGuide, closeSheet } from './pages.js';
+import { openActivity, openAbout, openGuide, openReport, closeSheet } from './pages.js';
 import { STEP_LABELS } from './plan.js';
 
 const $ = (id) => document.getElementById(id);
@@ -426,7 +426,7 @@ function drawProgress() {
     : `${making.message || 'Starting…'} · ${clock(Date.now() - making.stepStarted)}`;
   const stall = making.stalled && !making.failed ? '<p class="stallnote">No news from this step for a few minutes. It may be stuck: keep waiting, or cancel.</p>' : '';
   const buttons = making.cancelled ? '<button class="ghost" data-close>Close</button>'
-    : making.failed ? '<button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>'
+    : making.failed ? '<button class="ghost" data-report>Report this</button><button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>'
     : making.finished ? '<button class="ghost" data-close>Close</button>' : '<button class="ghost" data-x>Cancel</button>';
   box.innerHTML = compact
     ? `<div class="pc"><span class="meta">${escape(STEP_LABELS[making.current] || '')}</span><div class="bigbar"><span class="${making.percent == null ? 'busy' : ''}" style="width:${width}%"></span></div><span class="job-msg">${escape(message)}</span>${buttons}</div>${stall}`
@@ -437,6 +437,7 @@ function drawProgress() {
         ${making.log ? `<pre class="log">${escape(making.log)}</pre>` : ''}
         <div class="row end">${buttons}</div></div>`;
   box.querySelector('[data-x]')?.addEventListener('click', (e) => { e.target.disabled = true; making.cancel?.(); });
+  box.querySelector('[data-report]')?.addEventListener('click', () => openReport($('stage')));   // the newest failure is this one
   box.querySelector('[data-copy]')?.addEventListener('click', () => navigator.clipboard?.writeText(`${making.why}\n\n${making.fullLog || ''}`));
   box.querySelector('[data-close]')?.addEventListener('click', () => { const keep = making.result; making = null; show(keep ?? current ?? assets[0] ?? null); });
 }
@@ -580,5 +581,6 @@ window.addEventListener('drop', (event) => {
 $('guideBtn').addEventListener('click', () => openGuide($('stage')));
 $('activityBtn').addEventListener('click', () => openActivity($('stage')));
 $('aboutBtn').addEventListener('click', () => openAbout($('stage')));
+$('reportBtn').addEventListener('click', () => openReport($('stage')));
 
 boot();

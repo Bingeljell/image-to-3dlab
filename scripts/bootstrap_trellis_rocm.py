@@ -110,7 +110,8 @@ SOURCE_EXTENSIONS = (
 
 # Triton flash attention with no compiled extension, so it is the one backend that also
 # runs on ROCm. See scripts/patch_trellis_rocm.py for the dispatch that selects it.
-AULE_ATTENTION = "aule-attention"
+# Pinned: 0.5.0 is the release this route was tested with (newest on PyPI, 2025-12-20).
+AULE_ATTENTION = "aule-attention==0.5.0"
 
 # Per ROCm tag, read off PyTorch's own index. The third element is unused here: this route
 # has no prebuilt flash-attn wheel to match the way the CUDA route pins torch for one.

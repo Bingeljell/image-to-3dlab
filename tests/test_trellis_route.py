@@ -137,6 +137,16 @@ def test_the_rocm_route_drops_an_inherited_allocator_setting():
     assert routes.CUDA.environ({})["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
 
 
+def test_the_cuda_route_keeps_a_users_own_allocator_setting():
+    """Upstream's default, not a rule: a user who tuned it for their card keeps their value.
+    The attention backends are still pinned, since a stale one selects a backend that is
+    not there."""
+    env = routes.CUDA.environ({"PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",
+                               "ATTN_BACKEND": "stale"})
+    assert env["PYTORCH_CUDA_ALLOC_CONF"] == "max_split_size_mb:512"
+    assert env["ATTN_BACKEND"] == "flash_attn"
+
+
 def test_a_tree_under_the_other_route_is_used_too(monkeypatch, tmp_path):
     """The Setup card counts weights under either route; a run that only looked under its
     own would read "present" and then download 16 GB."""

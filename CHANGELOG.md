@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is found too, by both routes, and Setup counts it instead of offering to download it again.
 
 ### Fixed
+- **TRELLIS.2 on NVIDIA keeps your own `PYTORCH_CUDA_ALLOC_CONF`** if you set one. The AMD
+  merge had started overriding it.
+- **TRELLIS.2 on AMD installs AuleAttention 0.5.0**, the version it was tested with, instead
+  of whatever is newest on PyPI.
 - **Pixal3D installs on Macs still pointed at the Command Line Tools.** The Mac build could
   not see the Metal compiler inside Xcode and stopped, even with the Metal toolchain
   installed. It now finds your Xcode on its own. If Metal really is missing, the message

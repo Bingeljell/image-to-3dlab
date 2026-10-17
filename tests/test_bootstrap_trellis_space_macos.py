@@ -48,8 +48,10 @@ def test_it_refuses_on_nvidia_and_names_the_route_that_works():
     assert "bootstrap_trellis_cuda.py" in problem
 
 
-def test_a_machine_with_no_trellis_route_is_told_so_rather_than_left_guessing():
-    problem = bootstrap.wrong_machine(None, card=bootstrap.host.OTHER, family="linux")
+def test_a_machine_with_no_trellis_route_is_told_so_rather_than_left_guessing(monkeypatch):
+    # Faked, or on a Mac the real machine answers and there is no problem to report.
+    monkeypatch.setattr(bootstrap.host, "build_target", lambda *a, **k: None)
+    problem = bootstrap.wrong_machine(card=bootstrap.host.OTHER, family="linux")
     assert "no route for it" in problem
     assert "Nothing downloaded" in problem
 

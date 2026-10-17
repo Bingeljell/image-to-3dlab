@@ -31,6 +31,8 @@ PYTHON = Path("/venv/bin/python")
 
 # --- the route: can this machine install it at all -----------------------------------------
 
+@pytest.mark.skipif(host.host_platform() != host.AMD,
+                    reason="checks the card running the suite, so only an AMD box can")
 def test_this_machine_has_a_route():
     route, why = boot.detect()
     assert route == "source", why

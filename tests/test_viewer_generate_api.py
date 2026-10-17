@@ -1210,7 +1210,8 @@ def test_sf3d_runs_in_its_own_venv_on_amd_and_in_this_interpreter_on_a_mac():
     assert amd.interpreter == api.SF3D_ROCM_PYTHON
     assert ".venv" in str(amd.interpreter)
     assert apple.interpreter != amd.interpreter
-    assert ".venv" not in str(apple.interpreter)
+    # Not "no .venv in the path": the suite itself often runs from one.
+    assert apple.interpreter == Path(sys.executable)
     # One id, so the studio's saved setting still names the same route either way.
     assert amd.id == apple.id == "sf3d"
     assert amd.wrapper == apple.wrapper, "only the interpreter differs"
@@ -1496,7 +1497,7 @@ def _cuda_install(tmp_path, monkeypatch, *, built=True, patched=True):
 
 def test_cuda_route_is_ready_when_built_and_patched(tmp_path, monkeypatch):
     _cuda_install(tmp_path, monkeypatch)
-    assert api.cuda_setup_status()["ready"] is True
+    assert api.cuda_setup_status(api.NVIDIA)["ready"] is True
 
 
 def test_cuda_route_is_not_ready_without_the_bria_patch(tmp_path, monkeypatch):

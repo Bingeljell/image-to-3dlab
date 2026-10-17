@@ -117,7 +117,7 @@ def _repair_winding(path: Path) -> tuple[bool, bool]:
             f"{float(mesh.volume):+.5f}{' (inverted)' if inverted else ''}"
         )
         return True, inverted
-    except Exception as exc:  # noqa: BLE001 - never fail a finished generation here
+    except Exception as exc:
         print(f"  [image-to-3dlab] winding repair skipped: {exc}")
         return False, False
 

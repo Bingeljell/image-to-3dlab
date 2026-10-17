@@ -107,7 +107,7 @@ def present_scripts() -> set[str]:
 
 def registry_entries() -> dict[str, str]:
     """Script name to summary, as the registry table rows spell them."""
-    rows = re.findall(r"^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|$", REGISTRY.read_text(), re.M)
+    rows = re.findall(r"^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|$", REGISTRY.read_text(), re.MULTILINE)
     return dict(rows)
 
 
@@ -128,7 +128,7 @@ def test_the_registry_lists_nothing_that_was_deleted():
 
 
 def test_no_script_is_listed_twice():
-    names = re.findall(r"^\|\s*`([^`]+)`\s*\|", REGISTRY.read_text(), re.M)
+    names = re.findall(r"^\|\s*`([^`]+)`\s*\|", REGISTRY.read_text(), re.MULTILINE)
     duplicated = sorted({n for n in names if names.count(n) > 1})
     assert not duplicated, f"listed under more than one heading: {duplicated}"
 

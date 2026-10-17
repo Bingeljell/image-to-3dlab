@@ -102,7 +102,7 @@ class Studio:
     def _alive(self) -> bool:
         try:
             return self.http.get(self._url("api/catalog"), timeout=5).status_code == 200
-        except Exception:  # noqa: BLE001 - any failure to connect means "not running"
+        except Exception:
             return False
 
     def _start_server(self) -> None:

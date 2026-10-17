@@ -381,7 +381,7 @@ def rig_fit(glb: Path) -> dict[str, Any]:
             sys.path.insert(0, str(REPO / "scripts"))
         import rig_check
         return rig_check.check(glb)
-    except Exception:  # noqa: BLE001 - a check that breaks must not undo a good rig
+    except Exception:
         return {}
 
 
@@ -431,7 +431,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                       if REPO / "output" in job.result.parents else None,
                       "result_url": served_url(job.result),
                       "size_bytes": job.result.stat().st_size})
-    except Exception as exc:  # noqa: BLE001 - whatever broke, the job must end visibly
+    except Exception as exc:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
     finally:

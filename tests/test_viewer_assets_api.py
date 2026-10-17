@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
-import assets_api as aa  # noqa: E402
+import assets_api as aa
 
 IMG = "a-chunky-knight__20261005-205524"
 GEN = f"{IMG}-cutout__pixal3d__20261005-210000"

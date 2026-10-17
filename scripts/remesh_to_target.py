@@ -7,8 +7,8 @@ Usage:
 import sys
 import time
 
-import trimesh
 import fast_simplification
+import trimesh
 
 
 def main() -> None:

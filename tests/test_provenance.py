@@ -49,6 +49,7 @@ def test_qwen_outputs_are_yours_and_the_statement_is_cited():
 @pytest.fixture
 def research_model(monkeypatch):
     import dataclasses
+
     from image_to_3dlab import provenance
     stand_in = dataclasses.replace(LICENSES["qwen-image-2.1"], classification="research-only",
                                    folder="research_only")

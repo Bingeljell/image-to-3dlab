@@ -170,7 +170,7 @@ def _find_chest(start: str, kids, heads, up, left_axis, reach: float, knee: floa
     while kids[b]:
         if len(kids[b]) >= 3:
             def side_reach(c, sign):
-                return max(sign * float((heads[x] - heads[b]) @ left_axis) for x in _subtree_bones(c, kids))
+                return max(sign * float((heads[x] - heads[b]) @ left_axis) for x in _subtree_bones(c, kids))  # noqa: B023 - called only in this iteration
             left = max(kids[b], key=lambda c: side_reach(c, 1))
             right = max(kids[b], key=lambda c: side_reach(c, -1))
             rest = [c for c in kids[b] if c not in (left, right)]

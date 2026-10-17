@@ -10,7 +10,8 @@ The token is never logged, stored anywhere else, or sent back to the page.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 # The gated models this lab fetches, and what needs each one.
 GATED = (

@@ -41,7 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "viewer"))
 
-import backend_catalog  # noqa: E402
+import backend_catalog
 
 # Ampere like the 3090 the routes were proven on; the 4090 is the fallback.
 GPUS = ("NVIDIA A40", "NVIDIA GeForce RTX 4090")
@@ -54,8 +54,8 @@ INSTALL_URL = "https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/{ref}
 # releases (flash-attn's wheel). The slower one sets the pace.
 SPEED_URLS = (
     "https://huggingface.co/facebook/dinov2-large/resolve/main/model.safetensors",
-    "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3.post1/"
-    "flash_attn-2.8.3.post1%2Bcu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl",
+    ("https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3.post1/"
+     "flash_attn-2.8.3.post1%2Bcu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl"),
 )
 MIN_MB_PER_S = 20.0
 TERMINAL = {"done", "error", "cancelled"}
@@ -235,7 +235,7 @@ def announcement(routes: list[str], gpus: list[str], cap: float, hours: float,
 # ---- the pod -------------------------------------------------------------------------
 
 def runpodctl(*args: str) -> dict:
-    out = subprocess.run(["runpodctl", *args], capture_output=True, text=True)
+    out = subprocess.run(["runpodctl", *args], capture_output=True, text=True, check=False)
     if out.returncode != 0:
         raise RuntimeError(f"runpodctl {' '.join(args)}: {out.stderr.strip() or out.stdout}")
     return json.loads(out.stdout or "{}")
@@ -254,7 +254,7 @@ class Pod:
         if self.key:
             args += ["-i", str(Path(self.key).expanduser())]
         out = subprocess.run([*args, self.host, command], capture_output=True, text=True,
-                             timeout=timeout)
+                             timeout=timeout, check=False)
         if out.returncode != 0:
             raise RuntimeError(f"on the pod: {command[:80]}\n{out.stderr[-2000:]}")
         return out.stdout
@@ -262,7 +262,7 @@ class Pod:
 
 def rent(gpus: list[str], cap: float, hours: float, cloud: str = "secure",
          country: str = "US") -> dict:
-    name = f"pod-smoke-{datetime.now():%m%d-%H%M}"
+    name = f"pod-smoke-{datetime.now():%m%d-%H%M}"  # noqa: DTZ005 - local time, for people
     for gpu in gpus:
         print(f"Renting {gpu} in {country}...", flush=True)
         try:
@@ -369,7 +369,7 @@ def step(results: list[dict], name: str, func, *args):
     try:
         detail = func(*args)
         ok = True
-    except Exception as exc:  # noqa: BLE001 - every failure is a result, then we go on
+    except Exception as exc:
         detail, ok = str(exc), False
         print(f"   FAILED: {detail[:600]}", flush=True)
     minutes = (time.time() - began) / 60
@@ -540,7 +540,7 @@ def main(argv: list[str] | None = None) -> int:
     token = (os.environ.get("HF_TOKEN")
              or getpass.getpass("Hugging Face Read token (not shown): ")).strip()
 
-    out = REPO / "output" / f"pod-smoke-{datetime.now():%Y%m%d-%H%M}"
+    out = REPO / "output" / f"pod-smoke-{datetime.now():%Y%m%d-%H%M}"  # noqa: DTZ005 - local time, for people
     out.mkdir(parents=True, exist_ok=True)
     started = time.time()
     interrupt_on_hangup()

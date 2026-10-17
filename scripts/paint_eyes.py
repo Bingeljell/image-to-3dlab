@@ -170,7 +170,7 @@ def paint_eye(
     y: np.ndarray,
     base_rgb: np.ndarray,
     base_roughness: np.ndarray,
-    style: EyeStyle = EyeStyle(),
+    style: EyeStyle = EyeStyle(),  # noqa: B008 - frozen, so one shared default is safe
     aspect: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Draw one eye over ``base_rgb``.
@@ -395,7 +395,7 @@ def eye_basis(gaze: np.ndarray, world_up=(0.0, 0.0, 1.0)) -> tuple[np.ndarray, n
 
 
 def local_eye_coordinates(
-    shape: tuple[int, int], fit: dict, style: EyeStyle = EyeStyle()
+    shape: tuple[int, int], fit: dict, style: EyeStyle = EyeStyle()  # noqa: B008 - frozen
 ) -> tuple[np.ndarray, np.ndarray, float]:
     """Per-texel eye coordinates, plus the opening's width-to-height ratio.
 
@@ -471,7 +471,7 @@ def apply_in_blender(
     forward: tuple[float, float, float] | None = None,
 ) -> dict:
     """Build the eye patch inside a running Blender and bind it to the eye faces."""
-    import bpy  # noqa: PLC0415 -- only available inside Blender
+    import bpy
 
     style = style or EyeStyle()
     obj = bpy.data.objects[object_name]
@@ -612,7 +612,7 @@ def revert_in_blender(object_name: str, material: str = "EyePatch") -> dict:
     The backup UV layer makes the paint a reversible edit, which matters because the
     only way to judge an eye is to look at it next to the one it replaced.
     """
-    import bpy  # noqa: PLC0415
+    import bpy
 
     obj = bpy.data.objects[object_name]
     mesh = obj.data
@@ -644,7 +644,7 @@ def export_in_blender(object_name: str, path: str) -> dict:
     nothing to a renderer. It is removed for the write and put back afterwards, so
     the live scene can still be reverted or re-tuned.
     """
-    import bpy  # noqa: PLC0415
+    import bpy
 
     obj = bpy.data.objects[object_name]
     mesh = obj.data
@@ -675,7 +675,7 @@ def export_in_blender(object_name: str, path: str) -> dict:
             restored = mesh.uv_layers.new(name=BACKUP_UV_LAYER, do_init=False)
             restored.data.foreach_set("uv", stashed)
             mesh.uv_layers.active = mesh.uv_layers[0]
-    import os  # noqa: PLC0415
+    import os
 
     return {"path": path, "bytes": os.path.getsize(path)}
 
@@ -719,7 +719,7 @@ def _read_image(image) -> np.ndarray:
 
 
 def _make_image(name: str, rgb: np.ndarray, colorspace: str):
-    import bpy  # noqa: PLC0415
+    import bpy
 
     existing = bpy.data.images.get(name)
     if existing is not None:
@@ -734,7 +734,7 @@ def _make_image(name: str, rgb: np.ndarray, colorspace: str):
 
 
 def _eye_material(name: str, albedo, orm):
-    import bpy  # noqa: PLC0415
+    import bpy
 
     material = bpy.data.materials.get(name)
     if material is None:

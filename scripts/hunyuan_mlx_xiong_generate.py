@@ -125,6 +125,7 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
     print(f"starting paint stage ({time.time() - t0:.0f}s)", flush=True)
     proc = subprocess.run(
         [str(PAINT_PYTHON), "-u", str(PAINT_SCRIPT)], cwd=str(PAINT_ROOT), env=env,
+        check=False,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"paint stage exited with code {proc.returncode}")

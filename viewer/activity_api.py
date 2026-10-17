@@ -190,7 +190,7 @@ class ChainRunner:
         started = self.now()
         try:
             kind, start = self._start(chain, step)
-        except Exception as exc:  # noqa: BLE001 - any refused start becomes a plain-words failure
+        except Exception as exc:
             return self._fail(chain, step, plain_error(str(exc)), "", started)
         chain.job = (kind, start["job_id"])
         status_url = start.get("status_url") or f"/api/{kind}/{start['job_id']}/status"

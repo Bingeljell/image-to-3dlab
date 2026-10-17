@@ -33,8 +33,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "viewer"))
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import processes  # noqa: E402
-from backend_catalog import (  # noqa: E402
+from backend_catalog import (
     AMD,
     BY_ID,
     HF_HUB_DIR,
@@ -43,6 +42,8 @@ from backend_catalog import (  # noqa: E402
     human_bytes,
     runs_on_phrase,
 )
+
+from image_to_3dlab import processes
 
 POLL_SECONDS = 2.0
 STALL_SECONDS = 90.0
@@ -415,7 +416,7 @@ def _run(run: DownloadRun) -> None:
                 run.log.append(line)
                 run.emit({"phase": "log", "log": line})
         code = run.process.wait()
-    except Exception as exc:  # noqa: BLE001 - reported to the browser, not swallowed
+    except Exception as exc:
         stop.set()
         run.status = "error"
         run.emit({"phase": "error", "detail": str(exc)})

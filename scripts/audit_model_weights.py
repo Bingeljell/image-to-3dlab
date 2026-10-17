@@ -39,7 +39,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "viewer"))
 
-from backend_catalog import GB, HF_HUB_DIR, human_bytes  # noqa: E402
+from backend_catalog import GB, HF_HUB_DIR, human_bytes
 
 # Where real-file copies of weights live in this repo. A cache entry duplicated by one of
 # these is the `cached` rule's target.

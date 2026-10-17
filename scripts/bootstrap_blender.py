@@ -29,8 +29,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import __version__  # noqa: E402
-from image_to_3dlab.blender import can_install  # noqa: E402
+from image_to_3dlab import __version__
+from image_to_3dlab.blender import can_install
 
 RELEASES = "https://download.blender.org/release/Blender4.2/"
 TARBALL = re.compile(r"blender-4\.2\.(\d+)-linux-x64\.tar\.xz(?![.\w])")

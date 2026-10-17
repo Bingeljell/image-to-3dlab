@@ -27,15 +27,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-import bootstrap_hunyuan_cuda as hunyuan  # noqa: E402
-import bootstrap_trellis_cuda as trellis  # noqa: E402
+import bootstrap_hunyuan_cuda as hunyuan
+import bootstrap_trellis_cuda as trellis
 
 ROUTES = ("trellis", "hunyuan")
 
 LOCKS = REPO / "scripts" / "locks"
 TORCH_INDEX = "https://download.pytorch.org/whl/"
 # Left out of every lock: the bootstrap installs PyTorch for the card it finds.
-TORCH_FAMILY = re.compile(r"^(torch|torchvision|torchaudio|triton|nvidia-[\w-]+|cuda-[\w-]+)==", re.I)
+TORCH_FAMILY = re.compile(r"^(torch|torchvision|torchaudio|triton|nvidia-[\w-]+|cuda-[\w-]+)==", re.IGNORECASE)
 
 
 def keep_line(line: str) -> bool:

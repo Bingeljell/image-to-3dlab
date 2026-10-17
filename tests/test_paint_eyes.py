@@ -6,28 +6,28 @@ the rasteriser that resamples the original atlas into patch space, and the paddi
 that keeps bilinear filtering from fringing at the patch edge.
 """
 
+from argparse import Namespace
+
 import numpy as np
 import pytest
-
-from argparse import Namespace
 
 from scripts.paint_eyes import (
     EyeStyle,
     constant_orm,
     dilate,
     eye_basis,
+    head_forward,
     local_eye_coordinates,
     locate_eye,
     luminance,
     paint_eye,
-    head_forward,
     parse_colour,
     patch_coordinates,
     rasterise,
-    shade,
-    style_from_args,
     sample_bilinear,
+    shade,
     smoothstep,
+    style_from_args,
 )
 
 

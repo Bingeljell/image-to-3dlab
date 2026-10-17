@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from rigify_walk_pose import sample
 from blender_joint_markers import send
+from rigify_walk_pose import sample
 
 
 def build_code(frames: int, gait: str, swing_front: float, swing_back: float,

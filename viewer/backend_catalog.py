@@ -35,7 +35,6 @@ if str(REPO) not in sys.path:
 from image_to_3dlab import host as _host
 from image_to_3dlab import matte as _matte
 from image_to_3dlab.host import AMD, APPLE, NVIDIA
-from image_to_3dlab.provenance import QWEN_OUTPUT_RIGHTS
 
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
@@ -607,8 +606,8 @@ CATALOG: tuple[Backend, ...] = (
             "Check the licence before downloading."
         ),
         extra_steps=(
-            "The shape half stays vendor-cloned on purpose: it is Tencent-licensed code, "
-            "not just weights. See docs/hunyuan-mlx-recipes.md.",
+            ("The shape half stays vendor-cloned on purpose: it is Tencent-licensed code, "
+             "not just weights. See docs/hunyuan-mlx-recipes.md."),
         ),
         weights=(
             WeightSet("Hunyuan3D-2.1 shape, MLX port", "dgrauet/hunyuan3d-2.1-mlx",
@@ -851,7 +850,7 @@ CATALOG: tuple[Backend, ...] = (
 
 BY_ID = {backend.id: backend for backend in CATALOG}
 
-def is_shared(backend: "Backend", weight: "WeightSet") -> bool:
+def is_shared(backend: Backend, weight: WeightSet) -> bool:
     """Whether another route also uses this file, so removing `backend` must keep it.
 
     The background remover is listed by every route that cuts pictures out; Pixal3D's

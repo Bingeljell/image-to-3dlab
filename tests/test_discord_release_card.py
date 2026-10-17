@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-import discord_release_card as card  # noqa: E402
+import discord_release_card as card
 
 URL = "https://github.com/Bingeljell/image-to-3dlab/releases/tag/v0.4.3"
 BODY = """# AssetFurnace 0.4.3

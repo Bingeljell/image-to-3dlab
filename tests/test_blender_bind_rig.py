@@ -113,6 +113,6 @@ def test_binding_to_a_named_armature_still_wins():
     module = load_module()
     metarig = Armature("metarig", [Bone("spine")])
     generated = Armature("rig", [Bone("DEF-spine")])
-    mesh, armature = module.resolve_pair(
+    _mesh, armature = module.resolve_pair(
         [Obj("geometry_0", "MESH"), metarig, generated], armature_name="metarig")
     assert armature is metarig

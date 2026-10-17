@@ -19,31 +19,58 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
-from typing import Any, Callable, ClassVar
+from typing import Any, ClassVar
 from urllib.parse import parse_qs, unquote, urlparse
 
 # Sibling import must also work when tests load this file directly via importlib.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import activity_api
+import backend_catalog
+import hf_api
 import image_api
-from image_to_3dlab import processes
-from image_to_3dlab.blender import find_blender, missing_help as blender_missing_help
-from image_to_3dlab.gpu_memory import gpu_busy_note
-from image_to_3dlab.host import executable  # image_api put the repo on sys.path
-from rig_api import (
-    ARTIFACTS as RIG_ARTIFACTS,
-    RIG_JOBS,
-    cancel_job as cancel_rig_job,
-    run_job as run_rig_job,
-    status_payload as rig_status_payload,
+import preview_api
+from activity_api import ChainRunner, chain_from_form, read_history
+from assets_api import assets_payload, list_assets
+from assets_api import delete_version as delete_asset_version
+from assets_api import plan_delete as plan_asset_delete
+from assets_api import set_hidden as set_asset_hidden
+from assets_api import set_main as set_asset_main
+from assets_api import set_name as set_asset_name
+from assets_api import thumbnail as asset_thumbnail
+from autorig_api import (
+    ANIMATE_JOBS,
 )
-import backend_catalog  # noqa: E402
-import hf_api  # noqa: E402
+from autorig_api import (
+    cancel_job as cancel_animate_job,
+)
+from autorig_api import (
+    installed as autorig_installed,
+)
+from autorig_api import (
+    pickable_models as animate_models,
+)
+from autorig_api import (
+    presets as animate_presets,
+)
+from autorig_api import (
+    resolve_model as resolve_animate_model,
+)
+from autorig_api import (
+    run_job as run_animate_job,
+)
+from autorig_api import (
+    source_record_for as animate_source_record,
+)
+from autorig_api import (
+    status_payload as animate_status_payload,
+)
 from backend_catalog import (
     AMD,
     APPLE,
@@ -51,56 +78,96 @@ from backend_catalog import (
     _dir_state,
     catalog_status,
     host_platform,
+)
+from backend_catalog import (
     readiness as catalog_readiness,
 )
-from welcome_api import payload as welcome_payload
-from update_api import check as update_check
 from download_api import (
     DOWNLOADS,
-    active as download_active,
-    running_payload,
-    cancel as cancel_download,
-    remove as remove_weights,
     rebuild_reason,
+    running_payload,
+)
+from download_api import (
+    active as download_active,
+)
+from download_api import (
+    cancel as cancel_download,
+)
+from download_api import (
+    remove as remove_weights,
+)
+from download_api import (
     start as start_download,
+)
+from download_api import (
     status_payload as download_status_payload,
 )
 from finish_api import (
     ARTIFACTS as FINISH_ARTIFACTS,
+)
+from finish_api import (
     FINISH_JOBS,
+)
+from finish_api import (
     cancel_job as cancel_finish_job,
+)
+from finish_api import (
     capabilities as finish_capabilities,
+)
+from finish_api import (
     list_runs as list_finish_runs,
+)
+from finish_api import (
     run_job as run_finish_job,
+)
+from finish_api import (
     status_payload as finish_status_payload,
 )
-from autorig_api import (
-    ANIMATE_JOBS,
-    cancel_job as cancel_animate_job,
-    installed as autorig_installed,
-    pickable_models as animate_models,
-    presets as animate_presets,
-    resolve_model as resolve_animate_model,
-    run_job as run_animate_job,
-    source_record_for as animate_source_record,
-    status_payload as animate_status_payload,
-)
-from assets_api import assets_payload, list_assets, delete_version as delete_asset_version, plan_delete as plan_asset_delete, set_hidden as set_asset_hidden, set_main as set_asset_main, set_name as set_asset_name, thumbnail as asset_thumbnail
-import activity_api
-import preview_api
-from activity_api import ChainRunner, chain_from_form, read_history
 from props_api import (
     PROPS_JOBS,
-    cancel_job as cancel_props_job,
     generated_model,
     generated_models,
-    list_runs as list_props_runs,
-    run_job as run_props_job,
-    source_record_for,
-    status_payload as props_status_payload,
     gltfpack_install_command,
+    source_record_for,
+)
+from props_api import (
+    cancel_job as cancel_props_job,
+)
+from props_api import (
+    list_runs as list_props_runs,
+)
+from props_api import (
+    run_job as run_props_job,
+)
+from props_api import (
+    status_payload as props_status_payload,
+)
+from props_api import (
     tools_payload as props_tools_payload,
 )
+from rig_api import (
+    ARTIFACTS as RIG_ARTIFACTS,
+)
+from rig_api import (
+    RIG_JOBS,
+)
+from rig_api import (
+    cancel_job as cancel_rig_job,
+)
+from rig_api import (
+    run_job as run_rig_job,
+)
+from rig_api import (
+    status_payload as rig_status_payload,
+)
+from update_api import check as update_check
+from welcome_api import payload as welcome_payload
+
+from image_to_3dlab import processes
+from image_to_3dlab.blender import find_blender
+from image_to_3dlab.blender import missing_help as blender_missing_help
+from image_to_3dlab.gpu_memory import gpu_busy_note
+from image_to_3dlab.host import executable  # image_api put the repo on sys.path
 
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
@@ -297,11 +364,11 @@ class BackendSpec:
     stage_labels: dict[str, str]
     requires_alpha: bool
     validate_settings: Callable[[Any], dict[str, Any]]
-    build_args: Callable[["Job"], list[str]]
-    parse_line: Callable[["Job", str], None]
+    build_args: Callable[[Job], list[str]]
+    parse_line: Callable[[Job, str], None]
     readiness: Callable[[], dict[str, Any]]
     baseline_path: Path | None = None
-    finalize: Callable[["Job"], None] | None = None
+    finalize: Callable[[Job], None] | None = None
     """Runs after the subprocess exits 0, before the output-file existence check — for
     backends whose wrapper doesn't write directly to job.output_path (SF3D writes
     ``<stem>_sf3d.glb`` instead)."""
@@ -2654,10 +2721,9 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self._send_json(500, {"error": str(exc), "advisory_only": True})
 
-    def list_directory(self, path):  # noqa: ANN001 - the stdlib signature
+    def list_directory(self, path):
         # Never list folders: the server's root is the whole repository.
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
-        return None
 
     def do_GET(self) -> None:
         if urlparse(self.path).path in ("", "/", "/viewer", "/viewer/"):
@@ -2950,7 +3016,7 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 # A validator bug must not reach the browser as a bare repr. `KeyError` on a
                 # setting name printed as just `'max_num_view'`, with nothing on the server's
                 # terminal: the run looked like it had simply stopped. Name the exception and
@@ -3002,7 +3068,7 @@ class Handler(SimpleHTTPRequestHandler):
             if cut_needed:
                 try:
                     image_path, settings["matted_with"] = matte_upload(image_path)
-                except Exception as exc:  # noqa: BLE001 - a missing remover is a message, not a crash
+                except Exception as exc:
                     for child in provisional.iterdir():
                         child.unlink()
                     provisional.rmdir()

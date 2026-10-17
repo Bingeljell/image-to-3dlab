@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 PROFILE_ROOT = REPO / "rigs" / "profiles"

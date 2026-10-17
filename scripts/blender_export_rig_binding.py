@@ -14,9 +14,9 @@ prepared copy, and the sidecar fingerprints that exact saved copy plus the revie
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))

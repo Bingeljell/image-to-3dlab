@@ -195,7 +195,7 @@ def _torch_free_bytes() -> int | None:
 
         if torch.cuda.is_available():
             return int(torch.cuda.mem_get_info()[0])
-    except Exception:  # noqa: BLE001 - unknown, and the fallback below says so
+    except Exception:
         return None
     return None
 
@@ -504,7 +504,7 @@ def generate_shape(image: Path, mesh_path: Path, settings: dict[str, Any],
         try:
             pipeline.enable_flashvdm()
             print("flashvdm enabled", flush=True)
-        except Exception as error:  # noqa: BLE001 - an optimisation, never a blocker
+        except Exception as error:
             print(f"flashvdm unavailable ({error}); continuing without it", flush=True)
     print(f"loaded shape pipeline in {time.time() - started:.1f}s", flush=True)
     with Image.open(image) as opened:

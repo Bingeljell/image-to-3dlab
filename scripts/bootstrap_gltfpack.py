@@ -29,7 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import __version__  # noqa: E402
+from image_to_3dlab import __version__
 
 VERSION = "v1.3"
 RELEASES = f"https://github.com/zeux/meshoptimizer/releases/download/{VERSION}/"

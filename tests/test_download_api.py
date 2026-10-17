@@ -11,12 +11,11 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 # Plain import for the same reason `test_backend_catalog.py` uses one: `generate_api`
 # imports `download_api`, so a hand-loaded second copy leaves the two holding different
 # objects and a patch here never reaches the code being tested.
 import download_api as dl
+import pytest
 
 
 def test_progress_bars_are_stripped_to_their_last_frame():
@@ -554,6 +553,7 @@ def test_removing_a_patterned_weight_deletes_its_file_and_keeps_the_folder(tmp_p
 
 def test_a_patterned_weight_does_not_make_its_whole_folder_shared(tmp_path):
     import dataclasses
+
     from backend_catalog import WeightSet, is_shared
     repo = _hf_folder(tmp_path)
     whole = WeightSet("llm", "Qwen/Qwen3-VL-8B-Instruct-GGUF", 50, repo)

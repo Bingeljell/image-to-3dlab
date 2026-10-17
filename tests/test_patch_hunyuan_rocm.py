@@ -171,7 +171,7 @@ def _chunked_attention(checkout: Path):
     source = ("def chunked(query, key, value, attention_mask=None):\n"
               + body + "\n    return hidden_states\n")
     namespace: dict = {"os": os, "torch": torch, "F": torch.nn.functional}
-    exec(compile(source, "<patched attn_processor.py>", "exec"), namespace)  # noqa: S102
+    exec(compile(source, "<patched attn_processor.py>", "exec"), namespace)
     return namespace["chunked"], torch
 
 

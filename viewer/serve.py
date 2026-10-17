@@ -29,7 +29,12 @@ from typing import NamedTuple
 # and when loaded by the test suite via importlib (script dir not on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from generate_api import OUTPUT_ROOT, Handler, _reconcile_orphaned_jobs, _terminate_active_job
+from generate_api import (
+    OUTPUT_ROOT,
+    Handler,
+    _reconcile_orphaned_jobs,
+    _terminate_active_job,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 

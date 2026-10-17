@@ -12,7 +12,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "viewer"))
 
-import hf_api  # noqa: E402
+import hf_api
 
 
 class Refused(Exception):

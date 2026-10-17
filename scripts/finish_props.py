@@ -58,10 +58,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO))
-from compress_glb_textures import build_glb, parse_glb  # noqa: E402
-from retopo_repaint import _run, bake_command, preflight, retopo_command, reuse  # noqa: E402
+from compress_glb_textures import build_glb, parse_glb
+from retopo_repaint import (
+    _run,
+    bake_command,
+    preflight,
+    retopo_command,
+    reuse,
+)
 
-from image_to_3dlab.blender import find_blender  # noqa: E402
+from image_to_3dlab.blender import find_blender
 
 # 5,000 triangles kept the chest's rivets and lock readable with a normal map; 2,500 and
 # 1,000 are the middle and far steps. `blender_retopo_bake.py` accepts 1,000 to 200,000.

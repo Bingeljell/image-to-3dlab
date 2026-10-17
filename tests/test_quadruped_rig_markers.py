@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from blender_build_rig import EAR_BONES, SKELETON  # noqa: E402
-from blender_joint_markers import QUADRUPED_MARKERS  # noqa: E402
+from blender_build_rig import EAR_BONES, SKELETON
+from blender_joint_markers import QUADRUPED_MARKERS
 
 
 def test_every_bone_endpoint_has_a_marker():
@@ -57,7 +57,7 @@ def test_left_and_right_markers_mirror_each_other():
         twin = None
         if name.endswith("_L"):
             twin = name[:-2] + "_R"
-        elif name.startswith("frontL") or name.startswith("backL"):
+        elif name.startswith(("frontL", "backL")):
             twin = name.replace("L_", "R_", 1)
         if twin is None:
             continue

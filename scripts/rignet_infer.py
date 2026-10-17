@@ -35,13 +35,12 @@ def main() -> None:
 
     import numpy as np
     import open3d as o3d
-    import torch
-
     import quick_start
+    import torch
     from quick_start import (
+        BONENET,
         JOINTNET,
         ROOTNET,
-        BONENET,
         SKINNET,
         create_single_data,
         predict_joints,

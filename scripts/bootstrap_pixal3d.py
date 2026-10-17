@@ -416,23 +416,65 @@ def source_ref(kind: str) -> str:
     return "HEAD" if kind == "metal-source" else PREBUILT_COMMIT
 
 
+def has_metal(env: dict[str, str] | None = None, runner=subprocess.run) -> bool:
+    """Whether `xcrun` can find the Metal compiler (the GPU shader compiler)."""
+    return runner(["xcrun", "--find", "metal"], capture_output=True, check=False,
+                  env=env).returncode == 0
+
+
+def xcode_apps(apps: Path = Path("/Applications")) -> list[Path]:
+    """Every full Xcode in `apps`, `Xcode.app` first, then the likes of `Xcode-26.3.app`."""
+    found = sorted(apps.glob("Xcode*.app"), key=lambda p: (p.name != "Xcode.app", p.name))
+    return [p / "Contents" / "Developer" for p in found if (p / "Contents" / "Developer").is_dir()]
+
+
+def find_metal(runner=subprocess.run, apps: Path = Path("/Applications"),
+               env: dict[str, str] | None = None) -> dict[str, str] | None:
+    """What to add to the environment so the build can see the Metal compiler.
+
+    `{}` when it is already visible. When the Mac is pointed at the Command Line Tools,
+    which have no Metal compiler, an installed Xcode that has one is used for this build
+    only, via DEVELOPER_DIR; nothing system-wide changes. `None` when no Xcode has it.
+    """
+    base = dict(os.environ if env is None else env)
+    if has_metal(base, runner):
+        return {}
+    for developer in xcode_apps(apps):
+        extra = {"DEVELOPER_DIR": str(developer)}
+        if has_metal({**base, **extra}, runner):
+            return extra
+    return None
+
+
+def metal_missing_message(apps: Path = Path("/Applications")) -> str:
+    """Printed rather than run: these need sudo or change a system-wide setting."""
+    xcodes = xcode_apps(apps)
+    if not xcodes:
+        return ("Building Pixal3D on a Mac needs the full Xcode app (free, from the App "
+                "Store), not just the Command Line Tools. Install it, open it once, then "
+                "try again.")
+    developer = xcodes[0]
+    return ("Xcode is installed but its Metal compiler was not found. In Terminal:\n"
+            f"  sudo xcode-select -s {developer}\n"
+            "  sudo xcodebuild -license accept\n"
+            "  xcodebuild -downloadComponent MetalToolchain\n"
+            "  xcrun --find metal     (should print a path)\n"
+            "then try the install again.")
+
+
 def build_from_source(kind: str) -> Path:
     """Clone and compile: Metal on a Mac, CUDA or HIP on Linux, with the toolkit installed."""
     needed = ("cmake", "ninja", "git") if kind == "metal-source" else ("cmake", "git")
     for tool in needed:
         if shutil.which(tool) is None:
             raise SystemExit(f"{tool} not found. Install it and run this again.")
-    if kind == "metal-source" and subprocess.run(
-            ["xcrun", "--find", "metal"], capture_output=True, check=False).returncode != 0:
-        # Printed rather than run: both need sudo or change a system-wide setting.
-        raise SystemExit(
-            "Metal compiler unavailable. With full Xcode installed, this is usually:\n"
-            "  sudo DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer "
-            "xcodebuild -license accept\n"
-            "  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer "
-            "xcodebuild -downloadComponent MetalToolchain\n"
-            "then re-run this script with DEVELOPER_DIR set."
-        )
+    if kind == "metal-source":
+        found = find_metal()
+        if found is None:
+            raise SystemExit(metal_missing_message())
+        if found:
+            print(f"Using the Metal compiler in {found['DEVELOPER_DIR']}", flush=True)
+            os.environ.update(found)  # cmake and the compilers it starts inherit it
     hipcc = find_hipcc() if kind == "hip-source" else None
     if kind == "hip-source" and not hipcc:
         raise SystemExit("ROCm's compiler (hipcc) is not on PATH and is not in "

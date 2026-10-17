@@ -609,3 +609,91 @@ def test_amd_without_hipcc_is_still_refused_a_rebuild(monkeypatch, capsys):
     monkeypatch.setattr(boot, "install_weights", lambda *a: pytest.fail("downloaded"))
     assert boot.main(["--yes", "--rebuild"]) == 1
     assert "rocm-hip-sdk" in capsys.readouterr().out
+
+
+def fake_xcrun(works_with):
+    """An `xcrun` that finds Metal only when DEVELOPER_DIR is `works_with` (or always, for
+    "any"), recording each environment it was asked under."""
+    seen = []
+
+    def runner(command, env=None, **kwargs):
+        assert command == ["xcrun", "--find", "metal"]
+        developer = (env or {}).get("DEVELOPER_DIR")
+        seen.append(developer)
+        ok = works_with == "any" or developer == works_with
+        return types.SimpleNamespace(returncode=0 if ok else 1)
+
+    return runner, seen
+
+
+def make_xcode(apps: Path, name: str) -> str:
+    developer = apps / name / "Contents" / "Developer"
+    developer.mkdir(parents=True)
+    return str(developer)
+
+
+def test_metal_already_visible_changes_nothing(tmp_path):
+    runner, _ = fake_xcrun("any")
+    assert boot.find_metal(runner, apps=tmp_path, env={}) == {}
+
+
+def test_a_mac_on_the_command_line_tools_uses_the_installed_xcode(tmp_path):
+    """The Discord report: Metal toolchain installed into Xcode, but the Mac still pointed
+    at the Command Line Tools, so `xcrun` never looked in Xcode."""
+    xcode = make_xcode(tmp_path, "Xcode.app")
+    runner, seen = fake_xcrun(xcode)
+    assert boot.find_metal(runner, apps=tmp_path, env={}) == {"DEVELOPER_DIR": xcode}
+    assert seen == [None, xcode]
+
+
+def test_a_renamed_xcode_is_found_too(tmp_path):
+    xcode = make_xcode(tmp_path, "Xcode-26.3.app")
+    runner, _ = fake_xcrun(xcode)
+    assert boot.find_metal(runner, apps=tmp_path, env={}) == {"DEVELOPER_DIR": xcode}
+
+
+def test_plain_xcode_app_is_tried_first(tmp_path):
+    make_xcode(tmp_path, "Xcode-beta.app")
+    plain = make_xcode(tmp_path, "Xcode.app")
+    assert boot.xcode_apps(tmp_path)[0] == Path(plain)
+
+
+def test_no_metal_anywhere_returns_none(tmp_path):
+    make_xcode(tmp_path, "Xcode.app")
+    runner, _ = fake_xcrun("nowhere")
+    assert boot.find_metal(runner, apps=tmp_path, env={}) is None
+
+
+def test_the_message_without_xcode_says_install_xcode(tmp_path):
+    assert "App Store" in boot.metal_missing_message(tmp_path)
+
+
+def test_the_message_with_xcode_gives_the_commands_for_that_xcode(tmp_path):
+    xcode = make_xcode(tmp_path, "Xcode-26.3.app")
+    text = boot.metal_missing_message(tmp_path)
+    assert f"sudo xcode-select -s {xcode}" in text
+    assert "MetalToolchain" in text
+    assert "DEVELOPER_DIR" not in text  # meaningless to someone who clicked Install
+
+
+def test_the_metal_build_hands_the_found_xcode_to_cmake(monkeypatch):
+    monkeypatch.setattr(boot.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(boot, "find_metal", lambda: {"DEVELOPER_DIR": "/X/Developer"})
+    monkeypatch.setattr(boot, "fetch_source", lambda ref: None)
+    monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
+    monkeypatch.setattr(boot, "build_present", lambda: True)
+    env = {k: v for k, v in boot.os.environ.items() if k != "DEVELOPER_DIR"}
+    monkeypatch.setattr(boot.os, "environ", env)  # the build writes to it; keep that here
+    seen = []
+    monkeypatch.setattr(boot.subprocess, "run",
+                        lambda command, **kw: seen.append(boot.os.environ.get("DEVELOPER_DIR")))
+    boot.build_from_source("metal-source")
+    assert seen and all(d == "/X/Developer" for d in seen)
+
+
+def test_the_metal_build_stops_with_the_message_when_no_metal(monkeypatch):
+    monkeypatch.setattr(boot.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(boot, "find_metal", lambda: None)
+    monkeypatch.setattr(boot, "metal_missing_message", lambda: "install Xcode")
+    with pytest.raises(SystemExit, match="install Xcode"):
+        boot.build_from_source("metal-source")

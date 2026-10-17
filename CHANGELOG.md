@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is found too, by both routes, and Setup counts it instead of offering to download it again.
 
 ### Fixed
+- **Pixal3D installs on Macs still pointed at the Command Line Tools.** The Mac build could
+  not see the Metal compiler inside Xcode and stopped, even with the Metal toolchain
+  installed. It now finds your Xcode on its own. If Metal really is missing, the message
+  gives the exact Terminal commands, or tells you to install Xcode if you don't have it.
 - **An AMD install gets the ROCm build of PyTorch.** The installer handed every AMD card
   PyPI's CUDA torch, plus about 6 GB of NVIDIA wheels it cannot load. A ROCm too old for
   any ROCm build gets the CPU build until it is updated, rather than no PyTorch at all.

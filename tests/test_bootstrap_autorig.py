@@ -57,6 +57,33 @@ def test_link_checkpoint_replaces_a_stale_link(tmp_path):
     assert linked.resolve() == cache.resolve()
 
 
+def _no_symlinks(self, target):
+    # What Windows says without Developer Mode or admin rights.
+    raise OSError(1314, "A required privilege is not held by the client")
+
+
+def test_without_symlink_rights_the_checkpoint_is_hard_linked(tmp_path, monkeypatch):
+    """Windows without admin: a hard link is still the cached file, so no second 1.6 GB."""
+    monkeypatch.setattr(Path, "symlink_to", _no_symlinks)
+    cache = tmp_path / "cache.ckpt"
+    cache.write_bytes(b"weights")
+    linked = ba.link_checkpoint(cache, tmp_path / "root", ba.CHECKPOINTS[0])
+    assert linked.samefile(cache)
+
+
+def test_with_no_links_at_all_the_checkpoint_is_copied(tmp_path, monkeypatch):
+    """The cache on another drive: a copy costs disk, but setup still finishes."""
+    monkeypatch.setattr(Path, "symlink_to", _no_symlinks)
+
+    def no_hard_links(self, target):
+        raise OSError(17, "Cannot create a link across drives")
+    monkeypatch.setattr(Path, "hardlink_to", no_hard_links)
+    cache = tmp_path / "cache.ckpt"
+    cache.write_bytes(b"weights")
+    linked = ba.link_checkpoint(cache, tmp_path / "root", ba.CHECKPOINTS[0])
+    assert linked.read_bytes() == b"weights" and not linked.is_symlink()
+
+
 def test_weights_present_needs_both_checkpoints_and_the_llm_config(tmp_path):
     root = tmp_path / "SkinTokens"
     for checkpoint in ba.CHECKPOINTS:

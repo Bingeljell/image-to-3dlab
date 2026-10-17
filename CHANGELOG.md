@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is found too, by both routes, and Setup counts it instead of offering to download it again.
 
 ### Fixed
+- **Auto-rig setup no longer fails on Windows without admin rights.** Where a symlink is
+  refused, the model files are hard-linked to the download cache instead (no extra disk),
+  or copied if the cache is on another drive. Thanks to the Windows user who reported it.
 - **TRELLIS.2 on NVIDIA keeps your own `PYTORCH_CUDA_ALLOC_CONF`** if you set one. The AMD
   merge had started overriding it.
 - **TRELLIS.2 on AMD installs AuleAttention 0.5.0**, the version it was tested with, instead

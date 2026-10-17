@@ -367,10 +367,17 @@ def extra_cmake_flags(env: dict[str, str] | None = None) -> list[str]:
     return (env if env is not None else os.environ).get(EXTRA_CMAKE_FLAGS, "").split()
 
 
+BUILD_TARGETS = ("trellis-cli", "post-replay")
+
+
 def build_command(jobs: int) -> list[str]:
     """Always with a job count. A bare `-j` is unbounded, and on a 96-CPU, 31 GB pod the
-    kernel killed the nvcc jobs it started."""
-    return ["cmake", "--build", str(BUILD), "--target", "trellis-cli", "-j", str(jobs)]
+    kernel killed the nvcc jobs it started.
+
+    `post-replay` reruns Pixal3D's own clean-up from a saved dump at any face count; the
+    Pixal3D Finish route needs it. Upstream's prebuilt downloads ship without it.
+    """
+    return ["cmake", "--build", str(BUILD), "--target", *BUILD_TARGETS, "-j", str(jobs)]
 
 
 def fetch_source(ref: str) -> None:
@@ -404,6 +411,23 @@ def apply_steps_patch(runner=subprocess.run) -> bool:
                     capture_output=True, text=True, check=False)
     if result.returncode != 0:
         print("Warning: could not apply the steps patch; Pixal3D will run 12 steps.\n"
+              f"  {(result.stderr or result.stdout).strip()}", flush=True)
+        return False
+    print(result.stdout.strip(), flush=True)
+    return True
+
+
+def apply_dump_patch(runner=subprocess.run) -> bool:
+    """Patch the fetched source so a run can save its clean-up input and still write the
+    model (scripts/patch_pixal3d_dump_continue.py).
+
+    Never fatal: if upstream moved the anchor the build still succeeds, and Finish simply
+    uses its classic route for new models. Returns whether the patch is in place.
+    """
+    result = runner([sys.executable, str(REPO / "scripts" / "patch_pixal3d_dump_continue.py")],
+                    capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        print("Warning: could not apply the dump patch; Finish will use its classic route.\n"
               f"  {(result.stderr or result.stdout).strip()}", flush=True)
         return False
     print(result.stdout.strip(), flush=True)
@@ -486,6 +510,7 @@ def build_from_source(kind: str) -> Path:
             "with its compiler, or point PIXAL3D_CMAKE_FLAGS at a clang that works.")
     fetch_source(source_ref(kind))
     apply_steps_patch()
+    apply_dump_patch()
     flags = [*cmake_flags(kind, find_nvcc(), host.compute_capability(), hipcc,
                           gfx_targets() if hipcc else None),
              *extra_cmake_flags()]
@@ -597,6 +622,7 @@ def rebuild_existing(runner=subprocess.run) -> Path:
     the already-configured tree is all a rebuild needs.
     """
     apply_steps_patch(runner)
+    apply_dump_patch(runner)
     runner(build_command(host.build_jobs()), check=True)
     if not build_present():
         raise SystemExit("The rebuild finished without trellis-cli.")

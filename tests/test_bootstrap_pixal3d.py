@@ -400,6 +400,7 @@ def test_the_hip_build_says_hip_not_cuda_on_its_progress_line(monkeypatch, capsy
     monkeypatch.setattr(boot.shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(boot, "fetch_source", lambda ref: None)
     monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
+    monkeypatch.setattr(boot, "apply_dump_patch", lambda: True)
     monkeypatch.setattr(boot, "gfx_targets", lambda: ["gfx1100"])
     monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
     # ROCm's Clang is looked up on disk; this test is about the label, not the lookup,
@@ -429,6 +430,19 @@ def test_the_build_command_names_a_job_count():
     command = boot.build_command(jobs=10)
     assert command[-2:] == ["-j", "10"]
     assert "trellis-cli" in command
+
+
+def test_the_build_includes_post_replay():
+    """The Pixal3D Finish route reruns Pixal3D's own clean-up through it."""
+    assert "post-replay" in boot.build_command(jobs=4)
+
+
+def test_a_failed_dump_patch_does_not_fail_the_install(capsys):
+    def runner(command, **kwargs):
+        assert command[-1].endswith("patch_pixal3d_dump_continue.py")
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="anchor found 0 times")
+    assert boot.apply_dump_patch(runner) is False
+    assert "classic route" in capsys.readouterr().out
 
 
 def test_a_failed_steps_patch_does_not_fail_the_install(capsys):
@@ -489,7 +503,8 @@ def test_a_rebuild_patches_then_compiles_without_the_fresh_install_checks(monkey
     monkeypatch.setattr(boot, "build_present", lambda: True)
     boot.rebuild_existing(runner)
     assert ran[0][-1].endswith("patch_pixal3d_steps.py")
-    assert ran[1][:2] == ["cmake", "--build"]
+    assert ran[1][-1].endswith("patch_pixal3d_dump_continue.py")
+    assert ran[2][:2] == ["cmake", "--build"]
     assert not any("xcrun" in part for command in ran for part in command)
 
 
@@ -681,6 +696,7 @@ def test_the_metal_build_hands_the_found_xcode_to_cmake(monkeypatch):
     monkeypatch.setattr(boot, "find_metal", lambda: {"DEVELOPER_DIR": "/X/Developer"})
     monkeypatch.setattr(boot, "fetch_source", lambda ref: None)
     monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
+    monkeypatch.setattr(boot, "apply_dump_patch", lambda: True)
     monkeypatch.setattr(boot, "build_present", lambda: True)
     env = {k: v for k, v in boot.os.environ.items() if k != "DEVELOPER_DIR"}
     monkeypatch.setattr(boot.os, "environ", env)  # the build writes to it; keep that here

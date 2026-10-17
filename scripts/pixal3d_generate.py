@@ -70,6 +70,13 @@ STEPS_ENV = "PIXAL3D_STEPS"
 STEPS_MARKER = "i2l_steps"
 FLOW_SOURCE = PIXAL3D_ROOT / "src" / "flow_runner.cpp"
 
+# Pixal3D's own clean-up input, saved beside every model whose trellis-cli carries
+# scripts/patch_pixal3d_dump_continue.py. Finish reruns that clean-up from it at any face
+# count through post-replay (scripts/pixal3d_native.py). ~230 MB per model.
+DUMP_ENV = "PIXAL3D_DUMP_CONTINUE"
+DUMP_MARKER = DUMP_ENV.encode()
+DUMP_SUFFIX = ".post.bin"
+
 STAGES = ["stage", "views", "ss", "shape", "decode", "texture", "write"]
 STAGE_LABELS = {
     "views": "Preparing view",
@@ -342,6 +349,24 @@ def resolve_steps(requested: int | None, source: Path = FLOW_SOURCE,
     return requested, f"steps={requested}"
 
 
+def dump_supported(cli: Path = CLI) -> bool:
+    """Whether this trellis-cli can save its clean-up input and still write the model.
+
+    Read from the binary itself, not the source: a patched source with a stale build would
+    stop after the dump and write no model at all. Upstream's prebuilt downloads never have
+    it, so they run exactly as before.
+    """
+    try:
+        return cli.is_file() and DUMP_MARKER in cli.read_bytes()
+    except OSError:
+        return False
+
+
+def with_dump(command: list[str], dump: Path) -> list[str]:
+    """The command with `--dump-post` added; the output GLB stays the last argument."""
+    return [*command[:-1], "--dump-post", str(dump), command[-1]]
+
+
 def rocm_library_path(base: dict[str, str], root: Path | None = None) -> str | None:
     """ROCm's library directory, to put on the loader's path when it is not already there.
 
@@ -365,12 +390,18 @@ def _rocm_root() -> Path | None:
     return host.rocm_root()
 
 
-def run_env(steps: int | None, base: dict[str, str] | None = None) -> dict[str, str]:
+def run_env(steps: int | None, base: dict[str, str] | None = None,
+            dump: bool = False) -> dict[str, str]:
     """The CLI's environment. `PIXAL3D_STEPS` is set only when asked for, and a stray one
-    in the caller's shell is dropped, so the manifest's step count is always the truth."""
-    env = {k: v for k, v in (os.environ if base is None else base).items() if k != STEPS_ENV}
+    in the caller's shell is dropped, so the manifest's step count is always the truth.
+    `PIXAL3D_DUMP_CONTINUE` likewise: only when this run saves a dump, or `--dump-post`
+    would stop before writing the model."""
+    env = {k: v for k, v in (os.environ if base is None else base).items()
+           if k not in (STEPS_ENV, DUMP_ENV)}
     if steps is not None and steps != DEFAULT_STEPS:
         env[STEPS_ENV] = str(steps)
+    if dump:
+        env[DUMP_ENV] = "1"
     rocm = rocm_library_path(env)
     if rocm is not None:
         existing = env.get("LD_LIBRARY_PATH", "")
@@ -546,9 +577,12 @@ def main() -> int:
           flush=True)
     print(f"[pixal3d] {steps_note}", flush=True)
 
+    dump = args.output.with_suffix(DUMP_SUFFIX) if dump_supported(args.cli) else None
+    if dump is not None:
+        command = with_dump(command, dump)
     process = subprocess.Popen(
         command, cwd=str(PIXAL3D_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, bufsize=1, env=run_env(steps),
+        stderr=subprocess.STDOUT, text=True, bufsize=1, env=run_env(steps, dump=dump is not None),
     )
     assert process.stdout is not None
     seen_override = False
@@ -576,6 +610,11 @@ def main() -> int:
     if args.back is not None:
         record["back_input"] = {"path": str(args.back), "sha256": sha256_file(args.back)}
         record["parameters"]["views"] = "front + back"
+    if dump is not None and dump.is_file():
+        record["post_dump"] = dump.name
+    elif dump is not None:
+        print("[pixal3d] note: no clean-up dump was written; Finish will use its classic route",
+              flush=True)
     record_path = args.output.with_name(f"{args.output.stem}.json")
     record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
 

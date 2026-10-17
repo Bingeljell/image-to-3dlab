@@ -30,7 +30,7 @@ def _load(path: Path, name: str, cut: str):
     spec = importlib.util.spec_from_loader(name, loader=None)
     module = importlib.util.module_from_spec(spec)
     module.__dict__["__file__"] = str(path)
-    exec(compile(trimmed, str(path), "exec"), module.__dict__)  # noqa: S102
+    exec(compile(trimmed, str(path), "exec"), module.__dict__)
     return module
 
 
@@ -108,7 +108,7 @@ def test_new_option_parses_and_defaults_on(quality):
 
     parser = argparse.ArgumentParser()
     namespace = {"parser": parser}
-    exec(compile(textwrap.dedent(quality.PACK_OPTIONS), "<opts>", "exec"), namespace)  # noqa: S102
+    exec(compile(textwrap.dedent(quality.PACK_OPTIONS), "<opts>", "exec"), namespace)
 
     assert parser.parse_args([]).uv_brute_force is True
     assert parser.parse_args(["--no-uv-brute-force-packing"]).uv_brute_force is False

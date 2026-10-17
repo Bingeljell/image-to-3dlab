@@ -23,6 +23,7 @@ import hashlib
 import json
 import re
 import sys
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,9 @@ RECIPES = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "prompt_recip
 
 
 def _history(output: Path) -> list[dict[str, Any]]:
-    from activity_api import read_history  # same folder; imported late, it is only needed here
+    from activity_api import (
+        read_history,  # same folder; imported late, it is only needed here
+    )
 
     return read_history(output, limit=100_000)
 
@@ -142,7 +145,7 @@ class _Hashes:
         try:
             import rig_check  # scripts/ is on the path (see the top of this module)
             result = rig_check.check(file)
-        except Exception:  # noqa: BLE001 - an unreadable rig must not take the Library down
+        except Exception:
             return {"fits_moves": None, "facing": None}
         humanoid, facing = bool(result["humanoid"]), result.get("forward")
         self.index[key] = {"size": stat.st_size, "mtime": stat.st_mtime, "humanoid": humanoid, "facing": facing}
@@ -312,7 +315,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
 
     def branch_start(path: list[int]) -> int | None:
         """The node where this chain split off the original, or None for the original itself."""
-        for up, node in zip(path, path[1:]):
+        for up, node in pairwise(path):
             if first_child[up] != node:
                 return node
         return None
@@ -328,7 +331,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
     for chain in chains:
         family_chains.setdefault(chain[0], []).append(chain)
     version_of: dict[int, int] = {}
-    for root, members in family_chains.items():
+    for members in family_chains.values():
         members.sort(key=lambda c: (branch_start(c) is not None,
                                     born(branch_start(c)) if branch_start(c) is not None else (0.0, "")))
         for number, chain in enumerate(members, start=1):

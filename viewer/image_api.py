@@ -506,7 +506,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
     except MissingWeights as exc:
         job.error = str(exc)
         job.set_status("error", error=job.error, needs_setup=True)
-    except Exception as exc:  # noqa: BLE001 - the page needs the reason, whatever it is
+    except Exception as exc:
         job.error = f"{type(exc).__name__}: {exc}"
         job.set_status("error", error=job.error)
     finally:

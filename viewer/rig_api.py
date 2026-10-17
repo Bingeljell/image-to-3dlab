@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections import deque
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -12,14 +10,21 @@ import sys
 import threading
 import time
 import uuid
+from collections import deque
+from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import processes  # noqa: E402
-from image_to_3dlab.blender import find_blender  # noqa: E402
-from image_to_3dlab.rig_sidecar import load_sidecar, plan_corrections, verify_asset, verify_scene  # noqa: E402
+from image_to_3dlab import processes
+from image_to_3dlab.blender import find_blender
+from image_to_3dlab.rig_sidecar import (
+    load_sidecar,
+    plan_corrections,
+    verify_asset,
+    verify_scene,
+)
 
 OUTPUT_ROOT = REPO / "output" / "rig-rebind"
 WORKER = REPO / "scripts" / "blender_rebind.py"

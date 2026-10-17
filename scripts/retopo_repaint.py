@@ -56,8 +56,8 @@ REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab.blender import MAC_APP, find_blender, missing_help  # noqa: E402
-from image_to_3dlab.host import APPLE, host_platform  # noqa: E402
+from image_to_3dlab.blender import MAC_APP, find_blender, missing_help
+from image_to_3dlab.host import APPLE, host_platform
 
 # Only a default for the command builders; main() finds the real one on every OS.
 BLENDER = MAC_APP

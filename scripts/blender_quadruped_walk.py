@@ -29,12 +29,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from quadruped_gait import (  # noqa: E402
+from quadruped_gait import (
+    BODY_CHAIN,
+    FOOT_IK,
+    FRONT_FK,
+    FRONT_LIMBS,
     GAITS,
-    BODY_CHAIN, FOOT_IK, FRONT_FK, FRONT_LIMBS, LIMBS, PAW, RAKE_CHAIN,
-    HEAD_CHAIN, SHOULDER, TAIL_CHAIN, body_drop_for_reach, check_gait,
-    gait_plan, max_half_stride,
-    rest_extent, shoulder_angle,
+    HEAD_CHAIN,
+    LIMBS,
+    PAW,
+    RAKE_CHAIN,
+    SHOULDER,
+    TAIL_CHAIN,
+    body_drop_for_reach,
+    check_gait,
+    gait_plan,
+    max_half_stride,
+    rest_extent,
+    shoulder_angle,
 )
 
 LEG_PARENTS = ("front_thigh_parent.L", "front_thigh_parent.R",
@@ -345,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     try:  # Blender 4.4+ slotted actions need a slot bound before curves land
         slot = action.slots.new(id_type='OBJECT', name=rig.name)
         animation.action_slot = slot
-    except Exception:
+    except Exception:  # noqa: S110 - older Blender has no slots, and needs none
         pass
 
     # Clear every channel of the CONTROL bones, but never touch the rig's internal

@@ -24,7 +24,6 @@ run repeatedly; it detects its own marker and does nothing on a second run.
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 MARKER = "i2l_low_vram"

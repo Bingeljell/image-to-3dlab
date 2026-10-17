@@ -156,7 +156,7 @@ def main() -> int:
         else:
             print("\n  Hashmap is clean. The defect is downstream: look at "
                   "simple_dual_contour's out_intersected.")
-    except Exception as exc:  # noqa: BLE001 - a crash here is itself the finding
+    except Exception as exc:
         print(f"  FAILED: {type(exc).__name__}: {exc}")
 
     if args.skip_sphere:
@@ -172,7 +172,7 @@ def main() -> int:
             print(f"  {key:16s} {value}")
         ratio = stats["volume"] / stats["expected_volume"] if stats["expected_volume"] else 0
         print(f"\n  volume ratio: {ratio:.4f}  (1.0 = correct solid, ~0 = cage)")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"  FAILED: {type(exc).__name__}: {exc}")
     return 0
 

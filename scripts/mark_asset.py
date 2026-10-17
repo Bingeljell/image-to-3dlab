@@ -96,7 +96,7 @@ def measure(asset: Path) -> dict:
             "doubleSided": material.get("doubleSided"),
             "metallicFactor": material.get("metallicFactor"),
         }
-    except Exception as exc:  # noqa: BLE001 - a verdict must survive a broken measurement
+    except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 

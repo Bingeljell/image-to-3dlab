@@ -34,13 +34,13 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from finish_api import _read_json, remaining_seconds, served_url  # noqa: E402
-from rig_api import blender_executable  # noqa: E402
+from finish_api import _read_json, remaining_seconds, served_url
+from rig_api import blender_executable
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from image_to_3dlab import processes  # noqa: E402
-from image_to_3dlab.blender import missing_help  # noqa: E402
+from image_to_3dlab import processes
+from image_to_3dlab.blender import missing_help
 
 OUTPUT_ROOT = REPO / "output" / "props"
 SPLITTER = REPO / "scripts" / "blender_split_props.py"

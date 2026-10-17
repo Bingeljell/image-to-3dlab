@@ -8,7 +8,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-import lock_nvidia_routes as gen  # noqa: E402
+import lock_nvidia_routes as gen
 
 
 def test_pytorch_and_its_cuda_wheels_stay_out_of_a_lock():

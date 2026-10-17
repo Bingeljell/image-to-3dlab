@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 FINGERPRINT_PREFIX = "sha256:"
 ROOT_KEYS = {
@@ -30,7 +32,7 @@ class JointCorrection:
     target_position: tuple[float, float, float]
     delta: tuple[float, float, float]
     mirrored: bool
-    targets: tuple["BoneTarget", ...] = ()
+    targets: tuple[BoneTarget, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,19 +194,19 @@ def _validate_binding(value: Any, joints: Mapping[str, Any]) -> dict[str, Any] |
         _fail("binding fields do not match schema v1")
     raw_joints = _mapping(binding["joints"], "binding.joints")
     normalized_joints = {}
-    for joint_id, value in raw_joints.items():
+    for joint_id, group in raw_joints.items():
         if joint_id not in joints:
             _fail(f"binding.joints.{joint_id} references unknown joint")
-        target_group = _mapping(value, f"binding.joints.{joint_id}")
+        target_group = _mapping(group, f"binding.joints.{joint_id}")
         if set(target_group) != {"targets"}:
             _fail(f"binding.joints.{joint_id} fields do not match schema v1")
         raw_targets = target_group["targets"]
         if not isinstance(raw_targets, list) or not raw_targets:
             _fail(f"binding.joints.{joint_id}.targets must contain at least one target")
         targets = []
-        for index, value in enumerate(raw_targets):
+        for index, item in enumerate(raw_targets):
             path = f"binding.joints.{joint_id}.targets.{index}"
-            target = _mapping(value, path)
+            target = _mapping(item, path)
             if set(target) != {"boneId", "boneName", "endpoint"}:
                 _fail(f"{path} fields do not match schema v1")
             if target["endpoint"] not in {"head", "tail"}:
@@ -251,7 +253,7 @@ def _number(value: Any, path: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         _fail(f"{path} must be finite")
     number = float(value)
-    if number != number or abs(number) == float("inf"):
+    if not math.isfinite(number):
         _fail(f"{path} must be finite")
     return number
 

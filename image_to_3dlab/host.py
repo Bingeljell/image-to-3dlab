@@ -460,7 +460,7 @@ def _installed_torch_cuda() -> str | None:
     """The CUDA version the installed torch was built with; None if CPU-only or missing."""
     try:
         import torch
-    except Exception:  # noqa: BLE001 - any failure means "no usable CUDA torch"
+    except Exception:
         return None
     return torch.version.cuda
 
@@ -469,7 +469,7 @@ def _installed_torch_hip() -> str | None:
     """The ROCm version the installed torch was built with; None if CUDA/CPU-only or missing."""
     try:
         import torch
-    except Exception:  # noqa: BLE001 - any failure means "no usable ROCm torch"
+    except Exception:
         return None
     return torch.version.hip
 

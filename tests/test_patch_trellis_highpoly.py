@@ -33,7 +33,7 @@ def _load_patch_module():
     module = importlib.util.module_from_spec(spec)
     # The script derives paths from __file__, which a hand-built module lacks.
     module.__dict__["__file__"] = str(PATCH)
-    exec(compile(trimmed, str(PATCH), "exec"), module.__dict__)  # noqa: S102
+    exec(compile(trimmed, str(PATCH), "exec"), module.__dict__)
     return module
 
 

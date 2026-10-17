@@ -64,7 +64,7 @@ def test_sdpa_fallback_matches_reference_attention():
     torch = pytest.importorskip("torch")
     namespace: dict = {}
     # Force the fallback branch: neither flash-attn module exists in this venv.
-    exec(portable.FLASH_IMPORT_PORTABLE, namespace)  # noqa: S102
+    exec(portable.FLASH_IMPORT_PORTABLE, namespace)
     flash = namespace["flash_attn_func"]
     torch.manual_seed(0)
     b, length, heads, kv_heads, dim = 2, 7, 4, 2, 8

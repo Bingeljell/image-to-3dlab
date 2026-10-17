@@ -29,9 +29,9 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from image_to_3dlab import processes  # noqa: E402
-from image_to_3dlab import blender as blender_lookup  # noqa: E402
-from image_to_3dlab.host import APPLE, host_platform  # noqa: E402
+from image_to_3dlab import blender as blender_lookup
+from image_to_3dlab import processes
+from image_to_3dlab.host import APPLE, host_platform
 
 OUTPUT_ROOT = REPO / "output" / "finish"
 # Where generation runs (and their records) live, for matching an uploaded model to the run
@@ -232,12 +232,12 @@ def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
     return [job.asset_path, job.image_path]
 
 
-def uses_photo(job: "FinishJob", settings: dict[str, Any]) -> bool:
+def uses_photo(job: FinishJob, settings: dict[str, Any]) -> bool:
     """Whether this run gets the photo stage: a camera was found and it was not turned off."""
     return not settings.get("skip_photo", False) and (job.views_dir / "transforms.json").is_file()
 
 
-def photo_note(job: "FinishJob", settings: dict[str, Any]) -> str | None:
+def photo_note(job: FinishJob, settings: dict[str, Any]) -> str | None:
     """Why Pixel Match did not run, when it was asked for and could not: None otherwise.
 
     Said at the start and again on the finished result, because a ticked box with no stage

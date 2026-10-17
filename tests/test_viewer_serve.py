@@ -11,7 +11,6 @@ import importlib.util
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-
 REPO = Path(__file__).resolve().parents[1]
 
 

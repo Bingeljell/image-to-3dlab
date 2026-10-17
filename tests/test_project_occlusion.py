@@ -18,7 +18,7 @@ trimesh = pytest.importorskip("trimesh")
 
 # Not at the top of the file on purpose: `scripts/` goes on the path above, and this
 # import needs that to have happened.
-from project_labels import occluded  # noqa: E402
+from project_labels import occluded
 
 
 def two_planes(gap: float = 0.5, n: int = 8) -> trimesh.Trimesh:

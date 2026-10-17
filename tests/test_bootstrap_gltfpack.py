@@ -17,8 +17,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-import bootstrap_gltfpack as boot  # noqa: E402
-import finish_props  # noqa: E402
+import bootstrap_gltfpack as boot
+import finish_props
 
 
 def _zip(name: str, payload: bytes = b"#!/bin/sh\necho gltfpack\n") -> bytes:

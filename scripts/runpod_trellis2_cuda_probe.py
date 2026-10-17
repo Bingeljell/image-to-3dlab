@@ -47,8 +47,7 @@ def main() -> int:
     import torch
     from PIL import Image
     from trellis2.modules.sparse import SparseTensor
-    from trellis2.pipelines import Trellis2ImageTo3DPipeline
-    from trellis2.pipelines import rembg
+    from trellis2.pipelines import Trellis2ImageTo3DPipeline, rembg
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable")

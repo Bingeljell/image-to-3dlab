@@ -38,7 +38,7 @@ def mlx_available() -> bool:
     """True when MLX can be imported in this interpreter."""
     try:
         import mlx.core  # noqa: F401
-    except Exception:  # noqa: BLE001 - a missing Metal runtime raises more than ImportError
+    except Exception:
         return False
     return True
 

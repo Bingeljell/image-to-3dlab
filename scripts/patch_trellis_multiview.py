@@ -146,7 +146,7 @@ def patch_contextmanager_import() -> bool:
         return False
     lines = source.splitlines(keepends=True)
     for index, line in enumerate(lines):
-        if line.startswith("import ") or line.startswith("from "):
+        if line.startswith(("import ", "from ")):
             lines.insert(index, "from contextlib import contextmanager\n")
             break
     else:
@@ -168,9 +168,7 @@ def patch_run() -> bool:
         torch.manual_seed(seed)
         cond_512 = self.get_cond(images, 512)
         cond_1024 = self.get_cond(images, 1024) if pipeline_type != '512' else None"""
-    if replace(PIPELINE, needle, replacement, "Accept either one image or several"):
-        return True
-    return False
+    return replace(PIPELINE, needle, replacement, "Accept either one image or several")
 
 
 def patch_run_wraps_samplers() -> bool:

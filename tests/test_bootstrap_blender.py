@@ -17,7 +17,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-import bootstrap_blender as boot  # noqa: E402
+import bootstrap_blender as boot
 
 LISTING = """
 <a href="blender-4.2.9-linux-x64.tar.xz">blender-4.2.9-linux-x64.tar.xz</a>

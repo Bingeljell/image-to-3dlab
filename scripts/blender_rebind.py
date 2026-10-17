@@ -12,15 +12,17 @@ manifest's persistent object and bone IDs are authoritative.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from image_to_3dlab.rig_sidecar import (  # noqa: E402
+from blender_rebind_weights import transfer_weights
+
+from image_to_3dlab.rig_sidecar import (
     JointCorrection,
     asset_fingerprint,
     load_sidecar,
@@ -28,7 +30,6 @@ from image_to_3dlab.rig_sidecar import (  # noqa: E402
     verify_asset,
     verify_scene,
 )
-from blender_rebind_weights import transfer_weights  # noqa: E402
 
 OBJECT_ID = "i2l_metarig_id"
 BONE_ID = "i2l_bone_id"

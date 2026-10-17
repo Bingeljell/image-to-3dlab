@@ -360,7 +360,7 @@ def test_posture_is_kept_only_limbs_are_aligned():
     character's own posture; arms, legs and fingers are still straightened."""
     parents, heads, roles = _humanoid(face=+1)
     heads[roles["head"]] = heads[roles["neck"]] + np.array([0, 0.07, 0.07])  # forward neck
-    knee, ankle = heads[roles["Lshin"]], heads[roles["Lfoot"]]
+    knee = heads[roles["Lshin"]]
     heads[roles["Lfoot"]] = knee + np.array([-0.15, 0, -0.4])  # splayed shin
     heads[roles["Ltoe"]] = heads[roles["Lfoot"]] + np.array([0, 0.12, -0.06])
     m, frame = kr.map_skintokens_to_soma(parents, heads)

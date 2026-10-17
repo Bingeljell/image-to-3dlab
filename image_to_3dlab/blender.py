@@ -15,8 +15,8 @@ import os
 import re
 import shutil
 import subprocess
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 
 from image_to_3dlab.host import os_family
 

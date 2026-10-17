@@ -72,6 +72,8 @@ The studio does not need to be open: the first tool call starts it in the backgr
 | `list_versions` | Every version of one character: its 3D models, Finishes and rigs, raw model included |
 | `preview` | A picture of the asset from four sides, or four moments of one of its moves, so the agent can see it and show you |
 | `open_in_studio` | Opens the asset in your browser, so you can spin it and play its moves |
+| `model_info` | A model's numbers (triangles, vertices, textures and their sizes, bones, moves, file size) and its full path on your computer |
+| `show_in_folder` | Opens the folder holding a model in Finder or Explorer, with the file selected |
 | `install_backend` | Sets up an engine, but **only after you say yes**: it first tells the agent what it would download, the size and the licence |
 
 When a result looks off, ask your agent to try a knob: it can call `options`, then redo just

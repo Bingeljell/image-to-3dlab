@@ -64,13 +64,18 @@ class FakeHttp:
             "api/chains": {"running": None, "recent": [{"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}}]},
             "api/chains/r1": {"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}},
         }.get(path)
+        if path == "api/model-info":
+            return Response(200, {"file": "finish/k/k_20k.glb", "path": "/out/finish/k/k_20k.glb",
+                                  "folder": "/out/finish/k", "stats": {"triangles": 19981}})
         if path == "api/preview":
             return Response(200, content=b"PNG", headers={"X-Preview-Stage": "finished", "X-Preview-Path": ".previews/x.png"})
         return Response(200, body) if body is not None else Response(404, {"error": f"no {path}"})
 
-    def post(self, url, files=None, timeout=None):
+    def post(self, url, files=None, json=None, timeout=None):
         path = url.split("8777/", 1)[1]
-        self.posts.append((path, files or {}))
+        self.posts.append((path, files or json or {}))
+        if path == "api/reveal":
+            return Response(200, {"shown": "/out/" + json["file"]})
         if path == "api/chains":
             return Response(202, {"id": "new-run"})
         if path.endswith("/cancel"):
@@ -134,7 +139,8 @@ def test_the_server_registers_every_tool():
     server = ms.build_server(ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None))
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
-                     "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend"}
+                     "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend",
+                     "model_info", "show_in_folder"}
 
 
 # --------------------------------------------------------------------------- create
@@ -241,6 +247,20 @@ def test_open_in_studio_opens_the_assets_link(studio):
     assert opened == [out["link"]] and out["link"].endswith("#asset=aaaaaaaaaaaa")
     with pytest.raises(ms.StudioError):
         ms.open_in_studio(studio, asset_id="ffffffffffff", opener=lambda url: True)
+
+
+def test_model_info_gives_the_stats_and_where_the_file_is(studio):
+    out = ms.model_info(studio, asset_id=KNIGHT["id"])
+    assert out["stats"]["triangles"] == 19981 and out["path"] == "/out/finish/k/k_20k.glb"
+    assert studio.http.last_params == {"asset": KNIGHT["id"], "stage": "latest"}
+    assert "triangles" in out["tip"]
+
+
+def test_show_in_folder_opens_the_steps_file_on_this_machine(studio):
+    out = ms.show_in_folder(studio, asset_id=KNIGHT["id"], stage="finished")
+    assert studio.http.last_params == {"asset": KNIGHT["id"], "stage": "finished"}
+    assert studio.http.posts[-1] == ("api/reveal", {"file": "finish/k/k_20k.glb"})
+    assert out["shown"] == "/out/finish/k/k_20k.glb"
 
 
 def test_a_studio_that_is_not_running_is_started_once():

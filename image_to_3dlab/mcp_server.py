@@ -63,7 +63,7 @@ STUDIO_ONLY = {
     "api/animate/*/cancel": "via cancel_run", "api/rig/rebind/*/cancel": "via cancel_run",
 }
 # Server actions the tools below call.
-USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download"}
+USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal"}
 
 
 class StudioError(RuntimeError):
@@ -138,6 +138,11 @@ class Studio:
         self._ensure()
         parts = {k: (None, v) for k, v in (data or {}).items()} | (files or {})
         return self._check(self.http.post(self._url(path), files=parts or None, timeout=60)).json()
+
+    def post_json(self, path: str, body: dict[str, Any]) -> Any:
+        """POST a small JSON body, the form the studio's per-asset actions read."""
+        self._ensure()
+        return self._check(self.http.post(self._url(path), json=body, timeout=60)).json()
 
     def studio_link(self, asset_id: str | None = None) -> str:
         return f"{self.base}/viewer/studio.html" + (f"#asset={asset_id}" if asset_id else "")
@@ -649,6 +654,17 @@ def open_in_studio(studio: Studio, *, asset_id: str | None = None,
     return {"opened": bool(opened), "link": link}
 
 
+def model_info(studio: Studio, *, asset_id: str, stage: str = "latest") -> dict[str, Any]:
+    info = studio.get("api/model-info", asset=asset_id, stage=stage)
+    return info | {"tip": "Counts are triangles: GLB files store no quads, so there is no quad count. "
+                          "path is the file on this machine; show_in_folder opens it for the user."}
+
+
+def show_in_folder(studio: Studio, *, asset_id: str, stage: str = "latest") -> dict[str, Any]:
+    file = studio.get("api/model-info", asset=asset_id, stage=stage)["file"]
+    return studio.post_json("api/reveal", {"file": file})
+
+
 def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -> dict[str, Any]:
     """Name the download, its size and licence; only `confirm=True` starts it (AGENTS.md)."""
     catalog = studio.get("api/catalog")
@@ -806,6 +822,19 @@ def build_server(studio: Studio | None = None):
         """Open the studio in the user's browser, on this asset, so they can spin it, play its moves and
         download it. Without an asset_id it opens the studio's front page."""
         return safe(lambda: open_in_studio(studio, asset_id=asset_id))
+
+    @server.tool(name="model_info", structured_output=False)
+    def tool_model_info(asset_id: str, stage: str = "latest"):
+        """A model's numbers and where its file is: triangles, vertices, textures (with sizes), materials,
+        bones, moves and file size, plus the full path on this machine. stage: latest | model | finished |
+        rigged (picture gives the path but no counts)."""
+        return safe(lambda: model_info(studio, asset_id=asset_id, stage=stage))
+
+    @server.tool(name="show_in_folder", structured_output=False)
+    def tool_show_in_folder(asset_id: str, stage: str = "latest"):
+        """Open the folder holding an asset's file in Finder / Explorer, with the file selected, for a user
+        who wants the file itself. stage: latest | picture | model | finished | rigged."""
+        return safe(lambda: show_in_folder(studio, asset_id=asset_id, stage=stage))
 
     @server.tool(name="install_backend", structured_output=False)
     def tool_install_backend(backend_id: str, confirm: bool = False):

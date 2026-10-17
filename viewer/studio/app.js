@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
@@ -133,7 +133,49 @@ function setDownload(file) {
   const download = $('download');
   download.hidden = !file;
   if (file) { download.href = url(file); download.setAttribute('download', fileName(file)); }
+  showModelInfo(file);
 }
+
+// The stats and path of the file the panel's Download button points at. A newer file wins a
+// race: the answer for one the user has already moved on from is dropped.
+let infoFor = null;
+async function showModelInfo(file) {
+  infoFor = file;
+  const stats = $('modelStats');
+  const actions = $('fileActions');
+  stats.hidden = true;
+  actions.hidden = true;
+  if (!file) return;
+  const response = await fetch(`/api/model-info?file=${encodeURIComponent(file)}`).catch(() => null);
+  const info = response?.ok ? await response.json() : null;
+  if (infoFor !== file || !info) return;
+  const tips = { Triangles: 'GLB files store triangles only, so there is no quad count.' };
+  stats.innerHTML = statsRows(info.stats).map(([label, value]) => {
+    const classes = [tips[label] && 'tip-left', label === 'Textures' && 'wide'].filter(Boolean).join(' ');
+    return `<div${classes ? ` class="${classes}"` : ''}${tips[label] ? ` data-tip="${escape(tips[label])}"` : ''}><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`;
+  }).join('');
+  stats.hidden = !info.stats;
+  $('revealBtn').hidden = !canReveal(location.hostname);
+  actions.hidden = false;
+  actions.dataset.file = info.file;
+  actions.dataset.path = info.path;
+}
+
+$('revealBtn').addEventListener('click', () => {
+  fetch('/api/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: $('fileActions').dataset.file }) });
+});
+
+$('copyPathBtn').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  try {
+    await navigator.clipboard.writeText($('fileActions').dataset.path);
+    button.textContent = 'Copied';
+  } catch {
+    button.textContent = 'Copy failed';
+  }
+  setTimeout(() => { button.textContent = 'Copy path'; }, 1500);
+});
 
 // what the step actions need from the page
 const ctx = {
@@ -351,7 +393,7 @@ function showMaking() {
   $('vMeta').textContent = making.cancelled ? 'Cancelled' : making.failed ? 'Stopped' : making.finished ? 'Done' : 'Making…';
   $('hideBtn').hidden = true;
   viewer.setFacing(null);  // a run in progress shows its files as they come
-  $('download').hidden = true;
+  setDownload(null);
   $('sideKind').textContent = { character: 'Character', prop: 'Prop', set: 'Prop set', picture: 'Picture' }[making.plan.want] || '';
   $('steps').innerHTML = making.plan.steps.map((step, i) => {
     const state = making.done.includes(step) ? 'done' : step === making.current ? 'now' : 'later';
@@ -506,7 +548,7 @@ function openFile(file) {
   $('progress').hidden = true;
   renderLibrary();
   $('hideBtn').hidden = true;
-  $('download').hidden = true;
+  setDownload(null);
   $('sideKind').textContent = '';
   $('vTitle').textContent = file.name;
   if (!isModelFile(file.name)) {

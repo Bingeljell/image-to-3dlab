@@ -207,6 +207,32 @@ export function sizeText(bytes) {
   return `${(n / 1024 ** 3).toFixed(1)} GB`;
 }
 
+/** A model's stats (GET /api/model-info) as [label, value] rows. Bones and moves only when
+ *  there are some. Textures are grouped by size: "2 × 2048², 1 × 1024²". */
+export function statsRows(stats) {
+  if (!stats) return [];
+  const count = (n) => Number(n).toLocaleString('en-US');
+  const sizes = new Map();
+  for (const t of stats.textures || []) {
+    const key = t.width && t.height ? (t.width === t.height ? `${t.width}²` : `${t.width}×${t.height}`) : '';
+    sizes.set(key, (sizes.get(key) || 0) + 1);
+  }
+  const textures = [...sizes].every(([key]) => key)
+    ? [...sizes].map(([key, n]) => `${n} × ${key}`).join(', ')
+    : String((stats.textures || []).length);
+  const rows = [['Triangles', count(stats.triangles)], ['Vertices', count(stats.vertices)]];
+  if (stats.textures?.length) rows.push(['Textures', textures]);
+  if (stats.bones) rows.push(['Bones', count(stats.bones)]);
+  if (stats.moves?.length) rows.push(['Moves', count(stats.moves.length)]);
+  rows.push(['File size', sizeText(stats.bytes)]);
+  return rows;
+}
+
+/** Show in folder opens a window on the server's screen, so only offer it there. */
+export function canReveal(hostname) {
+  return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);
+}
+
 /** What deleting a version removes, in words, from the server's plan: "its rig and moves, its finished model". */
 export function deletionWords(plan) {
   const part = (folder) => {

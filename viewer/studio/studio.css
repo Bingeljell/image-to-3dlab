@@ -142,7 +142,13 @@ a { color: inherit; }
 .step .sum .step-dl { color: inherit; text-decoration: underline; }
 .step .sum .linkish { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
 .step .body { padding: 0 12px 12px 48px; display: grid; gap: 10px; font-size: 13px; color: var(--ash); }
-.side-foot { padding: 12px; border-top: 1px solid var(--line); display: grid; }
+.side-foot { padding: 12px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+.model-stats { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+.model-stats div { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
+.model-stats .wide { grid-column: 1 / -1; }  /* "2 × 2048², 1 × 1024²" needs the room */
+.model-stats dt { font-size: 12px; color: var(--ash); }
+.model-stats dd { margin: 0; font: 500 12px/1.4 var(--f-num); color: var(--bone); text-align: right; overflow-wrap: anywhere; }
+.file-actions { display: flex; gap: 8px; }
 
 /* stack before the viewer gets squeezed: three columns need ~1150 px to leave it room */
 @media (max-width: 1150px) {

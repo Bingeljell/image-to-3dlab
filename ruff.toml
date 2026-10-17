@@ -1,0 +1,33 @@
+# Lint settings. Without this file, every ruff upgrade brought its own default rules
+# and the error count grew with no change to our code. requirements-dev.txt pins the
+# version for the same reason.
+
+target-version = "py310"
+
+# Not ours to lint: third-party code tracked or cloned here, and local working folders.
+extend-exclude = [
+    "hunyuan_mlx",      # Xiong's Hunyuan3D-MLX port (MIT), kept close to upstream
+    "vendor",
+    "characters",
+    "journal",
+    "output",
+    "videos",
+    "assets_to_test",
+]
+
+[lint]
+ignore = [
+    # A broad except is deliberate here: a setup check or a viewer handler reports any
+    # failure rather than crashing, and each one says why next to it.
+    "BLE001",
+    # The viewer maps ValueError to a 400 with a readable message; TypeError would not be.
+    "TRY004",
+    # int(round(x)) guards numpy floats, whose round() does not always return an int.
+    "RUF046",
+    # Patch-script tests exec the real patched text on purpose: that is what ships.
+    "S102",
+]
+
+[lint.per-file-ignores]
+# Tests favour plain, readable setup over the idioms these rules push for.
+"tests/**" = ["B008", "C408", "DTZ", "FLY002", "PLW1510", "RUF012", "RUF015", "SIM117"]

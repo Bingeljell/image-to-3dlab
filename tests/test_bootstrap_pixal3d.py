@@ -580,3 +580,32 @@ def test_multiview_with_yes_fetches_only_the_multiview_set(monkeypatch, new_driv
     monkeypatch.setattr(boot, "install_multiview", lambda *a: fetched.append(1))
     assert boot.main(["--multiview", "--yes"]) == 0
     assert fetched == [1]
+
+
+@pytest.mark.parametrize("flags,fetcher", [
+    (["--weights-only"], "install_weights"),
+    (["--multiview"], "install_multiview"),
+    ([], "install_weights"),  # built already: nothing to compile, so no compiler needed
+])
+def test_amd_without_hipcc_still_fetches_when_nothing_is_compiled(monkeypatch, flags, fetcher):
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "find_hipcc", lambda: None)
+    monkeypatch.setattr(boot, "build_present", lambda: True)
+    monkeypatch.setattr(boot, "install_build", lambda *a: pytest.fail("built"))
+    monkeypatch.setattr(boot, "rebuild_existing", lambda *a: pytest.fail("rebuilt"))
+    fetched = []
+    monkeypatch.setattr(boot, "install_weights", lambda *a: fetched.append("install_weights"))
+    monkeypatch.setattr(boot, "install_multiview",
+                        lambda *a: fetched.append("install_multiview"))
+    assert boot.main(["--yes", *flags]) == 0
+    assert fetched == [fetcher]
+
+
+def test_amd_without_hipcc_is_still_refused_a_rebuild(monkeypatch, capsys):
+    monkeypatch.setattr(boot, "target", lambda: "linux-amd")
+    monkeypatch.setattr(boot, "find_hipcc", lambda: None)
+    monkeypatch.setattr(boot, "build_present", lambda: True)
+    monkeypatch.setattr(boot, "rebuild_existing", lambda *a: pytest.fail("rebuilt"))
+    monkeypatch.setattr(boot, "install_weights", lambda *a: pytest.fail("downloaded"))
+    assert boot.main(["--yes", "--rebuild"]) == 1
+    assert "rocm-hip-sdk" in capsys.readouterr().out

@@ -34,7 +34,11 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_trellis_space_macos.py` | Bootstrap TRELLIS.2 on macOS from Microsoft's pinned Space source. |
 | `bootstrap_trellis_cuda.py` | Install TRELLIS.2 for Linux with an NVIDIA card: Microsoft's own code, built for CUDA. |
 | `bootstrap_hunyuan_cuda.py` | Install Hunyuan3D-2.1 for Linux with an NVIDIA card: Tencent's own code, built for CUDA. |
+| `bootstrap_hunyuan_rocm.py` | Install Hunyuan3D-2.1 for Linux with an AMD card: Tencent's own code, built with HIP. |
+| `bootstrap_trellis_rocm.py` | Install TRELLIS.2 for Linux with an AMD card: Microsoft's own code, built with HIP. |
 | `bootstrap_sf3d.py` | Install Stable Fast 3D: its code and compiled extensions, then its gated weights. |
+| `patch_sf3d_linux.py` | Let Stable Fast 3D compile its GPU texture baker on an AMD card. |
+| `bootstrap_sf3d_rocm.py` | Install Stable Fast 3D for Linux with an AMD card: its own venv, built with HIP. |
 | `bootstrap_front_back.py` | Install Front + back: the two downloads that build a model from a front and a back picture. |
 | `bootstrap_pixal3d.py` | Install Pixal3D (raven38/pixal3d.cpp): a `trellis-cli` build plus its Q8_0 weights. |
 | `bootstrap_blender.py` | Install Blender 4.2 LTS for Finish on Linux, from blender.org. |
@@ -46,7 +50,10 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
+| `trellis_rocm_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an AMD card. |
+| `trellis_route.py` | What differs between the TRELLIS.2 routes, in one place, so the two cannot drift. |
 | `hunyuan_cuda_generate.py` | Full image -> textured GLB through Tencent's own Hunyuan3D-2.1 on an NVIDIA card. |
+| `hunyuan_rocm_generate.py` | Full image -> textured GLB through Tencent's own Hunyuan3D-2.1 on an AMD card. |
 | `hunyuan_mlx_generate.py` | End-to-end Hunyuan3D-MLX generation: image -> textured GLB. |
 | `hunyuan_mlx_xiong_generate.py` | End-to-end, single-repo Hunyuan3D-MLX generation: image -> textured GLB. |
 | `hunyuan_shape_octree_test.py` | Shape-only generation at a given octree_resolution, with visible progress. |
@@ -225,9 +232,11 @@ Numbers about the project itself, not about any asset.
 | `patch_pixal3d_low_vram.py` | Make Pixal3D's low-VRAM mode reachable, via `PIXAL3D_LOW_VRAM=1`. |
 | `patch_pixal3d_steps.py` | Let Pixal3D (pixal3d.cpp) run fewer sampling steps, via `PIXAL3D_STEPS=N`. |
 | `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
+| `patch_hunyuan_rocm.py` | Make Tencent's Hunyuan3D-2.1 survive on an AMD card, without touching what NVIDIA runs. |
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |
 | `patch_trellis_no_bria.py` | Disable TRELLIS' configured background model for license-controlled runs. |
 | `patch_trellis_cuda_no_bria.py` | Stop the NVIDIA TRELLIS.2 checkout loading BRIA RMBG-2.0, before it ever downloads it. |
+| `patch_trellis_rocm.py` | Make TRELLIS.2 run on an AMD card: an attention backend, and a build that compiles. |
 | `patch_trellis_mlx_attention.py` | Add an `mlx` sparse-attention backend to a vendored TRELLIS.2 checkout. |
 | `render_glb_comparison.py` | Render several GLBs from one fixed camera and lay them out as a comparison image. |
 | `patch_ovoxel_pack_options.py` | Let `o_voxel.postprocess.to_glb` forward xatlas packing options. |

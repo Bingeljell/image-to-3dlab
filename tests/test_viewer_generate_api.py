@@ -418,9 +418,54 @@ def test_job_status_payload_names_the_model_once_it_is_on_disk(tmp_path, monkeyp
 def test_backend_registry_lists_every_backend():
     assert set(api.BACKENDS) == {
         "trellis", "sf3d", "hunyuan-mlx", "hunyuan-mlx-xiong", "pixal3d", "hunyuan-cuda",
+        "hunyuan-rocm",
     }
     for spec in api.BACKENDS.values():
         assert spec.stages, f"{spec.id} must declare at least one stage"
+
+
+def test_every_route_accepts_exactly_the_settings_it_declares_as_defaults():
+    """A fresh job sends the route's own defaults and nothing else.
+
+    The AMD Hunyuan route declares fewer defaults than it accepts, on purpose: the two
+    paint settings are left out so the generator can fit them to the card. Its validator
+    read them anyway, so every character died at the first job with a bare
+    `KeyError: 'max_num_view'` in the UI and nothing on the server's terminal.
+    """
+    for backend_id, spec in api.BACKENDS.items():
+        validate = spec.validate_settings
+        if validate is None:
+            continue
+        out = validate(spec.default_settings)
+        assert isinstance(out, dict), backend_id
+        # And it must survive the round trip: defaults in, build args out.
+        assert validate(out) == out, backend_id
+
+
+def _rocm_job(tmp_path, settings):
+    return api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb",
+                   settings, "hunyuan-rocm")
+
+
+def test_a_route_whose_defaults_are_a_subset_still_builds_its_command_line(tmp_path):
+    """The shape of that failure: settings that validate, then a KeyError while building
+    the command. Both halves are checked here, because either alone passes."""
+    spec = api.BACKENDS["hunyuan-rocm"]
+    settings = spec.validate_settings(spec.default_settings)
+    assert "max_num_view" not in settings, "absent is what lets the generator fit it"
+    args = spec.build_args(_rocm_job(tmp_path, settings))
+    assert "--max-num-view" not in args, args
+    assert "--paint-resolution" not in args, args
+    assert "--octree-resolution" in args
+
+
+def test_an_explicit_view_count_still_reaches_the_command_line(tmp_path):
+    spec = api.BACKENDS["hunyuan-rocm"]
+    settings = spec.validate_settings(
+        {**api.HUNYUAN_ROCM_DEFAULT_SETTINGS, "max_num_view": 4, "paint_resolution": 256})
+    args = spec.build_args(_rocm_job(tmp_path, settings))
+    assert args[args.index("--max-num-view") + 1] == "4"
+    assert args[args.index("--paint-resolution") + 1] == "256"
 
 
 def test_every_stage_event_a_backend_emits_names_a_declared_stage(tmp_path):
@@ -761,8 +806,8 @@ def test_image_has_transparent_alpha_false_for_fully_opaque_rgba(tmp_path):
 # --- "has alpha" is not "is cut out" (2026-09-03): a letterboxed image passed the alpha
 # check on its bars alone, and its opaque backdrop was rebuilt as 3D geometry ---
 def _save(tmp_path, name, alpha_rows):
-    from PIL import Image
     import numpy as np
+    from PIL import Image
 
     a = np.zeros((64, 64, 4), dtype=np.uint8)
     a[..., :3] = 200
@@ -1134,10 +1179,108 @@ def test_a_backend_with_no_declared_need_never_asks_the_gpu(monkeypatch):
     assert api.gpu_busy_check(api.BACKENDS["trellis"]) is None
 
 
-def test_a_backend_that_declares_a_need_is_checked():
+def test_a_backend_that_declares_a_need_is_checked(monkeypatch):
+    # Asking the real card made this a coin flip on a busy machine, which is how a green
+    # suite turns red for reasons that have nothing to do with the change under test.
+    monkeypatch.setattr(api, "gpu_busy_note", lambda wanted: None)
     spec = api.BACKENDS["pixal3d"]
     assert spec.gpu_memory_wanted is not None
-    assert api.gpu_busy_check(spec) is None or "GPU has" in api.gpu_busy_check(spec)
+    assert api.gpu_busy_check(spec) is None
+
+
+def test_a_route_with_no_need_is_never_asked_about_the_card(monkeypatch):
+    """A CPU route must not be warned about having no card, so the card is not asked."""
+    def refuse(wanted):
+        raise AssertionError("the card must not be asked for a route that needs none")
+
+    monkeypatch.setattr(api, "gpu_busy_note", refuse)
+    for backend_id, spec in api.BACKENDS.items():
+        if spec.gpu_memory_wanted is None:
+            assert api.gpu_busy_check(spec) is None, backend_id
+
+
+# --- Stable Fast 3D: one route, two installs that must not be confused ---------------------
+
+def test_sf3d_runs_in_its_own_venv_on_amd_and_in_this_interpreter_on_a_mac():
+    """The Apple route installs SF3D into the interpreter the viewer runs in. The AMD route
+    gives it a venv, because its pins break the shared environment -- so the two installs
+    are in different places and a spec pointing at one is wrong on the other."""
+    amd = api.sf3d_spec(api.AMD)
+    apple = api.sf3d_spec(api.APPLE)
+    assert amd.interpreter == api.SF3D_ROCM_PYTHON
+    assert ".venv" in str(amd.interpreter)
+    assert apple.interpreter != amd.interpreter
+    # Not "no .venv in the path": the suite itself often runs from one.
+    assert apple.interpreter == Path(sys.executable)
+    # One id, so the studio's saved setting still names the same route either way.
+    assert amd.id == apple.id == "sf3d"
+    assert amd.wrapper == apple.wrapper, "only the interpreter differs"
+
+
+def test_sf3d_readiness_proves_the_right_install_for_each_machine(monkeypatch):
+    """A shared source file is true on a Mac that has only ever built the Apple install, and
+    on a Linux box whose texture baker compiled with no GPU kernels in it -- which is the
+    failure this route had. Each machine needs its own proof, and its own hint."""
+    # This machine may well have it installed, so the not-installed hints are read against
+    # paths that are definitely absent -- otherwise the test asserts on whatever the host
+    # happens to have, and passes for the wrong reason.
+    absent = Path("/nonexistent/stable-fast-3d")
+    monkeypatch.setattr(api, "SF3D_ROCM_MARKER", absent / ".i2l-build-complete")
+    monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", absent / ".venv" / "bin" / "python")
+    monkeypatch.setattr(api, "SF3D_REPO_DEFAULT", absent)
+
+    amd = api._sf3d_readiness(api.AMD)
+    apple = api._sf3d_readiness(api.APPLE)
+    assert amd["ready"] is False and apple["ready"] is False
+    # Each hint names its own installer, so "not installed" is actionable.
+    assert "bootstrap_sf3d_rocm.py" in amd["build"]["hint"]
+    assert "bootstrap_macos.sh" in apple["build"]["hint"]
+    assert "bootstrap_sf3d_rocm.py" not in apple["build"]["hint"]
+
+    # And when it is installed, AMD proves it from its venv rather than from the checkout
+    # the two routes share.
+    monkeypatch.setattr(api, "SF3D_ROCM_MARKER", Path(__file__))
+    monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", Path(sys.executable))
+    monkeypatch.setattr(api, "_sf3d_weights", lambda: [
+        {"label": "Stable Fast 3D", "present": True, "human_present": "3.8 GB"}])
+    installed = api._sf3d_readiness(api.AMD)
+    assert installed["ready"] is True and installed["build"]["hint"] is None
+    assert str(api.SF3D_ROCM_PYTHON) in installed["build"]["interpreter"]
+
+
+def test_sf3d_on_amd_is_not_ready_without_its_weights(monkeypatch):
+    """Built but never downloaded (code-only, or stopped by the gated licence): a run would
+    have fetched ~4.9 GB nobody agreed to."""
+    monkeypatch.setattr(api, "SF3D_ROCM_MARKER", Path(__file__))
+    monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", Path(sys.executable))
+    monkeypatch.setattr(api, "_sf3d_weights", lambda: [
+        {"label": "Stable Fast 3D", "present": False, "human_present": "0 B"},
+        {"label": "DINOv2 image encoder", "present": True, "human_present": "1.1 GB"}])
+    readiness = api._sf3d_readiness(api.AMD)
+    assert readiness["ready"] is False
+    assert readiness["missing_weights"] == ["Stable Fast 3D"]
+    assert "--weights-only" in readiness["build"]["hint"]
+
+def test_sf3d_is_offered_on_an_amd_card_and_still_on_a_mac():
+    import backend_catalog
+
+    entry = backend_catalog.BY_ID["sf3d"]
+    assert entry.runs_here(backend_catalog.AMD, "linux") is True
+    assert entry.runs_here(backend_catalog.APPLE, "darwin") is True
+    assert api.sf3d_spec(api.AMD).label != api.sf3d_spec(api.APPLE).label, \
+        "two installs behind one label is how a user picks the wrong one"
+
+
+def test_the_sf3d_download_command_is_the_amd_bootstrap_on_an_amd_card():
+    """The Setup button runs a command, and the Mac one installs into the shared
+    interpreter -- which is exactly what this route exists to stop doing on Linux."""
+    import backend_catalog
+    import download_api
+
+    command = download_api.command_for("sf3d", backend_catalog.AMD)
+    assert command is not None
+    assert any("bootstrap_sf3d_rocm.py" in part for part in command), command
+    assert "--yes" in command
 
 
 def test_a_run_that_may_not_fit_is_flagged_before_it_starts(monkeypatch):
@@ -1163,6 +1306,17 @@ def test_the_generate_handler_never_refuses_for_a_busy_card():
     source = inspect.getsource(api.Handler)
     assert "gpu_busy_warning(busy)" in source
     assert '{"error": f"{spec.label}: {busy}"}' not in source
+
+
+def test_a_bug_in_a_routes_settings_check_is_reported_as_a_sentence():
+    """A `KeyError` on a setting name reached the browser as a bare `'max_num_view'` with
+    nothing on the server's terminal, so the run looked like it had simply stopped.
+    ValueError is still the user's problem and stays a 422; anything else is our bug."""
+    import inspect
+    source = inspect.getsource(api.Handler)
+    assert "validate_settings raised" in source, "the traceback must reach the terminal"
+    assert "_send_json(500" in source
+    assert "bug in the route's settings" in source, "and say so in the browser"
 
 
 def test_every_backend_answers_the_check_without_raising():
@@ -1272,24 +1426,36 @@ def test_trellis_on_nvidia_runs_the_cuda_generator():
     assert spec.readiness is api.cuda_setup_status
 
 
-AMD = api.backend_catalog.AMD
-
-
-def test_trellis_is_not_offered_on_an_amd_card(monkeypatch):
-    """Microsoft's route needs flash-attn, nvdiffrast, nvdiffrec, CuMesh and FlexGEMM, all
-    NVIDIA-only. Handing an AMD machine that spec means a download of 15 GB of weights that
-    can never build, so the catalogue has to be the thing that keeps it out of the
-    dropdown. The spec itself is the Mac one: only a Mac can run it, and the dropdown is
-    what decides, not this function."""
-    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: AMD)
+def test_trellis_is_offered_on_an_amd_card(monkeypatch):
+    """It used not to be, for a reason that turned out not to be the card: the extensions
+    all have working ROCm builds, and attention moved to AuleAttention. What matters now is
+    that the spec names the ROCm venv rather than this interpreter or the NVIDIA one."""
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.AMD)
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
-    assert here["trellis"] is False
-    assert api.trellis_spec(AMD).interpreter == api.PYTHON
+    assert here["trellis"] is True
+
+    spec = api.trellis_spec(api.AMD)
+    assert spec.interpreter == api.TRELLIS_ROCM_PYTHON
+    assert "trellis-rocm" in str(spec.interpreter)
+    assert spec.wrapper == api.TRELLIS_ROCM_WRAPPER
+    # Like the NVIDIA route it mattes images itself, so it must not demand alpha.
+    assert spec.requires_alpha is False
+
+
+def test_the_two_linux_trellis_specs_differ_only_in_where_they_run():
+    """One pipeline, two cards: the settings, stages and line parser must not diverge."""
+    cuda_spec = api.trellis_spec(api.NVIDIA)
+    amd_spec = api.trellis_spec(api.AMD)
+    assert amd_spec.default_settings == cuda_spec.default_settings
+    assert amd_spec.stages == cuda_spec.stages
+    assert amd_spec.parse_line is cuda_spec.parse_line
+    assert amd_spec.validate_settings is cuda_spec.validate_settings
+    assert amd_spec.interpreter != cuda_spec.interpreter
 
 
 def test_pixal3d_runs_on_an_amd_card(monkeypatch):
-    """The one 3D route with an AMD install, so the Generate dropdown must keep it there."""
-    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: AMD)
+    """The one 3D route with an api.AMD install, so the Generate dropdown must keep it there."""
+    monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.AMD)
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
     assert here["pixal3d"] is True
 
@@ -1331,7 +1497,7 @@ def _cuda_install(tmp_path, monkeypatch, *, built=True, patched=True):
 
 def test_cuda_route_is_ready_when_built_and_patched(tmp_path, monkeypatch):
     _cuda_install(tmp_path, monkeypatch)
-    assert api.cuda_setup_status()["ready"] is True
+    assert api.cuda_setup_status(api.NVIDIA)["ready"] is True
 
 
 def test_cuda_route_is_not_ready_without_the_bria_patch(tmp_path, monkeypatch):
@@ -1343,9 +1509,65 @@ def test_cuda_route_is_not_ready_without_the_bria_patch(tmp_path, monkeypatch):
 
 def test_cuda_route_not_built_points_at_its_bootstrap(tmp_path, monkeypatch):
     _cuda_install(tmp_path, monkeypatch, built=False)
-    status = api.cuda_setup_status()
+    status = api.cuda_setup_status(api.NVIDIA)
     assert status["ready"] is False
     assert "bootstrap_trellis_cuda.py" in status["build"]["hint"]
+
+
+def test_the_rocm_route_not_built_points_at_its_own_bootstrap(tmp_path, monkeypatch):
+    """A hint naming the CUDA bootstrap would send an api.AMD user to a script that refuses
+    their card. The ROCm install is faked here because this machine has one, and a test
+    that depends on what happens to be built passes for the wrong reason."""
+    monkeypatch.setattr(api, "TRELLIS_ROCM_PYTHON", tmp_path / "nope" / "python")
+    monkeypatch.setattr(api, "TRELLIS_ROCM_MARKER", tmp_path / "nope" / "marker")
+    status = api.cuda_setup_status(api.AMD)
+    assert status["ready"] is False
+    assert "bootstrap_trellis_rocm.py" in status["build"]["hint"]
+    assert "api.NVIDIA" not in status["build"]["hint"]
+
+
+def _rocm_install(tmp_path, monkeypatch, *, attention=None):
+    vendor = tmp_path / "trellis-rocm"
+    python = vendor / ".venv" / "bin" / "python"
+    marker = vendor / ".i2l-build-complete"
+    python.parent.mkdir(parents=True)
+    python.write_text("")
+    marker.write_text("{}")
+    monkeypatch.setattr(api, "TRELLIS_ROCM_VENDOR", vendor)
+    monkeypatch.setattr(api, "TRELLIS_ROCM_PYTHON", python)
+    monkeypatch.setattr(api, "TRELLIS_ROCM_MARKER", marker)
+    monkeypatch.setattr(api, "TRELLIS_ROCM_WRAPPER", python)
+    monkeypatch.setattr(api, "weights_on_disk", lambda *a, **k: {})
+    monkeypatch.setattr(api, "trellis_cuda_bria_patched", lambda *a: True)
+    return vendor
+
+
+def test_the_rocm_route_is_not_ready_without_its_attention_patches(tmp_path, monkeypatch):
+    _rocm_install(tmp_path, monkeypatch)
+    status = api.cuda_setup_status(api.AMD)
+    assert status["ready"] is False and status["build"]["present"] is False
+    assert "patch_trellis_rocm.py" in status["build"]["hint"]
+
+
+def test_the_rocm_route_is_not_ready_without_aule_installed(tmp_path, monkeypatch):
+    import patch_trellis_rocm
+
+    vendor = _rocm_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(patch_trellis_rocm, "is_patched", lambda root: True)
+    status = api.cuda_setup_status(api.AMD)
+    assert status["ready"] is False
+    assert "aule" in status["build"]["hint"]
+    aule = vendor / ".venv" / "lib" / "python3.11" / "site-packages" / "aule"
+    aule.mkdir(parents=True)
+    (aule / "__init__.py").write_text("")
+    assert api.cuda_setup_status(api.AMD)["ready"] is True
+
+
+def test_the_nvidia_route_is_not_asked_about_aule(tmp_path, monkeypatch):
+    _cuda_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(api, "trellis_rocm_attention_problem",
+                        lambda *a: pytest.fail("asked an NVIDIA card about aule"))
+    assert api.cuda_setup_status(api.NVIDIA)["ready"] is True
 
 
 def test_bria_patch_probe_reads_the_real_checkout_rule(tmp_path):
@@ -1612,7 +1834,8 @@ def test_matted_upload_records_the_remover(tmp_path):
 
 def test_matte_upload_cuts_out_and_keeps_the_original(tmp_path, monkeypatch):
     from PIL import Image
-    import image_to_3dlab.matte as matte
+
+    from image_to_3dlab import matte
 
     upload = tmp_path / "input.jpg"
     Image.new("RGB", (8, 8), "white").save(upload)
@@ -1630,7 +1853,8 @@ def test_matte_upload_cuts_out_and_keeps_the_original(tmp_path, monkeypatch):
 # it in its own code with our remover; this keeps a new route from slipping through.
 
 
-@pytest.mark.parametrize("host", [api.APPLE, api.backend_catalog.NVIDIA])
+@pytest.mark.parametrize("host", [api.APPLE, api.backend_catalog.NVIDIA,
+                                  api.backend_catalog.AMD])
 def test_every_route_gets_a_real_cut_out(host):
     specs = {**api.BACKENDS, "trellis": api.trellis_spec(host)}
     for backend_id, spec in specs.items():

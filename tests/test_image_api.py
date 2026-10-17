@@ -17,6 +17,10 @@ from pathlib import Path
 import pytest
 
 VIEWER = Path(__file__).resolve().parents[1] / "viewer"
+sys.path.insert(0, str(VIEWER.parent))
+from image_to_3dlab.host import AMD as HOST_AMD
+from image_to_3dlab.host import APPLE as HOST_APPLE
+from image_to_3dlab.host import NVIDIA as HOST_NVIDIA
 
 
 def _load():
@@ -233,13 +237,17 @@ def _fake_sd_cli(tmp_path: Path, lines: list[str], then_sleep: float,
 def test_a_failed_run_says_why_not_just_the_exit_code(tmp_path, monkeypatch):
     """'sd-cli exited with code 2' is a riddle; the binary's own last line -- here a
     rejected flag, because vendor/sdcpp once held a LocalAI backend that only speaks
-    -addr -- is the reason, and the image tab has no log panel to find it in."""
+    -addr -- is the reason, and the image tab has no log panel to find it in.
+
+    The GPU line is not decoration: a run that reaches its third step was on the GPU, and
+    the no-GPU explanation is for the ones that were not."""
     command = _fake_sd_cli(tmp_path, [
+        "load_backend: loaded ROCm backend from /x/libggml-hip.so",
         "load_backend: loaded CPU backend from /x/libggml-cpu.so",
         "|=====>    | 3/10 - 1.5s/it",
         "flag provided but not defined: -diffusion-model",
     ], then_sleep=0, exit_code=2)
-    monkeypatch.setattr(api, "host_platform", lambda: "amd")
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_AMD)
     monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
     manager = api.ImageJobManager(output_root=tmp_path)
     job = manager.create("a fox", api.clean_settings({}))
@@ -264,7 +272,7 @@ def test_a_failed_run_with_only_progress_says_just_the_code(tmp_path, monkeypatc
 def test_a_cpu_only_run_on_an_nvidia_machine_is_stopped_with_the_fix(tmp_path, monkeypatch):
     """On the RunPod 4090 a CPU-only run sat at 1,700% CPU for minutes with no word why.
     The viewer must stop it the moment the CPU backend loads with no GPU before it."""
-    monkeypatch.setattr(api, "host_platform", lambda: api.NVIDIA)
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_NVIDIA)
     command = _fake_sd_cli(tmp_path, [
         "load_backend: loaded CPU backend from /x/libggml-cpu-haswell.so",
     ], then_sleep=60)
@@ -279,7 +287,7 @@ def test_a_cpu_only_run_on_an_nvidia_machine_is_stopped_with_the_fix(tmp_path, m
 
 
 def test_a_gpu_run_is_left_alone(tmp_path, monkeypatch):
-    monkeypatch.setattr(api, "host_platform", lambda: api.NVIDIA)
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_NVIDIA)
     command = _fake_sd_cli(tmp_path, [
         "ggml_vulkan: Found 1 Vulkan devices:",
         "load_backend: loaded CPU backend from /x/libggml-cpu-haswell.so",
@@ -290,6 +298,68 @@ def test_a_gpu_run_is_left_alone(tmp_path, monkeypatch):
     api.run_job(job, manager, weights=WEIGHTS)
     # The fake writes no PNG, so the run ends in the ordinary "no output" error, not ours.
     assert "libegl1" not in (job.error or "")
+
+
+# --- AMD: the same silent fallback, and words the AMD user can act on ----------------------
+
+# Lines as the ROCm build printed them on an RX 7900 XTX, 2026-10-07.
+ROCM_OK = [
+    "ggml_cuda_init: found 1 ROCm devices (Total VRAM: 20480 MiB):",
+    "load_backend: loaded ROCm backend from /workspace/lab/vendor/sdcpp/libggml-hip.so",
+    "load_backend: loaded CPU backend from /workspace/lab/vendor/sdcpp/libggml-cpu-haswell.so",
+]
+ROCM_CPU_ONLY = [
+    "load_backend: loaded CPU backend from /workspace/lab/vendor/sdcpp/libggml-cpu-haswell.so",
+]
+
+
+def test_a_cpu_only_run_on_an_amd_card_is_stopped_too(tmp_path, monkeypatch):
+    """The ROCm build loads its GPU backend at run time exactly as CUDA does, so it falls
+    back to the CPU just as silently. Watcher or not, an AMD user watched the same idle card."""
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_AMD)
+    command = _fake_sd_cli(tmp_path, ROCM_CPU_ONLY, then_sleep=60)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    started = time.monotonic()
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert time.monotonic() - started < 10, "the CPU run was left to finish"
+    assert job.status == "error"
+
+
+def test_an_amd_fallback_is_told_about_rocm_and_not_about_nvidia(tmp_path, monkeypatch):
+    """`nvidia-smi` and NVIDIA_DRIVER_CAPABILITIES are both useless to someone with an AMD
+    card. Telling them to check them reads as the viewer having got the machine wrong."""
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_AMD)
+    command = _fake_sd_cli(tmp_path, ROCM_CPU_ONLY, then_sleep=60)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert "rocminfo" in job.error
+    assert "nvidia-smi" not in job.error
+
+
+def test_an_amd_gpu_run_is_left_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_AMD)
+    command = _fake_sd_cli(tmp_path, ROCM_OK, then_sleep=0)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert "rocminfo" not in (job.error or "")
+
+
+def test_the_mac_is_still_left_watched_over_nothing(tmp_path, monkeypatch):
+    """The Mac build is Metal, compiled in, and never announces a backend. Watching it would
+    stop every run on the CPU line, which sd-cli always prints."""
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_APPLE)
+    command = _fake_sd_cli(tmp_path, ROCM_OK, then_sleep=0)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: command)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status != "error" or "rocminfo" not in (job.error or "")
 
 
 # --- edit mode: a reference picture, read by the vision file --------------------------------

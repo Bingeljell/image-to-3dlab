@@ -43,6 +43,53 @@ def test_rocm_free_memory_is_what_the_big_card_has_left():
     assert free == 25753026560 - 15960199168
 
 
+def test_a_mixed_box_reports_the_roomier_card_not_the_first_one():
+    """A box with an NVIDIA card and an AMD one answers both questions. Reporting whichever
+    came first would understate the room, and a caller fitting settings to VRAM -- the AMD
+    Hunyuan route's paint ladder -- would then pick settings for the smaller card."""
+    nvidia_free = 4 * GB
+
+    def which(name):
+        return {"nvidia-smi": "/usr/bin/nvidia-smi", "rocm-smi": "/opt/rocm/bin/rocm-smi"}.get(name)
+
+    outputs = {"/usr/bin/nvidia-smi": f"{nvidia_free}", "/opt/rocm/bin/rocm-smi": ROCM_MEMINFO}
+
+    def run(command, timeout=10):
+        return outputs.get(command[0])
+
+    monkeypatched = gpu.free_vram_bytes(which=which, run=run)
+    assert monkeypatched == max(nvidia_free, gpu.rocm_free_bytes(which=which, run=run))
+
+
+def test_free_memory_prefers_the_roomier_answer_whatever_the_order():
+    """Both vendors can answer on one box, so the probe order must not decide the result.
+
+    The card being fitted for is the AMD one, and a smaller NVIDIA number must not win.
+    """
+    nvidia_free = 4 * GB
+    roomier = 20 * GB
+    rocm_only = gpu.rocm_free_bytes(which=lambda _: "/opt/rocm/bin/rocm-smi", run=ROCM_SMI)
+    assert rocm_only > nvidia_free, "the fixture no longer exercises the mixed case"
+
+    paths = {"nvidia-smi": "/usr/bin/nvidia-smi", "rocm-smi": "/opt/rocm/bin/rocm-smi"}
+    # nvidia-smi answers in MiB CSV; rocm-smi in its own table. Both real formats, because
+    # a stub that returns the same string to both would pass whatever the code parsed.
+    answers = {paths["nvidia-smi"]: f"{nvidia_free // (1024 * 1024)}, 24576",
+               paths["rocm-smi"]: ROCM_MEMINFO}
+
+    both = gpu.free_vram_bytes(which=lambda name: paths.get(name),
+                               run=lambda command, timeout=10: answers[command[0]])
+    assert both == rocm_only > nvidia_free
+
+    # And the same with the roomier card being the NVIDIA one, so this is a rule about
+    # room rather than a rule that happens to prefer AMD.
+    swapped = {paths["nvidia-smi"]: f"{roomier // (1024 * 1024)}, 24576",
+               paths["rocm-smi"]: ROCM_MEMINFO}
+    assert gpu.free_vram_bytes(
+        which=lambda name: paths.get(name),
+        run=lambda command, timeout=10: swapped[command[0]]) == roomier
+
+
 def test_the_smallest_gpu_is_never_the_one_asked_about():
     """A box with a 24 GB card and a 2 GB APU must not be measured by the APU: the answer
     would refuse every run that the real card could do."""

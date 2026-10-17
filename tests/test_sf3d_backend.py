@@ -56,3 +56,12 @@ def test_real_matte_is_left_alone():
     calls = []
     cut_out(image, lambda *a, **k: calls.append(1), session=None)
     assert calls == []
+
+
+def test_the_setup_hint_names_this_machines_installer():
+    """On AMD SF3D lives in a venv of its own; the Mac script refuses that machine."""
+    from image_to_3dlab import host
+    from image_to_3dlab.sf3d_backend import setup_command
+
+    assert setup_command(host.AMD) == "scripts/bootstrap_sf3d_rocm.py"
+    assert setup_command(host.APPLE) == "scripts/bootstrap_sf3d.py"

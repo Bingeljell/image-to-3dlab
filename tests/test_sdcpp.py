@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from image_to_3dlab import sdcpp
+from image_to_3dlab import host, sdcpp
 
 # Lines as the Linux Vulkan build printed them on the RunPod 4090, 2026-09-23.
 VULKAN_OK = [
@@ -57,3 +57,12 @@ def test_the_help_names_the_fix_that_worked():
 def test_the_amd_help_points_at_rocm_and_the_vulkan_fallback():
     assert "rocminfo" in sdcpp.NO_AMD_GPU_HELP
     assert "vulkan" in sdcpp.NO_AMD_GPU_HELP.lower()
+
+
+def test_each_machine_gets_words_it_can_act_on():
+    """An AMD user has no `nvidia-smi` to run and no NVIDIA container capability to set."""
+    assert sdcpp.no_gpu_help(host.AMD) is sdcpp.NO_AMD_GPU_HELP
+    assert sdcpp.no_gpu_help(host.NVIDIA) is sdcpp.NO_GPU_HELP
+    # A machine with no card at all is most likely an NVIDIA box that lost its driver, and
+    # the generic text is the one that names a fix; AMD's would send them looking for ROCm.
+    assert sdcpp.no_gpu_help(host.OTHER) is sdcpp.NO_GPU_HELP

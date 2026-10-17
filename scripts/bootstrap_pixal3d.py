@@ -599,12 +599,14 @@ def main(argv: list[str] | None = None) -> int:
 
     key = target()
     kind = current_kind(key, args.compile)
-    if kind is None:
-        print(no_route_message(key))
-        return 1
-
     build = not args.weights_only and not args.multiview
     weights = not args.build_only and not args.multiview
+    decision = build_decision(build_present(), args.rebuild, kind) if build else None
+    # No compiler only matters when something is about to be compiled. An AMD machine
+    # whose build is already there can still fetch weights, or the multi-view set.
+    if kind is None and (key is None or decision in ("install", "rebuild")):
+        print(no_route_message(key))
+        return 1
     print(multiview_announcement() if args.multiview
           else announcement(build=build, weights=weights, prefer_compile=args.compile))
 
@@ -619,7 +621,6 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if build:
-        decision = build_decision(build_present(), args.rebuild, kind)
         if decision == "keep":
             print(f"\ntrellis-cli is already installed at {cli_path()}, leaving it alone "
                   "(--rebuild recompiles it with this repo's patches).")

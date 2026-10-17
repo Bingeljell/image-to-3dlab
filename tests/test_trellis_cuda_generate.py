@@ -177,3 +177,41 @@ def test_a_real_cutout_goes_straight_in(tmp_path, monkeypatch):
 def test_main_requires_image_and_output():
     with pytest.raises(SystemExit):
         gen.main([])
+
+
+# --- AMD: the attention backend the ROCm patches add ------------------------------------
+
+def test_the_nvidia_route_never_asks_for_the_amd_patches(tmp_path):
+    assert gen.uses_aule(gen.ROUTE) is False
+    assert gen.aule_patch_refusal(_vendor(tmp_path), gen.ROUTE) is None
+
+
+def test_an_amd_checkout_without_the_attention_patches_is_refused(tmp_path):
+    vendor = _vendor(tmp_path)
+    refusal = gen.aule_patch_refusal(vendor, gen.trellis_route.ROCM)
+    assert refusal and "patch_trellis_rocm.py" in refusal
+
+
+def test_check_on_amd_reports_the_missing_patches_before_torch(tmp_path, monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "torch", None)  # an import would raise, not pass
+    assert gen.check_environment(_vendor(tmp_path), gen.trellis_route.ROCM) == 1
+    assert "patch_trellis_rocm.py" in capsys.readouterr().out
+
+
+def test_check_on_amd_reports_a_missing_aule_before_loading_trellis(tmp_path, monkeypatch,
+                                                                   capsys):
+    fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setitem(sys.modules, "aule", None)
+    monkeypatch.setitem(sys.modules, "o_voxel", None)  # reaching TRELLIS would raise
+    monkeypatch.setattr(gen.rocm_patch, "is_patched", lambda root: True)
+    monkeypatch.setattr(gen, "configure_environment", lambda **k: {})
+    assert gen.check_environment(_vendor(tmp_path), gen.trellis_route.ROCM) == 1
+    out = capsys.readouterr().out
+    assert "aule" in out and "bootstrap_trellis_rocm.py" in out
+
+
+def test_load_pipeline_on_amd_refuses_unpatched_attention_before_torch(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", None)
+    with pytest.raises(SystemExit, match="patch_trellis_rocm.py"):
+        gen.load_pipeline(_vendor(tmp_path), gen.trellis_route.ROCM)

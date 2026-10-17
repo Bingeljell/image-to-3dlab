@@ -81,12 +81,16 @@ def free_vram_bytes(which: Callable = shutil.which,
 
     None means *unknown*, not *zero*: a box whose tools are missing or that is mid-install
     still generates, so callers report nothing rather than refusing.
+
+    Both vendors are asked and the larger answer wins. On a mixed box -- an NVIDIA card and
+    an AMD one -- reporting whichever is fuller would understate what the generator can use,
+    and a caller fitting settings to VRAM would then choose settings for the smaller card on
+    purpose. Either way the answer is a lower bound on one card, never an upper bound on both.
     """
-    for probe in (nvidia_free_bytes, rocm_free_bytes):
-        found = probe(which=which, run=run)
-        if found is not None:
-            return found
-    return None
+    found = [amount for amount in
+             (probe(which=which, run=run) for probe in (nvidia_free_bytes, rocm_free_bytes))
+             if amount is not None]
+    return max(found) if found else None
 
 
 def gpu_processes(which: Callable = shutil.which,

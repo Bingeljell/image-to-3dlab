@@ -58,16 +58,19 @@ confirm() {
 # --- 1. This machine --------------------------------------------------------------------
 OS="${I3D_UNAME_S:-$(uname -s)}"      # the I3D_ overrides exist for the test suite
 ARCH="${I3D_UNAME_M:-$(uname -m)}"
+GPU="none"
 case "$OS/$ARCH" in
   Darwin/arm64)
     MACHINE="Apple Silicon Mac" ;;
   Linux/x86_64)
     if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L 2>/dev/null | grep -q GPU; then
       MACHINE="Linux with an NVIDIA GPU"
+      GPU="nvidia"
     elif [ -n "$(ls -A "${I3D_KFD_NODES:-/sys/class/kfd/kfd/topology/nodes}" 2>/dev/null)" ]; then
       # The same test image_to_3dlab/host.py uses: one directory per AMD card the kernel
       # driver has bound. I3D_KFD_NODES exists for the test suite, the way I3D_UNAME does.
       MACHINE="Linux with an AMD GPU"
+      GPU="amd"
     else
       MACHINE="Linux without a supported GPU"
       say "No NVIDIA or AMD GPU found. The viewer will install, but no generation route"
@@ -140,16 +143,53 @@ fi
 # --- 4. Python ----------------------------------------------------------------------------
 say "Setting up Python 3.11 and the viewer's packages (a few hundred MB, mostly PyTorch)"
 run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
+PY="$DIR/.venv/bin/python"
+
 # The lock pins every package to versions tested together; requirements.txt only bounds
 # them, so installing from it gave each install whatever PyPI had that day.
 REQS="$DIR/requirements.lock"
 [ -f "$REQS" ] || REQS="$DIR/requirements.txt"
-run "$UV" pip install --quiet --python "$DIR/.venv/bin/python" -r "$REQS"
+
+# PyPI's Linux PyTorch is a CUDA build, and the lock carries about 6 GB of NVIDIA wheels
+# with it. On an AMD card none of that can load, and the box is left with a torch that
+# reports no device. So the lock is installed with that family taken out and the ROCm build
+# is put in its place. image_to_3dlab.host picks the ROCm build that matches the installed
+# runtime (tested in tests/test_host.py); the CUDA and Apple paths keep the plain install.
+if [ "$GPU" = amd ] && [ -f "$REQS" ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
+  # Inside the venv: it belongs to this install, and git already ignores it there.
+  ROCM_LOCK="$DIR/.venv/requirements.rocm.lock"
+  # From inside $DIR: `-m` finds the package in the current folder, and under
+  # `curl | bash` that folder is wherever the user happened to be.
+  (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$REQS") >"$ROCM_LOCK"
+  REQS="$ROCM_LOCK"
+fi
+
+run "$UV" pip install --quiet --python "$PY" -r "$REQS"
+
+# After the requirements, so it wins over the PyPI wheel: --reinstall-package is what makes
+# uv swap the build rather than consider the requirement satisfied.
+if [ "$GPU" = amd ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
+  ROCM_INDEX="$(cd "$DIR" && "$PY" -m image_to_3dlab.host torch-rocm-index | tr -d '[:space:]')"
+  if ! (cd "$DIR" && "$PY" -m image_to_3dlab.host torch-has-rocm); then
+    if [ -n "$ROCM_INDEX" ]; then
+      say "Installing PyTorch with ROCm from $ROCM_INDEX"
+      run "$UV" pip install --quiet --python "$PY" --reinstall-package torch \
+        --reinstall-package torchvision --index-url "$ROCM_INDEX" torch torchvision
+    else
+      # The lock went in without torch, so without this there would be no PyTorch at all.
+      say "Your ROCm is older than PyTorch's ROCm builds (they need ROCm 6.2 or newer)."
+      say "Installing the CPU build of PyTorch for now. Install a newer ROCm, then run this"
+      say "again to get the GPU build."
+      run "$UV" pip install --quiet --python "$PY" \
+        --index-url https://download.pytorch.org/whl/cpu torch torchvision
+    fi
+  fi
+fi
 
 # --- 5. Blender: Finish needs it, and it is the user's to install -----------------------
 # Checked with the same finder Finish uses. Missing is a note, not a failure: generating
 # models works without it.
-if [ "$DRY" != 1 ] && [ -x "$DIR/.venv/bin/python" ] && ! (cd "$DIR" && .venv/bin/python -c \
+if [ "$DRY" != 1 ] && [ -x "$PY" ] && ! (cd "$DIR" && .venv/bin/python -c \
     'import sys; from image_to_3dlab.blender import find_blender; sys.exit(0 if find_blender() else 1)') \
     2>/dev/null; then
   say "Blender was not found. Finish (the low-poly clean-up) needs Blender 4.2 or newer."

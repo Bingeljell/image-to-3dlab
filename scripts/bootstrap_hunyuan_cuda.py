@@ -71,6 +71,11 @@ BPY_PIN = "bpy==4.2.0"
 # setuptools 81+ dropped pkg_resources, which lightning_fabric (upstream's pytorch-lightning
 # 1.9.5) still imports: the paint stage died on start with setuptools 84.
 SETUPTOOLS_PIN = "setuptools<81"
+# Upstream's onnxruntime==1.16.3 wheel ships a shared object that asks the loader for an
+# executable stack, and a kernel that refuses one answers "cannot enable executable stack as
+# shared object requires" — an ImportError on a package nothing appears to use. The CUDA route
+# is NVIDIA's own lock, where that pin is resolved away, so it has nothing to replace here.
+REPLACED: dict[str, str] = {}
 
 # (route, torch, torchvision, index tag, minimum driver CUDA). "tested" is upstream's own
 # pairing; "blackwell" exists only because 2.5.1 has no kernels for compute capability 12.0.
@@ -173,21 +178,31 @@ def install_background_remover(target: Path | None = None, download=None) -> Non
     install_if_missing(target, download)
 
 
-def filter_requirements(text: str) -> list[str]:
+def filter_requirements(text: str, skip: set[str] | None = None,
+                        replace: dict[str, str] | None = None) -> list[str]:
     """Upstream's requirements.txt, as lines we are willing to install.
 
     Drops index options (upstream adds two extra package mirrors; we install from PyPI
-    only), comments, and everything in SKIP_REQUIREMENTS.
+    only), comments, and everything in `skip` — this module's own SKIP_REQUIREMENTS unless a
+    route hands in its own. A name in `replace` is swapped for the route's own line instead of
+    being taken at the version upstream pinned.
+
+    Both are parameters rather than plain global lookups because that is the trap: the ROCm
+    route adds to both lists and then calls this function, which read the *CUDA* module's
+    globals and substituted nothing and dropped nothing. Every upstream pin that route wanted
+    changed went in unchanged.
     """
+    skip = SKIP_REQUIREMENTS if skip is None else skip
+    replace = REPLACED if replace is None else replace
     kept = []
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line or line.startswith("-"):
             continue
         name = re.split(r"[<>=!~\[; ]", line, maxsplit=1)[0].lower().replace("_", "-")
-        if name in SKIP_REQUIREMENTS:
+        if name in skip:
             continue
-        kept.append(BPY_PIN if name == "bpy" else line)
+        kept.append(replace.get(name, BPY_PIN if name == "bpy" else line))
     return kept
 
 

@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **TRELLIS.2, Hunyuan3D-2.1 and Stable Fast 3D on AMD** (Linux, ROCm), building on the AMD
+  support [@dlm21](https://github.com/dlm21) brought in 0.4.1 (#92). That release ran Pixal3D,
+  Generate Image and Auto-rig on an AMD card and said these three needed NVIDIA-only parts;
+  they now build for the card with HIP and are set up from the AMD tab like the rest. Each
+  has its own folder and venv, so a machine with both kinds of card keeps both installs.
+  Setup names every download and its size before it starts.
+  - **TRELLIS.2 (AMD):** Microsoft's own checkout and the same weights as NVIDIA. Attention
+    runs on AuleAttention, because flash-attn has no ROCm build. Setup tests torch on the
+    card before compiling anything, and on a ROCm newer than PyTorch's index (10.x, such as
+    Strix Halo) it tries AMD's index and PyTorch's newest ROCm build and keeps the one that
+    runs. Tested on an RX 7900 XTX (a model in about 4 minutes) and a Strix Halo (about 22).
+  - **Hunyuan3D-2.1 (AMD):** Tencent's own shape and PBR paint. Paint settings are fitted
+    to free GPU memory, read through torch so a shared-memory chip (an APU) is measured
+    right. Textures are capped at 256 px: at 512 px this card returns an all-black texture
+    with no error, and the cause is not pinned down yet. A run that bakes a black texture
+    stops rather than saving it. A run with weights missing stops and says how to fetch
+    them, instead of letting upstream download 8-15 GB. Tested on an RX 7900 XTX.
+  - **Stable Fast 3D (AMD):** in a venv of its own, so its old pins cannot reach the viewer,
+    with the texture baker's GPU kernels compiled for the card (under ROCm, upstream quietly
+    built a CPU-only one). It cuts pictures out with BiRefNet-lite like the other routes, and
+    Generate waits until its weights are downloaded. Tested on an RX 7900 XTX.
+- `I2L_TRELLIS_MODEL_PATH` points TRELLIS.2 at a local folder of weights instead of
+  downloading them. A tree under `vendor/trellis-cuda/models` or `vendor/trellis-rocm/models`
+  is found too, by both routes, and Setup counts it instead of offering to download it again.
+
+### Fixed
+- **An AMD install gets the ROCm build of PyTorch.** The installer handed every AMD card
+  PyPI's CUDA torch, plus about 6 GB of NVIDIA wheels it cannot load. A ROCm too old for
+  any ROCm build gets the CPU build until it is updated, rather than no PyTorch at all.
+- **Generate Image on AMD uses the card.** Its ROCm build needs ROCm's own libraries, which
+  are now put on its path; a run that still falls back to the CPU is caught and explained,
+  pointing at `rocminfo` rather than `nvidia-smi`.
+- **Pixal3D on AMD** can fetch its weights (`--weights-only`, `--multiview`) without hipcc
+  installed. Only compiling needs it.
+- **Auto-rig on AMD** names its route and where torch comes from before asking, and tests
+  torch on the card before installing the rest.
+- **Setup & Status:**
+  - The Rebuild button is back. It vanished when the page grew one tab per machine.
+  - A finished setup says *Installed*, *Setup failed* or *Setup cancelled*, in green, amber
+    or grey, instead of "Downloading" beside a full bar.
+  - TRELLIS.2's download on NVIDIA shows bytes arriving, not only minutes elapsed.
+  - A failed compile is no longer blamed on Hugging Face sign-in.
+  - A route that lost its venv or build marker names the missing file instead of only
+    offering Set up again.
+- The macOS TRELLIS.2 bootstrap refuses a machine that is not a Mac before fetching anything,
+  and names the right bootstrap.
+- The background-remover setup, run without `--yes` and without a terminal, says so instead
+  of crashing.
+
+### Changed
+- Setup & Status no longer says AMD support is coming, and the How-to page says the lab runs
+  on NVIDIA and AMD as well as Apple Silicon.
+
 ## [0.4.5] - 2026-10-17
 
 ### Added

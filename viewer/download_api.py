@@ -35,6 +35,7 @@ sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import processes  # noqa: E402
 from backend_catalog import (  # noqa: E402
+    AMD,
     BY_ID,
     HF_HUB_DIR,
     NVIDIA,
@@ -70,6 +71,11 @@ COMMANDS: dict[str, list[str]] = {
     # unsupported everywhere else, so start() refuses before this runs on a Mac.
     "hunyuan-cuda": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_cuda.py"),
                      "--yes"],
+    # AMD-only: the same upstream commit, compiled with hipcc instead of nvcc. It is a
+    # separate route rather than a per-host override because the weights land in
+    # vendor/hunyuan-rocm/ and a machine with both cards keeps both installs.
+    "hunyuan-rocm": [sys.executable, str(REPO / "scripts" / "bootstrap_hunyuan_rocm.py"),
+                     "--yes"],
 }
 
 # Where a route installs differently per machine, the machine's own command wins. TRELLIS.2
@@ -78,6 +84,16 @@ COMMANDS: dict[str, list[str]] = {
 HOST_COMMANDS: dict[tuple[str, str], list[str]] = {
     ("trellis", NVIDIA): [sys.executable, str(REPO / "scripts" / "bootstrap_trellis_cuda.py"),
                           "--yes"],
+    # SF3D installs into this interpreter on a Mac and into a venv of its own on AMD,
+    # because its pins break the shared environment. One id, two installers.
+    ("sf3d", AMD): [sys.executable, str(REPO / "scripts" / "bootstrap_sf3d_rocm.py"),
+                    "--yes"],
+    # TRELLIS.2 on AMD is Microsoft's own checkout built with HIP, like the NVIDIA entry
+    # above. Without this the Setup page falls back to COMMANDS["trellis"], which is the
+    # Metal port -- and that script refuses a machine that is not a Mac, so the button
+    # either failed minutes in or, before the check existed, built nothing usable.
+    ("trellis", AMD): [sys.executable, str(REPO / "scripts" / "bootstrap_trellis_rocm.py"),
+                       "--yes"],
 }
 
 
@@ -98,7 +114,10 @@ def command_for(backend_id: str, host: str | None = None,
 
 def building_label(backend_id: str, host: str | None = None) -> str:
     """What a setup with no bytes to measure is doing, for the progress line."""
-    if (backend_id, host or _this_host()) in HOST_COMMANDS or backend_id == "hunyuan-cuda":
+    here = host or _this_host()
+    if (backend_id, here) in HOST_COMMANDS or backend_id == "hunyuan-cuda":
+        if here == AMD:
+            return "building the ROCm version"
         return "building the CUDA version"
     return "building the Metal port"
 
@@ -374,7 +393,7 @@ def _run(run: DownloadRun) -> None:
               "detail": "starting the rebuild · nothing to download" if run.rebuild else
                         f"starting · {human_bytes(run.backend.bytes_expected)} expected"})
     stop = threading.Event()
-    if run.backend.setup_fetches_weights and not run.rebuild:
+    if measures_bytes(run):
         threading.Thread(target=_watch_size, args=(run, stop), daemon=True).start()
     else:
         threading.Thread(target=_watch_elapsed, args=(run, stop), daemon=True).start()
@@ -419,6 +438,15 @@ def _run(run: DownloadRun) -> None:
         run.emit({"phase": "done", "overall_pct": 100,
                   "detail": "rebuilt · the next run uses this repo's patches" if run.rebuild
                   else done_detail(run.backend, present)})
+
+
+def measures_bytes(run: DownloadRun, host: str | None = None) -> bool:
+    """Whether this run's progress is bytes arriving (vs. minutes of compiling).
+
+    Asked per machine: TRELLIS.2 on a Mac downloads nothing at setup, but on NVIDIA and AMD
+    it builds and then fetches 16 GB, which deserves a byte count rather than a clock.
+    """
+    return not run.rebuild and run.backend.setup_fetches_on(host or _this_host())
 
 
 def done_detail(backend: Backend, present: int) -> str:
@@ -469,6 +497,13 @@ def _watch_elapsed(run: DownloadRun, stop: threading.Event) -> None:
         })
 
 
+# A sign-in problem, and not just the word "token": every failed C++ compile says
+# "expected ';' before '}' token", and the HIP builds on AMD compile for half an hour.
+AUTH_FAILURE = re.compile(
+    r"\b401\b|gated|authenticat|unauthori[sz]ed"
+    r"|(?:invalid|expired|missing|no|bad) (?:\w+ )?token|token (?:is )?(?:invalid|expired|required)")
+
+
 def _explain(code: int, log: list[str]) -> str:
     """Turn an exit code into something a person can act on.
 
@@ -477,7 +512,7 @@ def _explain(code: int, log: list[str]) -> str:
     """
     # Wide enough to see past a Python traceback to the error that caused it.
     tail = "\n".join(log[-60:]).lower()
-    if "401" in tail or "gated" in tail or "authenticate" in tail or "token" in tail:
+    if AUTH_FAILURE.search(tail):
         return ("refused: this model needs a Hugging Face login and its terms accepted. "
                 "Sign in under Hugging Face sign-in at the top of this page, accept the "
                 "terms on the model page, and retry.")

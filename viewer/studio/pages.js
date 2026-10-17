@@ -76,7 +76,9 @@ export async function openActivity(stage) {
       </div></details></li>`).join('')}</ul>`).join('');
 }
 
-const MARK = { done: '✓', error: '!', cancelled: '■' };
+// How a finished thing is marked. Shared with the Setup page's progress panel, which has the
+// same three endings and should not invent its own glyphs.
+export const MARK = { done: '✓', error: '!', cancelled: '■' };
 
 /** One Activity line: "✓ Rig · blocky toy knight · 17:19 · 42 s" (and "· stopped" or
  *  "· failed" when it did not finish). */
@@ -124,7 +126,7 @@ export async function openAbout(stage) {
       <li><b>Finish.</b> Lighter, cleaner meshes with proper textures, ready for a game engine.</li>
       <li><b>Rigging and moves that fit.</b> Our own retargeting fits preset moves onto generated characters: straightened rest
         poses, arms kept out of bodies and armour, feet on the floor.</li>
-      <li><b>Runs on your Mac.</b> Ports and fixes that make these models work on Apple Silicon, and on NVIDIA.</li>
+      <li><b>Runs on your Mac.</b> Ports and fixes that make these models work on Apple Silicon, on NVIDIA and on AMD.</li>
       <li><b>Licences you can trust.</b> Every asset carries a record of the models that made it and the licences that apply.</li>
     </ul>
     <h3>Built on</h3>

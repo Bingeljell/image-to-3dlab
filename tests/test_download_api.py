@@ -224,6 +224,45 @@ def test_trellis_on_a_mac_still_runs_the_metal_bootstrap():
     assert command[1].endswith("bootstrap_trellis_space_macos.py")
 
 
+def test_trellis_on_amd_runs_the_rocm_bootstrap():
+    """TRELLIS.2 on AMD is Microsoft's checkout built with HIP.
+
+    Without a host entry here the Setup page falls back to COMMANDS["trellis"], which is
+    the Metal port. That script refuses a machine that is not a Mac, so the button died
+    minutes in -- and before that check existed, it failed on `xcrun` after cloning four
+    repositories. Hit on a real AMD card.
+    """
+    command = dl.command_for("trellis", host=dl.AMD)
+    assert command[1].endswith("bootstrap_trellis_rocm.py")
+    assert command[-1] == "--yes"
+    assert dl.building_label("trellis", host=dl.AMD) == "building the ROCm version"
+
+
+@pytest.mark.parametrize("host", [dl.NVIDIA, dl.AMD])
+def test_no_machine_is_handed_the_metal_bootstrap(host):
+    """A general guard, not a trellis one: the Metal port builds through xcrun, so any
+    non-Mac given that script fails somewhere unhelpful."""
+    for backend_id in dl.COMMANDS:
+        command = dl.command_for(backend_id, host=host)
+        if command is None:
+            continue
+        assert "bootstrap_trellis_space_macos.py" not in command[1], (
+            f"{backend_id} on {host} runs the macOS bootstrap")
+
+
+def test_the_label_matches_the_command_being_run():
+    """A progress line that says CUDA while the ROCm build runs is worse than none."""
+    for host in ("apple-silicon", dl.NVIDIA, dl.AMD):
+        command = dl.command_for("trellis", host=host)
+        label = dl.building_label("trellis", host=host)
+        if "rocm" in command[1]:
+            assert "ROCm" in label
+        elif "cuda" in command[1]:
+            assert "CUDA" in label
+        else:
+            assert "Metal" in label
+
+
 def test_a_route_without_a_host_command_uses_the_shared_one():
     assert dl.command_for("pixal3d", host=dl.NVIDIA) == dl.COMMANDS["pixal3d"]
     assert dl.command_for("pixal3d", rebuild=True) == dl.REBUILDS["pixal3d"]
@@ -357,6 +396,18 @@ def test_the_catalog_carries_a_rebuild_reason_only_where_the_backend_runs():
     assert out["backends"][1]["rebuild_reason"] is None
 
 
+def test_the_tab_the_setup_page_draws_carries_the_rebuild_reason_too():
+    """setup.js renders `views[host]`, not `backends`; a reason only on `backends` meant the
+    Rebuild button never appeared once the page grew one tab per machine."""
+    import generate_api
+    from backend_catalog import AMD, catalog_status
+
+    out = generate_api.with_rebuild_reasons(catalog_status(AMD),
+                                            reason=lambda backend_id: "stale")
+    pixal = next(b for b in out["views"][AMD] if b["id"] == "pixal3d")
+    assert pixal["rebuild_reason"] == "stale"
+
+
 def test_a_page_loaded_mid_setup_can_find_the_run_again(monkeypatch):
     # A setup runs 30-60 minutes; a refreshed or reopened Setup page must reattach to it
     # instead of showing idle "Set up" buttons that refuse with "already running".
@@ -468,7 +519,8 @@ def _vision_weight(repo):
 
 def test_a_patterned_weight_measures_only_its_own_file(tmp_path):
     weight = _vision_weight(_hf_folder(tmp_path))
-    assert weight.state() == (True, 7)
+    present, total, alt = weight.state()
+    assert (present, total, alt) == (True, 7, None)
     assert weight.describe()["bytes_present"] == 7
 
 
@@ -476,7 +528,7 @@ def test_a_patterned_weight_is_missing_when_its_file_is(tmp_path):
     repo = _hf_folder(tmp_path)
     for link in repo.glob("snapshots/*/mmproj-*"):
         link.unlink()
-    assert _vision_weight(repo).state() == (False, 0)
+    assert _vision_weight(repo).state()[:2] == (False, 0)
 
 
 def test_removing_a_patterned_weight_deletes_its_file_and_keeps_the_folder(tmp_path, monkeypatch):
@@ -504,3 +556,26 @@ def test_a_patterned_weight_does_not_make_its_whole_folder_shared(tmp_path):
         assert not is_shared(qwen, whole)
     finally:
         backend_catalog.BY_ID.pop("q-test"), backend_catalog.BY_ID.pop("x-test")
+
+
+def test_trellis_on_a_linux_card_shows_bytes_not_a_clock():
+    """TRELLIS.2's setup on NVIDIA and AMD fetches 16 GB after the build. The size watcher
+    was chosen from the Mac's answer (fetches nothing), so that download showed only
+    "minutes elapsed"."""
+    run = dl.DownloadRun(dl.BY_ID["trellis"])
+    assert dl.measures_bytes(run, dl.AMD)
+    assert dl.measures_bytes(run, dl.NVIDIA)
+    assert not dl.measures_bytes(run, "apple-silicon")
+    assert not dl.measures_bytes(dl.DownloadRun(dl.BY_ID["pixal3d"], rebuild=True), dl.AMD)
+
+
+def test_a_compile_error_is_not_mistaken_for_a_sign_in_problem():
+    """GCC and hipcc both end a syntax error with "... before '}' token". The AMD builds
+    compile for half an hour, so that line is a likely last word, not a login hint."""
+    message = dl._explain(1, ["custom_rasterizer.cpp:12: error: expected ';' before '}' token"])
+    assert "login" not in message
+    assert "before '}' token" in message
+
+
+def test_a_bad_token_is_still_a_sign_in_problem():
+    assert "login" in dl._explain(1, ["huggingface_hub.errors: Invalid user token."])

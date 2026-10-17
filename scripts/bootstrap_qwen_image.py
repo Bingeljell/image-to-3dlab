@@ -136,8 +136,9 @@ BUILDS = {
     "linux-nvidia": Build("Vulkan on Linux (NVIDIA)", "~40 MB",
                           (("linux", "x86_64", "vulkan"),)),
     # An AMD card with ROCm on it gets the native HIP build rather than the Vulkan one:
-    # same weights, faster sampling. The size is much bigger because the archive carries
-    # its own GPU libraries.
+    # same weights, faster sampling. It carries ggml's HIP backend but not ROCm itself:
+    # libamdhip64 and rocBLAS come from the system's ROCm, which the viewer puts on the
+    # loader path for each run (image_to_3dlab.host.with_rocm_libraries).
     "linux-amd": Build("ROCm on Linux (AMD)", "~278 MB",
                        (("linux", "x86_64", "rocm"),)),
 }

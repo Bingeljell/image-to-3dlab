@@ -45,6 +45,7 @@ from rig_api import (
 import backend_catalog  # noqa: E402
 import hf_api  # noqa: E402
 from backend_catalog import (
+    AMD,
     APPLE,
     NVIDIA,
     _dir_state,
@@ -115,12 +116,33 @@ TRELLIS_CUDA_VENDOR = REPO / "vendor" / "trellis-cuda"
 TRELLIS_CUDA_WRAPPER = REPO / "scripts" / "trellis_cuda_generate.py"
 TRELLIS_CUDA_PYTHON = TRELLIS_CUDA_VENDOR / ".venv" / "bin" / "python"
 TRELLIS_CUDA_MARKER = TRELLIS_CUDA_VENDOR / ".i2l-build-complete"
+# TRELLIS.2 on Linux + AMD: the same pinned checkout, built with HIP by
+# scripts/bootstrap_trellis_rocm.py. Its own venv and its own build, because the two are
+# different compiled builds of one source and sharing a directory would have one card's
+# extensions overwriting the other's.
+TRELLIS_ROCM_VENDOR = REPO / "vendor" / "trellis-rocm"
+TRELLIS_ROCM_WRAPPER = REPO / "scripts" / "trellis_rocm_generate.py"
+TRELLIS_ROCM_PYTHON = TRELLIS_ROCM_VENDOR / ".venv" / "bin" / "python"
+TRELLIS_ROCM_MARKER = TRELLIS_ROCM_VENDOR / ".i2l-build-complete"
 # Hunyuan3D-2.1 on Linux + NVIDIA: Tencent's own checkout, built by
 # scripts/bootstrap_hunyuan_cuda.py. NVIDIA only; the Mac keeps the MLX routes.
 HUNYUAN_CUDA_VENDOR = REPO / "vendor" / "hunyuan-cuda"
 HUNYUAN_CUDA_WRAPPER = REPO / "scripts" / "hunyuan_cuda_generate.py"
 HUNYUAN_CUDA_PYTHON = HUNYUAN_CUDA_VENDOR / ".venv" / "bin" / "python"
 HUNYUAN_CUDA_MARKER = HUNYUAN_CUDA_VENDOR / ".i2l-build-complete"
+# Hunyuan3D-2.1 on Linux + AMD: the same upstream commit, compiled with hipcc instead of
+# nvcc by scripts/bootstrap_hunyuan_rocm.py. Its own vendor folder, because the weights
+# land there and a machine with both cards keeps both installs.
+HUNYUAN_ROCM_VENDOR = REPO / "vendor" / "hunyuan-rocm"
+HUNYUAN_ROCM_WRAPPER = REPO / "scripts" / "hunyuan_rocm_generate.py"
+HUNYUAN_ROCM_PYTHON = HUNYUAN_ROCM_VENDOR / ".venv" / "bin" / "python"
+HUNYUAN_ROCM_MARKER = HUNYUAN_ROCM_VENDOR / ".i2l-build-complete"
+# Stable Fast 3D on Linux + AMD: the same checkout as the Apple route, but in a venv of its
+# own, because its pins (numpy 1.26, transformers 4.42, an old huggingface-hub) break the
+# shared environment. Built by scripts/bootstrap_sf3d_rocm.py.
+SF3D_ROCM_VENDOR = REPO / "vendor" / "stable-fast-3d"
+SF3D_ROCM_PYTHON = SF3D_ROCM_VENDOR / ".venv" / "bin" / "python"
+SF3D_ROCM_MARKER = SF3D_ROCM_VENDOR / ".i2l-build-complete"
 OUTPUT_ROOT = REPO / "output"
 BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"  # shipped default, never written
 # Timings learned on this machine. Under output/ (git-ignored): writing the tracked file
@@ -150,7 +172,12 @@ SELF_CUTTING: dict[tuple[str, str | None], str] = {
     ("sf3d", None): "image_to_3dlab/sf3d_backend.py",
     ("pixal3d", None): "scripts/pixal3d_generate.py",
     ("hunyuan-cuda", None): "scripts/hunyuan_cuda_generate.py",
+    ("hunyuan-rocm", None): "scripts/hunyuan_rocm_generate.py",
     ("trellis", "nvidia"): "scripts/trellis_cuda_generate.py",
+    # The AMD wrapper re-exports this script's prepare_image rather than copying it, so the
+    # file that does the cutting is the same on both Linux cards. Naming the AMD wrapper
+    # here would point the check at a file with no matte call in it.
+    ("trellis", "amd"): "scripts/trellis_cuda_generate.py",
 }
 
 # Xiong's paint+shape code is MIT and tracked in-repo at hunyuan_mlx/ (moved out of
@@ -396,8 +423,12 @@ def catalog_payload() -> dict:
 def with_rebuild_reasons(catalog: dict[str, Any],
                          reason: Callable[[str], str | None] = rebuild_reason) -> dict[str, Any]:
     """Say which installed backends want recompiling, so the page can offer a Rebuild
-    button instead of a Terminal command."""
-    for backend in catalog.get("backends", []):
+    button instead of a Terminal command.
+
+    The page draws this machine's tab from `views`, not `backends`, so both lists carry it.
+    Only `backends` did once, and the button vanished when the tabs arrived."""
+    here = catalog.get("views", {}).get(catalog.get("host", {}).get("id"), [])
+    for backend in [*catalog.get("backends", []), *here]:
         backend["rebuild_reason"] = reason(backend["id"]) if backend.get("supported_here") else None
     return catalog
 
@@ -438,32 +469,69 @@ def trellis_cuda_bria_patched(checkout: Path | None = None) -> bool:
     return patch_trellis_cuda_no_bria.is_patched(checkout or TRELLIS_CUDA_VENDOR / "TRELLIS.2")
 
 
-def cuda_setup_status() -> dict[str, Any]:
-    """Readiness of the NVIDIA TRELLIS.2 route, for the Generate tab's readiness strip.
+def trellis_rocm_attention_problem(vendor: Path | None = None) -> str | None:
+    """Why the AMD TRELLIS.2 build has no attention backend, or None. Files only.
+
+    The viewer does not run in that venv, so `aule` is looked for on disk rather than
+    imported: its package folder in the venv's site-packages.
+    """
+    vendor = vendor or TRELLIS_ROCM_VENDOR
+    sys.path.insert(0, str(REPO / "scripts"))
+    from patch_trellis_rocm import is_patched
+
+    if not is_patched(vendor):
+        return ("The TRELLIS.2 checkout lacks the AMD attention patches. Run "
+                f"python scripts/patch_trellis_rocm.py --root {vendor}")
+    if not any((vendor / ".venv").glob("lib/python*/site-packages/aule/__init__.py")):
+        return ("aule (AuleAttention), the only attention backend on AMD, is not installed. "
+                "Re-run python scripts/bootstrap_trellis_rocm.py --code-only.")
+    return None
+
+
+def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
+    """Readiness of the Linux TRELLIS.2 routes, for the Generate tab's readiness strip.
+
+    One function for both cards because the readiness question is the same one: is there a
+    finished build, and is the BRIA guardrail in place. Which venv that build lives in is
+    what differs.
 
     Not ready without the BRIA patch, even when everything else is built: the generator
     would refuse anyway, and the button should not promise a run that cannot start.
     """
-    built = (TRELLIS_CUDA_MARKER.is_file() and TRELLIS_CUDA_PYTHON.is_file()
-             and TRELLIS_CUDA_WRAPPER.is_file())
-    patched = trellis_cuda_bria_patched() if built else False
+    on_amd = (host or host_platform()) == AMD
+    vendor = TRELLIS_ROCM_VENDOR if on_amd else TRELLIS_CUDA_VENDOR
+    python = TRELLIS_ROCM_PYTHON if on_amd else TRELLIS_CUDA_PYTHON
+    wrapper = TRELLIS_ROCM_WRAPPER if on_amd else TRELLIS_CUDA_WRAPPER
+    marker = TRELLIS_ROCM_MARKER if on_amd else TRELLIS_CUDA_MARKER
+    bootstrap = ("scripts/bootstrap_trellis_rocm.py" if on_amd
+                 else "scripts/bootstrap_trellis_cuda.py")
+    card = "AMD" if on_amd else "NVIDIA"
+
+    built = marker.is_file() and python.is_file() and wrapper.is_file()
+    patched = trellis_cuda_bria_patched(vendor / "TRELLIS.2") if built else False
+    # AMD only: the attention backend has to be patched in and installed, or the run gets
+    # as far as the first attention and dies there.
+    attention = trellis_rocm_attention_problem(vendor) if on_amd and built else None
     weights = weights_on_disk()
     missing = [w["label"] for w in weights.values() if not w["present"]]
     hint = None
     if not built:
-        hint = ("TRELLIS.2 for NVIDIA is not installed. Set it up from Setup & Status, or run "
-                "python scripts/bootstrap_trellis_cuda.py (Linux only, ~15 GB of weights).")
+        hint = (f"TRELLIS.2 for {card} is not installed. Set it up from Setup & Status, or "
+                f"run python {bootstrap} (Linux only, ~16 GB of weights).")
     elif not patched:
         hint = ("The TRELLIS.2 checkout still loads BRIA RMBG-2.0. Run "
                 "python scripts/patch_trellis_cuda_no_bria.py first.")
+    elif attention:
+        hint = attention
+    ready = built and patched and not attention
     return {
         "schema_version": 1,
-        "build": {"present": built and patched, "interpreter": str(TRELLIS_CUDA_PYTHON),
-                  "wrapper": str(TRELLIS_CUDA_WRAPPER), "hint": hint},
+        "build": {"present": ready, "interpreter": str(python),
+                  "wrapper": str(wrapper), "hint": hint},
         "weights": weights,
         "missing_weights": missing,
         "bria_patched": patched,
-        "ready": built and patched,
+        "ready": ready,
         "warning": "first use will download missing weights" if missing else None,
     }
 
@@ -1447,7 +1515,42 @@ def _sf3d_parse_line(job: Job, line: str) -> None:
         job.emit({"phase": "running", "message": stripped[:200]})
 
 
-def _sf3d_readiness() -> dict[str, Any]:
+def _sf3d_weights() -> list[dict[str, Any]]:
+    """SF3D's weights as the Setup card counts them, so the two screens agree."""
+    import backend_catalog
+
+    return backend_catalog.BY_ID["sf3d"].describe(AMD)["weights"]
+
+
+def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
+    """Is SF3D usable here. The two installs are not interchangeable.
+
+    On a Mac the proof is the checkout, because SF3D is installed into this interpreter.
+    On AMD it is the venv and its build marker: the checkout alone would also be true on a
+    Mac, and a shared source file says nothing about whether anything was compiled for the
+    card -- which for this route is exactly the thing that goes wrong silently.
+    """
+    if (host or host_platform()) == AMD:
+        present = SF3D_ROCM_MARKER.is_file() and SF3D_ROCM_PYTHON.is_file()
+        # The weights too: a code-only install (or one stopped by the gated licence) would
+        # otherwise start a run, and SF3D would fetch ~4.9 GB that nobody agreed to.
+        weights = {w["label"]: {"label": w["label"], "present": w["present"],
+                                "human": w["human_present"]} for w in _sf3d_weights()}
+        missing = [label for label, w in weights.items() if not w["present"]]
+        hint = None
+        if not present:
+            hint = ("Stable Fast 3D for AMD is not installed. Run "
+                    "scripts/bootstrap_sf3d_rocm.py (Linux with ROCm, ~4.9 GB of weights).")
+        elif missing:
+            hint = ("Stable Fast 3D weights are missing: " + "; ".join(missing) + ". Press "
+                    "Download on its Setup card, or run python scripts/bootstrap_sf3d_rocm.py "
+                    "--weights-only.")
+        return {
+            "schema_version": 1,
+            "build": {"present": present, "interpreter": str(SF3D_ROCM_PYTHON), "hint": hint},
+            "weights": weights, "missing_weights": missing,
+            "ready": present and not missing, "warning": None,
+        }
     present = (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
     return {
         "schema_version": 1,
@@ -1893,21 +1996,36 @@ def _pixal3d_readiness() -> dict[str, Any]:
 
 
 def trellis_spec(host: str | None = None) -> BackendSpec:
-    """TRELLIS.2 for this machine: the Metal port on a Mac, Microsoft's code on NVIDIA.
+    """TRELLIS.2 for this machine: the Metal port on a Mac, Microsoft's code on NVIDIA and AMD.
 
-    One id, two installs. The NVIDIA spec mattes images itself with our remover, so it
-    does not demand a transparent upload the way the Mac port does.
+    One id, three installs. The Linux specs are the same shape because the pipeline is the
+    same — both are Microsoft's own checkout and both matte images themselves with our
+    remover, so neither demands a transparent upload the way the Mac port does. What differs
+    is the venv each one runs in.
 
-    There is no AMD install. Microsoft's route needs flash-attn, nvdiffrast, nvdiffrec,
-    CuMesh and FlexGEMM, all NVIDIA-only, and nothing upstream ships an ROCm build of them.
-    A third spec would be a lie about what is installed, so an AMD machine is given the Mac
-    port's spec and the catalogue's `runs_on` keeps the route out of its dropdown. What an
-    AMD user gets instead is Pixal3D, which does build with HIP.
+    The AMD install is Microsoft's checkout built with HIP: nvdiffrast and CuMesh from their
+    ROCm ports, FlexGEMM and o-voxel from upstream with one compiler flag changed, and
+    AuleAttention in place of flash-attn. See scripts/bootstrap_trellis_rocm.py.
     """
     if (host or host_platform()) == NVIDIA:
         return BackendSpec(
             id="trellis", label="TRELLIS.2 (NVIDIA)",
             interpreter=TRELLIS_CUDA_PYTHON, wrapper=TRELLIS_CUDA_WRAPPER,
+            default_settings=DEFAULT_SETTINGS, stages=STAGES, stage_labels=PHASE_LABELS,
+            requires_alpha=False,
+            validate_settings=validate_settings, build_args=_trellis_cuda_build_args,
+            parse_line=_trellis_parse_line, readiness=cuda_setup_status,
+            baseline_path=BASELINE_PATH,
+            hidden_fields=("generate-attention",),
+        )
+    if (host or host_platform()) == AMD:
+        # Same spec as NVIDIA but the ROCm venv: like it, this route mattes images itself
+        # with our remover, so it does not demand a transparent upload the way the Mac port
+        # does. The attention field is hidden because the backend is not a choice here --
+        # AuleAttention is the only one that exists for this card.
+        return BackendSpec(
+            id="trellis", label="TRELLIS.2 (AMD)",
+            interpreter=TRELLIS_ROCM_PYTHON, wrapper=TRELLIS_ROCM_WRAPPER,
             default_settings=DEFAULT_SETTINGS, stages=STAGES, stage_labels=PHASE_LABELS,
             requires_alpha=False,
             validate_settings=validate_settings, build_args=_trellis_cuda_build_args,
@@ -1959,6 +2077,68 @@ def _hunyuan_cuda_validate_settings(raw: Any) -> dict[str, Any]:
     return settings
 
 
+# The AMD route's defaults deliberately omit views and texture resolution. Upstream's
+# defaults want about 21 GB, which a consumer card does not have; the generator's
+# fit_paint_settings walks down a ladder until it fits what is free, and a default here
+# would override that without saying so.
+HUNYUAN_ROCM_DEFAULT_SETTINGS: dict[str, Any] = {
+    "seed": 1234,
+    "steps": 50,
+    "octree_resolution": 384,
+}
+
+
+def _hunyuan_rocm_validate_settings(raw: Any) -> dict[str, Any]:
+    """Validate what the studio sends, and pass through the two optional overrides.
+
+    The bounds are the generator's, not upstream's: a small card has to be allowed to ask
+    for one view and a 128px texture, which the NVIDIA route does not permit.
+    """
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("settings must be a JSON object")
+    known = {**HUNYUAN_ROCM_DEFAULT_SETTINGS, "max_num_view": 0, "paint_resolution": 0}
+    settings = {**HUNYUAN_ROCM_DEFAULT_SETTINGS,
+                **{k: v for k, v in raw.items() if k in known}}
+    try:
+        settings = {key: int(value) for key, value in settings.items()}
+    except (TypeError, ValueError) as exc:
+        raise ValueError("all Hunyuan3D-2.1 settings must be integers") from exc
+    if settings["octree_resolution"] not in {256, 384, 512}:
+        raise ValueError("octree_resolution must be 256, 384 or 512")
+    if settings["steps"] < 1:
+        raise ValueError("steps must be at least 1")
+    # The two fitted settings are checked only when they are here. They are absent from the
+    # defaults on purpose -- that is what lets the generator fit them to the card -- so
+    # reading them unconditionally raised KeyError('max_num_view') on every fresh job.
+    if "max_num_view" in settings and not 1 <= settings["max_num_view"] <= 9:
+        raise ValueError("max_num_view must be 1 to 9")
+    if "paint_resolution" in settings and settings["paint_resolution"] not in {128, 256}:
+        # 512 and 768 are what upstream offers, and this card returns an all-black texture
+        # at both: the paint UNet's multiview output comes back with a maximum of 0.02
+        # across the whole image. Measured on an RX 7900 XTX, 2026-10-14.
+        raise ValueError("paint_resolution must be 128 or 256 on an AMD card")
+    return settings
+
+
+def _hunyuan_rocm_build_args(job: Job) -> list[str]:
+    """Only pass the two fitted settings when the studio actually set them.
+
+    The generator fits whatever is absent, so passing a default here would quietly pin the
+    card to whatever this file guessed when it was written.
+    """
+    s = job.settings
+    args = [str(job.image_path), str(job.output_path),
+            "--seed", str(s["seed"]), "--steps", str(s["steps"]),
+            "--octree-resolution", str(s["octree_resolution"])]
+    if "max_num_view" in s:
+        args += ["--max-num-view", str(s["max_num_view"])]
+    if "paint_resolution" in s:
+        args += ["--paint-resolution", str(s["paint_resolution"])]
+    return args
+
+
 def _hunyuan_cuda_build_args(job: Job) -> list[str]:
     s = job.settings
     return [
@@ -2005,16 +2185,80 @@ def _hunyuan_cuda_readiness() -> dict[str, Any]:
     }
 
 
-BACKENDS.update({
-    "trellis": trellis_spec(),
-    "sf3d": BackendSpec(
+def _hunyuan_rocm_readiness() -> dict[str, Any]:
+    """Readiness of the AMD Hunyuan3D-2.1 route, same shape as the NVIDIA one.
+
+    The patches count as part of "built": the generator needs them, and a build marker
+    without them is a route that compiles and then crashes in the scheduler.
+    """
+    import backend_catalog
+    sys.path.insert(0, str(REPO / "scripts"))
+    from patch_hunyuan_rocm import is_patched
+
+    root = HUNYUAN_ROCM_VENDOR / "Hunyuan3D-2.1"
+    built = (HUNYUAN_ROCM_MARKER.is_file() and HUNYUAN_ROCM_PYTHON.is_file()
+             and HUNYUAN_ROCM_WRAPPER.is_file())
+    patched = is_patched(root) if built else False
+    weights = {w["label"]: {"label": w["label"], "present": w["present"],
+                            "human": w["human_present"]}
+               for w in backend_catalog.BY_ID["hunyuan-rocm"].describe()["weights"]}
+    missing = [label for label, w in weights.items() if not w["present"]]
+    hint = None
+    if not built:
+        hint = ("Hunyuan3D-2.1 for AMD is not installed. Set it up from Setup & Status, or "
+                "run python scripts/bootstrap_hunyuan_rocm.py (Linux with ROCm, ~19.5 GB).")
+    elif not patched:
+        hint = ("The Hunyuan3D-2.1 checkout is missing the AMD patches. Run "
+                "python scripts/patch_hunyuan_rocm.py first.")
+    elif missing:
+        hint = ("Hunyuan3D-2.1 weights are missing: " + "; ".join(missing) + ". Run "
+                "python scripts/bootstrap_hunyuan_rocm.py --weights-only.")
+    return {
+        "schema_version": 1,
+        "build": {"present": built and patched, "interpreter": str(HUNYUAN_ROCM_PYTHON),
+                  "wrapper": str(HUNYUAN_ROCM_WRAPPER), "hint": hint},
+        "weights": weights,
+        "missing_weights": missing,
+        "ready": built and patched and not missing,
+        # The one licence restriction with real teeth, on the route where it bites.
+        "warning": "Not licensed in the EU, the UK or South Korea.",
+    }
+
+
+def sf3d_spec(host: str | None = None) -> BackendSpec:
+    """SF3D for this machine: this interpreter on a Mac, its own venv on AMD.
+
+    The Apple route installs SF3D into the interpreter the viewer runs in, so both halves
+    share one. That was why SF3D could not be on Linux at all: its pins (numpy 1.26,
+    transformers 4.42, an old huggingface-hub) break the shared environment. The AMD route
+    gives it a venv of its own instead, so nothing it pins can reach the viewer -- which
+    means the interpreter is not the same one, and a spec pointing at `sys.executable`
+    would look for SF3D in a place it was never installed.
+
+    One id, two interpreters, the way TRELLIS.2 does it.
+    """
+    if (host or host_platform()) == AMD:
+        return BackendSpec(
+            id="sf3d", label="Stable Fast 3D (AMD)",
+            interpreter=SF3D_ROCM_PYTHON, wrapper=REPO / "pipeline.py",
+            default_settings=SF3D_DEFAULT_SETTINGS, stages=SF3D_STAGES,
+            stage_labels=SF3D_STAGE_LABELS, requires_alpha=False,
+            validate_settings=_sf3d_validate_settings, build_args=_sf3d_build_args,
+            parse_line=_sf3d_parse_line, readiness=_sf3d_readiness, finalize=_sf3d_finalize,
+        )
+    return BackendSpec(
         id="sf3d", label="Stable Fast 3D",
         interpreter=Path(sys.executable), wrapper=REPO / "pipeline.py",
         default_settings=SF3D_DEFAULT_SETTINGS, stages=SF3D_STAGES,
         stage_labels=SF3D_STAGE_LABELS, requires_alpha=False,
         validate_settings=_sf3d_validate_settings, build_args=_sf3d_build_args,
         parse_line=_sf3d_parse_line, readiness=_sf3d_readiness, finalize=_sf3d_finalize,
-    ),
+    )
+
+
+BACKENDS.update({
+    "trellis": trellis_spec(),
+    "sf3d": sf3d_spec(),
     "hunyuan-mlx": BackendSpec(
         id="hunyuan-mlx", label="Hunyuan3D-MLX (dgrauet shape + Xiong paint)",
         interpreter=HUNYUAN_PYTHON, wrapper=HUNYUAN_WRAPPER,
@@ -2052,6 +2296,18 @@ BACKENDS.update({
         validate_settings=_hunyuan_cuda_validate_settings,
         build_args=_hunyuan_cuda_build_args,
         parse_line=_hunyuan_parse_line, readiness=_hunyuan_cuda_readiness,
+    ),
+    # The AMD route fits its paint settings to the card, so views and resolution are NOT
+    # in its defaults: leaving them out is what lets fit_paint_settings decide. An explicit
+    # one still wins, which is why _hunyuan_rocm_validate_settings accepts them.
+    "hunyuan-rocm": BackendSpec(
+        id="hunyuan-rocm", label="Hunyuan3D-2.1 (AMD)",
+        interpreter=HUNYUAN_ROCM_PYTHON, wrapper=HUNYUAN_ROCM_WRAPPER,
+        default_settings=HUNYUAN_ROCM_DEFAULT_SETTINGS, stages=HUNYUAN_STAGES,
+        stage_labels=HUNYUAN_STAGE_LABELS, requires_alpha=False,
+        validate_settings=_hunyuan_rocm_validate_settings,
+        build_args=_hunyuan_rocm_build_args,
+        parse_line=_hunyuan_parse_line, readiness=_hunyuan_rocm_readiness,
     ),
 })
 
@@ -2693,6 +2949,18 @@ class Handler(SimpleHTTPRequestHandler):
                 settings = spec.validate_settings(raw_settings)
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
+                return
+            except Exception as exc:  # noqa: BLE001
+                # A validator bug must not reach the browser as a bare repr. `KeyError` on a
+                # setting name printed as just `'max_num_view'`, with nothing on the server's
+                # terminal: the run looked like it had simply stopped. Name the exception and
+                # the route, and say where to look.
+                print(f"[generate] {backend_id} validate_settings raised "
+                      f"{type(exc).__name__}: {exc}", flush=True)
+                self._send_json(500, {"error": (
+                    f"{spec.label} could not read the settings for this run "
+                    f"({type(exc).__name__}: {exc}). This is a bug in the route's settings "
+                    f"check, not in your picture. The server's terminal has the traceback.")})
                 return
             back_field = form.get("back")
             if back_field is not None and back_field.get("filename"):

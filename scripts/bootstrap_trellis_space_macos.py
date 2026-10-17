@@ -16,6 +16,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from image_to_3dlab import host  # noqa: E402, RUF100
+
 LOCK = REPO / "audit/trellis-port/upstreams.lock.json"
 REQUIREMENTS = REPO / "audit/trellis-port/requirements-macos.in"
 DEFAULT_ROOT = REPO / "vendor/trellis-space-mac"
@@ -29,6 +33,35 @@ TARGETS = {
     "pedro_mtlmesh": "deps/mtlmesh",
     "pedro_trellis2_apple": "deps/trellis2-apple",
 }
+
+#: The bootstrap to run instead, per non-Apple card. Someone who runs this on the wrong
+#: machine should be told what to run, not left with a compiler error about `xcrun`.
+ELSEWHERE = {
+    host.NVIDIA: "scripts/bootstrap_trellis_cuda.py",
+    host.AMD: "scripts/bootstrap_trellis_rocm.py",
+}
+
+
+def wrong_machine(build_target: str | None = None, card: str | None = None,
+                   family: str | None = None) -> str | None:
+    """Why this script cannot run here, or None when it can.
+
+    Everything below `install()` builds Metal operators through `xcrun`, which exists only
+    on macOS. Without this check the script clones four repositories and builds one
+    dependency before failing, so the failure arrives minutes in and reads as a broken
+    checkout rather than a machine that cannot host it.
+    """
+    target = host.build_target() if build_target is None else build_target
+    if target == "macos-arm64":
+        return None
+    card = host.host_platform() if card is None else card
+    family = host.os_family() if family is None else family
+    reason = ("This is the Apple Silicon port: it builds Metal operators with xcrun, which "
+              "exists only on macOS.")
+    script = ELSEWHERE.get(card)
+    if script:
+        return f"{reason} On this {'AMD' if card == host.AMD else 'NVIDIA'} card use:\n    python {script}"
+    return f"{reason} This machine is {family}, and TRELLIS.2 has no route for it. Nothing downloaded."
 
 
 def run(*args: str | Path, cwd: Path | None = None, env: dict | None = None) -> None:
@@ -127,6 +160,11 @@ def bootstrap(root: Path, *, skip_install: bool, python: str) -> None:
 
 
 def main() -> int:
+    problem = wrong_machine()
+    if problem:
+        print(problem)
+        return 1
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--python", default="python3.11")

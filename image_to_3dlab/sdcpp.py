@@ -1,15 +1,18 @@
 """Tell a GPU run of stable-diffusion.cpp from a CPU one, from what it prints at start-up.
 
-The NVIDIA builds load their GPU backend as a separate library at run time. When that
+The NVIDIA and AMD builds load their GPU backend as a separate library at run time. When that
 library cannot reach the driver, sd-cli does not fail: it carries on with only the CPU
 backend. On the RunPod 4090 that turned a 20-second picture into a many-minute one at
 1,700% CPU, with the GPU idle and nothing on screen saying why. The cause there was two
-missing system graphics libraries on a headless box.
+missing system graphics libraries on a headless box. The AMD build fails the same way, and
+says something different when it does, so the wording is per-machine.
 """
 
 from __future__ import annotations
 
 import re
+
+from image_to_3dlab.host import AMD
 
 NO_GPU_HELP = (
     "stable-diffusion.cpp could not reach the NVIDIA GPU and would run on the CPU, which "
@@ -53,7 +56,8 @@ class BackendWatch:
     """Fed sd-cli's lines in order; says when the CPU came up with no GPU before it.
 
     The GPU backend always loads before the CPU one, so the CPU line arriving first is
-    the moment to stop the run rather than let it grind.
+    the moment to stop the run rather than let it grind. The same test covers CUDA, ROCm
+    and Vulkan, because all three announce themselves before the CPU fallback.
     """
 
     def __init__(self) -> None:
@@ -64,3 +68,13 @@ class BackendWatch:
         if kind == "gpu":
             self.gpu = True
         return kind == "cpu" and not self.gpu
+
+
+def no_gpu_help(platform: str) -> str:
+    """The "your GPU did not load" words for this machine.
+
+    An AMD user has no `nvidia-smi` to run and no NVIDIA container capability to set, so
+    telling them to do either is worse than saying nothing. The AMD text points at the
+    Vulkan build instead, which runs on the Mesa driver and needs no ROCm at all.
+    """
+    return NO_AMD_GPU_HELP if platform == AMD else NO_GPU_HELP

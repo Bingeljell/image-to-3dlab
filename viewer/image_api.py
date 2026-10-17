@@ -41,9 +41,9 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import back_view, matte
-from image_to_3dlab.host import NVIDIA, executable, host_platform
+from image_to_3dlab.host import APPLE, executable, host_platform, with_rocm_libraries
 from image_to_3dlab.provenance import LICENSES, QWEN_OUTPUT_RIGHTS
-from image_to_3dlab.sdcpp import NO_GPU_HELP, BackendWatch
+from image_to_3dlab.sdcpp import BackendWatch, no_gpu_help
 
 HF_HUB = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 BINARY = executable(REPO / "vendor" / "sdcpp", "sd-cli")
@@ -446,12 +446,16 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         started = time.monotonic()
         job.process = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            cwd=str(REPO),
+            cwd=str(REPO), env=with_rocm_libraries(dict(os.environ)),
         )
         assert job.process.stdout is not None
         # Only where a GPU is expected from a runtime-loaded backend. The Mac build is
-        # Metal and says nothing of the sort.
-        watch = BackendWatch() if host_platform() == NVIDIA else None
+        # Metal and says nothing of the sort. Every other machine gets it, AMD included:
+        # the ROCm and Vulkan builds fall back to the CPU just as silently as CUDA does,
+        # and an AMD user watching a twenty-minute grind on an idle card deserves the
+        # same one-line explanation.
+        platform = host_platform()
+        watch = BackendWatch() if platform != APPLE else None
         no_gpu = False
         buffer = b""
         while True:
@@ -481,7 +485,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         if job.cancel_requested:
             job.set_status("cancelled")
         elif no_gpu:
-            job.error = NO_GPU_HELP
+            job.error = no_gpu_help(platform)
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
         elif code != 0 or not job.output_path.exists():

@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -40,6 +39,8 @@ for _path in (REPO, REPO / "scripts"):
         sys.path.insert(0, str(_path))
 
 import patch_trellis_cuda_no_bria as bria_patch  # noqa: E402, RUF100
+import patch_trellis_rocm as rocm_patch  # noqa: E402, RUF100
+import trellis_route  # noqa: E402, RUF100
 import trellis_space_generate as space  # noqa: E402, RUF100
 
 from image_to_3dlab.provenance import (  # noqa: E402, RUF100
@@ -48,17 +49,11 @@ from image_to_3dlab.provenance import (  # noqa: E402, RUF100
     sha256_file,
 )
 
-DEFAULT_VENDOR = REPO / "vendor" / "trellis-cuda"
+#: This script's defaults are the CUDA route; the AMD twin passes ROCM through the same
+#: functions, so the pipeline calls and the record shapes cannot drift between them.
+ROUTE = trellis_route.CUDA
 DEMO_PARAMS = space.DEMO_PARAMS
-BUILT_MARKER_NAME = ".i2l-build-complete"
-
-# Hard-assigned, never inherited: a stale value in the viewer's environment once selected
-# a backend that did not exist (see trellis_space_generate.configure_environment).
-BACKEND_ENV = {
-    "ATTN_BACKEND": "flash_attn",
-    "SPARSE_ATTN_BACKEND": "flash_attn",
-    "SPARSE_CONV_BACKEND": "flex_gemm",
-}
+BUILT_MARKER_NAME = ROUTE.marker_name
 
 
 # ----------------------------------------------------------------------------------------
@@ -68,14 +63,10 @@ def checkout(vendor_root: Path) -> Path:
     return vendor_root / "TRELLIS.2"
 
 
-def configure_environment(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Pin the CUDA backends BEFORE any TRELLIS import. Returns the environment it set."""
-    environ = os.environ if environ is None else environ
-    environ.update(BACKEND_ENV)
-    # Upstream's example.py and app.py set both.
-    environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
-    environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    return environ
+def configure_environment(environ: dict[str, str] | None = None,
+                          route: trellis_route.Route = ROUTE) -> dict[str, str]:
+    """Pin the attention backends BEFORE any TRELLIS import. Returns the environment it set."""
+    return route.environ(environ)
 
 
 def bria_refusal(vendor_root: Path) -> str | None:
@@ -85,6 +76,28 @@ def bria_refusal(vendor_root: Path) -> str | None:
     return (f"{checkout(vendor_root)} still loads BRIA RMBG-2.0, which this repo's "
             "generation pipeline must never load. Apply the guardrail first:\n"
             f"    python scripts/patch_trellis_cuda_no_bria.py --root {checkout(vendor_root)}")
+
+
+def uses_aule(route: trellis_route.Route) -> bool:
+    """Whether this route selects AuleAttention, which only the ROCm patches make exist."""
+    return "aule" in route.backend_env.values()
+
+
+def aule_patch_refusal(vendor_root: Path, route: trellis_route.Route) -> str | None:
+    """Why an AMD checkout cannot attend, or None. A file check: seconds, no torch.
+
+    Without the patches upstream ignores the unknown backend name and the run dies inside
+    the first attention, minutes in, on a flash-attn import nobody asked for.
+    """
+    if not uses_aule(route) or rocm_patch.is_patched(vendor_root):
+        return None
+    return (f"{vendor_root} lacks the AMD attention patches (the aule backend). Apply them:\n"
+            f"    python scripts/patch_trellis_rocm.py --root {vendor_root}")
+
+
+AULE_MISSING = ("aule (AuleAttention) does not import in this venv, and it is the only "
+                "attention backend on AMD. Re-run: python scripts/bootstrap_trellis_rocm.py "
+                "--code-only")
 
 
 class BriaRefused:
@@ -107,14 +120,14 @@ def forbid_bria(rembg_module: Any) -> None:
             setattr(rembg_module, name, BriaRefused)
 
 
-def verify_paths(vendor_root: Path) -> list[str]:
-    """Cheap filesystem checks that the CUDA checkout is present and finished building."""
+def verify_paths(vendor_root: Path, route: trellis_route.Route = ROUTE) -> list[str]:
+    """Cheap filesystem checks that the checkout is present and finished building."""
     root = checkout(vendor_root)
     checks = {
         ".venv python": vendor_root / ".venv" / "bin" / "python",
         "TRELLIS.2 pipeline": root / "trellis2" / "pipelines" / "trellis2_image_to_3d.py",
         "o-voxel source": root / "o-voxel",
-        "completed build (scripts/bootstrap_trellis_cuda.py)": vendor_root / BUILT_MARKER_NAME,
+        f"completed build ({route.bootstrap})": vendor_root / route.marker_name,
     }
     return [f"missing {name}: {path}" for name, path in checks.items() if not path.exists()]
 
@@ -125,26 +138,28 @@ def matted_path(output: Path) -> Path:
 
 def build_manifest(*, image: str, output: str, params: dict[str, Any], pipeline_type: str,
                    seed: int, timings: dict[str, float], artifacts: dict[str, Any],
-                   matte_model: str | None) -> dict[str, Any]:
-    """The run manifest: the Mac route's shape, with the CUDA facts in place of the Mac's."""
+                   matte_model: str | None,
+                   route: trellis_route.Route = ROUTE) -> dict[str, Any]:
+    """The run manifest: the Mac route's shape, with this route's facts in place of the Mac's."""
     manifest = space.build_manifest(
         image=image, output=output, params=params, pipeline_type=pipeline_type, seed=seed,
         timings=timings, artifacts=artifacts, load_rembg=False,
-        sparse_attn_backend=BACKEND_ENV["SPARSE_ATTN_BACKEND"],
+        sparse_attn_backend=route.backend_env["SPARSE_ATTN_BACKEND"],
     )
     manifest.update({
-        "generator": "trellis_cuda_generate.py",
-        "port": "microsoft/TRELLIS.2 (official, CUDA)",
-        "device": "cuda",
-        "attn_backend": BACKEND_ENV["ATTN_BACKEND"],
-        "sparse_conv_backend": BACKEND_ENV["SPARSE_CONV_BACKEND"],
+        "generator": route.generator,
+        "port": route.port,
+        "device": route.device,
+        "attn_backend": route.backend_env["ATTN_BACKEND"],
+        "sparse_conv_backend": route.backend_env["SPARSE_CONV_BACKEND"],
         "matte_model": matte_model,
     })
     return manifest
 
 
 def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
-                     matte_model: str | None, backend_revision: str | None) -> dict[str, Any]:
+                     matte_model: str | None, backend_revision: str | None,
+                     route: trellis_route.Route = ROUTE) -> dict[str, Any]:
     """The `.provenance.json` licence record, in `provenance.finalize_output`'s schema."""
     profile = LICENSES["trellis2"]
     components: list[dict[str, Any]] = []
@@ -177,7 +192,8 @@ def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
         "input": {"path": str(image), "sha256": sha256_file(image), "source": "user-provided"},
         "output": {"path": str(output), "sha256": sha256_file(output),
                    "classification": profile.classification},
-        "model": {"backend": "trellis2", "route": "nvidia-cuda", "parameters": parameters},
+        "model": {"backend": "trellis2", "route": route.provenance_route,
+                  "parameters": parameters},
         "license": {"name": profile.license_name, "url": profile.license_url,
                     "conditions": list(profile.conditions)},
         "components": components,
@@ -189,8 +205,8 @@ def provenance_path(output: Path) -> Path:
     return output.with_suffix(".provenance.json")
 
 
-def backend_revision(vendor_root: Path) -> str | None:
-    marker = vendor_root / BUILT_MARKER_NAME
+def backend_revision(vendor_root: Path, route: trellis_route.Route = ROUTE) -> str | None:
+    marker = vendor_root / route.marker_name
     try:
         return json.loads(marker.read_text()).get("commit")
     except (OSError, ValueError, AttributeError):
@@ -201,7 +217,8 @@ def backend_revision(vendor_root: Path) -> str | None:
 # The heavy path. torch/TRELLIS are imported lazily.
 # ----------------------------------------------------------------------------------------
 def prepare_image(image_path: Path, output: Path, *, force_matte: bool,
-                  allow_uncut: bool) -> tuple[Path, str | None]:
+                  allow_uncut: bool,
+                  route: trellis_route.Route = ROUTE) -> tuple[Path, str | None]:
     """Return the image to generate from and the remover that cut it (None if we did not).
 
     A real cut-out goes straight in. Anything else is cut out here, by our own remover,
@@ -218,9 +235,9 @@ def prepare_image(image_path: Path, output: Path, *, force_matte: bool,
             destination = matted_path(output)
             destination.parent.mkdir(parents=True, exist_ok=True)
             cut.save(destination)
-            print(f"[trellis-cuda] matted with {model} -> {destination}", flush=True)
+            print(f"[{route.name}] matted with {model} -> {destination}", flush=True)
             if fallback_note(model):
-                print(f"[trellis-cuda] note: {fallback_note(model)}", flush=True)
+                print(f"[{route.name}] note: {fallback_note(model)}", flush=True)
             return destination, model
         border = space.border_opaque_fraction(np.array(opened.convert("RGBA"))[..., 3])
     if border > space.BORDER_OPAQUE_LIMIT and not allow_uncut:
@@ -228,11 +245,11 @@ def prepare_image(image_path: Path, output: Path, *, force_matte: bool,
     return image_path, None
 
 
-def load_pipeline(vendor_root: Path):
-    refusal = bria_refusal(vendor_root)
+def load_pipeline(vendor_root: Path, route: trellis_route.Route = ROUTE):
+    refusal = bria_refusal(vendor_root) or aule_patch_refusal(vendor_root, route)
     if refusal:
         raise SystemExit(refusal)
-    configure_environment()
+    configure_environment(route=route)
     sys.path.insert(0, str(checkout(vendor_root)))
 
     import torch
@@ -242,31 +259,40 @@ def load_pipeline(vendor_root: Path):
     if not torch.cuda.is_available():
         raise SystemExit("torch cannot see a CUDA device; check the driver and the venv")
     forbid_bria(rembg)
-    print("Loading TRELLIS.2 pipeline (CUDA, BRIA disabled)...", flush=True)
-    pipeline = Trellis2ImageTo3DPipeline.from_pretrained("microsoft/TRELLIS.2-4B")
+    model = route.model_path()
+    print(f"Loading TRELLIS.2 pipeline ({route.provenance_route}, weights from {model}, "
+          "BRIA disabled)...", flush=True)
+    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model)
     if pipeline.rembg_model is not None:
         raise SystemExit("refusing: the pipeline built a background remover despite the patch")
     pipeline.cuda()
     return pipeline
 
 
-def check_environment(vendor_root: Path) -> int:
-    """Seconds, no model load: paths, the BRIA guardrail, CUDA, and the imports a run needs."""
-    problems = verify_paths(vendor_root)
-    refusal = bria_refusal(vendor_root)
-    if refusal:
-        problems.append(refusal)
+def check_environment(vendor_root: Path, route: trellis_route.Route = ROUTE) -> int:
+    """Seconds, no model load: paths, the BRIA guardrail, the device, and the imports a run
+    needs. Run this before a generation, not after one has failed."""
+    problems = verify_paths(vendor_root, route)
+    for refusal in (bria_refusal(vendor_root), aule_patch_refusal(vendor_root, route)):
+        if refusal:
+            problems.append(refusal)
     if problems:
         for problem in problems:
             print(f"  FAIL: {problem}", flush=True)
         return 1
-    configure_environment()
+    configure_environment(route=route)
     sys.path.insert(0, str(checkout(vendor_root)))
     import torch
 
     if not torch.cuda.is_available():
         print("  FAIL: torch cannot see a CUDA device", flush=True)
         return 1
+    if uses_aule(route):
+        try:
+            import aule  # noqa: F401  the attention backend the patches select
+        except ImportError:
+            print(f"  FAIL: {AULE_MISSING}", flush=True)
+            return 1
     import o_voxel
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 
@@ -317,14 +343,16 @@ def _decode_and_bake(pipeline, shape_slat, tex_slat, res, output: Path, *,
 
 def _write_records(*, image: Path, output: Path, params: dict[str, Any], pipeline_type: str,
                    seed: int, timings: dict[str, float], artifacts: dict[str, Any],
-                   matte_model: str | None, vendor_root: Path) -> None:
+                   matte_model: str | None, vendor_root: Path,
+                   route: trellis_route.Route = ROUTE) -> None:
     manifest = build_manifest(image=str(image), output=str(output), params=params,
                               pipeline_type=pipeline_type, seed=seed, timings=timings,
-                              artifacts=artifacts, matte_model=matte_model)
+                              artifacts=artifacts, matte_model=matte_model, route=route)
     output.with_suffix(".json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     record = build_provenance(image=image, output=output, parameters=params,
                               matte_model=matte_model,
-                              backend_revision=backend_revision(vendor_root))
+                              backend_revision=backend_revision(vendor_root, route),
+                              route=route)
     provenance_path(output).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     print(f"Manifest: {output.with_suffix('.json')}", flush=True)
     print(f"Provenance: {provenance_path(output)}", flush=True)
@@ -333,16 +361,17 @@ def _write_records(*, image: Path, output: Path, params: dict[str, Any], pipelin
 def generate(image_path: Path, output: Path, vendor_root: Path, *, seed: int,
              resolution: str, decimation_target: int, texture_size: int,
              save_latents: bool, force_matte: bool = False,
-             allow_uncut: bool = False) -> None:
+             allow_uncut: bool = False,
+             route: trellis_route.Route = ROUTE) -> None:
     refusal = bria_refusal(vendor_root)
     if refusal:
         raise SystemExit(refusal)
     prepared, matte_model = prepare_image(image_path, output, force_matte=force_matte,
-                                          allow_uncut=allow_uncut)
+                                          allow_uncut=allow_uncut, route=route)
     pipeline_type = space.pipeline_type_for_resolution(resolution)
 
     started = time.time()
-    pipeline = load_pipeline(vendor_root)
+    pipeline = load_pipeline(vendor_root, route)
     load_seconds = time.time() - started
     print(f"Pipeline loaded in {load_seconds:.1f}s", flush=True)
 
@@ -388,15 +417,17 @@ def generate(image_path: Path, output: Path, vendor_root: Path, *, seed: int,
                "total": time.time() - started}
     _write_records(image=image_path, output=output, params=params,
                    pipeline_type=pipeline_type, seed=seed, timings=timings,
-                   artifacts=artifacts, matte_model=matte_model, vendor_root=vendor_root)
+                   artifacts=artifacts, matte_model=matte_model, vendor_root=vendor_root,
+                   route=route)
     print(f"Total: {timings['total']:.1f}s", flush=True)
 
 
 def generate_from_latents(latents_path: Path, output: Path, vendor_root: Path, *,
-                          decimation_target: int, texture_size: int) -> None:
+                          decimation_target: int, texture_size: int,
+                          route: trellis_route.Route = ROUTE) -> None:
     """Resume from `<out>_latents.pt`: skip sampling, decode and bake only."""
     started = time.time()
-    pipeline = load_pipeline(vendor_root)
+    pipeline = load_pipeline(vendor_root, route)
     import torch
     from trellis2.modules.sparse import SparseTensor
 
@@ -416,15 +447,16 @@ def generate_from_latents(latents_path: Path, output: Path, vendor_root: Path, *
                    seed=int(bundle.get("seed", -1)),
                    timings={**stage_timings, "total": time.time() - started},
                    artifacts={"glb": {"path": str(output), "sha256": sha256_file(output)}},
-                   matte_model=None, vendor_root=vendor_root)
+                   matte_model=None, vendor_root=vendor_root, route=route)
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None,
+               route: trellis_route.Route = ROUTE) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("image", type=Path, nargs="?", help="input image")
     parser.add_argument("output", type=Path, nargs="?", help="GLB to write")
-    parser.add_argument("--vendor-root", type=Path, default=DEFAULT_VENDOR,
-                        help="the CUDA checkout built by bootstrap_trellis_cuda.py")
+    parser.add_argument("--vendor-root", type=Path, default=route.vendor,
+                        help=f"the checkout built by {route.bootstrap}")
     parser.add_argument("--resolution", choices=("512", "1024", "1536"),
                         default=DEMO_PARAMS["resolution"])
     parser.add_argument("--seed", type=int, default=DEMO_PARAMS["seed"])
@@ -444,18 +476,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+def main(argv: list[str] | None = None, route: trellis_route.Route = ROUTE) -> int:
+    args = parse_args(argv, route)
     vendor_root = args.vendor_root.resolve()
     if args.check:
-        return check_environment(vendor_root)
+        return check_environment(vendor_root, route)
     if args.from_latents is not None:
         out = args.output or args.image
         if out is None or not args.from_latents.is_file():
             raise SystemExit("give an existing --from-latents bundle and the output GLB path")
         generate_from_latents(args.from_latents, out, vendor_root,
                               decimation_target=args.decimation_target,
-                              texture_size=args.texture_size)
+                              texture_size=args.texture_size, route=route)
         return 0
     if args.image is None or args.output is None:
         raise SystemExit("image and output are required (or pass --check)")
@@ -464,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     generate(args.image, args.output, vendor_root, seed=args.seed,
              resolution=args.resolution, decimation_target=args.decimation_target,
              texture_size=args.texture_size, save_latents=args.save_latents,
-             force_matte=args.matte, allow_uncut=args.allow_uncut)
+             force_matte=args.matte, allow_uncut=args.allow_uncut, route=route)
     return 0
 
 

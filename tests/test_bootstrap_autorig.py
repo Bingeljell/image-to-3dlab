@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
 import backend_catalog
@@ -160,5 +162,63 @@ def test_install_packages_on_amd_installs_the_rocm_torch(tmp_path, monkeypatch):
     monkeypatch.setattr(ba.host, "has_amd_gpu", lambda: True)
     monkeypatch.setattr(ba.host, "rocm_version", lambda: (7, 2))
     ran = []
-    ba.install_packages(root, runner=ran.append)
+    ba.install_packages(root, runner=ran.append, probe=lambda python: (True, ""))
     assert ran[0][-1] == ba.host.TORCH_INDEX + "rocm7.2"
+
+
+def test_the_prompt_names_the_amd_route_and_its_torch_index():
+    index = ba.host.TORCH_INDEX + "rocm7.2"
+    text = ba.announcement(route=ba.route_label("linux", index))
+    assert "AMD / ROCm" in text and index in text
+
+
+@pytest.mark.parametrize("family,index,expected", [
+    ("linux", "https://x/cu128", "NVIDIA / CUDA"),
+    ("macos", None, "Apple Silicon"),
+    ("linux", None, "no supported GPU"),
+])
+def test_every_machine_gets_a_route_line(family, index, expected):
+    assert expected in ba.route_label(family, index)
+
+
+def test_main_announces_the_route_before_asking(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", None)
+    monkeypatch.setattr(ba, "this_machines_index", lambda: ba.host.TORCH_INDEX + "rocm7.2")
+    monkeypatch.setattr(ba.host, "os_family", lambda: "linux")
+    assert ba.main([]) == 1
+    assert "AMD / ROCm on Linux, torch from" in capsys.readouterr().out
+
+
+def _amd_install(tmp_path, monkeypatch):
+    root = tmp_path / "SkinTokens"
+    (root / ".venv").mkdir(parents=True)
+    (root / ".venv" / "pyvenv.cfg").write_text("version_info = 3.11.9\n")
+    monkeypatch.setattr(ba.shutil, "which", lambda name: "/bin/uv")
+    return root
+
+
+def test_a_rocm_torch_that_cannot_run_on_the_card_stops_before_the_rest(tmp_path,
+                                                                        monkeypatch):
+    root = _amd_install(tmp_path, monkeypatch)
+    ran = []
+    with pytest.raises(SystemExit, match="hipErrorInvalidKernelFile"):
+        ba.install_packages(root, runner=ran.append, index=ba.host.TORCH_INDEX + "rocm7.2",
+                            probe=lambda python: (False, "hipErrorInvalidKernelFile"))
+    assert len(ran) == 1, "the requirements went in on a torch that does not run"
+
+
+def test_the_card_is_only_probed_on_amd(tmp_path, monkeypatch):
+    root = _amd_install(tmp_path, monkeypatch)
+    ba.install_packages(root, runner=lambda c: None, index="https://x/cu128",
+                        probe=lambda python: pytest.fail("probed an NVIDIA install"))
+
+
+def test_the_default_probe_is_the_trellis_one(monkeypatch):
+    """One probe for every AMD bootstrap, so they agree on what "runs" means."""
+    import bootstrap_trellis_rocm
+
+    seen = []
+    monkeypatch.setattr(bootstrap_trellis_rocm, "gpu_probe",
+                        lambda python: seen.append(python) or (True, ""))
+    ba.prove_torch_on_amd(Path("/venv/python"))
+    assert seen == [Path("/venv/python")]

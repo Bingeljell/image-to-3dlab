@@ -277,6 +277,72 @@ def test_a_gated_warning_goes_once_access_is_confirmed_and_no_sooner():
     assert json.loads(result.stdout) == [False, True, True, True, True, False]
 
 
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_the_setup_panel_says_a_run_finished_and_looks_like_it():
+    """The title used to be written once, at the start, and never again: a 16 GB fetch that
+    ended perfectly sat there saying "Downloading", at 100%, looking like a page that gave up
+    halfway. The panel is now also *painted* with how the run ended, not just titled."""
+    module_url = (REPO / "viewer" / "components" / "setup-progress.js").as_uri()
+    program = f"""
+      import {{ runTitle, setupVerb, panelState }} from {json.dumps(module_url)};
+      const weights = {{ label: 'TRELLIS.2 (AMD)', build_present: true,
+                         setup_fetches_weights: true }};
+      const unbuilt = {{ label: 'TRELLIS.2 (AMD)', build_present: false,
+                         setup_fetches_weights: true }};
+      const logs = {{ label: 'Pixal3D', build_present: true, setup_fetches_weights: false }};
+      const inFlight = ['queued', 'log', 'downloading', 'building'];
+      const endings = ['done', 'error', 'cancelled'];
+      console.log(JSON.stringify({{
+        verbs: [setupVerb(unbuilt, 'download'), setupVerb(weights, 'download'),
+                setupVerb(logs, 'download'), setupVerb(weights, 'rebuild')],
+        whileRunning: inFlight.map((phase) => runTitle(weights, 'download', {{ phase }})),
+        states: inFlight.map((phase) => panelState({{ phase }})),
+        end: endings.map((phase) => runTitle(weights, 'download', {{ phase }})),
+        endStates: endings.map((phase) => panelState({{ phase }})),
+        // A resumed run whose backend the catalogue no longer lists still names something.
+        unknown: runTitle({{ label: 'trellis-rocm' }}, 'download', {{ phase: 'done' }}),
+      }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program],
+                            check=True, capture_output=True, text=True)
+    out = json.loads(result.stdout)
+
+    assert out["verbs"] == ["Setting up", "Downloading", "Building", "Rebuilding"]
+    assert out["whileRunning"] == ["Downloading TRELLIS.2 (AMD)"] * 4, (
+        "a run in flight must not claim an outcome it has not reached")
+    assert out["states"] == ["running"] * 4
+    assert out["end"] == ["✓ Installed · TRELLIS.2 (AMD)", "! Setup failed · TRELLIS.2 (AMD)",
+                          "■ Setup cancelled · TRELLIS.2 (AMD)"]
+    assert out["endStates"] == ["done", "error", "cancelled"]
+    assert out["unknown"] == "✓ Installed · trellis-rocm"
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_the_finished_marks_are_the_studios_own():
+    """One convention: the Activity list marks a finished thing '✓', '!' and '■', and the Setup
+    panel borrows them rather than inventing a second set."""
+    pages_url = (REPO / "viewer" / "studio" / "pages.js").as_uri()
+    setup_url = (REPO / "viewer" / "components" / "setup-progress.js").as_uri()
+    program = f"""
+      import {{ MARK, activityParts }} from {json.dumps(pages_url)};
+      import {{ runTitle }} from {json.dumps(setup_url)};
+      const backend = {{ label: 'Stable Fast 3D', build_present: true,
+                         setup_fetches_weights: true }};
+      console.log(JSON.stringify({{
+        done: runTitle(backend, 'download', {{ phase: 'done' }}).split(' ')[0],
+        error: runTitle(backend, 'download', {{ phase: 'error' }}).split(' ')[0],
+        cancelled: runTitle(backend, 'download', {{ phase: 'cancelled' }}).split(' ')[0],
+        activity: activityParts({{ result: 'done', step: 'rig', title: 'x', time: '' }}),
+      }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program],
+                            check=True, capture_output=True, text=True)
+    out = json.loads(result.stdout)
+
+    assert (out["done"], out["error"], out["cancelled"]) == ("✓", "!", "■")
+    assert out["activity"][0].split(" ")[0] == out["done"]
+
+
 def viewer_scripts() -> list[Path]:
     """Every first-party viewer script; vendored libraries are someone else's to parse."""
     viewer = REPO / "viewer"

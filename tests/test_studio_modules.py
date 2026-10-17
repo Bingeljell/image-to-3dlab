@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -325,6 +326,27 @@ def test_setup_has_a_way_back_to_the_studio_and_every_element_its_script_needs()
     ids = set(re.findall(r"s\('([a-z-]+)'\)", script)) - {"huggingface"}  # that one is a card it builds
     missing = [i for i in ids if f'id="{i}"' not in page]
     assert ids and not missing, missing
+
+
+def test_a_machine_with_no_route_is_not_told_that_amd_is_coming():
+    """AMD ships: five routes in the catalogue list it and the README says so. The
+    no-route banner used to promise it anyway -- on the one screen whose whole job is to
+    tell a visitor what this machine can actually run."""
+    script = (REPO / "viewer" / "studio" / "setup.js").read_text()
+    assert "nothing to install yet" in script
+    banner = script.split("nothing to install yet")[0].rsplit("return `", 1)[-1]
+    for promise in ("coming", "not yet", "later", "soon"):
+        assert promise not in banner.lower(), promise
+
+
+def test_the_banner_it_prints_names_amd_as_a_supported_machine():
+    """The sentence the banner builds lists what every backend needs, so it is only honest
+    while AMD is in that list. This is the fact the banner above used to contradict."""
+    sys.path.insert(0, str(REPO / "viewer"))
+    from backend_catalog import catalog_status
+
+    supported = catalog_status(host="other")["host"]["supported"]
+    assert any("AMD" in entry for entry in supported), supported
 
 
 RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text())

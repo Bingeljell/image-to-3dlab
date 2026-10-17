@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Report a bug**, in the studio's top bar and on any failed run. It fills in the version,
+  your machine and the error (your home folder shown as `~`, your prompt only if you tick
+  the box), and you read all of it before sending. Send it through assetfurnace.com (sign in
+  with your email), as a GitHub issue, or copy it to paste in #bugs on our Discord. Nothing
+  leaves your computer until you send it. Agents can draft one with the `report_bug` tool.
 - **Model stats in the studio:** triangles, vertices, texture sizes, bones, moves and file
   size, under the Steps panel for whichever version you are viewing. GLB files store
   triangles only, so there is no quad count.

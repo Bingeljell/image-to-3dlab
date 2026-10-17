@@ -64,6 +64,8 @@ class FakeHttp:
             "api/chains": {"running": None, "recent": [{"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}}]},
             "api/chains/r1": {"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}},
         }.get(path)
+        if path == "api/bug-report":
+            return Response(200, {"details": "AssetFurnace 0.4.5 · macOS", "failure": True, "has_prompt": True})
         if path == "api/model-info":
             return Response(200, {"file": "finish/k/k_20k.glb", "path": "/out/finish/k/k_20k.glb",
                                   "folder": "/out/finish/k", "stats": {"triangles": 19981}})
@@ -74,6 +76,9 @@ class FakeHttp:
     def post(self, url, files=None, json=None, timeout=None):
         path = url.split("8777/", 1)[1]
         self.posts.append((path, files or json or {}))
+        if path == "api/bug-report":
+            return Response(200, {"site": "https://assetfurnace.com/report#report=x", "github": "https://github.com/i",
+                                  "text": json["message"] + "\n\n" + json["details"], "discord": "https://discord.gg/x"})
         if path == "api/reveal":
             return Response(200, {"shown": "/out/" + json["file"]})
         if path == "api/chains":
@@ -140,7 +145,7 @@ def test_the_server_registers_every_tool():
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend",
-                     "model_info", "show_in_folder"}
+                     "model_info", "show_in_folder", "report_bug"}
 
 
 # --------------------------------------------------------------------------- create
@@ -261,6 +266,14 @@ def test_show_in_folder_opens_the_steps_file_on_this_machine(studio):
     assert studio.http.last_params == {"asset": KNIGHT["id"], "stage": "finished"}
     assert studio.http.posts[-1] == ("api/reveal", {"file": "finish/k/k_20k.glb"})
     assert out["shown"] == "/out/finish/k/k_20k.glb"
+
+
+def test_report_bug_drafts_the_report_and_never_sends_it(studio):
+    out = ms.report_bug(studio, message="Finish crashed", include_prompt=True)
+    assert studio.http.last_params == {"prompt": "1"}
+    assert studio.http.posts[-1] == ("api/bug-report", {"message": "Finish crashed", "details": "AssetFurnace 0.4.5 · macOS"})
+    assert out["send_here"].startswith("https://assetfurnace.com/report")
+    assert "user" in out["tip"].lower() and "send" in out["tip"].lower()
 
 
 def test_a_studio_that_is_not_running_is_started_once():

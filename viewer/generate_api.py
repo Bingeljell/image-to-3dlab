@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import activity_api
 import backend_catalog
+import bug_report_api
 import hf_api
 import image_api
 import model_info_api
@@ -2583,6 +2584,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "reveal"]:
             self._reveal()
             return
+        if parts == ["api", "bug-report"]:
+            self._bug_report_links()
+            return
         if len(parts) == 4 and parts[:2] == ["api", "image"] and parts[3] == "cancel":
             self._cancel_image_job(parts[2])
             return
@@ -2780,6 +2784,15 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "model-info"]:
             self._send_model_info()
+            return
+        if parts == ["api", "bug-report"]:
+            query = parse_qs(urlparse(self.path).query)
+            pick = {k: query.get(k, [""])[0] or None for k in ("chain", "step")}
+            failure = bug_report_api.find_failure(OUTPUT_ROOT, **pick)
+            self._send_json(200, {
+                "details": bug_report_api.details(OUTPUT_ROOT, include_prompt=query.get("prompt", [""])[0] == "1", **pick),
+                "failure": bool(failure), "has_prompt": bool(failure and failure.get("prompt")),
+            })
             return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "delete-plan":
             try:
@@ -3649,6 +3662,20 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(200, model_info_api.model_info(OUTPUT_ROOT, relative))
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
+
+    def _bug_report_links(self) -> None:
+        """The three ways to send a report the person has read and edited: `{message, details}`."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 64_000 else {}
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        message, details = str(body.get("message", "")).strip(), str(body.get("details", ""))
+        if not message:
+            self._send_json(422, {"error": "Say what went wrong first."})
+            return
+        self._send_json(200, bug_report_api.links(message, details))
 
     def _reveal(self) -> None:
         """Show one output file in Finder / Explorer / the file manager, on this machine."""

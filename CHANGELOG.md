@@ -8,259 +8,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **TRELLIS.2 on AMD.** Microsoft's own pinned checkout, the same pipeline and the same
-  weights the NVIDIA route runs, now built with HIP: `scripts/bootstrap_trellis_rocm.py`,
-  `scripts/trellis_rocm_generate.py`, and the **TRELLIS.2 (AMD)** engine in Create.
-  - **Two of the four compiled extensions come from upstream**, at the same commits the
-    NVIDIA route uses: FlexGEMM and o-voxel already dispatch on `IS_HIP_EXTENSION` and pass
-    `--offload-arch`, and call only the raw CUDA runtime that hipcc aliases. Their one real
-    problem was `-std=c++17` against torch 2.14's C++20 headers, which is three words in
-    `scripts/patch_trellis_rocm.py`. Both cards now build them from identical source.
-  - **nvdiffrast and CuMesh come from dmonkman's ROCm ports**, for two different reasons
-    worth keeping apart. nvdiffrast because upstream is CUDA-only with no HIP path to patch
-    into; CuMesh because its eight `.cu` sources need a hipify (`cuda::` to hip, `cub::` to
-    `hipcub::`) that is machine generated rather than something to hand-edit. Both ports
-    still hardcode the ROCm 10 device-bitcode path and declare `requires-python >=3.12`; the
-    same patch fixes both, since ROCm 7.x keeps the bitcode at `<root>/amdgcn/bitcode` and
-    no upstream declares that floor at all.
-  - **Attention runs on AuleAttention**, a Triton flash attention with no extension to
-    compile. TRELLIS.2's three backends are xformers, flash-attn and flash-attn-3, all
-    compiled against CUDA, so on this card there was nothing to select at all. AuleAttention
-    ships as a pure-Python wheel and was checked against torch's own SDPA on gfx1100,
-    agreeing to 5e-4.
-  - **Verified end to end** on an RX 7900 XT (gfx1100, ROCm 7.2, torch 2.14.1): a picture to
-    a textured GLB in 233 s — 237k vertices, 282k triangles, a 2048² base-colour texture
-    with 26k distinct colours, not a black one. The manifest and provenance sidecar record
-    the run as `amd-rocm` with BRIA `loaded: false`.
-- **Hunyuan3D-2.1 on AMD.** Tencent's own shape and PBR paint, the route NVIDIA users
-  already had, now builds for an AMD card with HIP: `scripts/bootstrap_hunyuan_rocm.py` and
-  the new **Hunyuan3D-2.1 (AMD)** engine in Create. Less work than it sounds -- the shape
-  stage is plain PyTorch, and the paint stage's one CUDA extension builds under ROCm's own
-  `setup.py` because `CUDAExtension` dispatches to `hipcc` on its own. No hipify step, no
-  source port.
-  - Paint settings are **fitted to the card**. Upstream wants about 21 GB; a 20 GB card does
-    not have that, so views, texture resolution and an attention chunk walk down until the
-    run fits what is free. The shape stage needs 10 GB and none of that.
-  - `scripts/patch_hunyuan_rocm.py` makes three fixes: a scheduler that crashed on a float
-    comparison, attention chunked so a small card fits, and a hardcoded `cuda:0` that
-    silently switched off CPU offload.
-  - `--flash-vdm` asks the shape decoder only for promising points. Pure PyTorch despite
-    the name, and much faster than querying every point of the grid.
-- **Verified end to end** on an RX 7900 XT (gfx1100, ROCm 7.2), both stages: a picture to
-  a textured GLB with a PBR base-colour and ORM texture, 40k triangles, 402 s at 2 views and
-  256px. Chunked and unchunked attention were compared on the same seed and produce
-  **byte-identical textures**, which is the claim the patch makes. The manifest and
-  provenance sidecar record the run as `amd-rocm`.
-- **Textures are capped at 256px, and it is not a memory problem.** Upstream's default
-  512px returns a perfectly valid GLB whose base colour is entirely black, on this card, at
-  any view count, with no error anywhere. Probing the pipeline shows the paint UNet's
-  multiview output already has a maximum of 0.02 across the whole image at 512, where at
-  256 it is an ordinary picture with no non-finite values at all -- so the views are black
-  before they reach the bake, and it is not the attention patch (chunked and unchunked
-  agree at both sizes). No run has run out of memory: the unchunked 512px run finishes
-  paint in 43s with 20 GB to spare.
-
-  It is also **not reliably reproducible**: one instrumented run produced a correct texture
-  at 512 with the same seed, and the only difference was that the probe held a reference to
-  the UNet output, which shifts PyTorch's attention-backend choice. The paint path runs in
-  float16 with a bfloat16 UNet and pins no attention backend, so this looks like a marginal
-  numerical sensitivity at the larger latent rather than a hard limit. That has not been
-  proven, and finding out is a research job. Until it is, the route asks for 256px, which
-  has been correct on every run, and a run that bakes a black texture stops and says so
-  rather than writing a model with no texture on it.
-
-- **Stable Fast 3D on AMD.** It was marked Apple-only, and the reason was never the card:
-  its pins (numpy 1.26, transformers 4.42, an old huggingface-hub) broke the lab's *shared*
-  environment on Linux, so rather than give it its own packages to fight over them it was
-  excluded. A route with a venv of its own removes that reason, and nothing it pins can
-  reach the viewer.
-  Upstream needed **one line**. `texture_baker/setup.py` decides whether to build the GPU
-  kernels with `use_cuda and CUDA_HOME is not None`, but `CUDA_HOME` is None on a ROCm build
-  of PyTorch -- so `baker_kernel.cu` was dropped from the build and it produced a CPU-only
-  baker, successfully and silently. Everything else was already there: the `setup.py` has an
-  `is_hip_extension` branch, and `CUDAExtension` dispatches to `hipcc` on its own.
-  Verified on an RX 7900 XT: the installed extension contains `gfx1100` code, and a picture
-  becomes a textured GLB with an albedo and an ORM texture. The venv also drops the `[gpu]`
-  extra from rembg, a CUDA wheel this route never calls.
+- **TRELLIS.2, Hunyuan3D-2.1 and Stable Fast 3D on AMD** (Linux, ROCm), building on the AMD
+  support [@dlm21](https://github.com/dlm21) brought in 0.4.1 (#92). That release ran Pixal3D,
+  Generate Image and Auto-rig on an AMD card and said these three needed NVIDIA-only parts;
+  they now build for the card with HIP and are set up from the AMD tab like the rest. Each
+  has its own folder and venv, so a machine with both kinds of card keeps both installs.
+  Setup names every download and its size before it starts.
+  - **TRELLIS.2 (AMD):** Microsoft's own checkout and the same weights as NVIDIA. Attention
+    runs on AuleAttention, because flash-attn has no ROCm build. Setup tests torch on the
+    card before compiling anything, and on a ROCm newer than PyTorch's index (10.x, such as
+    Strix Halo) it tries AMD's index and PyTorch's newest ROCm build and keeps the one that
+    runs. Tested on an RX 7900 XT (a model in about 4 minutes) and a Strix Halo (about 22).
+  - **Hunyuan3D-2.1 (AMD):** Tencent's own shape and PBR paint. Paint settings are fitted
+    to free GPU memory, read through torch so a shared-memory chip (an APU) is measured
+    right. Textures are capped at 256 px: at 512 px this card returns an all-black texture
+    with no error, and the cause is not pinned down yet. A run that bakes a black texture
+    stops rather than saving it. A run with weights missing stops and says how to fetch
+    them, instead of letting upstream download 8-15 GB. Tested on an RX 7900 XT.
+  - **Stable Fast 3D (AMD):** in a venv of its own, so its old pins cannot reach the viewer,
+    with the texture baker's GPU kernels compiled for the card (under ROCm, upstream quietly
+    built a CPU-only one). It cuts pictures out with BiRefNet-lite like the other routes, and
+    Generate waits until its weights are downloaded. Tested on an RX 7900 XT.
+- `I2L_TRELLIS_MODEL_PATH` points TRELLIS.2 at a local folder of weights instead of
+  downloading them. A tree under `vendor/trellis-cuda/models` or `vendor/trellis-rocm/models`
+  is found too, by both routes, and Setup counts it instead of offering to download it again.
 
 ### Fixed
-- **AMD review: setup and runs.** A pass over the Setup tab and every AMD route.
-  - **Setup tab.** The Rebuild button had vanished since the per-machine tabs arrived (the
-    reason sat on a list the page no longer draws). TRELLIS.2's 16 GB download on NVIDIA
-    and AMD showed a clock instead of bytes. A compile error ending in "... before '}'
-    token" was blamed on Hugging Face sign-in.
-  - **`install.sh` on AMD** ran `python -m image_to_3dlab.host` from wherever the user
-    happened to be, so `curl | bash` stopped at "No module named image_to_3dlab".
-  - **TRELLIS.2 (AMD) setup.** The card check used random numbers and rejected a working
-    torch about one run in twenty; it uses ones now. A rejected torch is uninstalled before
-    the next is tried, instead of leaving two Tritons writing one folder. A re-run drops the
-    old "installed" marker first and tries the torch the last build proved, rather than
-    swapping in the known-bad one and back. An inherited `PYTORCH_CUDA_ALLOC_CONF` (silent
-    NaNs on ROCm) is now removed for the run.
-  - **Hunyuan3D-2.1 (AMD).** The memory ladder never chose views or resolution, because
-    the defaults were filled in first and read as a request. Free memory now comes from
-    torch: on an APU the vendor tool sees a 1 GB slice of a 124 GB shared pool, and ROCm 10
-    has no `rocm-smi` at all. A black texture at 256px now suggests 128, not 256 again.
-  - **Stable Fast 3D (AMD).** Its rembg 2.0.57 has no BiRefNet, so the cut-out quietly
-    became u2net (fetched unasked) while provenance said BiRefNet; it now gets
-    `rembg[cpu]==2.0.69`. Setup fetches BiRefNet-lite like the other routes, Generate waits
-    for the weights instead of letting a run download 4.9 GB, and its errors name the AMD
-    installer.
-  - **Qwen-Image on AMD** gets ROCm's library folder on the loader path; the prebuilt only
-    looks beside itself, so without it the run fell back to the CPU.
-  - **`bootstrap_matte.py`** without `--yes` and without a terminal now says so instead of
-    crashing on `EOFError`.
-  - **Hunyuan3D-2.1 (AMD) never downloads weights on its own.** A run, or `--check`, with
-    shape, paint, DINOv2 or RealESRGAN weights missing stops and names the bootstrap,
-    instead of letting upstream quietly fetch 8-15 GB.
-  - **TRELLIS.2 (AMD) checks its attention before loading the model.** `--check`, the run
-    and the Generate tab now require the AMD patches and an installed `aule`. Windowed
-    attention gets an `aule` branch and names an unknown backend, instead of an
-    `UnboundLocalError`. A missing ROCm device bitcode folder now stops the build with
-    where it looked, instead of `--rocm-device-lib-path=` and a puzzling compile error.
-  - **TRELLIS.2 weights under either route's folder are used by both.** The Setup card
-    counted both; the run looked only under its own and then downloaded 16 GB.
-  - **Pixal3D on AMD without hipcc** can still run `--weights-only`, `--multiview`, or a
-    re-run over a finished build. Only compiling needs the compiler.
-  - **Stable Fast 3D (AMD)** keeps a finished build on a re-run (say, after a gated-licence
-    failure) instead of compiling again; `--rebuild` forces it. A marker beside a missing
-    venv no longer counts as built. Its tests could delete the real SF3D venv; they cannot
-    now.
-  - **SF3D and auto-rig on AMD prove torch on the card** (one kernel, the TRELLIS probe)
-    before building on it. The auto-rig prompt now names the route and torch index.
-
-- **Hunyuan on AMD installs a working onnxruntime instead of one that cannot load.** Upstream
-  pins `onnxruntime==1.16.3`, whose shared object asks the loader for an executable stack; a
-  kernel that refuses one answers *"cannot enable executable stack as shared object requires"*,
-  which killed the first generation as an `ImportError` from inside `diffusers`.
-  - This route's skip list was **never applied at all**. Its `filter_requirements` just called
-    the CUDA route's, which read that module's globals, so every name the AMD list added went
-    in anyway — and three tests passed the whole time, because all three asserted the
-    *constant* rather than running the filter. `skip` and `replace` are parameters now, so a
-    route cannot declare a list that is quietly ignored.
-  - Skipping the package was also the wrong remedy, and would have traded one ImportError for
-    another. `hy3dshape.rembg` imports it, `image_to_3dlab/matte.py` imports it, and rembg
-    imports onnxruntime at module import — so the first picture without an alpha would have
-    raised `ModuleNotFoundError`. The **pin** is now replaced with the `onnxruntime>=1.18`
-    floor `requirements.txt` already asks for, which resolves to 1.31.0: an ordinary shared
-    object. The CUDA route keeps upstream's pin; it has its own generated lock.
-  - A test runs `import onnxruntime, rembg` in this repo's own Hunyuan venv, so the pin is
-    checked against something that actually loads rather than against a comment.
-- **A ROCm 10.x machine now gets a torch that actually runs.** The route sent anything newer
-  than PyTorch's rocm7.2 index to AMD's own, and took whatever that index offered without
-  asking the card. On a ROCm 10.2 machine that wheel cannot launch a kernel at all: its
-  `.hip_fatbin` section is declared at 322 MB and is **NOBITS** — empty, with no code object
-  anywhere beside it — so the first GPU op of the first generation died with
-  `torch.AcceleratorError: CUDA error: invalid kernel file`, forty minutes of compiled
-  extensions earlier and two minutes into a run with nowhere to go.
-  - Which index a machine can run is a property of the **machine**, not of either table, so
-    the route no longer decides it by looking. `torch_candidates` offers both, best first, and
-    `install_torch` **proves one on the card** — a randn, a reduction and a synchronise —
-    before a single extension is compiled. The one that works goes in the build marker, so a
-    later run can see the machine fell back.
-  - The fallback is PyTorch's own newest ROCm wheel, not a guess: a newer runtime runs an
-    older wheel, which is what ROCm's compatibility promise is for. PyTorch's rocm7.2 build
-    carries 322 MB of real device code and ran on the same Strix Halo, under the same ROCm
-    10.2, that the AMD wheel could not.
-  - If no candidate launches a kernel the install stops and says which it tried and why each
-    failed, rather than compiling four extensions against a torch that cannot run.
-  - **Verified end to end** on a Strix Halo (gfx1151, ROCm 10.2, torch 2.14.1+rocm7.2 after the
-    fallback): a picture to a 9.5 MB textured GLB in 1349.7 s, nvdiffrast's rasterisation
-    kernels completing on the card, and the sidecar recording the run as `amd-rocm` with BRIA
-    `loaded: false`. The install in front of it takes about three minutes on a warm uv cache.
-- **A finished download now looks finished.** The Setup page's progress panel kept its
-  running appearance forever: the bar sat at 100% in the same ember gradient it wore while
-  downloading, the border stayed neutral, and only a small log line said anything had happened.
-  A panel that is done but still painted like a transfer in progress reads as a page that gave
-  up halfway. It now carries the outcome — green bar, border and title on success, amber on
-  failure, grey on cancel — and the title leads with the same ✓ / ! / ■ the Activity list uses,
-  borrowed from `viewer/studio/pages.js` rather than invented a second time.
-- **The Setup panel now says a download finished.** Its title was written once, when the
-  download started, and never touched again — so a 16.8 GB fetch that ended perfectly sat
-  there announcing "Downloading TRELLIS.2 (AMD)" beside a full bar and a detail line reading
-  "done · 16.8 GB on disk", and nothing in the panel ever claimed the backend was installed.
-  The title now follows the run's own events: *Installed* when it is done, *Setup failed* when
-  it exits non-zero, *Setup cancelled* when it is stopped. The wording lives in one pure module
-  (`viewer/components/setup-progress.js`) instead of two copies of a ternary.
-- **A TRELLIS.2 install on a ROCm 10.x machine no longer dies on its last line.** The build
-  marker read `TORCH[version]` — the PyTorch index table only — so on exactly the machines the
-  fix above was written for, the 40-minute build finished, every extension installed, and then
-  `KeyError: (10, 2)`. Because the marker is what says "installed", the studio still offered to
-  set the route up again and the next run redid the whole compile. The marker is now built by
-  `build_record`, from the same candidate the install proved on the card, and records the ROCm
-  release, torchvision and the index it came from.
-  - The install plan and that record are now settled *before* the first `git clone`, so a
-    machine with no published torch pair is refused in a second rather than after a gigabyte
-    of checkout — AGENTS.md's rule about checking before the expensive step.
-  - The "PyTorch's index stops at 7.2 / AMD's at 10.2" wording is read off the two tables
-    rather than written into the sentence, so it cannot go stale when either grows.
-- **TRELLIS.2 now builds on an AMD card newer than PyTorch's index.** `choose_route` refused
-  anything above ROCm 7.2 outright, so a ROCm 10.x machine — a Strix Halo, an AI 395 — got
-  "Cannot install TRELLIS.2 here" and nothing else. That was wrong twice over: the build does
-  happen on the machine it is installed on, and "newer than PyTorch's index" is a *different
-  index*, not a different job.
-  - AMD publishes PyTorch wheels for ROCm versions PyTorch does not carry, as plain
-    multi-arch builds. On 2026-10-16 its index has `torch 2.14.0+rocm10.1.0` for **gfx1151**
-    — the same torch this box runs on rocm7.2, just built against the newer runtime. So a
-    10.x machine gets the identical stack from `stable.repo.amd.com/rocm/whl-next/` instead of
-    `download.pytorch.org`.
-  - The refusal now names both indexes' ranges, and only fires where there genuinely is
-    nothing: below AMD's oldest supported tag.
-- **A build that lost part of itself now says so.** When a route's venv or build marker
-  disappears, the Setup card said "Set up" and nothing else — which sends people to the
-  install script rather than to the directory that is missing. It now distinguishes a route
-  that was never installed from one that was and is no longer complete, and names the file.
-- **The Setup card no longer offers to re-download TRELLIS.2 weights it already has.** It
-  measured only the Hugging Face cache, so a machine whose weights sit in a local directory
-  was told "partly downloaded · 1.4 GB of 16.7 GB" and offered a resume — on the machine
-  that had just finished a generation from those weights. Weights are now also counted in
-  `I2L_TRELLIS_MODEL_PATH` and in each route's `vendor/<route>/models/TRELLIS.2-4B`, which
-  is where a locally-assembled tree goes. The generator already looked in both.
-  - An empty cache directory no longer settles the question. Hugging Face creates the
-    folder with a `refs/` file before anything downloads, so preferring the first location
-    that merely *exists* picked the empty one.
-  - One shared directory is counted once. TRELLIS.2's main weights, its image-large decoder
-    and its DINOv3 encoder all live in the same local tree, and summing each separately
-    read "53.1 GB of 17.9 GB" while the route was in fact ready.
-- **The Setup button now installs TRELLIS.2 on AMD.** `viewer/download_api.py` keeps its own
-  per-host table of what to run, separate from the catalogue's, and it had a TRELLIS.2 entry
-  for NVIDIA but not for AMD. An AMD machine therefore fell back to the Metal port's
-  bootstrap, which is a Mac script. The progress line said "building the Metal port" while
-  nothing metal was involved.
-- **The macOS TRELLIS.2 bootstrap now refuses a machine that is not a Mac, and says what to run
-  instead.** It had no platform check at all, so on an AMD card it cloned four Metal operator
-  repositories, installed a dependency, and then died on `No such file or directory: 'xcrun'`.
-  The failure arrived minutes in and read as a broken checkout rather than a machine that
-  cannot host the port. It now stops before fetching anything and names the right bootstrap
-  for the card.
-- **An AMD install no longer gets a CUDA PyTorch.** The shared lock is resolved on Linux, and
-  PyPI's Linux torch is a CUDA build, so every AMD card was handed torch plus roughly 6 GB of
-  NVIDIA wheels it cannot load, leaving a torch that reports no device. The installer now asks
-  `image_to_3dlab.host` which PyTorch the machine needs, installs the CUDA wheels nowhere on an
-  AMD card, and puts the ROCm build that matches the installed runtime in their place. NVIDIA
-  and Apple installs are unchanged. (`requirements.rocm.lock` is written beside the install.)
-- **A Qwen-Image run that silently fell back to the CPU is now caught on AMD.** The watcher
-  already read ROCm's and Vulkan's start-up lines, but was only switched on for NVIDIA, and the
-  message it would have shown pointed at `nvidia-smi`. Every machine that loads its GPU backend
-  at run time is watched now, and the wording is picked for the card: an AMD user is sent to
-  `rocminfo` and the Vulkan build.
-
-- **A character on an AMD card no longer stops between the picture and the 3D model.**
-  The new AMD Hunyuan route validates settings it deliberately leaves unset (the paint
-  settings are fitted to the card at run time), and read them anyway, so every run died on
-  a `KeyError` that reached the browser as a bare `'max_num_view'` with nothing on the
-  server's terminal. The two settings are now checked only when the studio actually sends
-  them. A settings-check bug of any kind is also reported as a sentence naming the route,
-  with the traceback on the terminal.
+- **An AMD install gets the ROCm build of PyTorch.** The installer handed every AMD card
+  PyPI's CUDA torch, plus about 6 GB of NVIDIA wheels it cannot load.
+- **Generate Image on AMD uses the card.** Its ROCm build needs ROCm's own libraries, which
+  are now put on its path; a run that still falls back to the CPU is caught and explained,
+  pointing at `rocminfo` rather than `nvidia-smi`.
+- **Pixal3D on AMD** can fetch its weights (`--weights-only`, `--multiview`) without hipcc
+  installed. Only compiling needs it.
+- **Auto-rig on AMD** names its route and where torch comes from before asking, and tests
+  torch on the card before installing the rest.
+- **Setup & Status:**
+  - The Rebuild button is back. It vanished when the page grew one tab per machine.
+  - A finished setup says *Installed*, *Setup failed* or *Setup cancelled*, in green, amber
+    or grey, instead of "Downloading" beside a full bar.
+  - TRELLIS.2's download on NVIDIA shows bytes arriving, not only minutes elapsed.
+  - A failed compile is no longer blamed on Hugging Face sign-in.
+  - A route that lost its venv or build marker names the missing file instead of only
+    offering Set up again.
+- The macOS TRELLIS.2 bootstrap refuses a machine that is not a Mac before fetching anything,
+  and names the right bootstrap.
+- The background-remover setup, run without `--yes` and without a terminal, says so instead
+  of crashing.
 
 ### Changed
-- `I2L_TRELLIS_MODEL_PATH` points the TRELLIS.2 routes at a local directory of weights
-  instead of downloading them, for machines that already have them — a shared model store,
-  an offline box — where re-fetching 16 GB is not on. Unset, both routes behave as before.
-- The Setup page's "nothing runs here" banner no longer promises that AMD support is coming.
-  AMD has shipped for a while, and that banner is where a visitor is told what their machine
-  can actually do.
-- The How-to page says the lab runs on NVIDIA **and AMD**, not just Apple Silicon and NVIDIA.
+- Setup & Status no longer says AMD support is coming, and the How-to page says the lab runs
+  on NVIDIA and AMD as well as Apple Silicon.
 
 ## [0.4.5] - 2026-10-17
 

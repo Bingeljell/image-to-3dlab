@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-18
+
 ### Added
 - **Cleaner game models from Pixal3D.** Finish gives Pixal3D models far cleaner game-ready
   versions, with no holes or blotches, in about 30 seconds. Applies to models made from this

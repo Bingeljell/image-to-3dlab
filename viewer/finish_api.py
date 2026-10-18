@@ -194,6 +194,8 @@ def build_command(
         str(job.asset_path), str(job.image_path), str(job.result_glb),
         *(["--steps-dir", str(job.steps_dir)] if job.steps_dir is not None else []),
         *(["--views", str(job.views_dir)] if uses_photo(job, settings) else []),
+        *(["--native-dump", str(job.dump_path)]
+          if job.dump_path.is_file() and not settings.get("keep_mesh") else []),
         "--faces", str(settings["faces"]),
         "--atlas", str(settings["atlas"]),
         "--angle", str(settings["angle"]),
@@ -256,24 +258,54 @@ def find_source_views(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
     beside the GLB as `<output>.svviews/`. Anything else (another generator, a model from
     elsewhere, an edited file) has no match and simply gets no photo stage.
     """
+    for record_path, record in _matching_runs(asset, root):
+        views = Path((record.get("output") or {}).get("path", "")).with_suffix(".svviews")
+        if not (views / "transforms.json").is_file():
+            views = record_path.with_suffix(".svviews")
+        if (views / "transforms.json").is_file():
+            return views
+    return None
+
+
+def find_source_dump(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
+    """Pixal3D's saved clean-up input for the run that produced `asset`, or None.
+
+    Matched by content like the camera, and found whether or not Pixel Match runs: the
+    Pixal3D Finish route needs the dump, not the pictures. Runs from before the dump was
+    saved, and builds without the patch, have none and take the classic route.
+    """
+    for record_path, record in _matching_runs(asset, root):
+        name = record.get("post_dump")
+        if not name:
+            continue
+        for folder in (Path((record.get("output") or {}).get("path", "")).parent,
+                       record_path.parent):
+            if (folder / name).is_file():
+                return folder / name
+    return None
+
+
+def _matching_runs(asset: bytes, root: Path):
+    """(record path, record) for each Pixal3D run whose output has `asset`'s sha256."""
     digest = hashlib.sha256(asset).hexdigest()
     if not root.is_dir():
-        return None
+        return
     for record_path in root.rglob("*.json"):
         if record_path.stat().st_size > 20000:
             continue
         record = _read_json(record_path)
         if not isinstance(record, dict) or record.get("backend") != "pixal3d":
             continue
-        output = record.get("output") or {}
-        if output.get("sha256") != digest:
-            continue
-        views = Path(output.get("path", "")).with_suffix(".svviews")
-        if not (views / "transforms.json").is_file():
-            views = record_path.with_suffix(".svviews")
-        if (views / "transforms.json").is_file():
-            return views
-    return None
+        if (record.get("output") or {}).get("sha256") == digest:
+            yield record_path, record
+
+
+def link_or_copy(source: Path, target: Path) -> None:
+    """A hard link where the filesystem allows one (a dump is 200-450 MB), else a copy."""
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
 
 
 def stage_bands(stages: list[str]) -> dict[str, tuple[float, float]]:
@@ -421,6 +453,8 @@ class FinishJob:
         # The source photo(s) and cameras for the photo stage, copied in from the Pixal3D
         # run so a resume or a re-run does not depend on that run still being on disk.
         self.views_dir = self.input_dir / "source.views"
+        # Pixal3D's own clean-up input, linked in from the run for the Pixal3D route.
+        self.dump_path = self.input_dir / "source.post.bin"
         self.settings_path = self.input_dir / "settings.json"
         self.log_path = (self.steps_dir or directory) / "run.log"
         self.settings: dict[str, Any] = dict(DEFAULT_SETTINGS)
@@ -500,6 +534,9 @@ class FinishJobManager:
                     asset, self.generated_root)
                 if views is not None:
                     shutil.copytree(views, job.views_dir)
+                dump = find_source_dump(asset, self.generated_root)
+                if dump is not None:
+                    link_or_copy(dump, job.dump_path)
                 # Written up front, not with the record at the end: a run that dies
                 # halfway is exactly the one worth resuming, and resuming it means
                 # knowing the settings the surviving intermediates were made with.

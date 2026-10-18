@@ -230,6 +230,7 @@ Numbers about the project itself, not about any asset.
 | `patch_pixal3d_rembg.py` | Stop Pixal3D loading BRIA RMBG-2.0, before it ever downloads it. |
 | `patch_pixal3d_model_subset.py` | Let Pixal3D load only the checkpoints a run actually needs. |
 | `patch_pixal3d_low_vram.py` | Make Pixal3D's low-VRAM mode reachable, via `PIXAL3D_LOW_VRAM=1`. |
+| `patch_pixal3d_dump_continue.py` | Let Pixal3D save its clean-up input and still write the model, via `PIXAL3D_DUMP_CONTINUE=1`. |
 | `patch_pixal3d_steps.py` | Let Pixal3D (pixal3d.cpp) run fewer sampling steps, via `PIXAL3D_STEPS=N`. |
 | `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
 | `patch_hunyuan_rocm.py` | Make Tencent's Hunyuan3D-2.1 survive on an AMD card, without touching what NVIDIA runs. |

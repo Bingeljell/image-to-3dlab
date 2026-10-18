@@ -319,6 +319,8 @@ Up to four stages; Finish in the viewer runs retopologise, Pixel Match and compr
 default:
 
 1. **Retopologise**: rebuilds the mesh with far fewer faces, keeping thin parts intact.
+   For Pixal3D models made in the lab, Finish uses Pixal3D's own clean-up instead: cleaner
+   models, in seconds.
 2. **Repaint** (optional, Apple Silicon): hands the clean mesh to Hunyuan 2.1 PBR and
    paints from the source art. Pixal3D output rarely needs it, so it is off by default
    (`--skip-paint` on the CLI) and a finish takes seconds instead of ~6 minutes.

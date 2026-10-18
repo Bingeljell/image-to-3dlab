@@ -610,3 +610,63 @@ def test_turning_nudge_off_tells_the_worker():
     assert finish.normalise_settings({})["skip_nudge"] is False
     assert "--no-nudge" not in finish.build_command(job, finish.normalise_settings({}))
     assert "--no-nudge" in finish.build_command(job, finish.normalise_settings({"skip_nudge": True}))
+
+
+# --- The Pixal3D route: link the run's clean-up dump in and hand it to the worker -------------
+
+
+def _with_dump(views):
+    """Give a `_pixal3d_run` the dump and record line pixal3d_generate.py writes."""
+    run = views.parent
+    dump = run / "robot__pixal3d__1.post.bin"
+    dump.write_bytes(b"dump")
+    record_path = run / "robot__pixal3d__1.json"
+    record = json.loads(record_path.read_text())
+    record["post_dump"] = dump.name
+    record_path.write_text(json.dumps(record))
+    return dump
+
+
+def test_the_dump_is_linked_in_and_passed_to_the_worker(tmp_path):
+    dump = _with_dump(_pixal3d_run(tmp_path / "generated"))
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"glb-bytes", b"png", {})
+    assert job.dump_path.read_bytes() == b"dump"
+    assert job.dump_path.stat().st_ino == dump.stat().st_ino   # a link, not a 400 MB copy
+    command = finish.build_command(job, job.settings)
+    assert command[command.index("--native-dump") + 1] == str(job.dump_path)
+
+
+def test_the_dump_is_found_even_with_pixel_match_off(tmp_path):
+    """The route needs the dump, not the pictures."""
+    _with_dump(_pixal3d_run(tmp_path / "generated"))
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"glb-bytes", b"png", {"skip_photo": True})
+    assert "--native-dump" in finish.build_command(job, job.settings)
+
+
+def test_full_detail_never_takes_the_pixal3d_route(tmp_path):
+    _with_dump(_pixal3d_run(tmp_path / "generated"))
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"glb-bytes", b"png", {"keep_mesh": True})
+    assert "--native-dump" not in finish.build_command(job, job.settings)
+
+
+def test_a_run_from_before_the_dump_takes_the_classic_route(tmp_path):
+    _pixal3d_run(tmp_path / "generated")
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"glb-bytes", b"png", {})
+    assert not job.dump_path.exists()
+    assert "--native-dump" not in finish.build_command(job, job.settings)
+
+
+def test_a_dump_is_copied_when_it_cannot_be_linked(tmp_path, monkeypatch):
+    source = tmp_path / "a.post.bin"
+    source.write_bytes(b"dump")
+
+    def no_links(*args):
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(finish.os, "link", no_links)
+    finish.link_or_copy(source, tmp_path / "b.post.bin")
+    assert (tmp_path / "b.post.bin").read_bytes() == b"dump"

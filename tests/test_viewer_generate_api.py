@@ -1602,6 +1602,15 @@ def test_cleanup_keeps_pixal3d_licence_record_and_camera(tmp_path):
     assert (tmp_path / "out.svviews" / "transforms.json").is_file()
 
 
+def test_cleanup_keeps_pixal3d_clean_up_dump(tmp_path):
+    """2026-10-18: a studio run's dump was deleted here, so Finish fell back to the classic route."""
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "out.glb", {}, "pixal3d")
+    for name in ("out.glb", "out.json", "out.post.bin", "run.log"):
+        (tmp_path / name).write_text("x")
+    api._cleanup_debug_files(job)
+    assert (tmp_path / "out.post.bin").is_file()
+
+
 def test_nvidia_trellis_hides_the_mac_only_controls():
     assert set(api.trellis_spec(api.backend_catalog.NVIDIA).hidden_fields) == {"generate-attention"}
     assert api.trellis_spec(api.APPLE).hidden_fields == ()

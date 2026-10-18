@@ -647,3 +647,36 @@ def test_multiview_readiness_checks_the_manifests_files(tmp_path):
     assert not state["ready"] and state["missing"] == ["b.gguf"]
     (models / "b.gguf").write_text("")
     assert px.multiview_readiness(cli, models)["ready"]
+
+
+# --- Saving Pixal3D's clean-up input for the Pixal3D Finish route ------------------------------
+
+
+def test_a_binary_with_the_dump_patch_saves_a_dump(tmp_path):
+    cli = tmp_path / "trellis-cli"
+    cli.write_bytes(b"\x00\x01...PIXAL3D_DUMP_CONTINUE...\x02")
+    assert px.dump_supported(cli) is True
+
+
+def test_a_binary_without_it_runs_as_before(tmp_path):
+    """Upstream's prebuilt downloads, or a patched source not yet rebuilt: no dump, because
+    an unpatched --dump-post stops before writing the model."""
+    cli = tmp_path / "trellis-cli"
+    cli.write_bytes(b"\x00\x01 plain trellis-cli \x02")
+    assert px.dump_supported(cli) is False
+    assert px.dump_supported(tmp_path / "missing") is False
+
+
+def test_the_dump_flag_goes_before_the_output():
+    command = px.with_dump(["trellis-cli", "--sv-image", "a.png", "out.glb"], Path("out.post.bin"))
+    assert command[-1] == "out.glb"
+    assert command[-3:-1] == ["--dump-post", "out.post.bin"]
+
+
+def test_the_env_asks_to_carry_on_only_when_dumping(no_rocm):
+    assert px.run_env(None, base={}, dump=True)[px.DUMP_ENV] == "1"
+    assert px.DUMP_ENV not in px.run_env(None, base={})
+
+
+def test_a_stray_dump_variable_in_the_shell_is_dropped(no_rocm):
+    assert px.DUMP_ENV not in px.run_env(None, base={px.DUMP_ENV: "1"})

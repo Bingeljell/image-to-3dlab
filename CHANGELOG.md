@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-18
+
 ### Added
 - **Cleaner game models from Pixal3D.** Finish gives Pixal3D models far cleaner game-ready
   versions, with no holes or blotches, in about 30 seconds. Applies to models made from this
-  version on. Existing installs: `python scripts/bootstrap_pixal3d.py --rebuild`.
+  version on. Macs first: existing Mac installs run `python scripts/bootstrap_pixal3d.py --rebuild`
+  once. NVIDIA installs keep the previous Finish for now; the new one follows in the next release.
 - **Report a bug**, in the studio's top bar and on any failed run. It fills in the version,
   your machine and the error (your home folder shown as `~`, your prompt only if you tick
   the box), and you read all of it before sending. Send it through assetfurnace.com (sign in

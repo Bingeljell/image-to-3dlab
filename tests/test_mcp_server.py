@@ -51,6 +51,7 @@ class FakeHttp:
     def __init__(self):
         self.posts: list[tuple[str, dict]] = []
         self.alive = True
+        self.assets = [KNIGHT, DANCER, PICTURE]
 
     def get(self, url, params=None, timeout=None):
         path = url.split("8777/", 1)[1]
@@ -60,7 +61,7 @@ class FakeHttp:
         body = {
             "api/catalog": CATALOG, "api/animate/models": PRESETS,
             "api/recipes": {"goals": {"character": {"wording": "A-pose, plain background"}}},
-            "api/assets": {"assets": [KNIGHT, DANCER, PICTURE]},
+            "api/assets": {"assets": self.assets},
             "api/chains": {"running": None, "recent": [{"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}}]},
             "api/chains/r1": {"id": "r1", "status": "done", "done": ["picture"], "made": {"picture": "images/x.png"}},
         }.get(path)
@@ -219,6 +220,27 @@ def test_remaking_a_move_it_already_has_says_so(studio):
 def test_a_picture_goes_on_to_3d_with_a_back_view_when_installed(studio):
     ms.continue_asset(studio, asset_id=PICTURE["id"], up_to="model")
     assert json.loads(sent(studio)["steps"]) == ["back", "model"]
+
+
+# The 2026-10-18 dwarf: "3D model again" made version 2, then Finish was asked for on the family id
+# (version 1), which quietly finished version 1's old model.
+OLD_GNOME = {**PICTURE, "id": "dddddddddddd", "name": "gnome", "stage": "model", "family": "dddddddddddd",
+             "version": 1, "model": "g/g_v1.glb"}
+NEW_GNOME = {**OLD_GNOME, "id": "eeeeeeeeeeee", "version": 2, "model": "g/g_v2.glb"}
+
+
+def test_continuing_says_which_version_and_file_it_starts_from(studio):
+    studio.http.assets = [OLD_GNOME, NEW_GNOME]
+    out = ms.continue_asset(studio, asset_id=NEW_GNOME["id"], up_to="finished")
+    assert out["starts_from"] == {"asset_id": "eeeeeeeeeeee", "version": 2, "file": "output/g/g_v2.glb"}
+    assert "newer_version" not in out
+
+
+def test_continuing_an_older_version_points_at_the_newer_one(studio):
+    studio.http.assets = [OLD_GNOME, NEW_GNOME]
+    out = ms.continue_asset(studio, asset_id=OLD_GNOME["id"], up_to="finished")
+    assert out["starts_from"]["file"] == "output/g/g_v1.glb"
+    assert "eeeeeeeeeeee" in out["newer_version"] and "Version 2" in out["newer_version"]
 
 
 def test_nothing_to_do_sends_nothing(studio):

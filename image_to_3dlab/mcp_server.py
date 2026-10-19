@@ -396,12 +396,40 @@ def options() -> dict[str, Any]:
     }
 
 
-def find_asset(studio: Studio, asset_id: str) -> dict[str, Any]:
-    assets = studio.get("api/assets")["assets"]
+def find_asset(studio: Studio, asset_id: str, assets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    assets = assets if assets is not None else studio.get("api/assets")["assets"]
     asset = next((a for a in assets if a["id"] == asset_id), None)
     if asset is None:
         raise StudioError(f"No asset with id {asset_id!r}. list_assets shows what there is.")
     return asset
+
+
+# The file each step starts from, so a reply can say which model it is working on.
+STARTS_FROM = {"back": "picture", "model": "picture", "finished": "model", "rigged": "finished",
+               "animated": "rigged", "split": "model"}
+
+
+def starts_from(asset: dict[str, Any], made: dict[str, str], first_step: str) -> dict[str, Any]:
+    """Which version, and which of its files, the first step reads."""
+    source = made.get(STARTS_FROM.get(first_step, ""))
+    if first_step == "rigged" and not source:
+        source = made.get("model")       # rig_from='model' rigs the raw model
+    out = {"asset_id": asset["id"], "version": asset.get("version") or 1}
+    return out | ({"file": f"output/{source}"} if source else {})
+
+
+def newer_version_note(assets: list[dict[str, Any]], asset: dict[str, Any]) -> str | None:
+    """A family id or an old version's id points at the original, not the version just made
+    (2026-10-18: Finish after "3D model again" finished the old model). Say so, rather than guess."""
+    family = asset.get("family") or asset["id"]
+    version = asset.get("version") or 1
+    newer = [a for a in assets if (a.get("family") or a["id"]) == family and (a.get("version") or 1) > version
+             and not a.get("hidden")]
+    if not newer:
+        return None
+    latest = max(newer, key=lambda a: a.get("version") or 1)
+    return (f"This works on version {version} of {asset.get('name')}. Version {latest.get('version')} "
+            f"(asset_id {latest['id']}) is newer; if that is the one meant, cancel_run and continue from its id.")
 
 
 def _upload(path: str | None, kinds: tuple[str, ...]) -> tuple[str, bytes, str] | None:
@@ -526,7 +554,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
                    finish_detail: str | int | None = None, pixel_match: bool = True,
                    advanced: dict[str, Any] | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
-    asset = find_asset(studio, asset_id)
+    assets = studio.get("api/assets")["assets"]
+    asset = find_asset(studio, asset_id, assets)
     want = want or want_for(asset)
     if up_to and up_to not in STEP_IDS:
         raise StudioError(f"up_to must be one of {', '.join(STEP_IDS)}.")
@@ -578,8 +607,11 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         if not form["first_move"]:
             raise StudioError("Animation is not set up. The studio's Setup page installs it.")
     run = studio.post("api/chains", data=form)
-    out = {"run_id": run["id"], "steps": steps, "watch": "run_status with this run_id",
-           "studio": studio.studio_link(asset_id)}
+    out = {"run_id": run["id"], "steps": steps, "starts_from": starts_from(asset, made, steps[0]),
+           "watch": "run_status with this run_id", "studio": studio.studio_link(asset_id)}
+    newer = newer_version_note(assets, asset)
+    if newer:
+        out["newer_version"] = newer
     if form.get("first_move") in {c.get("name") for c in asset.get("clips", [])}:
         out["replaces"] = (f"{asset['name']} already had {form['first_move']!r}; this makes it again and the "
                            "new one replaces the old. Tell the user.")
@@ -914,8 +946,10 @@ def build_server(studio: Studio | None = None):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
         character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
         again=True makes the up_to step again as a new version (another 3D model, another Finish at a
-        different detail, a re-rig); the current one is kept. finish_detail, pixel_match and advanced:
-        as in create (options lists every advanced knob)."""
+        different detail, a re-rig); the current one is kept. A new version has its own asset_id
+        (run_status gives it when the run is done): continue from that id to work on it, since the
+        family id is the original. finish_detail, pixel_match and advanced: as in create (options lists
+        every advanced knob)."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
                                            pixel_match=pixel_match, advanced=advanced))

@@ -91,12 +91,12 @@ RELEASE_API = "https://api.github.com/repos/Bingeljell/image-to-3dlab/releases/t
 PREBUILT_MIN_CUDA = (12, 9)
 PREBUILT_MIN_DRIVER = "575"
 PREBUILTS = {
-    "linux-nvidia": ("pixal3d-cuda12-linux-x64.tar.gz", "~640 MB"),
+    "linux-nvidia": ("pixal3d-cuda12-linux-x64.tar.gz", "~910 MB"),
     "windows-nvidia": ("pixal3d-cuda12-windows-x64.zip", "~610 MB"),
 }
 # From the workflow run's log. A download that does not match is deleted, never unpacked.
 PREBUILT_SHA256 = {
-    "pixal3d-cuda12-linux-x64.tar.gz": "",
+    "pixal3d-cuda12-linux-x64.tar.gz": "6bcdd05ca92e757c74b36c8c95b7ce7d7ac3090c6f6e61d504acbcc2363db3ab",
     "pixal3d-cuda12-windows-x64.zip": "",
 }
 

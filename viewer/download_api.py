@@ -135,7 +135,7 @@ REBUILD_MINUTES = 5
 
 
 # Our own NVIDIA download (scripts/bootstrap_pixal3d.py PREBUILTS), for the Rebuild question.
-NEW_BUILD_SIZE = "about 600 MB"
+NEW_BUILD_SIZE = "about 900 MB"
 
 
 def _pixal3d_paths(source: Path | None, cli: Path | None) -> tuple[Path, Path]:

@@ -31,7 +31,7 @@ def new_driver(monkeypatch):
 
 @pytest.mark.parametrize("key,route,size", [
     ("macos-arm64", "built from source with Metal", "Xcode"),
-    ("linux-nvidia", "CUDA 12 prebuilt", "~640 MB"),
+    ("linux-nvidia", "CUDA 12 prebuilt", "~910 MB"),
     ("windows-nvidia", "CUDA 12 prebuilt", "~610 MB"),
 ])
 def test_announcement_names_backend_route_size_and_licence(monkeypatch, new_driver,

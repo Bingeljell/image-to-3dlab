@@ -32,7 +32,12 @@ export function byDay(records, today = new Date()) {
  *  They are opaque and cover the whole stage, so anything that shows a model has to call this
  *  first: the model would otherwise load behind one and the click would look like nothing. */
 export function closeSheet(stage) {
-  stage.querySelector('.sheet')?.remove();
+  const el = stage.querySelector('.sheet');
+  if (!el) return;
+  // a sheet that set something up outside itself (Create's paste listener) undoes it here,
+  // however it is closed: its own button, or a Library click that clears the stage
+  el.onSheetClose?.();
+  el.remove();
 }
 
 function sheet(stage, inner) {

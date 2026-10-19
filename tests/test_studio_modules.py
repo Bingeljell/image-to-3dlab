@@ -929,3 +929,17 @@ def test_a_picture_file_size_reads_in_bytes_kilobytes_or_megabytes():
     out = _run("create.js", """
       console.log(JSON.stringify([0, 500, 2048, 1048575, 3145728].map(m.fileSizeText)));""")
     assert out == ["0 B", "500 B", "2 KB", "1023 KB", "3.0 MB"]
+
+
+@needs_node
+def test_closing_a_sheet_from_outside_runs_its_own_clean_up():
+    """2026-10-19 (#141): Create's paste listener outlived a sheet closed by a Library click,
+    because closeSheet only removed the element. A sheet's clean-up now always runs."""
+    out = _run("pages.js", """
+      const calls = [];
+      const el = { onSheetClose: () => calls.push('clean'), remove: () => calls.push('remove') };
+      m.closeSheet({ querySelector: () => el });
+      m.closeSheet({ querySelector: () => ({ remove: () => calls.push('plain') }) });
+      m.closeSheet({ querySelector: () => null });
+      console.log(JSON.stringify(calls));""")
+    assert out == ["clean", "remove", "plain"]

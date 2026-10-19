@@ -148,6 +148,14 @@ def test_errors_are_put_in_plain_words():
 
 
 @needs_node
+def test_install_help_for_blender_is_shown_as_it_is():
+    """2026-10-19, the first site report: a Mac with no Blender was told Blender had crashed."""
+    message = "Finish needs Blender 4.2 or newer, and none was found. Install Blender from blender.org."
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.plainError({json.dumps(message)})));")
+    assert out == message
+
+
+@needs_node
 def test_following_a_job_reports_progress_and_ends_on_a_terminal_status():
     out = _run("jobs.js", """
       const replies = [

@@ -32,6 +32,8 @@ MOVE_KEYS = ("speed", "arm_spread")
 FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
+# Steps that run headless Blender; a plan with one is checked for Blender before anything runs.
+NEEDS_BLENDER = {"finished", "split"}
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)
 
 # request(method, path, body, content_type) -> (http status, parsed JSON)
@@ -47,6 +49,10 @@ def readable_log(text: str, count: int = 4) -> str:
 def plain_error(message: str) -> str:
     """A failure in words a person can act on (the studio's jobs.js says the same)."""
     text = str(message or "")
+    # Already written for a person (how to install Blender): passed on as it is. 2026-10-19's first
+    # site report got "Blender stopped with an error, see the log" for a Mac with no Blender at all.
+    if re.search(r"Install Blender|blender\.org", text):
+        return text
     rules = [
         (r"memory|MemoryError|out of memory|Killed", "This Mac ran out of memory. Close other big apps and try again, or pick a lower detail or texture size."),
         (r"not installed|is not installed/ready|needs_setup", "This engine is not installed yet. Install it from Setup, then try again."),

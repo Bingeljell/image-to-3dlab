@@ -2482,6 +2482,12 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
+                # Before the picture and the 3D model, not ten minutes later at Finish
+                if set(chain.steps) & activity_api.NEEDS_BLENDER and find_blender() is None:
+                    self._send_json(409, {"error": blender_missing_help() + " Or make it without Finish for now: "
+                                          "stop after the 3D model, and Finish it once Blender is in.",
+                                          "needs_blender": True})
+                    return
                 self._chains().submit(chain)
             except RuntimeError as exc:
                 self._send_json(409, {"error": str(exc)})

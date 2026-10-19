@@ -76,7 +76,7 @@ def dump_beside(views: Path) -> Path | None:
 
 
 def replay_available(post_replay: Path = POST_REPLAY) -> bool:
-    """Upstream's prebuilt downloads ship trellis-cli without post-replay."""
+    """Missing from older installs: upstream's prebuilt download shipped without post-replay."""
     return post_replay.is_file()
 
 

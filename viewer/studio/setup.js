@@ -129,12 +129,14 @@ function backendCard(backend, { readOnly = false } = {}) {
     note.textContent = backend.build_hint;
     action.appendChild(note);
   }
-  // An installed build that predates one of this repo's patches (Pixal3D's 8 steps).
-  // Recompiling downloads nothing, so it gets a short question, not the size dialog.
+  // An installed build that predates one of this repo's patches (Pixal3D's 8 steps), or
+  // upstream's old NVIDIA download, which Rebuild swaps for ours (that one downloads).
   if (backend.rebuild_reason && backend.supported_here !== false) {
     const rebuild = document.createElement('button');
     rebuild.textContent = 'Rebuild';
-    rebuild.title = 'Recompile with this repo\'s latest fixes. Downloads nothing.';
+    rebuild.title = backend.rebuild_downloads
+      ? `Download the new build (${backend.rebuild_downloads}).`
+      : 'Recompile with this repo\'s latest fixes. Downloads nothing.';
     rebuild.onclick = () => confirmRebuild(backend, rebuild);
     action.appendChild(rebuild);
   }
@@ -240,9 +242,16 @@ function confirmDownload(backend, button) {
   startDownload(backend, button);
 }
 
-/** Recompile an installed build. Nothing is downloaded, so the question is short. */
+/** Recompile an installed build, or swap in the new download. Either way the question is short. */
 function confirmRebuild(backend, button) {
-  const lines = [
+  const lines = backend.rebuild_downloads ? [
+    `Update ${backend.label}?`,
+    '',
+    'This replaces the copy you have with our newer build: the new Finish and',
+    '8 sampling steps instead of 12, built for your card. Your models stay.',
+    '',
+    `It downloads ${backend.rebuild_downloads} and takes a minute or two.`,
+  ] : [
     `Rebuild ${backend.label}?`,
     '',
     'This recompiles the copy you already have so it picks up this repo\'s latest fixes',

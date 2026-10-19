@@ -6,11 +6,10 @@ machine:
 
 - **Apple Silicon:** cloned and compiled from source, because Metal kernels need the
   local Xcode toolchain. That needs full Xcode, not just the Command Line Tools.
-- **Linux or Windows with an NVIDIA card:** upstream's prebuilt CUDA 12 build, runtime
+- **Linux or Windows with an NVIDIA card:** our own CUDA 12 build of it, runtime
   included, when the driver is new enough for it (575+, i.e. CUDA 12.9). About a minute,
-  no compiler. It runs upstream's 12 steps (our 8-step patch needs a source build); on
-  NVIDIA that costs seconds, while a compile costs 15 minutes on a fast pod and far more
-  on an 8-CPU machine.
+  no compiler, and it carries our patches (8 steps, the Pixal3D Finish) and post-replay.
+  A compile costs 15 minutes on a fast pod and far more on an 8-CPU machine.
 - **Linux, driver too old for the prebuilt, CUDA toolkit present:** compiled locally for
   this card instead. `--compile` asks for that even when the prebuilt would run. With
   neither, it says which driver to install and stops.
@@ -42,6 +41,7 @@ than stored twice (or fetched, if the single-view set is not there).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -71,17 +71,18 @@ WEIGHTS_GB = 8.4
 WEIGHTS_REVISION = "46d399ac986f45a0d7f5b1ca5058614d8729a131"
 MATTE_REVISION = "a57397bd3d351599d9729fc144b3f87c3f87d65b"
 
-# Pinned, not "latest": every upstream release so far is a pre-release, and a prebuilt
-# that has been run end to end is worth more than a newer one that has not.
-PREBUILT_RELEASE = "v0.10.1-desktop-alpha"
-# The commit that tag points at. A tag can be moved; a commit cannot, so the CUDA source
-# build fetches this.
+# The upstream commit every NVIDIA and AMD build uses: upstream's v0.10.1-desktop-alpha,
+# run end to end on NVIDIA. A tag can be moved; a commit cannot.
 PREBUILT_COMMIT = "1f432fd3f0689c504fa1e9b15b038c33584174d1"
 # The Mac source build's commit: the one every patch here (steps, dump, shape reuse for skins) was
 # built and run on. Upstream's newest could change what a saved shape means; move this only after
 # testing a skin end to end on the new commit.
 MAC_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
-RELEASE_API = "https://api.github.com/repos/raven38/pixal3d.cpp/releases/tags/{tag}"
+# Our own download of that commit (.github/workflows/pixal3d-nvidia.yml), not upstream's:
+# theirs is compiled for 2016-17 cards only and lacks our patches (8 steps, and the clean-up
+# dump the Pixal3D Finish reruns) and post-replay. A pre-release on this repo.
+PREBUILT_RELEASE = "pixal3d-nvidia-1f432fd-r1"
+RELEASE_API = "https://api.github.com/repos/Bingeljell/image-to-3dlab/releases/tags/{tag}"
 
 # CUDA 12 rather than upstream's unversioned CUDA build (which is newer): CUDA 12 runs on
 # older drivers, and the runtime is bundled either way. "Older" has a floor, though: the
@@ -90,8 +91,13 @@ RELEASE_API = "https://api.github.com/repos/raven38/pixal3d.cpp/releases/tags/{t
 PREBUILT_MIN_CUDA = (12, 9)
 PREBUILT_MIN_DRIVER = "575"
 PREBUILTS = {
-    "linux-nvidia": ("trellis-cuda12-linux-x64.tar.gz", "~640 MB"),
-    "windows-nvidia": ("trellis-cuda12-windows-x64.zip", "~610 MB"),
+    "linux-nvidia": ("pixal3d-cuda12-linux-x64.tar.gz", "~640 MB"),
+    "windows-nvidia": ("pixal3d-cuda12-windows-x64.zip", "~610 MB"),
+}
+# From the workflow run's log. A download that does not match is deleted, never unpacked.
+PREBUILT_SHA256 = {
+    "pixal3d-cuda12-linux-x64.tar.gz": "",
+    "pixal3d-cuda12-windows-x64.zip": "",
 }
 
 # What the "Building (...)" line says, so a compile that runs for 20 minutes names the
@@ -257,6 +263,22 @@ def build_present() -> bool:
     return cli_path().exists()
 
 
+def build_stale(build: Path = BUILD) -> bool:
+    """An install from before our own download: upstream's prebuilt never had post-replay."""
+    return not host.executable(build, "post-replay").exists()
+
+
+def verify_download(archive: Path, expected: str) -> None:
+    digest = hashlib.sha256()
+    with archive.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        archive.unlink(missing_ok=True)
+        raise SystemExit(f"{archive.name} failed its checksum (got {digest.hexdigest()}); "
+                         "deleted it. Run this again; if it repeats, report a bug.")
+
+
 def pick_prebuilt(assets: list[dict], key: str) -> dict | None:
     wanted = PREBUILTS[key][0]
     return next((a for a in assets if a.get("name") == wanted), None)
@@ -283,7 +305,7 @@ def unpack_prebuilt(archive: Path, destination: Path) -> Path:
     cli = host.executable(destination, "trellis-cli")
     if not cli.exists():
         raise SystemExit(f"{archive.name} contained no trellis-cli.")
-    for name in ("trellis-cli", "trellis-server"):
+    for name in ("trellis-cli", "post-replay"):
         path = host.executable(destination, name)
         if path.exists() and not path.is_symlink():
             path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -305,6 +327,7 @@ def install_prebuilt(key: str) -> Path:
     archive = VENDOR / asset["name"]
     print(f"Downloading {asset['name']} ({asset.get('size', 0) / 1e6:.0f} MB)...", flush=True)
     urllib.request.urlretrieve(asset["browser_download_url"], archive)
+    verify_download(archive, PREBUILT_SHA256[asset["name"]])
     try:
         cli = unpack_prebuilt(archive, BUILD)
     finally:
@@ -653,15 +676,16 @@ def rebuild_existing(runner=subprocess.run) -> Path:
     return cli_path()
 
 
-def build_decision(present: bool, rebuild: bool, kind: str) -> str:
+def build_decision(present: bool, rebuild: bool, kind: str, stale: bool = False) -> str:
     """What to do about trellis-cli: "install", "keep", "rebuild" or "cannot-rebuild".
 
     An existing build is normally left alone. `--rebuild` recompiles a source build so it
     picks up this repo's patches (the 8-step default needs scripts/patch_pixal3d_steps.py
     compiled in); only the changed files rebuild, so it takes minutes and fetches no
-    models. A prebuilt download has no source to patch, so it says so instead.
+    models. A prebuilt download has no source to patch, so it says so instead; upstream's
+    old one (`stale`) is swapped for ours, which has the patches.
     """
-    if not present:
+    if not present or (kind == "prebuilt" and stale):
         return "install"
     if not rebuild:
         return "keep"
@@ -682,8 +706,8 @@ def main(argv: list[str] | None = None) -> int:
                              "repo's patches (e.g. the 8-step default). No downloads.")
     parser.add_argument("--compile", action="store_true",
                         help="Compile for this card with nvcc even when the prebuilt would "
-                             "run: ~2x faster per model, 15+ minutes once. AMD already "
-                             "compiles; there is no prebuilt to skip.")
+                             "run: 15+ minutes once. AMD already compiles; there is no "
+                             "prebuilt to skip.")
     parser.add_argument("--multiview", action="store_true",
                         help=f"Fetch the front + back (multi-view) weights only, "
                              f"{MV_GB:.1f} GB. Needs trellis-cli from a normal install.")
@@ -693,7 +717,7 @@ def main(argv: list[str] | None = None) -> int:
     kind = current_kind(key, args.compile)
     build = not args.weights_only and not args.multiview
     weights = not args.build_only and not args.multiview
-    decision = build_decision(build_present(), args.rebuild, kind) if build else None
+    decision = build_decision(build_present(), args.rebuild, kind, build_stale()) if build else None
     # No compiler only matters when something is about to be compiled. An AMD machine
     # whose build is already there can still fetch weights, or the multi-view set.
     if kind is None and (key is None or decision in ("install", "rebuild")):
@@ -717,8 +741,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\ntrellis-cli is already installed at {cli_path()}, leaving it alone "
                   "(--rebuild recompiles it with this repo's patches).")
         elif decision == "cannot-rebuild":
-            print("\nThis machine uses the prebuilt trellis-cli download, which cannot be "
-                  "patched or rebuilt; it keeps its stock settings (12 steps).")
+            print("\nThis machine uses our prebuilt trellis-cli download, which already has "
+                  "this repo's patches; there is nothing to rebuild.")
         elif decision == "rebuild":
             print(f"\nRebuilding trellis-cli at {cli_path()} with this repo's patches.")
             rebuild_existing()

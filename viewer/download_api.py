@@ -43,7 +43,7 @@ from backend_catalog import (
     runs_on_phrase,
 )
 
-from image_to_3dlab import processes
+from image_to_3dlab import host, processes
 
 POLL_SECONDS = 2.0
 STALL_SECONDS = 90.0
@@ -134,23 +134,50 @@ REBUILDS: dict[str, list[str]] = {
 REBUILD_MINUTES = 5
 
 
-def rebuild_reason(backend_id: str, source: Path | None = None,
-                   cli: Path | None = None) -> str | None:
-    """Why this backend's build should be recompiled, or None when it is fine as it is.
+# Our own NVIDIA download (scripts/bootstrap_pixal3d.py PREBUILTS), for the Rebuild question.
+NEW_BUILD_SIZE = "about 600 MB"
 
-    Only a source build can be rebuilt: no trellis-cli means nothing is installed yet (the
-    Set up button covers that), and no flow_runner.cpp means a prebuilt download, which
-    has no source to patch.
+
+def _pixal3d_paths(source: Path | None, cli: Path | None) -> tuple[Path, Path]:
+    sys.path.insert(0, str(REPO / "scripts"))
+    import pixal3d_generate
+
+    return source or pixal3d_generate.FLOW_SOURCE, cli or pixal3d_generate.CLI
+
+
+def rebuild_download(backend_id: str, source: Path | None = None,
+                     cli: Path | None = None) -> str | None:
+    """What a Rebuild downloads, or None when it only recompiles.
+
+    A prebuilt (no source) without post-replay is upstream's old NVIDIA download; Rebuild
+    swaps it for our own, which has the patches.
     """
     if backend_id not in REBUILDS:
+        return None
+    source, cli = _pixal3d_paths(source, cli)
+    if not cli.is_file() or source.is_file():
+        return None
+    return None if host.executable(cli.parent, "post-replay").exists() else NEW_BUILD_SIZE
+
+
+def rebuild_reason(backend_id: str, source: Path | None = None,
+                   cli: Path | None = None) -> str | None:
+    """Why this backend's build should be recompiled (or, for upstream's old prebuilt,
+    replaced), or None when it is fine as it is.
+
+    No trellis-cli means nothing is installed yet (the Set up button covers that).
+    """
+    if backend_id not in REBUILDS:
+        return None
+    source, cli = _pixal3d_paths(source, cli)
+    if rebuild_download(backend_id, source, cli):
+        return ("An older download: the new one adds the new Finish and 8 sampling steps "
+                f"({NEW_BUILD_SIZE}).")
+    if not cli.is_file() or not source.is_file():
         return None
     sys.path.insert(0, str(REPO / "scripts"))
     import pixal3d_generate
 
-    source = source or pixal3d_generate.FLOW_SOURCE
-    cli = cli or pixal3d_generate.CLI
-    if not cli.is_file() or not source.is_file():
-        return None
     problem = pixal3d_generate.steps_problem(pixal3d_generate.FAST_STEPS, source, cli)
     if problem is None and not pixal3d_generate.shape_supported(cli):
         # Built before skins: its models keep no shape, so none can take a new skin.
@@ -227,6 +254,7 @@ class DownloadRun:
     def __init__(self, backend: Backend, rebuild: bool = False):
         self.backend = backend
         self.rebuild = rebuild
+        self.downloads = rebuild_download(backend.id) if rebuild else None
         self.command = command_for(backend.id, rebuild=rebuild)
         self.status = "queued"
         self.started = time.monotonic()
@@ -396,7 +424,8 @@ def _run(run: DownloadRun) -> None:
         run.emit({"phase": "error", "overall_pct": 0, "detail": f"cannot start: {missing}"})
         return
     run.emit({"phase": "queued", "overall_pct": 0,
-              "detail": "starting the rebuild · nothing to download" if run.rebuild else
+              "detail": f"starting · downloading the new build, {run.downloads}" if run.downloads else
+                        "starting the rebuild · nothing to download" if run.rebuild else
                         f"starting · {human_bytes(run.backend.bytes_expected)} expected"})
     stop = threading.Event()
     if measures_bytes(run):

@@ -77,13 +77,13 @@ def record_release(destination: Path, tag: str) -> None:
     (destination / RELEASE_FILE).write_text(tag + "\n", encoding="utf-8")
 
 
-def installed_release(destination: Path = VENDOR) -> str | None:
+def installed_release(destination: Path | None = None) -> str | None:
     """Which release is installed; None for installs from before we kept a record."""
-    path = destination / RELEASE_FILE
+    path = (destination or VENDOR) / RELEASE_FILE
     return path.read_text(encoding="utf-8").strip() or None if path.is_file() else None
 
 
-def binary_stale(destination: Path = VENDOR) -> bool:
+def binary_stale(destination: Path | None = None) -> bool:
     """A pinned machine running any other release (or one we never recorded)."""
     key = target()
     return key in PINNED and installed_release(destination) != PINNED[key]
@@ -193,7 +193,8 @@ def pick_assets(assets: list[dict], build: Build) -> list[dict]:
     return picked
 
 
-def install_binary(destination: Path = VENDOR) -> Path:
+def install_binary(destination: Path | None = None) -> Path:
+    destination = destination or VENDOR
     key = target()
     build = BUILDS.get(key)
     if build is None:

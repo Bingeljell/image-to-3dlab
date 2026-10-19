@@ -29,6 +29,25 @@ def _load():
 
 
 boot = _load()
+REAL_INSTALL_BINARY = boot.install_binary
+
+
+@pytest.fixture(autouse=True)
+def no_real_install(monkeypatch, tmp_path):
+    """Never the real vendor/sdcpp, never the network. On 2026-10-19 a test that ran main()
+    reached the real install_binary and put the Linux engine over a working Mac one."""
+    monkeypatch.setattr(boot, "VENDOR", tmp_path / "sdcpp")
+    monkeypatch.setattr(boot, "BINARY", tmp_path / "sdcpp" / "sd-cli")
+    # a test that says the engine is installed means the current one, unless it says otherwise
+    (tmp_path / "sdcpp").mkdir()
+    boot.record_release(tmp_path / "sdcpp", boot.PINNED_RELEASE)
+    monkeypatch.setattr(boot, "install_binary",
+                        lambda *a, **k: pytest.fail("a test reached the real engine download"))
+
+    def offline(*a, **k):
+        raise AssertionError("a test reached the network")
+    monkeypatch.setattr(boot.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(boot.urllib.request, "urlretrieve", offline)
 
 
 def test_announcement_names_backend_route_size_and_licence():
@@ -243,7 +262,7 @@ def test_install_refuses_an_unsupported_machine_before_touching_the_network(monk
     monkeypatch.setattr(boot.urllib.request, "urlopen",
                         lambda *a, **k: pytest.fail("went to the network"))
     with pytest.raises(SystemExit, match="no prebuilt"):
-        boot.install_binary()
+        REAL_INSTALL_BINARY()
 
 
 def test_finish_install_flattens_and_marks_executable(tmp_path, monkeypatch):

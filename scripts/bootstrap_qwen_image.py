@@ -40,12 +40,13 @@ from image_to_3dlab.sdcpp import NO_AMD_GPU_HELP, NO_GPU_HELP, gpu_found
 VENDOR = REPO / "vendor" / "sdcpp"
 BINARY = host.executable(VENDOR, "sd-cli")
 RELEASES = "https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/{which}"
-# Machines whose engine is pinned to a release we measured. On a Mac, the 22 Sep build took
-# 134 s of a 249 s picture just decoding it (its Metal path for the VAE's 3D convolutions was
-# slow); master-975 decodes in 10 s, same weights, same settings (2026-10-19). Other machines
-# still take the latest release until one of their builds is tested: master-975's AMD build
-# targets ROCm 10.1, where the one before targeted 7.14.
-PINNED = {"macos-arm64": "master-975-95b3090"}
+# Every machine's engine is pinned to one release, so a fresh install gets what was tested
+# rather than whatever upstream pushed last. On a Mac, the 22 Sep build took 134 s of a 249 s
+# picture just decoding it (its Metal path for the VAE's 3D convolutions was slow); master-975
+# decodes in 10 s, same weights, same settings (2026-10-19). Measured on the Mac only; the
+# others take it as an upgrade until tested (its AMD build targets ROCm 10.1, the one before 7.14).
+PINNED_RELEASE = "master-975-95b3090"
+PINNED = dict.fromkeys(("macos-arm64", "windows-nvidia", "linux-nvidia", "linux-amd"), PINNED_RELEASE)
 RELEASE_FILE = "release.txt"
 
 # (repo, filename, approximate gigabytes). These are the files the upstream Qwen-Image 2.1

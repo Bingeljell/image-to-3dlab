@@ -115,10 +115,25 @@ def test_an_existing_binary_is_not_redownloaded(monkeypatch, capsys):
 
 
 # --- The pinned engine (2026-10-19): the Sept build took 134 s to decode one picture on Metal,
-# master-975 takes 10 s. Mac is pinned and updated in place; other machines keep "latest".
-def test_mac_fetches_the_pinned_release_and_others_the_latest():
-    assert boot.release_url("macos-arm64").endswith("/releases/tags/" + boot.PINNED["macos-arm64"])
-    assert boot.release_url("linux-amd").endswith("/releases/latest")
+# master-975 takes 10 s. Every machine is pinned and updated in place.
+def test_every_machine_with_a_build_is_pinned_to_one_release():
+    assert set(boot.PINNED) == set(boot.BUILDS)
+    for key in boot.BUILDS:
+        assert boot.release_url(key).endswith("/releases/tags/" + boot.PINNED_RELEASE)
+    assert boot.release_url(None).endswith("/releases/latest")
+
+
+def test_the_pinned_release_has_every_build_we_install():
+    """Its asset list, 2026-10-18: one archive (or two, for Windows) per machine type."""
+    assets = [{"name": n} for n in (
+        "cudart-sd-bin-win-cu12-x64.zip", "sd-master-95b3090-bin-Darwin-macOS-26.6.2-arm64.zip",
+        "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-rocm-10.1.0.zip",
+        "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip",
+        "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64.zip", "sd-master-95b3090-bin-win-cpu-x64.zip",
+        "sd-master-95b3090-bin-win-cuda12-x64.zip", "sd-master-95b3090-bin-win-rocm-10.1.0-x64.zip",
+        "sd-master-95b3090-bin-win-vulkan-x64.zip")]
+    for build in boot.BUILDS.values():
+        assert len(boot.pick_assets(assets, build)) == len(build.assets)
 
 
 def test_the_installed_release_is_recorded_and_read_back(tmp_path):
@@ -131,8 +146,10 @@ def test_the_installed_release_is_recorded_and_read_back(tmp_path):
     ("macos-arm64", None, True),                     # installed before we kept a record
     ("macos-arm64", "master-899-28b454b", True),
     ("macos-arm64", "master-975-95b3090", False),
-    ("linux-amd", None, False),                      # not pinned: left as it is
-    ("windows-nvidia", "master-899-28b454b", False),
+    ("linux-amd", None, True),
+    ("windows-nvidia", "master-899-28b454b", True),
+    ("linux-nvidia", "master-975-95b3090", False),
+    (None, None, False),                             # no build for this machine at all
 ])
 def test_only_a_pinned_machine_on_another_release_is_stale(monkeypatch, tmp_path, key, installed, stale):
     monkeypatch.setattr(boot, "target", lambda: key)

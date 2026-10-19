@@ -314,6 +314,7 @@ class ImageJob:
     prompt: str
     settings: dict[str, Any]
     reference: Path | None = None   # an edit: Qwen reads this picture (a back view's front)
+    mode: str = "edit (back view)"  # what kind of edit, for the provenance record
 
     def __post_init__(self) -> None:
         self.status = "queued"
@@ -351,8 +352,12 @@ class ImageJob:
         }
 
     def picture_path(self) -> str:
-        """Where the picture sits relative to output/, as the studio's Library names it."""
-        return f"images/{self.directory.name}/{self.output_path.name}"
+        """Where the picture sits relative to output/, as the studio's Library names it.
+        Usually images/<run>/, but a skin's tries live in skins/<id>/."""
+        try:
+            return self.output_path.relative_to(OUTPUT_ROOT.parent).as_posix()
+        except ValueError:
+            return f"images/{self.directory.name}/{self.output_path.name}"
 
 
 class ImageJobManager:
@@ -365,7 +370,7 @@ class ImageJobManager:
         self.active: str | None = None
 
     def create(self, prompt: str, settings: dict[str, Any], output_path: Path | None = None,
-               reference: Path | None = None) -> ImageJob:
+               reference: Path | None = None, mode: str = "edit (back view)") -> ImageJob:
         with self.lock:
             if self.active is not None:
                 running = self.jobs.get(self.active)
@@ -377,7 +382,7 @@ class ImageJobManager:
                 output_path = self.output_root / name / f"{name}.png"
             directory = output_path.parent
             directory.mkdir(parents=True, exist_ok=True)
-            job = ImageJob(uuid.uuid4().hex, directory, output_path, prompt, settings, reference)
+            job = ImageJob(uuid.uuid4().hex, directory, output_path, prompt, settings, reference, mode)
             self.jobs[job.id] = job
             self.active = job.id
             return job
@@ -499,7 +504,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             sidecar = job.output_path.with_suffix(".provenance.json")
             record = provenance(job.prompt, job.settings, elapsed, job.output_path)
             if job.reference:
-                record["reference"] = {"picture": job.reference.name, "mode": "edit (back view)"}
+                record["reference"] = {"picture": job.reference.name, "mode": job.mode}
             sidecar.write_text(json.dumps(record, indent=2))
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))
@@ -518,6 +523,15 @@ MANAGER = ImageJobManager()
 
 def start_back(front: Path, seed: int = 3) -> ImageJob:
     job = create_back_job(MANAGER, front, seed)
+    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    return job
+
+
+def start_edit(reference: Path, output_path: Path, prompt: str, seed: int,
+               mode: str = "edit (skin)") -> ImageJob:
+    """Qwen redraws `reference` as `prompt` asks, into `output_path` (a skin's picture try)."""
+    job = MANAGER.create(prompt, clean_settings({"seed": seed}), output_path=output_path,
+                         reference=reference, mode=mode)
     threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
     return job
 

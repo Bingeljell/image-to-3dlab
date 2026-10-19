@@ -7,6 +7,26 @@ import { openPromptGuide, isGuideLink } from './guide.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
+const PICTURE_EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+/** A file size in the unit a person reads: "0.0 MB" for a tiny screenshot says nothing. */
+export function fileSizeText(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${Math.floor(bytes / 1024)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+/**
+ * The picture on the clipboard (a screenshot, "Copy image" in a browser), as a File Create can
+ * take, or null when the clipboard holds no PNG, JPG or WebP. Clipboard images often arrive with
+ * no usable name, so they get one that carries the right extension.
+ */
+export function pastedPicture(clipboard, now = Date.now) {
+  const image = [...(clipboard?.files || [])].find((file) => PICTURE_EXTENSIONS[file.type]);
+  if (!image) return null;
+  if (PICTURE_TYPES.test(image.name || '')) return image;
+  return new File([image], `pasted-${now()}.${PICTURE_EXTENSIONS[image.type]}`, { type: image.type });
+}
 
 /**
  * The picture job's settings from Create's choices. A new seed each time by default, so the
@@ -29,13 +49,27 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
-  const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null,
+  const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
     pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false,
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
-  const close = () => sheet.remove();
+  // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
+  const onPaste = (e) => {
+    const picture = pastedPicture(e.clipboardData);
+    if (!picture) return;
+    e.preventDefault();
+    takeFile(picture);
+  };
+  document.addEventListener('paste', onPaste);
+  // the chosen picture, shown back so you can tell it is the right one; the URL is released when it changes
+  const setFile = (file) => {
+    if (state.preview) URL.revokeObjectURL(state.preview);
+    state.file = file;
+    state.preview = file && (file.type.startsWith('image/') || PICTURE_TYPES.test(file.name)) ? URL.createObjectURL(file) : null;
+  };
+  const close = () => { document.removeEventListener('paste', onPaste); setFile(null); sheet.remove(); };
 
   const render = () => {
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
@@ -50,7 +84,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ? `<label class="field">Describe it<textarea data-k="text" rows="3" placeholder="${state.want === 'character' ? 'A stylised orc blacksmith with short tusks, a braided beard and heavy boots' : state.want === 'picture' ? 'Concept art of an orc blacksmith at a glowing forge' : 'A weathered wooden tavern barrel with iron bands'}">${esc(state.text)}</textarea></label>
          ${recipe?.wording ? `<label class="check addline"><input type="checkbox" data-k="recipe" ${state.useRecipe ? 'checked' : ''}><span><b>We add:</b> ${esc(recipe.wording)}</span></label>` : ''}
          <div class="warnings" aria-live="polite"></div>`
-      : `<div class="drop" data-drop tabindex="0" role="button">${state.file ? `<b>${esc(state.file.name)}</b><br><span class="hint">${(state.file.size / 1048576).toFixed(1)} MB · click or drop another to replace</span>` : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, or click to choose`}</div>`;
+      : `<div class="drop" data-drop tabindex="0" role="button">${state.file ? `${state.preview ? `<img class="droppreview" src="${state.preview}" alt="The picture you chose">` : ''}<b>${esc(state.file.name)}</b><br><span class="hint">${fileSizeText(state.file.size)} · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>` : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`}</div>`;
     sheet.innerHTML = `<form class="sheet-card" novalidate>
       <div class="sheet-top"><h2>What should we <span>make?</span></h2><button type="button" class="ghost" data-close>Cancel</button></div>
       <div class="quick">${quick.map(([w, h, t]) => `<button type="button" class="qs${w === state.want && h === state.have ? ' on' : ''}" data-w="${w}" data-h="${h}">${t}</button>`).join('')}</div>
@@ -86,7 +120,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
 
   const takeFile = (file) => {
     if (!file) return;
-    state.file = file;
+    setFile(file);
     state.have = /\.glb$/i.test(file.name) ? 'model' : PICTURE_TYPES.test(file.name) ? 'picture' : state.have;
     render();
   };
@@ -94,10 +128,10 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   function wire(active) {
     const q = (sel) => sheet.querySelector(sel);
     q('[data-close]').onclick = close;
-    sheet.querySelectorAll('[data-have]').forEach((b) => b.onclick = () => { state.have = b.dataset.have; state.file = null; state.stop = null; render(); });
+    sheet.querySelectorAll('[data-have]').forEach((b) => b.onclick = () => { state.have = b.dataset.have; setFile(null); state.stop = null; render(); });
     sheet.querySelectorAll('[data-want]').forEach((b) => b.onclick = () => { state.want = b.dataset.want; state.stop = null; render(); });
     sheet.querySelectorAll('[data-stop]').forEach((b) => b.onclick = () => { state.stop = state.stop === b.dataset.stop ? null : b.dataset.stop; render(); });
-    sheet.querySelectorAll('.qs').forEach((b) => b.onclick = () => { state.want = b.dataset.w; state.have = b.dataset.h; state.file = null; state.stop = null; render(); });
+    sheet.querySelectorAll('.qs').forEach((b) => b.onclick = () => { state.want = b.dataset.w; state.have = b.dataset.h; setFile(null); state.stop = null; render(); });
     q('[data-tips]')?.addEventListener('click', () => { state.tips = !state.tips; render(); });
     // the tips' "picture guide" link opens here, over Create, instead of on GitHub
     q('.tipsbox')?.addEventListener('click', (e) => {
@@ -129,8 +163,9 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       const fail = (message) => { error.textContent = message; error.hidden = false; };
       if (state.have === 'idea' && !state.text.trim()) return fail('Describe what you want first.');
       if (state.have !== 'idea' && !state.file) return fail(`Choose ${state.have === 'model' ? 'a GLB' : 'a picture'} first.`);
+      const { file } = state;   // closing the sheet clears state.file, so take it first
       close();
-      onStart({ have: state.have, want: state.want, steps: active, file: state.file, engine: state.engine, firstMove: state.firstMove,
+      onStart({ have: state.have, want: state.want, steps: active, file, engine: state.engine, firstMove: state.firstMove,
         description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
         modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture

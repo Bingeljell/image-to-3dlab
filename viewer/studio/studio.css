@@ -226,6 +226,7 @@ textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); bord
 .warnings { display: grid; gap: 6px; }
 .drop { border: 1px dashed var(--line-hi); border-radius: 12px; padding: 18px; text-align: center; color: var(--ash); background: #110d0b; cursor: pointer; }
 .drop:hover { border-color: var(--ember); }
+.drop .droppreview { display: block; margin: 0 auto 10px; max-width: 100%; max-height: 260px; border-radius: 8px; background: repeating-conic-gradient(#1b1512 0 25%, #14100e 0 50%) 0 / 14px 14px; }
 .wants { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 @media (max-width: 760px) { .wants { grid-template-columns: repeat(2, 1fr); } }
 .kind { border: 1px solid var(--line); border-radius: 12px; background: var(--raise); padding: 12px; text-align: left; display: grid; gap: 4px; }

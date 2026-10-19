@@ -109,6 +109,7 @@ export function skinCardHtml(asset, drafts, viewing, url) {
       <details class="adv"${!skins.length && !drafts.length ? ' open' : ''}><summary>New skin</summary>
         <p class="hint">Say what to change. You approve the new front picture, then the back, before anything is painted. The model's rig and moves still fit.</p>
         <label class="field">What to change<textarea data-k="change" rows="2" placeholder="Make the skirt gold"></textarea></label>
+        <label class="field">Name (optional, for the skin list and game engines)<input type="text" data-k="name" maxlength="60" placeholder="Gold skirt"></label>
         <button class="primary" data-skin-new>Draw the new picture</button>
       </details>
     </div></li>`;
@@ -162,7 +163,8 @@ export async function mountSkins(list, asset, ctx) {
     if (!change) { note('Say what to change, for example "make the skirt gold".'); return; }
     event.target.disabled = true;
     try {
-      const made = await call('/api/skins', { asset: asset.id, instruction: change });
+      const name = card.querySelector('[data-k="name"]').value.trim();
+      const made = await call('/api/skins', { asset: asset.id, instruction: change, ...(name ? { name } : {}) });
       follow(made.skin.id);
     } catch (error) { note(error.message); event.target.disabled = false; }
   };

@@ -71,6 +71,18 @@ def edit_prompt(instruction: str, side: str) -> str:
             "the same plain background and the same lighting. Do not add or remove any part.")
 
 
+def skin_name(instruction: str, name: str | None = None) -> str:
+    """What the skin is called in the studio and in game engines' variant lists: the name given,
+    or the change asked for without its "make the" ("Make the boots white" -> "Boots white")."""
+    chosen = " ".join(str(name or "").split())[:60]
+    if chosen:
+        return chosen
+    words = re.sub(r"^(please\s+)?(make|change|turn|paint|give)\s+(the\s+|her\s+|his\s+|its\s+|their\s+)?",
+                   "", instruction.strip(), flags=re.IGNORECASE).rstrip(". ")
+    words = words or instruction.strip()
+    return (words[:1].upper() + words[1:])[:60]
+
+
 def slug(text: str, limit: int = 32) -> str:
     words = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return words[:limit].rstrip("-") or "skin"
@@ -221,7 +233,7 @@ class SkinStore:
         if len(instruction) > MAX_INSTRUCTION:
             raise SkinError(f"Keep the change under {MAX_INSTRUCTION} characters.")
         base = base_from_asset(self.output, asset)
-        skin = Skin(name=(name or instruction)[:60].strip(), instruction=instruction, base=base)
+        skin = Skin(name=skin_name(instruction, name), instruction=instruction, base=base)
         self.save(skin)
         return skin
 

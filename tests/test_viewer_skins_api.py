@@ -583,3 +583,13 @@ def test_two_rigs_of_one_model_get_their_own_dressed_files(output):
     _write(output / first, _glb(b"RIG-ONE"))
     _write(output / second, _glb(b"RIG-TWO"))
     assert sk.dressed(output, skin, first) != sk.dressed(output, skin, second)
+
+
+@pytest.mark.parametrize("instruction, name, expected", [
+    ("Make the boots white fur boots", None, "Boots white fur boots"),
+    ("make her skirt gold.", None, "Skirt gold"),
+    ("silver armour, red cloak", None, "Silver armour, red cloak"),
+    ("Make the boots white fur boots", "  Fur   boots ", "Fur boots"),
+])
+def test_a_skin_gets_a_short_name_for_lists_and_game_engines(instruction, name, expected):
+    assert sk.skin_name(instruction, name) == expected

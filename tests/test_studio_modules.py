@@ -922,3 +922,10 @@ def test_a_picture_on_the_clipboard_becomes_a_named_file_and_anything_else_is_ig
         second: m.pastedPicture({ files: [file('notes.txt', 'text/plain'), file('', 'image/webp')] }, () => 9).name }));""")
     assert out == {"named": "image.png", "unnamed": ["pasted-5.jpg", "image/jpeg"], "gif": None,
                    "text": None, "none": None, "second": "pasted-9.webp"}
+
+
+@needs_node
+def test_a_picture_file_size_reads_in_bytes_kilobytes_or_megabytes():
+    out = _run("create.js", """
+      console.log(JSON.stringify([0, 500, 2048, 1048575, 3145728].map(m.fileSizeText)));""")
+    assert out == ["0 B", "500 B", "2 KB", "1023 KB", "3.0 MB"]

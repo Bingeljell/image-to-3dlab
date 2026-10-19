@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Paste a picture into Create.** With "A picture" chosen, press Ctrl+V to use an image from
   your clipboard (a screenshot, or "Copy image" from a browser) instead of saving it to a file
-  first. Text pastes are left alone.
+  first. Text pastes are left alone. Create now shows the picture you chose, pasted, dropped or
+  picked, above its name, and gives small files in KB instead of "0.0 MB".
 
 ## [0.4.6] - 2026-10-18
 

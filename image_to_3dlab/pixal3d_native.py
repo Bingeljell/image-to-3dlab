@@ -49,9 +49,22 @@ PIPELINE_FRAME = np.array([[1.0, 0.0, 0.0],
                            [0.0, 0.0, -1.0],
                            [0.0, 1.0, 0.0]])
 
-# How far each bound may sit from the raw model's, as a share of its largest size. The
-# right frame lands within ~0.1%; the wrong half turn misses by ~2% on a lopsided model.
-FRAME_TOLERANCE = 0.005
+# The frame check asks which way round the clean-up fits the raw model best, not whether it
+# fits within a fixed limit: the clean-up smooths tips off (0.9% on the 2026-10-19 gnoll's
+# mane) while a wrong half turn can miss by as little as 1.3%. The mistakes it guards
+# against, as maps from the converted model's bounds to where the raw model would be:
+WRONG_FRAMES = {
+    "turned round": np.array([-1.0, 1.0, -1.0]),    # a half turn about the up axis
+    "mirrored": np.array([-1.0, 1.0, 1.0]),          # left and right swapped
+}
+# Only a clear win counts: a symmetric model fits about as well either way round.
+CLEAR_WIN = 0.8
+# Beyond this, whichever way round, the clean-up is not the raw model's shape at all.
+FRAME_TOLERANCE = 0.03
+
+
+class FrameMismatch(Exception):
+    """The clean-up's model does not sit where the raw model does."""
 
 INDEX_TYPES = {5121: "<u1", 5123: "<u2", 5125: "<u4"}
 
@@ -107,15 +120,24 @@ def frame_problem(raw_bounds: np.ndarray, out_bounds: np.ndarray,
     """Why the converted model does not sit where the raw model does, or None.
 
     Every bound is compared, low and high per axis: sizes alone match after a wrong half
-    turn, and that is exactly the mistake that paints the front picture on the back.
+    turn, and that is exactly the mistake that paints the front picture on the back. The
+    model is wrong when turned round or mirrored it would fit clearly better.
     """
     raw, out = np.asarray(raw_bounds, float), np.asarray(out_bounds, float)
     size = float(np.ptp(raw, axis=0).max()) or 1.0
-    worst = float(np.abs(raw - out).max()) / size
-    if worst > tolerance:
-        return (f"the clean-up's model sits {worst:.1%} away from the raw model "
-                f"(allowed {tolerance:.1%}); its frame is wrong, so Pixel Match would "
-                "paint the wrong side")
+
+    def miss(bounds: np.ndarray) -> float:
+        return float(np.abs(raw - bounds).max()) / size
+
+    here = miss(out)
+    for name, flip in WRONG_FRAMES.items():
+        moved = np.sort(out * flip, axis=0)            # a flipped axis swaps its low and high
+        if miss(moved) < CLEAR_WIN * here:
+            return (f"the clean-up's model fits {miss(moved):.1%} {name} against {here:.1%} as "
+                    "it is; its frame is wrong, so Pixel Match would paint the wrong side")
+    if here > tolerance:
+        return (f"the clean-up's model sits {here:.1%} away from the raw model "
+                f"(allowed {tolerance:.1%}); it is not the same shape")
     return None
 
 
@@ -183,8 +205,8 @@ def native_retopo(dump: Path, raw_glb: Path, output: Path, faces: int, atlas: in
                   log: Path, post_replay: Path = POST_REPLAY, runner=subprocess.run) -> dict:
     """Run the clean-up at `faces`, convert it, check it against the raw model, write it.
 
-    Returns what it did, for the run record. Raises on a frame mismatch rather than
-    handing Pixel Match a model it would paint backwards.
+    Returns what it did, for the run record. Raises FrameMismatch rather than handing
+    Pixel Match a model it would paint backwards.
     """
     replayed = output.with_name(output.stem + ".replay.glb")
     with open(log, "w") as handle:
@@ -193,7 +215,7 @@ def native_retopo(dump: Path, raw_glb: Path, output: Path, faces: int, atlas: in
     converted = convert_replay_glb(replayed.read_bytes())
     problem = frame_problem(glb_bounds(raw_glb.read_bytes()), glb_bounds(converted))
     if problem:
-        raise SystemExit(f"Pixal3D clean-up: {problem}")
+        raise FrameMismatch(f"Pixal3D clean-up: {problem}")
     output.write_bytes(converted)
     replayed.unlink(missing_ok=True)
     document, _ = parse_glb(converted)

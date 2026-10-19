@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first. Text pastes are left alone. Create now shows the picture you chose, pasted, dropped or
   picked, above its name, and gives small files in KB instead of "0.0 MB".
 
+### Fixed
+- **One big job at a time, whoever starts it.** Making a picture, a 3D model, a Finish, a prop
+  sheet, a rig or a move now waits for any other of these to end, whether it came from the
+  studio, an agent or a second tab. Two at once could run the machine out of memory.
+
 ## [0.4.6] - 2026-10-18
 
 ### Added

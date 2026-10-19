@@ -251,10 +251,24 @@ class SkinStore:
         self.save(skin)
         return skin
 
-    def skins_for(self, finished: str) -> list[dict[str, Any]]:
-        """The finished skins of one finished model, oldest first: what the viewer lists."""
+    def skins_for(self, finished: str, skins: list[Skin] | None = None) -> list[dict[str, Any]]:
+        """The finished skins of one finished model, oldest first: what the viewer lists. Pass
+        `skins` (from `all`) when asking for many models, so the folder is read once."""
         return [{"id": s.id, "name": s.name, "file": s.result, "front": s.approved.get("front")}
-                for s in self.all() if s.base.get("finished") == finished and s.status == "done" and s.result]
+                for s in (self.all() if skins is None else skins)
+                if s.base.get("finished") == finished and s.status == "done" and s.result]
+
+    def state(self, skin: Skin, build_running: bool) -> dict[str, Any]:
+        """The skin as the studio and agents read it: whether each try's picture exists yet, and
+        a build the studio lost (it restarted mid-build) reported as one to start again."""
+        state = skin.to_dict()
+        for side in SIDES:
+            for attempt in state["tries"][side]:
+                attempt["ready"] = (self.output / attempt["picture"]).is_file()
+        if skin.status == "building" and not build_running:
+            state["status"] = "error"
+            state["error"] = "The build was interrupted (the studio restarted). Try building again."
+        return state
 
 
 # ---------------------------------------------------------------------------- the build

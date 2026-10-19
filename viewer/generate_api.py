@@ -2739,18 +2739,21 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _skin_state(self, skin: skins_api.Skin) -> dict[str, Any]:
         """The skin, plus the job working on it now: its newest picture try or its build."""
-        state = skin.to_dict()
+        build = next((b for b in skins_api.BUILDS.jobs.values()
+                      if b.skin_id == skin.id and b.status not in skins_api.TERMINAL), None)
+        state = skins_api.STORE.state(skin, build_running=build is not None)
         tries = [t for side in skins_api.SIDES for t in skin.tries[side] if t.get("job_id")]
         newest = max(tries, key=lambda t: t.get("started", 0), default=None)
         job = image_api.MANAGER.jobs.get(newest["job_id"]) if newest else None
         state["picture_job"] = job.describe() if job else None
-        build = next((b for b in skins_api.BUILDS.jobs.values() if b.skin_id == skin.id and b.status not in skins_api.TERMINAL), None)
         state["build_job"] = build.describe() if build else None
         return state
 
     def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
         """Start one picture try, or answer why not (and return None)."""
-        waiting = busy_reason("image")
+        # Checked before the try is recorded: a refused start must not leave a try with no picture.
+        waiting = busy_reason("image") or ("a picture is being made; wait for it to finish"
+                                           if _running(image_api.MANAGER) else None)
         if waiting or skins_api.BUILDS.running():
             self._send_json(409, {"error": waiting or "a skin is being made; wait for it to finish",
                                   "skin": self._skin_state(skin)})
@@ -2830,6 +2833,9 @@ class Handler(SimpleHTTPRequestHandler):
                     self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
                 return
             if action == "approve":
+                if skins_api.BUILDS.running():
+                    self._send_json(409, {"error": "a skin is being made; wait for it to finish"})
+                    return
                 number = body.get("number")
                 skin = skins_api.STORE.approve(skin, str(body.get("side", "front")),
                                                int(number) if number is not None else None)

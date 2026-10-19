@@ -362,6 +362,48 @@ def test_the_endpoints_walk_a_skin_from_front_to_back(output, monkeypatch, tmp_p
         status, state = call(f"{base}/{skin_id}")
         assert status == 200 and state["approved"]["front"].endswith("front-1.png")
         assert call(f"{base}/nothing-here")[0] == 404
+        busy = types.SimpleNamespace(status="running")
+        monkeypatch.setattr(api.image_api.MANAGER, "active", "busy-job")
+        monkeypatch.setitem(api.image_api.MANAGER.jobs, "busy-job", busy)
+        before = call(f"{base}/{skin_id}")[1]["tries"]["back"]
+        assert call(f"{base}/{skin_id}/try", {"side": "back"})[0] == 409
+        assert call(f"{base}/{skin_id}")[1]["tries"]["back"] == before   # no dead try left behind
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_the_state_says_which_tries_have_their_picture(output):
+    store = sk.SkinStore(output)
+    skin = store.create(_asset(), "gold skirt")
+    _drawn(output, skin, "front")
+    store.picture_try(skin, "front", "again")
+    tries = store.state(skin, build_running=False)["tries"]["front"]
+    assert [t["ready"] for t in tries] == [True, False]
+
+
+def test_a_build_the_studio_lost_reads_as_one_to_start_again(output):
+    store, skin = _ready(output)
+    skin.status = "building"
+    store.save(skin)
+    assert store.state(skin, build_running=True)["status"] == "building"
+    lost = store.state(skin, build_running=False)
+    assert lost["status"] == "error" and "interrupted" in lost["error"]
+    assert sk.SkinBuilds(store).start(store.get(skin.id), background=False,
+                                      runner=lambda c, **k: _FakeProcess([], code=1)).status == "error"
+
+
+def test_deleting_a_finished_model_deletes_its_skins_too(output):
+    store, skin = _ready(output)
+    skin.status, skin.result = "done", f"skins/{skin.id}/gold-skirt_20k.glb"
+    _write(output / "skins" / skin.id / "gold-skirt_20k.glb", b"skin")
+    store.save(skin)
+    stranger = sk.Skin(name="red boots", instruction="red boots",
+                       base={**skin.base, "finished": "finish/elsewhere/other_20k.glb"})
+    store.save(stranger)
+    model = next(a for a in aa.list_assets(output) if a.get("finished") == f"finish/{FIN}/paladin_20k.glb")
+    paths = [f["path"] for f in aa.plan_delete(output, model["id"])["folders"]]
+    assert f"finish/{FIN}" in paths and f"skins/{skin.id}" in paths
+    assert f"skins/{stranger.id}" not in paths
+    aa.delete_version(output, model["id"])
+    assert not (output / "skins" / skin.id).exists() and (output / "skins" / stranger.id).is_dir()

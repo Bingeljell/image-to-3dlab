@@ -92,11 +92,18 @@ a { color: inherit; }
 .ph { display: grid; place-items: center; gap: 12px; color: var(--ash); text-align: center; max-width: 420px; }
 .ph img { width: 56px; height: 56px; opacity: .22; filter: grayscale(.6); }
 .sv-picture { margin: 0; display: grid; gap: 10px; place-items: center; max-height: 100%; }
-.sv-picture img { max-width: min(560px, 90%); max-height: 70vh; border-radius: 12px; border: 1px solid var(--line); }
+/* the overlay lets clicks through to the 3D view; a zoomable picture takes them itself */
+.sv-picture .zoombox { overflow: hidden; border-radius: 12px; border: 1px solid var(--line); line-height: 0; touch-action: none; pointer-events: auto; }
+.sv-picture img { max-width: min(760px, 90%); max-height: 78vh; display: block; }
+.sv-picture .zoombox img { max-width: 100%; }
+.sv-picture .zoombar { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; pointer-events: auto; }
+.sv-picture .zoombar output { font: 500 12px/1 var(--f-num); color: var(--ash); min-width: 42px; text-align: right; }
+.sv-picture .zoomhint { display: block; margin-top: 4px; font-size: 12px; opacity: .8; }
 .sv-picture figcaption { color: var(--ash); font-size: 13px; }
 .sv-picture .pair { display: flex; gap: 14px; justify-content: center; }
 .sv-picture .pair > div { display: grid; gap: 6px; justify-items: center; }
-.sv-picture.two img { max-width: min(400px, 42vw); max-height: 62vh; }
+.sv-picture.two .zoombox { max-width: min(640px, 38vw); }
+.sv-picture.two img { max-height: 74vh; }
 .sv-picture .pair span { color: var(--ash); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .hud { position: absolute; z-index: 5; }
 .hud.tl { top: 14px; left: 14px; right: 260px; display: grid; gap: 4px; pointer-events: none; }  /* clear of the tools and the axis widget */
@@ -347,3 +354,14 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .report-send { display: grid; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
 .report-send .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .report-send .meta a { color: var(--flame); }
+
+/* Skins (viewer/studio/skins.js): the original and the new picture side by side */
+.step.skins .dot { background: rgb(255 140 60 / .14); color: var(--flame); }
+.skin-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.skin-pair figure { margin: 0; display: grid; gap: 4px; }
+.skin-pair img, .skin-wait { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 8px; background: #2a201b; }
+.skin-wait { display: grid; place-items: center; font-size: 12px; color: var(--ash); }
+.skin-pair figcaption { font-size: 12px; color: var(--ash); text-align: center; }
+.skin-draft { display: grid; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.skin-name { margin: 0; color: var(--bone); }
+.step.skins textarea { width: 100%; resize: vertical; background: var(--raise); color: var(--bone); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }

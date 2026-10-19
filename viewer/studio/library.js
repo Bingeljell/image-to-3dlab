@@ -237,7 +237,7 @@ export function canReveal(hostname) {
 export function deletionWords(plan) {
   const part = (folder) => {
     const top = folder.path.split('/')[0];
-    return { animate: 'its rig and moves', finish: 'its finished model', images: 'its picture', props: 'its split props' }[top] || 'its 3D model';
+    return { animate: 'its rig and moves', finish: 'its finished model', images: 'its picture', props: 'its split props', skins: 'its skins' }[top] || 'its 3D model';
   };
   const words = [...new Set(plan.folders.map(part))];
   return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] || 'nothing';

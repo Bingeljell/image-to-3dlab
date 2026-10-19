@@ -8,6 +8,7 @@ import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet } from './pages.js';
 import { STEP_LABELS } from './plan.js';
+import { mountSkins } from './skins.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
@@ -22,6 +23,7 @@ let blenderReady = true;  // Finish and Split need Blender; the Finish step says
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
+let viewingSkin = null;       // a skin id when the viewer shows one of the model's skins
 const openFamilies = new Set();  // families whose versions are listed under their row
 
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
@@ -117,8 +119,46 @@ function renderSteps(asset) {
     renderSteps(asset);
     setDownload(file);
   }));
-  setDownload(viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
+  const skin = viewingSkin && (asset.skins || []).find((k) => k.id === viewingSkin);
+  setDownload(skin ? skin.file : viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
+  mountSkins($('steps'), asset, skinCtx);
 }
+
+// what the Skins card needs from the page (viewer/studio/skins.js)
+const skinCtx = {
+  url: (relative) => url(relative),
+  asset: () => current,
+  viewing: () => viewingSkin,
+  view: (skin) => {
+    if (!skin) { show(current); return; }
+    viewingSkin = skin.id;
+    viewingStep = null;
+    viewingPictures = false;
+    viewer.setFacing(null);
+    viewer.setClips([]);
+    viewer.load(url(skin.file), { label: `${current.name} · ${skin.name}` });
+    setDownload(skin.file);
+  },
+  onBusy: (on) => ctx.onBusy(on),
+  // a skin's original and new picture, full size where the model usually is
+  compare: (original, fresh, caption, version) => {
+    viewingSkin = null;
+    viewingStep = null;
+    viewingPictures = true;
+    viewer.setFacing(null);
+    viewer.setClips([]);
+    viewer.showImage(url(original), escape(caption), `${url(fresh)}?v=${version}`, ['Original', 'New']);
+  },
+  // a finished skin: reload the Library and show the model wearing it
+  onDone: async (skin) => {
+    const keepId = current?.id;
+    await loadLibrary(null, { pick: false });
+    const asset = assets.find((a) => a.id === keepId) ?? current;
+    show(asset);
+    const made = (asset?.skins || []).find((k) => k.id === skin.id);
+    if (made) { skinCtx.view(made); renderSteps(asset); }
+  },
+};
 
 function stepLink(asset, stepId) {
   if (stepId === 'picture' && canViewPictures(asset)) {
@@ -201,6 +241,7 @@ function show(asset) {
   viewingMaking = false;
   viewingPictures = false;
   viewingStep = null;
+  viewingSkin = null;
   $('progress').hidden = true;
   renderLibrary();
   $('vTitle').textContent = asset?.name ?? '';

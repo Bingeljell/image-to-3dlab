@@ -69,7 +69,9 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     state.file = file;
     state.preview = file && (file.type.startsWith('image/') || PICTURE_TYPES.test(file.name)) ? URL.createObjectURL(file) : null;
   };
-  const close = () => { document.removeEventListener('paste', onPaste); setFile(null); sheet.remove(); };
+  // run by closeSheet too, so a sheet closed from outside (a Library click) leaves no listener behind
+  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); setFile(null); };
+  const close = () => { sheet.onSheetClose(); sheet.remove(); };
 
   const render = () => {
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);

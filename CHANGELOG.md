@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A step you started from the Steps panel no longer disappears when you look at another
+  asset.** Model, Finish, Split, Rig and Animate kept their progress card only in the open
+  page, so coming back showed the start button again while the step was still running. The
+  studio now remembers which step is running on which asset and picks its progress back up
+  (or shows how it ended). A step that finishes while you are elsewhere refreshes the Library
+  without pulling you away from what you are looking at.
+
 ## [0.4.6] - 2026-10-18
 
 ### Added

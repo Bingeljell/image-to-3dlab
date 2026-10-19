@@ -4,6 +4,36 @@
 
 export const TERMINAL = new Set(['done', 'error', 'cancelled']);
 const STALL_SECONDS = 180;
+const JOBS_KEY = 'af.stepJobs';
+
+/** The browser's localStorage, or null where it is blocked (private windows, some previews). */
+export function browserStorage() {
+  try { return globalThis.localStorage ?? null; } catch { return null; }
+}
+
+function readJobs(storage) {
+  try { return JSON.parse(storage?.getItem(JOBS_KEY) || '{}') || {}; } catch { return {}; }
+}
+
+/**
+ * A step runs on the server whether or not its card is on screen, so the studio writes down
+ * which job belongs to which asset's step. Coming back to the asset then finds the job again
+ * instead of offering the button for a step that is already running.
+ */
+export function rememberJob(storage, assetId, stepId, job) {
+  try { storage?.setItem(JOBS_KEY, JSON.stringify({ ...readJobs(storage), [`${assetId}:${stepId}`]: job })); } catch { /* storage full or blocked: the run still goes on */ }
+}
+
+export function forgetJob(storage, assetId, stepId) {
+  const jobs = readJobs(storage);
+  if (!(`${assetId}:${stepId}` in jobs)) return;
+  delete jobs[`${assetId}:${stepId}`];
+  try { storage?.setItem(JOBS_KEY, JSON.stringify(jobs)); } catch { /* nothing to do */ }
+}
+
+export function rememberedJob(storage, assetId, stepId) {
+  return readJobs(storage)[`${assetId}:${stepId}`] ?? null;
+}
 
 /** The best ready 3D engine first, then the other ready ones (from GET /api/catalog). */
 export function readyEngines(catalog) {

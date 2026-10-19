@@ -907,3 +907,33 @@ def test_show_in_folder_is_offered_only_on_the_studios_own_machine():
     out = _run("library.js", """console.log(JSON.stringify(
         ['localhost', '127.0.0.1', '[::1]', '100.64.1.2', 'my-mac.local'].map(m.canReveal)));""")
     assert out == [True, True, True, False, False]
+
+
+@needs_node
+def test_a_running_step_is_remembered_per_asset_and_step_until_it_ends():
+    out = _run("jobs.js", """
+      const store = new Map();
+      const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+      const job = { kind: 'generate', start: { job_id: 'abc' }, startedAt: 5 };
+      m.rememberJob(storage, 'a1', 'model', job);
+      m.rememberJob(storage, 'a2', 'finished', { kind: 'finish', start: { job_id: 'def' }, startedAt: 6 });
+      const seen = [m.rememberedJob(storage, 'a1', 'model'), m.rememberedJob(storage, 'a1', 'finished')];
+      m.forgetJob(storage, 'a1', 'model');
+      console.log(JSON.stringify({ seen, after: m.rememberedJob(storage, 'a1', 'model'),
+        other: m.rememberedJob(storage, 'a2', 'finished')?.start.job_id }));""")
+    assert out["seen"] == [{"kind": "generate", "start": {"job_id": "abc"}, "startedAt": 5}, None]
+    assert out["after"] is None
+    assert out["other"] == "def"
+
+
+@needs_node
+def test_remembering_a_step_survives_blocked_or_broken_storage():
+    out = _run("jobs.js", """
+      const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+      const garbage = { getItem: () => '{not json', setItem: () => {} };
+      m.rememberJob(broken, 'a', 'model', { kind: 'generate', start: { job_id: 'x' } });
+      m.forgetJob(broken, 'a', 'model');
+      m.rememberJob(null, 'a', 'model', { kind: 'generate', start: { job_id: 'x' } });
+      console.log(JSON.stringify([m.rememberedJob(broken, 'a', 'model'), m.rememberedJob(garbage, 'a', 'model'),
+        m.rememberedJob(null, 'a', 'model'), m.browserStorage()]));""")
+    assert out == [None, None, None, None]

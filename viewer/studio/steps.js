@@ -1,7 +1,7 @@
 // The Steps panel's actions: each step's settings, its start call, and its progress card.
 // The job APIs live on the server; the studio sends them the asset's files. Prop sheets split here too.
 
-import { followJob, plainError, statusUrlFor, jobEnd } from './jobs.js';
+import { followJob, plainError, statusUrlFor, jobEnd, browserStorage, rememberJob, forgetJob, rememberedJob } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
 
@@ -144,8 +144,12 @@ export function wireStep(card, stepId, asset, ctx) {
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread) }[stepId];
     const note = button.dataset.humanoid === 'no'
       ? 'Rigging anyway. Preset moves only fit humanoids, so this one can be downloaded and animated in Blender. The rig may be wonky.' : '';
-    await runInCard(card, run, ctx, stepId, note);
+    await runInCard(card, run, ctx, stepId, note, asset);
   });
+
+  // a step started earlier is still going on the server: pick its progress back up
+  const saved = rememberedJob(browserStorage(), asset.id, stepId);
+  if (saved) resumeInCard(card, ctx, stepId, asset, saved);
 }
 
 async function startModel(asset, ctx, backend) {
@@ -185,32 +189,68 @@ async function startAnimate(asset, preset, speed, arm_spread) {
 
 const settingsOf = (card) => card.dataset.lastPreset || null;
 
-async function runInCard(card, starter, ctx, stepId, note) {
+const progressHtml = (note) => `<div class="job"><div class="bigbar"><span></span></div><p class="job-msg">Starting…</p>${note ? `<p class="hint">${esc(note)}</p>` : ''}
+    <pre class="log" aria-label="Live log"></pre><div class="row end"><button class="ghost" data-cancel>Cancel</button></div></div>`;
+
+async function runInCard(card, starter, ctx, stepId, note, asset) {
   const body = card.querySelector('.body');
   const keep = body.innerHTML;
-  const show = (html) => { body.innerHTML = html; };
-  show(`<div class="job"><div class="bigbar"><span></span></div><p class="job-msg">Starting…</p>${note ? `<p class="hint">${esc(note)}</p>` : ''}
-    <pre class="log" aria-label="Live log"></pre><div class="row end"><button class="ghost" data-cancel>Cancel</button></div></div>`);
+  body.innerHTML = progressHtml(note);
   ctx.onBusy?.(true);
   let started;
   try {
     started = await starter();
   } catch (error) {
     ctx.onBusy?.(false);
-    show(`<div class="job failed"><p class="job-msg">${esc(plainError(error.message))}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`);
+    body.innerHTML = `<div class="job failed"><p class="job-msg">${esc(plainError(error.message))}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`;
     body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
     return;
   }
-  const { kind, start } = started;
+  const startedAt = Date.now();
+  rememberJob(browserStorage(), asset.id, stepId, { kind: started.kind, start: started.start, startedAt });
+  await followInCard(card, ctx, stepId, asset, { ...started, keep, startedAt });
+}
+
+// Back on an asset whose step was started before: carry on showing it if it is still going,
+// or tell how it ended. A job the server no longer knows (it restarted) is forgotten.
+async function resumeInCard(card, ctx, stepId, asset, saved) {
+  const { kind, start, startedAt } = saved;
+  let payload;
+  try {
+    const response = await fetch(statusUrlFor(kind, start));
+    if (!response.ok) throw new Error(String(response.status));
+    payload = await response.json();
+  } catch {
+    forgetJob(browserStorage(), asset.id, stepId);
+    return;
+  }
+  if (payload.status === 'done') {
+    forgetJob(browserStorage(), asset.id, stepId);
+    ctx.onDone?.(stepId, { preset: null });
+    return;
+  }
+  const body = card.querySelector('.body');
+  if (!card.isConnected || !body || body.querySelector('.job')) return;
+  const keep = body.innerHTML;
+  body.innerHTML = progressHtml('');
+  ctx.onBusy?.(true);
+  await followInCard(card, ctx, stepId, asset, { kind, start, keep, startedAt: startedAt || Date.now() });
+}
+
+async function followInCard(card, ctx, stepId, asset, { kind, start, keep, startedAt }) {
+  const body = card.querySelector('.body');
+  const show = (html) => { body.innerHTML = html; };
   const statusUrl = statusUrlFor(kind, start);
   const bar = body.querySelector('.bigbar span'), msg = body.querySelector('.job-msg'), log = body.querySelector('.log');
-  const startedAt = Date.now();
   body.querySelector('[data-cancel]').onclick = async (event) => {
     event.target.disabled = true;
     await fetch(`/api/${kind}/${start.job_id}/cancel`, { method: 'POST' }).catch(() => {});
   };
   const job = followJob(statusUrl, {
     onUpdate: ({ event, percent, log: tail, stalled }) => {
+      // the card was replaced (the person went to another asset): the job carries on, and a
+      // fresh card for it takes over when they come back
+      if (!card.isConnected) return;
       const minutes = Math.floor((Date.now() - startedAt) / 60000), seconds = Math.floor((Date.now() - startedAt) / 1000) % 60;
       msg.textContent = `${event.message || event.phase || 'Working…'} · ${minutes}:${String(seconds).padStart(2, '0')}`;
       if (percent != null) bar.style.width = `${percent}%`;
@@ -221,7 +261,15 @@ async function runInCard(card, starter, ctx, stepId, note) {
     },
   });
   const final = await job.done;
+  if (!card.isConnected) {
+    // it ended while the person was elsewhere: keep the Library current, leave the view alone
+    ctx.onBusy?.(false);
+    forgetJob(browserStorage(), asset.id, stepId);
+    ctx.onBackgroundDone?.();
+    return;
+  }
   ctx.onBusy?.(false);
+  forgetJob(browserStorage(), asset.id, stepId);
   if (final.status === 'done') { ctx.onDone?.(stepId, { preset: stepId === 'animated' ? settingsOf(card) : null }); return; }
   const { cancelled, why, log: tail } = jobEnd(final);
   show(cancelled

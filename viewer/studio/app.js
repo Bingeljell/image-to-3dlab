@@ -182,6 +182,7 @@ const ctx = {
   get presets() { return presets; },
   url: (relative) => url(relative),
   asset: () => current,
+  onBackgroundDone: () => refreshAssets(),
   onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
   // after a new move, open the asset on that move
   onDone: async (stepId, { preset } = {}) => {

@@ -907,3 +907,18 @@ def test_show_in_folder_is_offered_only_on_the_studios_own_machine():
     out = _run("library.js", """console.log(JSON.stringify(
         ['localhost', '127.0.0.1', '[::1]', '100.64.1.2', 'my-mac.local'].map(m.canReveal)));""")
     assert out == [True, True, True, False, False]
+
+
+@needs_node
+def test_a_picture_on_the_clipboard_becomes_a_named_file_and_anything_else_is_ignored():
+    out = _run("create.js", """
+      const file = (name, type) => new File(['x'], name, { type });
+      const named = m.pastedPicture({ files: [file('image.png', 'image/png')] });
+      const unnamed = m.pastedPicture({ files: [file('', 'image/jpeg')] }, () => 5);
+      console.log(JSON.stringify({
+        named: named.name, unnamed: [unnamed.name, unnamed.type],
+        gif: m.pastedPicture({ files: [file('a.gif', 'image/gif')] }),
+        text: m.pastedPicture({ files: [] }), none: m.pastedPicture(null),
+        second: m.pastedPicture({ files: [file('notes.txt', 'text/plain'), file('', 'image/webp')] }, () => 9).name }));""")
+    assert out == {"named": "image.png", "unnamed": ["pasted-5.jpg", "image/jpeg"], "gif": None,
+                   "text": None, "none": None, "second": "pasted-9.webp"}

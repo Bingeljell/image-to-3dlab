@@ -7,6 +7,19 @@ import { openPromptGuide, isGuideLink } from './guide.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const PICTURE_TYPES = /\.(png|jpe?g|webp)$/i;
+const PICTURE_EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+/**
+ * The picture on the clipboard (a screenshot, "Copy image" in a browser), as a File Create can
+ * take, or null when the clipboard holds no PNG, JPG or WebP. Clipboard images often arrive with
+ * no usable name, so they get one that carries the right extension.
+ */
+export function pastedPicture(clipboard, now = Date.now) {
+  const image = [...(clipboard?.files || [])].find((file) => PICTURE_EXTENSIONS[file.type]);
+  if (!image) return null;
+  if (PICTURE_TYPES.test(image.name || '')) return image;
+  return new File([image], `pasted-${now()}.${PICTURE_EXTENSIONS[image.type]}`, { type: image.type });
+}
 
 /**
  * The picture job's settings from Create's choices. A new seed each time by default, so the
@@ -35,7 +48,15 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
-  const close = () => sheet.remove();
+  // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
+  const onPaste = (e) => {
+    const picture = pastedPicture(e.clipboardData);
+    if (!picture) return;
+    e.preventDefault();
+    takeFile(picture);
+  };
+  document.addEventListener('paste', onPaste);
+  const close = () => { document.removeEventListener('paste', onPaste); sheet.remove(); };
 
   const render = () => {
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
@@ -50,7 +71,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ? `<label class="field">Describe it<textarea data-k="text" rows="3" placeholder="${state.want === 'character' ? 'A stylised orc blacksmith with short tusks, a braided beard and heavy boots' : state.want === 'picture' ? 'Concept art of an orc blacksmith at a glowing forge' : 'A weathered wooden tavern barrel with iron bands'}">${esc(state.text)}</textarea></label>
          ${recipe?.wording ? `<label class="check addline"><input type="checkbox" data-k="recipe" ${state.useRecipe ? 'checked' : ''}><span><b>We add:</b> ${esc(recipe.wording)}</span></label>` : ''}
          <div class="warnings" aria-live="polite"></div>`
-      : `<div class="drop" data-drop tabindex="0" role="button">${state.file ? `<b>${esc(state.file.name)}</b><br><span class="hint">${(state.file.size / 1048576).toFixed(1)} MB · click or drop another to replace</span>` : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, or click to choose`}</div>`;
+      : `<div class="drop" data-drop tabindex="0" role="button">${state.file ? `<b>${esc(state.file.name)}</b><br><span class="hint">${(state.file.size / 1048576).toFixed(1)} MB · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>` : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`}</div>`;
     sheet.innerHTML = `<form class="sheet-card" novalidate>
       <div class="sheet-top"><h2>What should we <span>make?</span></h2><button type="button" class="ghost" data-close>Cancel</button></div>
       <div class="quick">${quick.map(([w, h, t]) => `<button type="button" class="qs${w === state.want && h === state.have ? ' on' : ''}" data-w="${w}" data-h="${h}">${t}</button>`).join('')}</div>

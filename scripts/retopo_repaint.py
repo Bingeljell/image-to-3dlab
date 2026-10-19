@@ -76,6 +76,18 @@ def emit_stage(phase: str, message: str) -> None:
     print(f"{STAGE_MARKER}::{phase}::{message}", flush=True)
 
 
+def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: int, atlas: int,
+                      log: Path) -> dict | None:
+    """Pixal3D's own clean-up, or the classic route when its frame check objects. A model the
+    check refuses still gets finished; only the route changes, and the log says why."""
+    try:
+        return pixal3d_native.native_retopo(dump, source, output, faces, atlas, log)
+    except pixal3d_native.FrameMismatch as exc:
+        print(f"[retopo-repaint] note: {exc}; using the classic route", flush=True)
+        classic()
+        return None
+
+
 def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool) -> bool:
     """Whether this run takes Pixal3D's own clean-up instead of the classic retopology.
 
@@ -364,23 +376,27 @@ def main() -> int:
         retopo_glb = args.source   # full detail: Pixel Match works on the generator's own mesh
     elif reuse(retopo_glb, args.resume):
         emit_stage("retopologise", f"Reusing {retopo_glb.name}")
-    elif native:
-        emit_stage("retopologise", f"Pixal3D's own clean-up to {args.faces:,} faces")
-        native_record = pixal3d_native.native_retopo(
-            args.native_dump, args.source, retopo_glb, args.faces, args.atlas,
-            steps["retopo_log"])
     else:
-        if args.native_dump is not None and not args.keep_mesh:
-            print("[retopo-repaint] note: post-replay is not built here, so Pixal3D's own "
-                  "clean-up cannot run; using the classic route", flush=True)
-        emit_stage("retopologise", f"Retopologising to {args.faces:,} faces")
-        _run(
-            retopo_command(
-                args.source, retopo_glb, args.faces, args.atlas, args.angle,
-                args.voxel, args.metallic, args.roughness, args.ior, args.blender,
-            ),
-            steps["retopo_log"], "retopologise",
-        )
+        def classic() -> None:
+            emit_stage("retopologise", f"Retopologising to {args.faces:,} faces")
+            _run(
+                retopo_command(
+                    args.source, retopo_glb, args.faces, args.atlas, args.angle,
+                    args.voxel, args.metallic, args.roughness, args.ior, args.blender,
+                ),
+                steps["retopo_log"], "retopologise",
+            )
+
+        if native:
+            emit_stage("retopologise", f"Pixal3D's own clean-up to {args.faces:,} faces")
+            native_record = native_or_classic(classic, args.native_dump, args.source, retopo_glb,
+                                              args.faces, args.atlas, steps["retopo_log"])
+            native = native_record is not None
+        else:
+            if args.native_dump is not None and not args.keep_mesh:
+                print("[retopo-repaint] note: post-replay is not built here, so Pixal3D's own "
+                      "clean-up cannot run; using the classic route", flush=True)
+            classic()
     if not args.keep_mesh:
         timings["retopologise"] = round(time.time() - step, 1)
 

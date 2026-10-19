@@ -285,3 +285,18 @@ def test_the_dump_is_a_required_input_when_given(tmp_path):
 def test_without_a_dump_the_inputs_are_unchanged():
     args = rr.build_parser().parse_args(["in.glb", "in.png", "out.glb", "--skip-paint"])
     assert rr.required_inputs(args) == [Path("in.glb")]
+
+
+def test_a_refused_clean_up_falls_back_to_the_classic_route(tmp_path, monkeypatch, capsys):
+    """A frame check that objects must not fail the Finish: it takes the classic route."""
+    calls = []
+
+    def refuse(*a, **k):
+        raise rr.pixal3d_native.FrameMismatch("the clean-up's model sits 3.0% away")
+
+    monkeypatch.setattr(rr.pixal3d_native, "native_retopo", refuse)
+    assert rr.native_or_classic(lambda: calls.append("classic"), tmp_path / "run.post.bin",
+                                tmp_path / "raw.glb", tmp_path / "out.glb", 20000, 2048,
+                                tmp_path / "log") is None
+    assert calls == ["classic"]
+    assert "classic route" in capsys.readouterr().out

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The new Pixal3D Finish no longer stops on some models.** Its safety check mistook Pixal3D's
+  normal smoothing of spiky tips (a gnoll's mane) for a model turned the wrong way round, and the
+  Finish failed. The check now asks which way round fits best, and if it still objects, Finish
+  carries on with the classic route instead of failing.
+
 ### Added
 - **Paste a picture into Create.** With "A picture" chosen, press Ctrl+V to use an image from
   your clipboard (a screenshot, or "Copy image" from a browser) instead of saving it to a file

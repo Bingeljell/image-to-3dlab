@@ -1315,6 +1315,39 @@ def _props_baking() -> bool:
     return job is not None and job.status not in {"done", "error", "cancelled"}
 
 
+def _running(manager) -> bool:
+    job = manager.jobs.get(manager.active) if manager.active else None
+    return job is not None and job.status not in {"done", "error", "cancelled"}
+
+
+# Every job that holds the GPU or gigabytes of unified memory. Each start waits while any
+# OTHER kind runs (its own manager refuses a second of its kind), so the studio, the MCP
+# and a second tab all meet the same rule; the page's busy flag is only a convenience.
+HEAVY_JOBS: dict[str, Callable[[], bool]] = {
+    "setup": lambda: SETUP_ACTIVE is not None,
+    "generate": lambda: _running(JOBS),
+    "image": lambda: _running(image_api.MANAGER),
+    "finish": lambda: _running(FINISH_JOBS),
+    "props": lambda: _props_baking(),
+    "rebind": lambda: _running(RIG_JOBS),
+    "animate": lambda: _animate_running(),
+}
+BUSY_WORDS = {
+    "setup": "setup is running", "generate": "a generation is running",
+    "image": "a picture is being made", "finish": "a model is being finished",
+    "props": "a prop sheet is baking", "rebind": "a rig rebind is running",
+    "animate": "an auto-rig or animation is running",
+}
+
+
+def busy_reason(starting: str) -> str | None:
+    """Why a `starting` job must wait, or None."""
+    for kind, running in HEAVY_JOBS.items():
+        if kind != starting and running():
+            return f"{BUSY_WORDS[kind]}; wait for it to finish"
+    return None
+
+
 def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
     """Resolve pid files left behind by a previous server life -- this server process died
     mid-run (crash, closed terminal, etc.) before it could record a terminal outcome, same
@@ -2606,6 +2639,10 @@ class Handler(SimpleHTTPRequestHandler):
         if not image_api.BINARY.exists():
             self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
             return
+        waiting = busy_reason("image")
+        if waiting:
+            self._send_json(409, {"error": waiting})
+            return
         try:
             image_api.resolve_weights()
             if image_api.resolve_vision() is None:
@@ -2647,6 +2684,10 @@ class Handler(SimpleHTTPRequestHandler):
                 "error": "stable-diffusion.cpp is not installed (vendor/sdcpp/sd-cli).",
                 "needs_setup": True,
             })
+            return
+        waiting = busy_reason("image")
+        if waiting:
+            self._send_json(409, {"error": waiting})
             return
         try:
             image_api.resolve_weights()
@@ -3019,18 +3060,9 @@ class Handler(SimpleHTTPRequestHandler):
             # one card, and a shared-memory chip (an AMD APU) can report a small VRAM figure
             # while the GPU borrows system RAM, so a refusal would lock out runs that work.
             busy = gpu_busy_check(spec)
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is running; wait for it to finish"})
-                return
-            rig_active = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
-            if rig_active is not None and rig_active.status not in {"done", "error", "cancelled"}:
-                self._send_json(409, {"error": "a rig rebind is running; wait for it to finish"})
-                return
-            if _props_baking():
-                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
-                return
-            if _animate_running():
-                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+            waiting = busy_reason("generate")
+            if waiting:
+                self._send_json(409, {"error": waiting})
                 return
             try:
                 settings = spec.validate_settings(raw_settings)
@@ -3127,18 +3159,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _create_rig_job(self) -> None:
         try:
-            active = JOBS.get(JOBS.active) if JOBS.active else None
-            if active is not None and active.status in {"queued", "running", "cancelling"}:
-                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
-                return
-            if _props_baking():
-                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
-                return
-            if _animate_running():
-                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
-                return
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is running; wait for it to finish"})
+            waiting = busy_reason("rebind")
+            if waiting:
+                self._send_json(409, {"error": waiting})
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 768 * 1024 * 1024:
@@ -3178,16 +3201,9 @@ class Handler(SimpleHTTPRequestHandler):
     def _animate_blocked(self) -> str | None:
         """Why an Animate job cannot start now. The auto-rig loads an ~8 GB model, so it
         waits for anything else that holds the GPU or unified memory."""
-        active = JOBS.get(JOBS.active) if JOBS.active else None
-        if active is not None and active.status in {"queued", "running", "cancelling"}:
-            return "a generation is running; wait for it to finish"
-        if SETUP_ACTIVE is not None:
-            return "setup is running; wait for it to finish"
-        if _props_baking():
-            return "a prop sheet is baking; wait for it to finish"
-        finishing = FINISH_JOBS.get(FINISH_JOBS.active) if FINISH_JOBS.active else None
-        if finishing is not None and finishing.status not in {"done", "error", "cancelled"}:
-            return "a model is being finished; wait for it to finish"
+        waiting = busy_reason("animate")
+        if waiting:
+            return waiting
         if not autorig_installed():
             return "Auto-rig is not installed. Set it up on the Setup & Status page."
         return None
@@ -3383,18 +3399,9 @@ class Handler(SimpleHTTPRequestHandler):
         only lost its compression costs a second.
         """
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
-            if active is not None and active.status in {"queued", "running", "cancelling"}:
-                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
-                return
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is running; wait for it to finish"})
-                return
-            if _props_baking():
-                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
-                return
-            if _animate_running():
-                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+            waiting = busy_reason("finish")
+            if waiting:
+                self._send_json(409, {"error": waiting})
                 return
         try:
             if find_blender() is None:
@@ -3433,20 +3440,7 @@ class Handler(SimpleHTTPRequestHandler):
         gigabytes of model in unified memory, and a Blender bake on top of that is how
         this machine starts swapping.
         """
-        active = JOBS.get(JOBS.active) if JOBS.active else None
-        if active is not None and active.status in {"queued", "running", "cancelling"}:
-            return "a generation is running; wait for it to finish"
-        if SETUP_ACTIVE is not None:
-            return "setup is running; wait for it to finish"
-        finishing = FINISH_JOBS.jobs.get(FINISH_JOBS.active) if FINISH_JOBS.active else None
-        if finishing is not None and finishing.status in {"queued", "running", "cancelling"}:
-            return "a finishing job is running; wait for it to finish"
-        rebind = RIG_JOBS.get(RIG_JOBS.active) if RIG_JOBS.active else None
-        if rebind is not None and rebind.status not in {"done", "error", "cancelled"}:
-            return "a rig rebind is running; wait for it to finish"
-        if _animate_running():
-            return "an auto-rig or animation is running; wait for it to finish"
-        return None
+        return busy_reason("props")
 
     def _start_props_job(self, job) -> None:
         threading.Thread(

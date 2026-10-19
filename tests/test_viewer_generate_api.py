@@ -1903,3 +1903,52 @@ def test_front_back_is_ready_only_with_both_downloads():
     for weights, vision in (((True, None), None), ((False, "x"), Path("/w/m.gguf")), ((False, "x"), None)):
         status = api.front_back_status(lambda w=weights: w, lambda v=vision: v)
         assert not status["ready"] and "Front + back" in status["hint"] and "6.6 GB" in status["hint"]
+
+
+# --- One heavy job at a time (2026-10-19): every start waits for every other kind -----------
+HEAVY = ("setup", "generate", "image", "finish", "props", "rebind", "animate")
+
+
+@pytest.mark.parametrize("running", HEAVY)
+@pytest.mark.parametrize("starting", HEAVY)
+def test_every_heavy_job_waits_for_every_other_kind(monkeypatch, running, starting):
+    """Before this, a picture (Qwen, the biggest memory user) started beside anything and
+    nothing waited for it; generation ignored Finish; rebind and Animate ignored each other."""
+    monkeypatch.setattr(api, "HEAVY_JOBS", {kind: (lambda k=kind: k == running) for kind in HEAVY})
+    why = api.busy_reason(starting)
+    if starting == running:
+        assert why is None          # a second of the same kind is its own manager's refusal
+    else:
+        assert why is not None and why.endswith("wait for it to finish")
+
+
+def test_nothing_running_means_nothing_waits(monkeypatch):
+    monkeypatch.setattr(api, "HEAVY_JOBS", {kind: (lambda: False) for kind in HEAVY})
+    assert all(api.busy_reason(kind) is None for kind in HEAVY)
+
+
+def test_a_running_picture_is_seen(monkeypatch, tmp_path):
+    manager = api.image_api.ImageJobManager(tmp_path)
+    monkeypatch.setattr(api.image_api, "MANAGER", manager)
+    assert api.HEAVY_JOBS["image"]() is False
+    job = types.SimpleNamespace(status="running")
+    manager.jobs["x"], manager.active = job, "x"
+    assert api.HEAVY_JOBS["image"]() is True
+    job.status = "done"
+    assert api.HEAVY_JOBS["image"]() is False
+
+
+def test_the_real_checks_run_against_the_real_managers():
+    """Each check reads its own manager's fields; a wrong name would only show at a 409."""
+    for kind, running in api.HEAVY_JOBS.items():
+        assert running() in (True, False), kind
+    assert set(api.HEAVY_JOBS) == set(api.BUSY_WORDS)
+
+
+def test_a_running_rebind_is_seen_by_the_shared_check(tmp_path, monkeypatch):
+    rig_jobs = api.RIG_JOBS.__class__(tmp_path)
+    monkeypatch.setattr(api, "RIG_JOBS", rig_jobs)
+    job = rig_jobs.create("asset.glb", b"glb", b"blend", _valid_rig_sidecar(b"glb", b"blend"))
+    assert api.busy_reason("animate") == "a rig rebind is running; wait for it to finish"
+    job.status = "done"
+    assert api.busy_reason("animate") is None

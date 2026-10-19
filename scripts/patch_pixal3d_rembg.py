@@ -94,7 +94,7 @@ def main() -> int:
 
     if not args.target.is_file():
         raise SystemExit(f"not found: {args.target}")
-    source = args.target.read_text()
+    source = args.target.read_text(encoding="utf-8")
 
     if args.check:
         if is_patched(source):
@@ -107,7 +107,7 @@ def main() -> int:
     if patched == source:
         print(f"already patched: {args.target}")
         return 0
-    args.target.write_text(patched)
+    args.target.write_text(patched, encoding="utf-8")
     print(f"patched {args.target}: {FORBIDDEN_PREFIX}* -> {SUBSTITUTE}")
     return 0
 

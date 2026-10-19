@@ -292,6 +292,44 @@ class SkinStore:
 
 # ---------------------------------------------------------------------------- the build
 
+# How far a new picture's cut-out may sit from the original's, as a share of the picture.
+# Pixal3D frames each picture by its cut-out, so a part lost to the background (white boots
+# on light grey) or a shifted pose moves every bit of paint, not just that part.
+FRAMING_TOLERANCE = 0.02
+
+
+def cut_out_box(path: Path) -> tuple[float, float, float, float] | None:
+    """The cut-out's bounding box as fractions of the picture (left, top, right, bottom), made
+    the way the repaint makes it (pixal3d_generate's matte), or None when nothing is left."""
+    if str(GENERATOR.parent) not in sys.path:
+        sys.path.insert(0, str(GENERATOR.parent))
+    from PIL import Image
+    from pixal3d_generate import _rembg_remove
+
+    with Image.open(path) as opened:
+        cut, _ = _rembg_remove(opened.convert("RGB"))
+    box = cut.getchannel("A").point(lambda v: 255 if v > 128 else 0).getbbox()
+    if box is None:
+        return None
+    w, h = cut.size
+    return box[0] / w, box[1] / h, box[2] / w, box[3] / h
+
+
+def framing_problem(output: Path, skin: Skin, box=cut_out_box) -> str | None:
+    """Why the approved pictures would paint off target, or None. Checked before the repaint."""
+    for side in skin.sides():
+        before, after = box(_inside(output, skin.base[side])), box(_inside(output, skin.approved[side]))
+        if before is None or after is None:
+            return f"The cut-out of the {side} picture came out empty. Ask again for that picture."
+        drift = max(abs(a - b) for a, b in zip(before, after))
+        if drift > FRAMING_TOLERANCE:
+            words = "lower" if after[3] < before[3] - FRAMING_TOLERANCE else "differently"
+            return (f"The new {side} picture's cut-out is framed {words} than the original ({drift:.0%} off), "
+                    "so the paint would slide out of place. A light part may have been lost to the background, "
+                    f"or the pose moved. Ask again for the {side} picture, for example with a darker outline "
+                    "or the same pose and size.")
+    return None
+
 
 def finished_name(skin: Skin) -> str:
     from finish_api import faces_label
@@ -378,7 +416,7 @@ class SkinBuilds:
         job = self.jobs.get(self.active) if self.active else None
         return job is not None and job.status not in TERMINAL
 
-    def start(self, skin: Skin, *, background: bool = True, runner=subprocess.Popen) -> SkinBuild:
+    def start(self, skin: Skin, *, background: bool = True, runner=subprocess.Popen, box=cut_out_box) -> SkinBuild:
         if not skin.ready():
             raise SkinError(f"Approve the {skin.next_side()} picture first.")
         if skin.status == "done":
@@ -392,10 +430,10 @@ class SkinBuilds:
         skin.status, skin.error = "building", None
         self.store.save(skin)
         if background:
-            threading.Thread(target=self.run, args=(job, skin, runner), daemon=True,
+            threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
                              name=f"skin-{skin.id}").start()
         else:
-            self.run(job, skin, runner)
+            self.run(job, skin, runner, box)
         return job
 
     def cancel(self, job_id: str) -> bool:
@@ -407,11 +445,15 @@ class SkinBuilds:
             job.process.terminate()
         return True
 
-    def run(self, job: SkinBuild, skin: Skin, runner=subprocess.Popen) -> None:
+    def run(self, job: SkinBuild, skin: Skin, runner=subprocess.Popen, box=cut_out_box) -> None:
         output = self.store.output
         folder = self.store.folder(skin.id)
         job.status = "running"
         try:
+            job.emit({"phase": "check", "message": "Checking the new pictures line up with the originals", "overall_pct": 1})
+            problem = framing_problem(output, skin, box)
+            if problem:
+                raise RuntimeError(problem)
             for stage, command in (("repaint", repaint_command(output, skin)),
                                    ("finish", finish_command(output, skin))):
                 job.emit({"phase": stage, "message": "Repainting the model" if stage == "repaint"

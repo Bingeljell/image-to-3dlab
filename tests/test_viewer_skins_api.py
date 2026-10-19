@@ -216,6 +216,10 @@ def test_finish_uses_the_models_own_face_count(output):
     assert command[5].endswith("gold-skirt_20k.glb")
 
 
+def _same_box(path):
+    return (0.2, 0.04, 0.8, 0.95)
+
+
 class _FakeProcess:
     def __init__(self, lines, code=0, on_wait=None):
         self.stdout = io.StringIO("".join(f"{line}\n" for line in lines))
@@ -245,7 +249,7 @@ def test_a_build_repaints_finishes_and_tidies_up(output):
         return _FakeProcess(["I2L_STAGE::photo::Pixel Match"],
                             on_wait=lambda: _write(folder / "gold-skirt_20k.glb", b"skin"))
 
-    job = sk.SkinBuilds(store).start(skin, background=False, runner=runner)
+    job = sk.SkinBuilds(store).start(skin, background=False, runner=runner, box=_same_box)
     assert job.status == "done"
     saved = store.get(skin.id)
     assert saved.status == "done" and saved.result == f"skins/{skin.id}/gold-skirt_20k.glb"
@@ -258,11 +262,11 @@ def test_a_build_repaints_finishes_and_tidies_up(output):
 def test_a_failed_step_marks_the_skin_and_can_be_built_again(output):
     store, skin = _ready(output)
     builds = sk.SkinBuilds(store)
-    job = builds.start(skin, background=False, runner=lambda c, **k: _FakeProcess(["boom"], code=1))
+    job = builds.start(skin, background=False, runner=lambda c, **k: _FakeProcess(["boom"], code=1), box=_same_box)
     assert job.status == "error" and "repaint" in job.error
     assert store.get(skin.id).status == "error"
     again = builds.start(store.get(skin.id), background=False,
-                         runner=lambda c, **k: _FakeProcess(["boom"], code=1))
+                         runner=lambda c, **k: _FakeProcess(["boom"], code=1), box=_same_box)
     assert again.status == "error"  # allowed to try again; it simply failed again here
 
 
@@ -390,7 +394,7 @@ def test_a_build_the_studio_lost_reads_as_one_to_start_again(output):
     lost = store.state(skin, build_running=False)
     assert lost["status"] == "error" and "interrupted" in lost["error"]
     assert sk.SkinBuilds(store).start(store.get(skin.id), background=False,
-                                      runner=lambda c, **k: _FakeProcess([], code=1)).status == "error"
+                                      runner=lambda c, **k: _FakeProcess([], code=1), box=_same_box).status == "error"
 
 
 def test_deleting_a_finished_model_deletes_its_skins_too(output):
@@ -467,3 +471,30 @@ def test_a_preview_can_show_the_model_wearing_a_skin(output, tmp_path):
     _write(cached, b"png")
     path, shown = preview_api.preview(output, asset, skin="k1")
     assert path == cached and shown == "skin: gold skirt"
+
+
+# --- the framing check (white boots on light grey) --------------------------------------------------
+
+
+def test_matching_cut_outs_pass(output):
+    _, skin = _ready(output)
+    assert sk.framing_problem(output, skin, box=_same_box) is None
+
+
+def test_a_part_lost_to_the_background_stops_the_build_before_painting(output):
+    """2026-10-19, the user's worry: white fur boots on a light background. Lose the boots and
+    the cut-out ends higher, Pixal3D frames the picture shorter, and all the paint slides."""
+    store, skin = _ready(output)
+
+    def boots_lost(path):
+        return (0.2, 0.04, 0.8, 0.80) if "skins" in str(path) else (0.2, 0.04, 0.8, 0.95)
+    ran = []
+    job = sk.SkinBuilds(store).start(skin, background=False, box=boots_lost,
+                                     runner=lambda c, **k: ran.append(c))
+    assert job.status == "error" and "framed lower" in job.error and "front" in job.error
+    assert ran == []                                         # nothing was painted
+
+
+def test_an_empty_cut_out_is_caught(output):
+    _, skin = _ready(output)
+    assert "came out empty" in sk.framing_problem(output, skin, box=lambda p: None if "skins" in str(p) else (0, 0, 1, 1))

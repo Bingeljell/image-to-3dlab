@@ -1,0 +1,149 @@
+name: Pixal3D NVIDIA build
+
+# Our own NVIDIA download of pixal3d.cpp, for scripts/bootstrap_pixal3d.py to install.
+#
+# Why not upstream's: their CUDA 12 download is compiled for 2016-17 cards only (sm 60/61/70),
+# and lacks our two patches (8 steps, and the clean-up dump the new Finish reruns) and the
+# post-replay tool. This builds the same pinned commit, with both patches, for every card
+# from the 20 series to the 50 series, and attaches it to a pre-release on this repo.
+#
+# Run by hand (Actions -> Pixal3D NVIDIA build -> Run workflow). The release is a
+# pre-release that is never "latest", so the studio's update banner ignores it, and a
+# release made with the workflow's own token starts no other workflow (no Discord post).
+# After a run, copy the printed sha256 lines into PREBUILT_SHA256 in the bootstrap.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. pixal3d-nvidia-1f432fd-r1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Only what the build needs: the full package set pulls nsight-systems, whose
+          # .deb fails to unpack on ubuntu-22.04 (upstream's note, same toolkit).
+          - { os: linux, runner: ubuntu-22.04, sub_packages: '["nvcc","cudart-dev"]', non_cuda_sub_packages: '["libcublas-dev"]' }
+          - { os: windows, runner: windows-2022, sub_packages: '[]', non_cuda_sub_packages: '[]' }
+    env:
+      # Turing (20 series) to Blackwell (50 series), as real code for each. Same list as
+      # upstream's current-CUDA build; CUDA 12.9 keeps the driver floor at 575.
+      CUDA_ARCHS: "75;80;86;89;90;120"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pinned commit
+        shell: bash
+        run: |
+          commit="$(sed -n 's/^PREBUILT_COMMIT = "\([0-9a-f]*\)"$/\1/p' scripts/bootstrap_pixal3d.py)"
+          test -n "$commit" || { echo "PREBUILT_COMMIT not found in the bootstrap"; exit 1; }
+          echo "COMMIT=$commit" >> "$GITHUB_ENV"
+
+      - name: Fetch pixal3d.cpp
+        shell: bash
+        run: |
+          set -e
+          git init -q pixal3d
+          git -C pixal3d remote add origin https://github.com/raven38/pixal3d.cpp
+          git -C pixal3d fetch -q --depth 1 origin "$COMMIT"
+          git -C pixal3d checkout -q FETCH_HEAD
+          git -C pixal3d submodule update --init --recursive
+
+      # Fail rather than ship a build without them: the point of this download is the patches.
+      - name: Apply our patches
+        shell: bash
+        run: |
+          set -e
+          python scripts/patch_pixal3d_steps.py pixal3d/src/flow_runner.cpp
+          python scripts/patch_pixal3d_dump_continue.py pixal3d/src/trellis_cli.cpp
+
+      - name: MSVC dev shell (Windows)
+        if: matrix.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: CUDA toolkit
+        uses: Jimver/cuda-toolkit@v0.2.30
+        timeout-minutes: 60
+        with:
+          cuda: "12.9.1"
+          method: network
+          sub-packages: ${{ matrix.sub_packages }}
+          non-cuda-sub-packages: ${{ matrix.non_cuda_sub_packages }}
+
+      - name: Build
+        shell: bash
+        run: |
+          set -e
+          # GGML_NATIVE off: the runner's CPU is not the user's; -march=native can SIGILL elsewhere.
+          FLAGS="-DGGML_NATIVE=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHS"
+          # Windows: no OpenMP runtime to ship, so ggml's own thread pool (as upstream).
+          if [ "${{ matrix.os }}" = "windows" ]; then FLAGS="$FLAGS -DGGML_OPENMP=OFF"; fi
+          cmake -S pixal3d -B pixal3d/build -G Ninja -DCMAKE_BUILD_TYPE=Release $FLAGS
+          cmake --build pixal3d/build --target trellis-cli post-replay -j 4
+
+      - name: Package
+        shell: bash
+        run: |
+          set -e
+          build=pixal3d/build
+          mkdir -p dist
+          cp pixal3d/LICENSE dist/LICENSE-pixal3d.txt
+          [ -f pixal3d/NOTICE ] && cp pixal3d/NOTICE dist/NOTICE-pixal3d.txt
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            cp $build/trellis-cli.exe $build/post-replay.exe dist/
+            cp $build/*.dll dist/ 2>/dev/null || true
+            cuda_root="$(cygpath -u "$CUDA_PATH")"
+            for dll in cudart64 cublas64 cublasLt64; do
+              src="$(find "$cuda_root" -type f -name "${dll}_*.dll" -print -quit)"
+              test -n "$src" || { echo "ERROR: ${dll}_*.dll not in the CUDA toolkit"; exit 1; }
+              cp "$src" dist/
+            done
+            ASSET="pixal3d-cuda12-windows-x64.zip"
+            (cd dist && 7z a -y "../$ASSET" ./* >/dev/null)
+          else
+            cp $build/trellis-cli $build/post-replay dist/
+            cp -P $build/libggml*.so* $build/bin/libggml*.so* dist/ 2>/dev/null || true
+            cuda_lib="${CUDA_PATH:-/usr/local/cuda}/lib64"
+            for l in libcudart libcublas libcublasLt; do cp -P "$cuda_lib"/$l.so* dist/; done
+            # A bare Ubuntu has no libgomp1; bundle it (LGPL, redistributable).
+            gomp="$(gcc -print-file-name=libgomp.so.1)"
+            test -f "$gomp" && cp -L "$gomp" dist/
+            sudo apt-get install -y -qq patchelf
+            for f in $(find dist -type f); do patchelf --set-rpath '$ORIGIN' "$f" 2>/dev/null || true; done
+            # Everything must be bundled or come from glibc, except the driver's own libcuda.
+            missing="$(for f in dist/trellis-cli dist/post-replay; do ldd "$f" | grep 'not found' || true; done | grep -Ev 'libcuda\.so|libnvidia-' || true)"
+            if [ -n "$missing" ]; then echo "unresolved shared libraries:"; echo "$missing"; exit 1; fi
+            ASSET="pixal3d-cuda12-linux-x64.tar.gz"
+            tar -C dist -czf "$ASSET" .
+          fi
+          # Both patches must have made it into the binary.
+          for marker in PIXAL3D_STEPS PIXAL3D_DUMP_CONTINUE; do
+            grep -aq "$marker" dist/trellis-cli* || { echo "ERROR: $marker missing from trellis-cli"; exit 1; }
+          done
+          echo "ASSET=$ASSET" >> "$GITHUB_ENV"
+          echo "sha256: $(sha256sum "$ASSET")"
+
+      - name: Upload to the pre-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1 ||
+            gh release create "$tag" --repo "${{ github.repository }}" --prerelease --latest=false \
+              --title "Pixal3D NVIDIA build ($tag)" \
+              --notes "pixal3d.cpp @ $COMMIT with our steps and clean-up dump patches, for NVIDIA cards (20 series to 50 series). Installed by scripts/bootstrap_pixal3d.py; not an AssetFurnace release." ||
+            gh release view "$tag" --repo "${{ github.repository }}" >/dev/null
+          gh release upload "$tag" "$ASSET" --clobber --repo "${{ github.repository }}"

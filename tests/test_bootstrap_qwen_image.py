@@ -107,10 +107,50 @@ def test_an_existing_binary_is_not_redownloaded(monkeypatch, capsys):
     monkeypatch.setattr(boot, "install_binary", lambda *a, **k: pytest.fail("redownloaded"))
     monkeypatch.setattr(boot, "install_weights", lambda *a, **k: None)
     monkeypatch.setattr(boot, "binary_present", lambda: True)
+    monkeypatch.setattr(boot, "binary_stale", lambda: False)
     # The probe still runs on a re-run (the binary may have been swapped for a dud).
     monkeypatch.setattr(boot, "probe_gpu", lambda *a: "ggml_vulkan: Found 1 Vulkan devices:")
     assert boot.main(["--yes"]) == 0
     assert "already installed" in capsys.readouterr().out
+
+
+# --- The pinned engine (2026-10-19): the Sept build took 134 s to decode one picture on Metal,
+# master-975 takes 10 s. Mac is pinned and updated in place; other machines keep "latest".
+def test_mac_fetches_the_pinned_release_and_others_the_latest():
+    assert boot.release_url("macos-arm64").endswith("/releases/tags/" + boot.PINNED["macos-arm64"])
+    assert boot.release_url("linux-amd").endswith("/releases/latest")
+
+
+def test_the_installed_release_is_recorded_and_read_back(tmp_path):
+    assert boot.installed_release(tmp_path) is None
+    boot.record_release(tmp_path, "master-975-95b3090")
+    assert boot.installed_release(tmp_path) == "master-975-95b3090"
+
+
+@pytest.mark.parametrize("key, installed, stale", [
+    ("macos-arm64", None, True),                     # installed before we kept a record
+    ("macos-arm64", "master-899-28b454b", True),
+    ("macos-arm64", "master-975-95b3090", False),
+    ("linux-amd", None, False),                      # not pinned: left as it is
+    ("windows-nvidia", "master-899-28b454b", False),
+])
+def test_only_a_pinned_machine_on_another_release_is_stale(monkeypatch, tmp_path, key, installed, stale):
+    monkeypatch.setattr(boot, "target", lambda: key)
+    if installed:
+        boot.record_release(tmp_path, installed)
+    assert boot.binary_stale(tmp_path) is stale
+
+
+def test_a_stale_mac_engine_is_replaced_and_the_weights_left_alone(monkeypatch, capsys):
+    called = []
+    monkeypatch.setattr(boot, "target", lambda: "macos-arm64")
+    monkeypatch.setattr(boot, "binary_present", lambda: True)
+    monkeypatch.setattr(boot, "binary_stale", lambda: True)
+    monkeypatch.setattr(boot, "install_binary", lambda *a, **k: called.append("build"))
+    monkeypatch.setattr(boot, "install_weights", lambda *a, **k: called.append("weights"))
+    assert boot.main(["--yes", "--build-only"]) == 0
+    assert called == ["build"]
+    assert "Updating" in capsys.readouterr().out
 
 
 # The asset list of stable-diffusion.cpp release master-899-28b454b, 2026-09-23.

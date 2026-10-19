@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Pictures are about twice as fast on a Mac** (about 2 minutes instead of 4), back views too.
+  The picture engine moves to a newer stable-diffusion.cpp whose last step takes 10 seconds
+  instead of over 2 minutes. Same model, same quality. Existing Mac installs update it with
+  `python scripts/bootstrap_qwen_image.py --build-only` (about 35 MB; the weights stay).
+
 ### Added
 - **Paste a picture into Create.** With "A picture" chosen, press Ctrl+V to use an image from
   your clipboard (a screenshot, or "Copy image" from a browser) instead of saving it to a file

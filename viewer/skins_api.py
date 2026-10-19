@@ -48,6 +48,15 @@ class SkinError(ValueError):
     """Why a skin cannot be made or moved on, in words for the person asking."""
 
 
+def install_keeps_shapes() -> bool:
+    """Whether this machine's Pixal3D build can save shapes (scripts/patch_pixal3d_shape_reuse.py)."""
+    if str(GENERATOR.parent) not in sys.path:
+        sys.path.insert(0, str(GENERATOR.parent))
+    import pixal3d_generate
+
+    return pixal3d_generate.shape_supported()
+
+
 def edit_prompt(instruction: str, side: str) -> str:
     """What Qwen is asked: the change, and everything that must stay as it is.
 
@@ -90,13 +99,16 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
         raise SkinError("Skins start from a finished model. Finish this one first.")
     model = _inside(output, asset["model"])
     try:
-        record = json.loads(model.with_suffix(".json").read_text())
+        record = json.loads(model.with_suffix(".json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         record = {}
     if record.get("backend") != "pixal3d":
         raise SkinError("Only Pixal3D models can take new skins.")
     shape = model.with_suffix(".shape.bin")
     if not shape.is_file():
+        if not install_keeps_shapes():
+            raise SkinError("This Pixal3D install can't keep a model's shape, so skins aren't "
+                            "available here yet (the ready-made NVIDIA and AMD builds lack it).")
         raise SkinError("This model was made before skins, so it kept no shape to repaint. "
                         "Make it again (same picture) to give it skins.")
     if not asset.get("picture"):
@@ -110,15 +122,18 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
         back = asset["back"]
     finished = _inside(output, asset["finished"])
     try:
-        finish = json.loads((finished.parent / "input" / "settings.json").read_text())
+        finish = json.loads((finished.parent / "input" / "settings.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise SkinError("This model's Finish settings were not kept, so a skin could not "
                         "match its shape. Finish it again first.") from None
+    # Pixal3D's own clean-up (a kept dump) and the classic route make different meshes: a skin
+    # must be finished the way its model was, or the rig made for the model would not fit it.
+    native = (finished.parent / "input" / "source.post.bin").is_file()
     return {
         "asset": asset.get("id"), "name": asset.get("name"),
         "finished": asset["finished"], "model": asset["model"], "shape": _rel(output, shape),
         "front": asset["picture"], "back": back,
-        "seed": params.get("seed"), "steps": params.get("steps"), "finish": finish,
+        "seed": params.get("seed"), "steps": params.get("steps"), "finish": finish, "native": native,
     }
 
 
@@ -181,12 +196,12 @@ class SkinStore:
         folder = self.folder(skin.id)
         folder.mkdir(parents=True, exist_ok=True)
         partial = folder / (RECORD + ".part")
-        partial.write_text(json.dumps(skin.to_dict(), indent=2) + "\n")
+        partial.write_text(json.dumps(skin.to_dict(), indent=2) + "\n", encoding="utf-8")
         partial.replace(folder / RECORD)
 
     def get(self, skin_id: str) -> Skin:
         try:
-            return Skin.from_dict(json.loads((self.folder(skin_id) / RECORD).read_text()))
+            return Skin.from_dict(json.loads((self.folder(skin_id) / RECORD).read_text(encoding="utf-8")))
         except (OSError, ValueError, KeyError):
             raise SkinError("no such skin") from None
 
@@ -194,7 +209,7 @@ class SkinStore:
         found = []
         for record in sorted((self.output / SKINS_DIR).glob(f"*/{RECORD}")):
             try:
-                found.append(Skin.from_dict(json.loads(record.read_text())))
+                found.append(Skin.from_dict(json.loads(record.read_text(encoding="utf-8"))))
             except (OSError, ValueError, KeyError):
                 continue
         return sorted(found, key=lambda s: s.created)
@@ -251,6 +266,10 @@ class SkinStore:
         self.save(skin)
         return skin
 
+    def discard(self, skin: Skin) -> None:
+        """Delete a skin and everything it made. The caller checks nothing is drawing or building it."""
+        shutil.rmtree(self.folder(skin.id))
+
     def skins_for(self, finished: str, skins: list[Skin] | None = None) -> list[dict[str, Any]]:
         """The finished skins of one finished model, oldest first: what the viewer lists. Pass
         `skins` (from `all`) when asking for many models, so the folder is read once."""
@@ -300,9 +319,11 @@ def finish_command(output: Path, skin: Skin) -> list[str]:
 
     folder = output / SKINS_DIR / skin.id
     repaint = folder / "repaint" / "repaint.glb"
+    # the model's own route: no dump handed over when the model was finished without one
+    dump = repaint.with_suffix(".post.bin") if skin.base.get("native", True) else folder / "no-dump"
     job = SimpleNamespace(asset_path=repaint, image_path=_inside(output, skin.approved["front"]),
                           result_glb=folder / finished_name(skin), steps_dir=folder / "finish-steps",
-                          views_dir=repaint.with_suffix(".svviews"), dump_path=repaint.with_suffix(".post.bin"))
+                          views_dir=repaint.with_suffix(".svviews"), dump_path=dump)
     settings = finish_api.fit_to_machine(finish_api.normalise_settings(skin.base["finish"]))
     return finish_api.build_command(job, settings)
 

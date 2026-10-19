@@ -407,3 +407,63 @@ def test_deleting_a_finished_model_deletes_its_skins_too(output):
     assert f"skins/{stranger.id}" not in paths
     aa.delete_version(output, model["id"])
     assert not (output / "skins" / skin.id).exists() and (output / "skins" / stranger.id).is_dir()
+
+
+# --- the route a skin is finished by, installs that can't, and discarding ------------------------
+
+
+def test_a_model_finished_by_pixal3ds_own_clean_up_gets_its_skins_finished_the_same_way(output):
+    _write(output / "finish" / FIN / "input" / "source.post.bin", b"dump")
+    _, skin = _ready(output)
+    _write(output / "skins" / skin.id / "repaint" / "repaint.post.bin", b"dump")
+    assert skin.base["native"] is True
+    assert "--native-dump" in sk.finish_command(output, skin)
+
+
+def test_a_model_finished_the_classic_way_gets_no_dump_for_its_skins(output):
+    """Same route as the model, or the mesh differs and the model's rig no longer fits."""
+    _, skin = _ready(output)
+    _write(output / "skins" / skin.id / "repaint" / "repaint.post.bin", b"dump")
+    assert skin.base["native"] is False
+    assert "--native-dump" not in sk.finish_command(output, skin)
+
+
+def test_an_install_that_cannot_keep_shapes_says_so_instead_of_remake_it(output, monkeypatch):
+    (output / GEN / f"{GEN}.shape.bin").unlink()
+    monkeypatch.setattr(sk, "install_keeps_shapes", lambda: False)
+    with pytest.raises(sk.SkinError, match="install can't keep"):
+        sk.base_from_asset(output, _asset())
+    monkeypatch.setattr(sk, "install_keeps_shapes", lambda: True)
+    with pytest.raises(sk.SkinError, match="made before skins"):
+        sk.base_from_asset(output, _asset())
+
+
+def test_skin_records_are_utf8_on_every_os(output):
+    store = sk.SkinStore(output)
+    skin = store.create(_asset(), "botas de piel blanca, café, 白い毛皮のブーツ")
+    raw = (output / "skins" / skin.id / "skin.json").read_bytes()
+    raw.decode("utf-8")
+    assert store.get(skin.id).instruction.endswith("ブーツ")
+
+
+def test_discard_removes_the_skin_and_everything_it_made(output):
+    store, skin = _ready(output)
+    store.discard(skin)
+    assert not (output / "skins" / skin.id).exists()
+    with pytest.raises(sk.SkinError):
+        store.get(skin.id)
+
+
+def test_a_preview_can_show_the_model_wearing_a_skin(output, tmp_path):
+    import preview_api
+
+    asset = {"name": "paladin", "finished": f"finish/{FIN}/paladin_20k.glb",
+             "skins": [{"id": "k1", "name": "gold skirt", "file": "skins/k1/gold_20k.glb"}]}
+    _write(output / "skins" / "k1" / "gold_20k.glb", b"glb")
+    with pytest.raises(ValueError, match="no finished skin"):
+        preview_api.preview(output, asset, skin="nope")
+    source = (output / "skins" / "k1" / "gold_20k.glb").resolve()
+    cached = output / preview_api.PREVIEWS_DIR / f"{preview_api.cache_key(source, 0.0, 'paint')}.png"
+    _write(cached, b"png")
+    path, shown = preview_api.preview(output, asset, skin="k1")
+    assert path == cached and shown == "skin: gold skirt"

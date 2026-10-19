@@ -2486,7 +2486,7 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "skins"]:
             self._skins_post([])
             return
-        if len(parts) == 4 and parts[:2] == ["api", "skins"] and parts[3] in {"try", "approve", "build"}:
+        if len(parts) == 4 and parts[:2] == ["api", "skins"] and parts[3] in {"try", "approve", "build", "discard"}:
             self._skins_post(parts[2:])
             return
         if len(parts) == 5 and parts[:3] == ["api", "skins", "build"] and parts[4] == "cancel":
@@ -2846,6 +2846,18 @@ class Handler(SimpleHTTPRequestHandler):
                     if started is None:
                         return
                 self._send_json(200, {"skin": self._skin_state(skin), "picture_job": started})
+                return
+            if action == "discard":
+                drawing = any(image_api.MANAGER.jobs.get(t.get("job_id")) is not None
+                              and image_api.MANAGER.jobs[t["job_id"]].status in {"queued", "running"}
+                              for side in skins_api.SIDES for t in skin.tries[side])
+                building = any(b.skin_id == skin.id and b.status not in skins_api.TERMINAL
+                               for b in skins_api.BUILDS.jobs.values())
+                if drawing or building:
+                    self._send_json(409, {"error": "This skin is being drawn or painted; wait for it to finish."})
+                    return
+                skins_api.STORE.discard(skin)
+                self._send_json(200, {"discarded": skin.id})
                 return
             if action == "build":
                 waiting = busy_reason("skin")
@@ -3862,7 +3874,8 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             path, shown = preview_api.preview(OUTPUT_ROOT, asset, query.get("stage", ["latest"])[0],
                                               query.get("look", ["paint"])[0], blender=find_blender(),
-                                              move=query.get("move", [""])[0] or None)
+                                              move=query.get("move", [""])[0] or None,
+                                              skin=query.get("skin", [""])[0] or None)
             data = path.read_bytes()
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})

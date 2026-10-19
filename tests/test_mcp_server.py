@@ -559,3 +559,8 @@ def test_list_assets_shows_a_models_skins():
     asset = {**KNIGHT, "skins": [{"id": "s1", "name": "gold skirt", "file": "skins/s1/gold-skirt_20k.glb"}]}
     assert ms.asset_summary(asset)["skins"] == [{"id": "s1", "name": "gold skirt",
                                                  "file": "output/skins/s1/gold-skirt_20k.glb"}]
+
+
+def test_preview_can_show_a_skin(studio):
+    ms.preview(studio, asset_id="aaaaaaaaaaaa", skin="k1")
+    assert studio.http.last_params["skin"] == "k1"

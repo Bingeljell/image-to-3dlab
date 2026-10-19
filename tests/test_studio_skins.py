@@ -130,3 +130,13 @@ def test_the_big_viewer_gets_the_original_and_the_newest_drawn_try():
       m.largePair({json.dumps(skin(next_side=None, ready=True))})]));""")
     assert out[0]["original"] == "images/p/p.png" and out[0]["fresh"] == "skins/s1/front-1.png" and out[0]["version"] == 1
     assert "try 1" in out[0]["caption"] and out[1] is None and out[2] is None
+
+
+@needs_node
+def test_a_skin_can_be_discarded_unless_it_is_being_painted():
+    out = _run(f"""console.log(JSON.stringify([m.draftHtml({json.dumps(skin())}, url),
+      m.draftHtml({json.dumps(skin(status='building', build_job={'job_id': 'b'}))}, url),
+      m.skinCardHtml({json.dumps({**PALADIN, "skins": [{"id": "k1", "name": "purple", "file": "x.glb"}]})}, [], 'k1', url),
+      m.skinCardHtml({json.dumps({**PALADIN, "skins": [{"id": "k1", "name": "purple", "file": "x.glb"}]})}, [], null, url)]));""")
+    assert "data-skin-discard" in out[0] and "data-skin-discard" not in out[1]
+    assert "data-skin-delete" in out[2] and "data-skin-delete" not in out[3]

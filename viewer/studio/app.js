@@ -137,7 +137,7 @@ const skinCtx = {
     viewer.setFacing(null);
     viewer.setClips([]);
     viewer.load(url(skin.file), { label: `${current.name} · ${skin.name}` });
-    setDownload(skin.file);
+    renderSteps(current);   // the card offers to delete the skin on show; the download follows it
   },
   onBusy: (on) => ctx.onBusy(on),
   // a skin's original and new picture, full size where the model usually is
@@ -155,7 +155,7 @@ const skinCtx = {
     await loadLibrary(null, { pick: false });
     const asset = assets.find((a) => a.id === keepId) ?? current;
     show(asset);
-    const made = (asset?.skins || []).find((k) => k.id === skin.id);
+    const made = skin && (asset?.skins || []).find((k) => k.id === skin.id);
     if (made) { skinCtx.view(made); renderSteps(asset); }
   },
 };

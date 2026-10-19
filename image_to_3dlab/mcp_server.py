@@ -42,6 +42,7 @@ STUDIO_ONLY = {
     "api/assets/*/hidden": "Library tidying, a person's choice",
     "api/assets/*/main": "marking the main version is the user's verdict",
     "api/assets/*/name": "renaming is the user's choice",
+    "api/skins/*/discard": "deleting a skin is the user's call, made in the studio",
     "api/blender/install": "installs an app; the Setup page asks first",
     "api/gltfpack/install": "installs a tool; the Setup page asks first",
     "api/hf/sign-in": "takes the user's Hugging Face token; only they should paste it",
@@ -634,8 +635,9 @@ def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
 
 
 def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint",
-            move: str | None = None) -> tuple[bytes, dict[str, Any]]:
-    params = {"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
+            move: str | None = None, skin: str | None = None) -> tuple[bytes, dict[str, Any]]:
+    params = ({"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
+              | ({"skin": skin} if skin else {}))
     response = studio.get_bytes("api/preview", **params)
     path = REPO / "output" / response.headers.get("X-Preview-Path", "")
     return response.content, {
@@ -910,13 +912,15 @@ def build_server(studio: Studio | None = None):
         return safe(lambda: list_versions(studio, asset_id=asset_id))
 
     @server.tool(name="preview", structured_output=False)
-    def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None):
+    def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None,
+                     skin: str | None = None):
         """A picture of an asset from the front, three-quarter, side and back, so you can SEE the result
         and show it to the user. stage: latest | picture | model | finished | rigged. look: paint | clay
         (clay = shape only, no colours). move: one of the asset's moves (see list_assets) to show four
-        moments of it instead. A few seconds with Blender installed, then cached."""
+        moments of it instead. skin: a skin id (list_assets shows them) to show the model wearing it.
+        A few seconds with Blender installed, then cached."""
         try:
-            data, info = preview(studio, asset_id=asset_id, stage=stage, look=look, move=move)
+            data, info = preview(studio, asset_id=asset_id, stage=stage, look=look, move=move, skin=skin)
         except StudioError as exc:
             return {"error": str(exc)}
         return [Image(data=data, format="png"), json.dumps(info)]

@@ -40,7 +40,7 @@ export function drawPercent(skin) {
 
 /** The working area for one skin in the making. `url` turns an output/ path into a served URL. */
 export function draftHtml(skin, url) {
-  const name = `<p class="skin-name"><b>${esc(skin.name)}</b></p>`;
+  const name = `<p class="skin-name"><b>${esc(skin.name)}</b>${skin.status === 'building' ? '' : ' <button type="button" class="linkish" data-skin-discard>Discard</button>'}</p>`;
   if (skin.status === 'building') {
     const event = skin.build_job?.last_event || {};
     const pct = Number(event.overall_pct);
@@ -100,7 +100,7 @@ export function skinCardHtml(asset, drafts, viewing, url) {
   const picker = skins.length ? `<label class="field">Show<select data-skin-pick>
       <option value="">Original paint</option>
       ${skins.map((s) => `<option value="${esc(s.id)}" ${viewing === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-    </select></label>` : '';
+    </select></label>${viewing ? '<button type="button" class="linkish" data-skin-delete>Delete this skin</button>' : ''}` : '';
   const working = drafts.map((d) => `<div class="skin-draft" data-draft="${esc(d.id)}">${draftHtml(d, url)}</div>`).join('');
   const count = skins.length ? `${skins.length} skin${skins.length > 1 ? 's' : ''} · same model, new paint` : 'Same model, new paint';
   return `<li class="step skins" data-step="skins"><header><span class="dot">◐</span><span style="min-width:0"><h3>Skins</h3><div class="sum">${count}</div></span></header>
@@ -140,6 +140,11 @@ export async function mountSkins(list, asset, ctx) {
 
   const pick = card.querySelector('[data-skin-pick]');
   if (pick) pick.onchange = () => ctx.view((asset.skins || []).find((s) => s.id === pick.value) || null);
+  card.querySelector('[data-skin-delete]')?.addEventListener('click', async (e) => {
+    if (!confirm('Delete this skin from your disk? This cannot be undone.')) return;
+    e.target.disabled = true;
+    try { await call(`/api/skins/${ctx.viewing()}/discard`, {}); ctx.onDone?.(null); } catch (error) { note(error.message); e.target.disabled = false; }
+  });
 
   card.querySelector('[data-skin-new]').onclick = async (event) => {
     const change = card.querySelector('[data-k="change"]').value.trim();
@@ -163,6 +168,11 @@ export async function mountSkins(list, asset, ctx) {
     box.querySelector('[data-skin-redo]')?.addEventListener('click', (e) =>
       act(e.target, `/api/skins/${id}/try`, { side: e.target.dataset.skinRedo, instruction: box.querySelector('[data-k="redo"]')?.value.trim() || undefined }));
     box.querySelector('[data-skin-build]')?.addEventListener('click', (e) => act(e.target, `/api/skins/${id}/build`, {}));
+    box.querySelector('[data-skin-discard]')?.addEventListener('click', async (e) => {
+      if (!confirm('Discard this skin and its pictures? This cannot be undone.')) return;
+      e.target.disabled = true;
+      try { await call(`/api/skins/${id}/discard`, {}); box.remove(); } catch (error) { note(error.message); e.target.disabled = false; }
+    });
     box.querySelector('[data-skin-large]')?.addEventListener('click', async () => {
       const skin = await call(`/api/skins/${id}`).catch(() => null);
       if (skin) showLarge(skin);

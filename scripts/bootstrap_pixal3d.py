@@ -92,12 +92,12 @@ PREBUILT_MIN_CUDA = (12, 9)
 PREBUILT_MIN_DRIVER = "575"
 PREBUILTS = {
     "linux-nvidia": ("pixal3d-cuda12-linux-x64.tar.gz", "~910 MB"),
-    "windows-nvidia": ("pixal3d-cuda12-windows-x64.zip", "~610 MB"),
+    "windows-nvidia": ("pixal3d-cuda12-windows-x64.zip", "~880 MB"),
 }
 # From the workflow run's log. A download that does not match is deleted, never unpacked.
 PREBUILT_SHA256 = {
     "pixal3d-cuda12-linux-x64.tar.gz": "6bcdd05ca92e757c74b36c8c95b7ce7d7ac3090c6f6e61d504acbcc2363db3ab",
-    "pixal3d-cuda12-windows-x64.zip": "",
+    "pixal3d-cuda12-windows-x64.zip": "4a50b052cc813bec4f3b29bb79bb8de577cbcdaf1247367c6f98909bebfa9c83",
 }
 
 # What the "Building (...)" line says, so a compile that runs for 20 minutes names the

@@ -313,3 +313,46 @@ def test_a_plan_carries_move_speed_and_arm_spread_to_the_animate_job(tmp_path):
 def test_a_plan_without_move_settings_lets_the_move_use_its_own_pace():
     chain = aa.chain_from_form({"title": {"value": "k"}, "steps": {"value": json.dumps(["animated"])}})
     assert chain.move_settings == {}
+
+
+def test_install_help_for_blender_is_passed_on_as_it_is():
+    """2026-10-19, the first site report: "Blender stopped with an error, see the log" for a Mac
+    with no Blender, and no log, because nothing had run."""
+    message = "Finish needs Blender 4.2 or newer, and none was found. Install Blender from blender.org."
+    assert aa.plain_error(message) == message
+    assert aa.plain_error("Blender: Error: something broke").startswith("Blender stopped with an error")
+
+
+def test_a_plan_with_finish_is_refused_up_front_when_blender_is_missing(tmp_path, monkeypatch):
+    """Checked before the picture and the 3D model, not ten minutes in at Finish."""
+    import http.server
+    import threading
+    import urllib.error
+    import urllib.request
+
+    from viewer import generate_api as api
+
+    monkeypatch.setattr(api, "OUTPUT_ROOT", tmp_path)
+    monkeypatch.setattr(api, "find_blender", lambda: None)
+    started = []
+    monkeypatch.setattr(api.ChainRunner, "submit", lambda self, chain, **k: started.append(chain))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def post(steps):
+        body, ctype = aa.multipart({"title": "knight", "steps": json.dumps(steps)}, {})
+        request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/api/chains", data=body,
+                                         headers={"Content-Type": ctype})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+    try:
+        status, payload = post(["picture", "model", "finished"])
+        assert status == 409 and "Install Blender" in payload["error"] and payload["needs_blender"]
+        assert "stop after the 3D model" in payload["error"] and started == []
+        assert post(["picture", "model"])[0] == 202 and len(started) == 1   # no Blender needed
+    finally:
+        server.shutdown()
+        server.server_close()

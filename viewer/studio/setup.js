@@ -394,10 +394,13 @@ async function renderBackends(catalog) {
       Watch the releases on GitHub, or open an issue to say you want it.</p></div>`;
     return;
   }
+  // a missing Blender goes first: Finish can't run without it, and at the bottom nobody reached it
+  const blenderMissing = blender && blender.dataset.found !== '1';
+  if (blenderMissing) host.appendChild(blender);
   if (hf) host.appendChild(hf);
   const list = readOnly ? catalog.views[state.tab] : hereBackends(catalog);
   for (const backend of list) host.appendChild(backendCard(backend, { readOnly }));
-  if (blender) host.appendChild(blender);
+  if (blender && !blenderMissing) host.appendChild(blender);
   if (gltfpack) host.appendChild(gltfpack);
   placeRunPanel();
 }
@@ -520,6 +523,7 @@ async function blenderCard() {
   const found = Boolean(caps && caps.blender && !caps.blender_problem);
   card.className = `setup-card ${found ? 'ready' : 'missing'}`;
   card.dataset.backend = 'blender';
+  card.dataset.found = found ? '1' : '';
   const where = found
     ? `found · Blender ${caps.blender_version || ''} at <code>${caps.blender}</code>`
     : 'not found';
@@ -527,7 +531,7 @@ async function blenderCard() {
     <div class="setup-card-head">
       <span class="setup-dot ${found ? 'ok' : 'off'}">${found ? '●' : '○'}</span>
       <div class="setup-card-title">
-        <strong>Blender (for Finish and rigging)</strong>
+        <strong>Blender ${found ? '(for Finish)' : '· needed for Finish'}</strong>
         <div class="setup-card-state">${where}</div>
       </div>
       <div class="setup-card-action">${found

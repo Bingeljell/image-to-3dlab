@@ -40,6 +40,11 @@ export function stepBody(stepId, asset, ctx) {
       <button class="primary" data-run="model">${asset.model ? 'Make another 3D model' : 'Make 3D model'}</button>`;
     return asset.model ? redoBox('Make another 3D model', 'Builds a new 3D model from the same picture. It shows up as a new version; the current one is kept.', body) : body;
   }
+  if ((stepId === 'finished') && ctx.blenderReady === false) {
+    return `<p class="hint">${asset.kind === 'prop set' ? 'Splitting into props' : 'Finish'} needs Blender, a free app,
+      and it isn't installed. <a href="https://www.blender.org/download/" target="_blank" rel="noopener">Get Blender</a>
+      (drag it into Applications), then reopen this page. <a href="./setup.html">Setup</a> shows what's installed.</p>`;
+  }
   if (stepId === 'finished' && asset.kind === 'prop set') {
     return `<p class="hint">Cuts the sheet into one model per prop, each cleaned up with lighter versions for far away. A few minutes.</p>
       <button class="primary" data-run="finished">Split into props</button>`;

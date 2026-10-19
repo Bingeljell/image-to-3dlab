@@ -148,6 +148,14 @@ def test_errors_are_put_in_plain_words():
 
 
 @needs_node
+def test_install_help_for_blender_is_shown_as_it_is():
+    """2026-10-19, the first site report: a Mac with no Blender was told Blender had crashed."""
+    message = "Finish needs Blender 4.2 or newer, and none was found. Install Blender from blender.org."
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.plainError({json.dumps(message)})));")
+    assert out == message
+
+
+@needs_node
 def test_following_a_job_reports_progress_and_ends_on_a_terminal_status():
     out = _run("jobs.js", """
       const replies = [
@@ -943,3 +951,18 @@ def test_closing_a_sheet_from_outside_runs_its_own_clean_up():
       m.closeSheet({ querySelector: () => null });
       console.log(JSON.stringify(calls));""")
     assert out == ["clean", "remove", "plain"]
+
+
+@needs_node
+def test_without_blender_finish_says_so_before_anyone_clicks():
+    """2026-10-19's first site report: Finish was offered on a Mac with no Blender, and failed."""
+    out = _run("steps.js", """
+      const model = { kind: 'character', model: 'm/k.glb', picture: 'images/k.png', props: [], clips: [] };
+      const sheet = { kind: 'prop set', model: 'm/sheet.glb', props: [], clips: [] };
+      const ctx = (ready) => ({ presets: [], engines: [], blenderReady: ready });
+      console.log(JSON.stringify([m.stepBody('finished', model, ctx(false)), m.stepBody('finished', sheet, ctx(false)),
+                                  m.stepBody('finished', model, ctx(true)), m.stepBody('finished', model, { presets: [], engines: [] })]));""")
+    missing, sheet, ready, unknown = out
+    assert "needs Blender" in missing and "blender.org" in missing and 'data-run="finished"' not in missing
+    assert sheet.startswith("<p") and "Splitting into props" in sheet
+    assert 'data-run="finished"' in ready and 'data-run="finished"' in unknown

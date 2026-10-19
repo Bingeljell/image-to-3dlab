@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **No Blender? You're told at the start, in plain words.** Without Blender, Finish used to fail
+  after the picture and 3D model had run, saying "Blender stopped with an error" and pointing at a
+  log that didn't exist. Create and Finish now check first, say how to install Blender, and offer
+  to stop after the 3D model instead. The Finish step says Blender is missing before you click,
+  and Setup lists a missing Blender first instead of below every engine.
 - **The new Pixal3D Finish no longer stops on some models.** Its safety check mistook Pixal3D's
   normal smoothing of spiky tips (a gnoll's mane) for a model turned the wrong way round, and the
   Finish failed. The check now asks which way round fits best, and if it still objects, Finish

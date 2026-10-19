@@ -106,3 +106,13 @@ def test_a_skin_without_paint_is_refused():
     bare[0]["materials"][0]["pbrMetallicRoughness"] = {}
     with pytest.raises(ValueError, match="no paint"):
         gs.dress(RIGGED, build_glb(*bare))
+
+
+def test_each_skin_adds_only_its_own_two_pictures():
+    """2026-10-19: the second skin also copied the first skin's material, so the knight's
+    all-skins file carried the gold pictures twice (5 MB too many)."""
+    skins = [("a", _glb(b"A-PAINT", b"A-SHINE")), ("b", _glb(b"B-PAINT", b"B-SHINE")),
+             ("c", _glb(b"C-PAINT", b"C-SHINE"))]
+    document, _ = parse_glb(gs.with_variants(RIGGED, skins))
+    assert len(document["materials"]) == 4                     # the original + one per skin
+    assert len(document["images"]) == 3 + 2 * 3                # its own three + two per skin

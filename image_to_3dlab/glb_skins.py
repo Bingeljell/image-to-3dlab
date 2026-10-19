@@ -171,10 +171,11 @@ def with_variants(model: bytes, skins: list[tuple[str, bytes]], original: str = 
     names = [original] + [name for name, _ in skins]
     # per original material: the material index each variant uses
     per_variant: list[list[int]] = [list(range(len(materials)))]
+    originals = list(materials)   # each skin copies these, never an earlier skin's copies
     for _, skin in skins:
         paint = _paint_of(skin)
         indices = []
-        for index, material in enumerate(list(materials)):
+        for material in originals:
             dressed = copy.deepcopy(material)
             pbr = dressed.setdefault("pbrMetallicRoughness", {})
             for role, (data, mime) in paint.items():

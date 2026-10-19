@@ -18,6 +18,7 @@ let filter = 'all', query = '', showHidden = false, limit = 30;
 let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
+let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
@@ -180,6 +181,7 @@ $('copyPathBtn').addEventListener('click', async (event) => {
 const ctx = {
   get engines() { return engines; },
   get presets() { return presets; },
+  get blenderReady() { return blenderReady; },
   url: (relative) => url(relative),
   asset: () => current,
   onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
@@ -346,10 +348,12 @@ async function refreshAssets() {
 }
 
 async function loadTools() {
-  const [catalog, animate] = await Promise.all([
+  const [catalog, animate, finishCaps] = await Promise.all([
     fetch('/api/catalog').then((r) => r.json()).catch(() => null),
     fetch('/api/animate/models').then((r) => r.json()).catch(() => null),
+    fetch('/api/finish/capabilities').then((r) => r.json()).catch(() => null),
   ]);
+  blenderReady = finishCaps ? !!finishCaps.ready : true;   // unknown: let the server say
   engines = readyEngines(catalog);
   frontBack = catalog?.front_back || null;
   presets = animate?.installed ? animate.presets : [];

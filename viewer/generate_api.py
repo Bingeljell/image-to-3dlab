@@ -1238,9 +1238,11 @@ def _cleanup_debug_files(job: Job) -> None:
     # Pixal3D that record is <name>.json, and <name>.svviews/ is the camera Finish's Pixel
     # Match needs: deleting them shipped Pixal3D models with no provenance at all.
     out = job.output_path
-    # <name>.post.bin is Pixal3D's clean-up input, which the Pixal3D Finish route reruns.
+    # <name>.post.bin is Pixal3D's clean-up input, which the Pixal3D Finish route reruns;
+    # <name>.shape.bin is the shape every new skin repaints.
     keep = {out, out.with_suffix(".provenance.json"), out.with_suffix(".json"),
-            out.with_suffix(".svviews"), out.with_suffix(".post.bin")}
+            out.with_suffix(".svviews"), out.with_suffix(".post.bin"),
+            out.with_suffix(".shape.bin")}
     for path in job.directory.iterdir():
         if path in keep:
             continue

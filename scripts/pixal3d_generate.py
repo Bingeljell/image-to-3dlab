@@ -77,6 +77,14 @@ DUMP_ENV = "PIXAL3D_DUMP_CONTINUE"
 DUMP_MARKER = DUMP_ENV.encode()
 DUMP_SUFFIX = ".post.bin"
 
+# The run's shape (voxel coordinates + shape latent, ~650 KB), saved beside every model whose
+# trellis-cli carries scripts/patch_pixal3d_shape_reuse.py. `--reuse-shape` paints that same
+# shape from new pictures: same mesh, UVs and normal map, so a new skin fits the old rig.
+SHAPE_SAVE_ENV = "PIXAL3D_SAVE_SHAPE"
+SHAPE_LOAD_ENV = "PIXAL3D_LOAD_SHAPE"
+SHAPE_MARKER = SHAPE_LOAD_ENV.encode()
+SHAPE_SUFFIX = ".shape.bin"
+
 STAGES = ["stage", "views", "ss", "shape", "decode", "texture", "write"]
 STAGE_LABELS = {
     "views": "Preparing view",
@@ -362,6 +370,15 @@ def dump_supported(cli: Path = CLI) -> bool:
         return False
 
 
+def shape_supported(cli: Path = CLI) -> bool:
+    """Whether this trellis-cli can save a shape and repaint a saved one. Read from the
+    binary, like `dump_supported`: upstream's prebuilt downloads never have it."""
+    try:
+        return cli.is_file() and SHAPE_MARKER in cli.read_bytes()
+    except OSError:
+        return False
+
+
 def with_dump(command: list[str], dump: Path) -> list[str]:
     """The command with `--dump-post` added; the output GLB stays the last argument."""
     return [*command[:-1], "--dump-post", str(dump), command[-1]]
@@ -391,17 +408,23 @@ def _rocm_root() -> Path | None:
 
 
 def run_env(steps: int | None, base: dict[str, str] | None = None,
-            dump: bool = False) -> dict[str, str]:
+            dump: bool = False, save_shape: Path | None = None,
+            load_shape: Path | None = None) -> dict[str, str]:
     """The CLI's environment. `PIXAL3D_STEPS` is set only when asked for, and a stray one
     in the caller's shell is dropped, so the manifest's step count is always the truth.
     `PIXAL3D_DUMP_CONTINUE` likewise: only when this run saves a dump, or `--dump-post`
-    would stop before writing the model."""
+    would stop before writing the model. The shape variables too: a stray load would
+    quietly repaint some other model's shape."""
     env = {k: v for k, v in (os.environ if base is None else base).items()
-           if k not in (STEPS_ENV, DUMP_ENV)}
+           if k not in (STEPS_ENV, DUMP_ENV, SHAPE_SAVE_ENV, SHAPE_LOAD_ENV)}
     if steps is not None and steps != DEFAULT_STEPS:
         env[STEPS_ENV] = str(steps)
     if dump:
         env[DUMP_ENV] = "1"
+    if load_shape is not None:
+        env[SHAPE_LOAD_ENV] = str(load_shape)
+    elif save_shape is not None:
+        env[SHAPE_SAVE_ENV] = str(save_shape)
     rocm = rocm_library_path(env)
     if rocm is not None:
         existing = env.get("LD_LIBRARY_PATH", "")
@@ -501,11 +524,20 @@ def main() -> int:
     parser.add_argument("--models", type=Path, default=None,
                         help="weights folder (default: single-view, or multi-view with --back)")
     parser.add_argument("--cli", type=Path, default=CLI)
+    parser.add_argument(
+        "--reuse-shape", type=Path, default=None,
+        help="a saved <run>.shape.bin: skip building a shape and paint that one from these "
+             "pictures (same pose, same front/back setup as the run that saved it). Same "
+             "mesh and UVs, so the new paint is a skin for the old model",
+    )
     args = parser.parse_args()
 
-    for picture in (args.image, args.back):
+    for picture in (args.image, args.back, args.reuse_shape):
         if picture is not None and not picture.is_file():
             raise SystemExit(f"not found: {picture}")
+    if args.reuse_shape is not None and not shape_supported(args.cli):
+        raise SystemExit("this trellis-cli cannot repaint a saved shape. Re-apply "
+                         "scripts/patch_pixal3d_shape_reuse.py and rebuild")
     if args.back is not None:
         args.models = args.models or MV_MODELS
         state = multiview_readiness(args.cli, args.models)
@@ -580,9 +612,15 @@ def main() -> int:
     dump = args.output.with_suffix(DUMP_SUFFIX) if dump_supported(args.cli) else None
     if dump is not None:
         command = with_dump(command, dump)
+    load_shape = args.reuse_shape.resolve() if args.reuse_shape is not None else None
+    save_shape = (args.output.with_suffix(SHAPE_SUFFIX)
+                  if load_shape is None and shape_supported(args.cli) else None)
+    if load_shape is not None:
+        print(f"[pixal3d] repainting the saved shape {load_shape.name}", flush=True)
     process = subprocess.Popen(
         command, cwd=str(PIXAL3D_ROOT), stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, bufsize=1, env=run_env(steps, dump=dump is not None),
+        stderr=subprocess.STDOUT, text=True, bufsize=1,
+        env=run_env(steps, dump=dump is not None, save_shape=save_shape, load_shape=load_shape),
     )
     assert process.stdout is not None
     seen_override = False
@@ -610,6 +648,10 @@ def main() -> int:
     if args.back is not None:
         record["back_input"] = {"path": str(args.back), "sha256": sha256_file(args.back)}
         record["parameters"]["views"] = "front + back"
+    if save_shape is not None and save_shape.is_file():
+        record["shape"] = save_shape.name
+    if load_shape is not None:
+        record["reused_shape"] = {"path": str(load_shape), "sha256": sha256_file(load_shape)}
     if dump is not None and dump.is_file():
         record["post_dump"] = dump.name
     elif dump is not None:

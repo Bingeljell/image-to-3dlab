@@ -87,7 +87,7 @@ def main() -> int:
 
     if not args.target.is_file():
         raise SystemExit(f"not found: {args.target}")
-    source = args.target.read_text()
+    source = args.target.read_text(encoding="utf-8")
 
     if args.check:
         print(("patched: " if is_patched(source) else "NOT PATCHED: ") + str(args.target))
@@ -103,7 +103,7 @@ def main() -> int:
     if patched == source:
         print(f"already patched: {args.target}")
         return 0
-    args.target.write_text(patched)
+    args.target.write_text(patched, encoding="utf-8")
     print(f"patched {args.target}: {ENV_VAR}=1 now installs the low-VRAM hooks")
     return 0
 

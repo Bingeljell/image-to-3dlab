@@ -379,6 +379,26 @@ def shape_supported(cli: Path = CLI) -> bool:
         return False
 
 
+def reuse_problem(shape: Path, has_back: bool) -> str | None:
+    """Why `shape` cannot be repainted from these pictures, or None.
+
+    Front-only and front + back runs place their cameras differently, so painting one's
+    shape with the other's pictures lands the paint off target. The run that saved the
+    shape recorded which it was in `<name>.json` beside it; without that record, allow it.
+    """
+    record = shape.with_name(shape.name.removesuffix(SHAPE_SUFFIX) + ".json")
+    try:
+        views = json.loads(record.read_text())["parameters"].get("views")
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    built_with_back = views == "front + back"
+    if built_with_back and not has_back:
+        return f"{shape.name} was built from front + back pictures: give --back too"
+    if has_back and not built_with_back:
+        return f"{shape.name} was built from a front picture only: drop --back"
+    return None
+
+
 def with_dump(command: list[str], dump: Path) -> list[str]:
     """The command with `--dump-post` added; the output GLB stays the last argument."""
     return [*command[:-1], "--dump-post", str(dump), command[-1]]
@@ -538,6 +558,10 @@ def main() -> int:
     if args.reuse_shape is not None and not shape_supported(args.cli):
         raise SystemExit("this trellis-cli cannot repaint a saved shape. Re-apply "
                          "scripts/patch_pixal3d_shape_reuse.py and rebuild")
+    if args.reuse_shape is not None:
+        problem = reuse_problem(args.reuse_shape, args.back is not None)
+        if problem:
+            raise SystemExit(problem)
     if args.back is not None:
         args.models = args.models or MV_MODELS
         state = multiview_readiness(args.cli, args.models)

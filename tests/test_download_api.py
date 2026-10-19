@@ -334,11 +334,11 @@ def test_the_remover_download_asks_nothing_twice():
     assert dl.COMMANDS["matte"][1].endswith("bootstrap_matte.py")
 
 
-def _pixal3d_tree(tmp_path, patched: bool, cli_newer: bool):
+def _pixal3d_tree(tmp_path, patched: bool, cli_newer: bool, skins: bool = True):
     source = tmp_path / "flow_runner.cpp"
     cli = tmp_path / "trellis-cli"
     source.write_text("i2l_steps" if patched else "plain")
-    cli.write_text("binary")
+    cli.write_bytes(b"binary PIXAL3D_LOAD_SHAPE" if skins else b"binary")
     older, newer = 1_000_000, 2_000_000
     os.utime(source, (older, older) if cli_newer else (newer, newer))
     os.utime(cli, (newer, newer) if cli_newer else (older, older))
@@ -358,6 +358,12 @@ def test_a_patch_not_yet_compiled_in_is_offered_a_rebuild(tmp_path):
 def test_a_patched_current_build_is_left_alone(tmp_path):
     source, cli = _pixal3d_tree(tmp_path, patched=True, cli_newer=True)
     assert dl.rebuild_reason("pixal3d", source, cli) is None
+
+
+def test_a_build_from_before_skins_is_offered_a_rebuild(tmp_path):
+    """Otherwise its models silently keep no shape, and no model of theirs takes a skin."""
+    source, cli = _pixal3d_tree(tmp_path, patched=True, cli_newer=True, skins=False)
+    assert "skins" in dl.rebuild_reason("pixal3d", source, cli)
 
 
 def test_nothing_installed_or_a_prebuilt_is_never_offered_a_rebuild(tmp_path):

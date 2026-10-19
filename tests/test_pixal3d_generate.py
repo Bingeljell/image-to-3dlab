@@ -727,3 +727,29 @@ def test_the_marker_is_what_the_patch_puts_in_the_binary():
     spec.loader.exec_module(patch)
     assert px.SHAPE_LOAD_ENV == patch.LOAD_ENV and px.SHAPE_SAVE_ENV == patch.SAVE_ENV
     assert px.SHAPE_MARKER == patch.LOAD_ENV.encode()
+
+
+def _saved_shape(tmp_path, views=None):
+    shape = tmp_path / "run.shape.bin"
+    shape.write_bytes(b"x")
+    params = {"seed": 1} if views is None else {"seed": 1, "views": views}
+    (tmp_path / "run.json").write_text(json.dumps({"parameters": params}))
+    return shape
+
+
+def test_a_front_back_shape_needs_a_back_picture_to_repaint(tmp_path):
+    shape = _saved_shape(tmp_path, "front + back")
+    assert "--back" in px.reuse_problem(shape, has_back=False)
+    assert px.reuse_problem(shape, has_back=True) is None
+
+
+def test_a_front_only_shape_refuses_a_back_picture(tmp_path):
+    shape = _saved_shape(tmp_path)
+    assert "drop --back" in px.reuse_problem(shape, has_back=True)
+    assert px.reuse_problem(shape, has_back=False) is None
+
+
+def test_a_shape_without_its_record_is_allowed(tmp_path):
+    shape = tmp_path / "loose.shape.bin"
+    shape.write_bytes(b"x")
+    assert px.reuse_problem(shape, has_back=True) is None

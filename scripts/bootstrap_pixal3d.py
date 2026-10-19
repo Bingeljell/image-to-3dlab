@@ -77,6 +77,10 @@ PREBUILT_RELEASE = "v0.10.1-desktop-alpha"
 # The commit that tag points at. A tag can be moved; a commit cannot, so the CUDA source
 # build fetches this.
 PREBUILT_COMMIT = "1f432fd3f0689c504fa1e9b15b038c33584174d1"
+# The Mac source build's commit: the one every patch here (steps, dump, shape reuse for skins) was
+# built and run on. Upstream's newest could change what a saved shape means; move this only after
+# testing a skin end to end on the new commit.
+MAC_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
 RELEASE_API = "https://api.github.com/repos/raven38/pixal3d.cpp/releases/tags/{tag}"
 
 # CUDA 12 rather than upstream's unversioned CUDA build (which is newer): CUDA 12 runs on
@@ -435,9 +439,10 @@ def apply_dump_patch(runner=subprocess.run) -> bool:
 
 
 def source_ref(kind: str) -> str:
-    """The Mac build has always tracked upstream's default branch; the CUDA and HIP builds
-    pin the commit the prebuilts come from, which is the one tested on NVIDIA."""
-    return "HEAD" if kind == "metal-source" else PREBUILT_COMMIT
+    """The commit to build: the Mac build pins the one its patches were tested on (it used to
+    track upstream's newest, which nothing had tested); the CUDA and HIP builds pin the commit
+    the prebuilts come from, which is the one tested on NVIDIA."""
+    return MAC_COMMIT if kind == "metal-source" else PREBUILT_COMMIT
 
 
 def has_metal(env: dict[str, str] | None = None, runner=subprocess.run) -> bool:

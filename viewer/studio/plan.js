@@ -17,7 +17,7 @@ export const ALLOWED = {
 };
 
 // Steps by id; `set` finishes by splitting the sheet into props.
-export const STEP_LABELS = { picture: 'Picture', back: 'Back picture', model: '3D model', finished: 'Finish', split: 'Split into props', rigged: 'Rig', animated: 'Animate' };
+export const STEP_LABELS = { picture: 'Picture', back: 'Back picture', model: '3D model', finished: 'Finish', split: 'Split into props', rigged: 'Rig', animated: 'Animate', skin: 'Skin' };
 
 /** The steps to run, in order, before any "stop after".
  *  `frontBack`: draw a back picture and build the 3D model from front and back (one prop or

@@ -561,3 +561,25 @@ def test_one_file_carries_every_finished_skin(output):
     assert variant_names((output / made).read_bytes()) == ["Original paint", "gold skirt", "purple"]
     with pytest.raises(sk.SkinError, match="no finished skins"):
         sk.all_skins(output, "animate/r/p_rigged.glb", [])
+
+
+def test_every_build_lands_in_the_activity_history(output):
+    """Activity lists it, and Report a bug sends a failed one's log like any other step's."""
+    from activity_api import read_history
+
+    store, skin = _ready(output)
+    sk.SkinBuilds(store).start(skin, background=False, box=_same_box,
+                               runner=lambda c, **k: _FakeProcess(["[3/6] shape", "boom"], code=1))
+    record = read_history(output)[0]
+    assert record["step"] == "skin" and record["result"] == "error" and "repaint" in record["note"]
+    assert "boom" in record["log"] and record["prompt"] == "gold skirt"
+
+
+def test_two_rigs_of_one_model_get_their_own_dressed_files(output):
+    """A re-rig the same day shares the file name and all but the time in its folder name."""
+    _, skin = _finished_skin(output)
+    first = "animate/p_20k__rig__20261019-203017/p_rigged.glb"
+    second = "animate/p_20k__rig__20261019-213544/p_rigged.glb"
+    _write(output / first, _glb(b"RIG-ONE"))
+    _write(output / second, _glb(b"RIG-TWO"))
+    assert sk.dressed(output, skin, first) != sk.dressed(output, skin, second)

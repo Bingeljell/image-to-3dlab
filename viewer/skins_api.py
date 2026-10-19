@@ -495,9 +495,23 @@ class SkinBuilds:
             job.emit({"phase": "error", "message": str(exc)})
         finally:
             self.store.save(skin)
+            self._history(job, skin)
             with self.lock:
                 if self.active == job.id:
                     self.active = None
+
+    def _history(self, job: SkinBuild, skin: Skin) -> None:
+        """One line in output/.activity.jsonl, so Activity lists the build and Report a bug can
+        send its log like any other step's."""
+        from activity_api import append_history
+
+        append_history(self.store.output, {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%S"), "chain": f"skin-{skin.id}",
+            "title": f"{skin.base.get('name') or 'model'} · {skin.name}", "prompt": skin.instruction,
+            "want": "skin", "step": "skin", "result": job.status,
+            "seconds": round(time.monotonic() - job.started, 1),
+            "note": job.error or (job.events[-1]["message"] if job.events else ""),
+            "made": skin.result, "log": "\n".join(job.log_lines)[-3000:]})
 
 
 # ---------------------------------------------------------------------------- wearing a skin
@@ -526,7 +540,11 @@ def dressed(output: Path, skin: Skin, file: str) -> str:
     if file == skin.base.get("finished"):
         return skin.result                       # the skin itself is the finished model in that paint
     paint = output / skin.result
-    target = output / SKINS_DIR / skin.id / "dressed" / f"{source.parent.name[:60]}__{source.name}"
+    # keyed by the whole path: two rigs of one model can share a file name and most of a folder name
+    import hashlib
+
+    key = hashlib.sha1(file.encode()).hexdigest()[:10]
+    target = output / SKINS_DIR / skin.id / "dressed" / f"{key}__{source.name}"
     if not _fresh(target, source, paint):
         target.parent.mkdir(parents=True, exist_ok=True)
         partial = target.with_suffix(".part")

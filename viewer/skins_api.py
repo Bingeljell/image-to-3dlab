@@ -40,8 +40,8 @@ TERMINAL = {"done", "error", "cancelled"}
 # Each try gets its own seed, so asking again draws a different picture. The back's are
 # offset so a front try and a back try never share one by accident.
 FRONT_SEED, BACK_SEED = 42, 142
-# The repaint's in-between files nobody needs once the skin is finished (~200 MB).
-SCRATCH_SUFFIXES = (".post.bin", ".ply")
+# The repaint's in-between files nobody needs once the skin is finished (~230 MB).
+SCRATCH_SUFFIXES = (".post.bin", ".ply", "_base.png")
 
 
 class SkinError(ValueError):
@@ -454,8 +454,11 @@ class SkinBuilds:
             problem = framing_problem(output, skin, box)
             if problem:
                 raise RuntimeError(problem)
-            for stage, command in (("repaint", repaint_command(output, skin)),
-                                   ("finish", finish_command(output, skin))):
+            # Each command is built when its step starts: Finish only finds the repaint's clean-up
+            # dump and cameras once the repaint has written them (2026-10-19: built up front, the
+            # first skin took the classic route without Pixel Match, a different mesh).
+            for stage, make in (("repaint", repaint_command), ("finish", finish_command)):
+                command = make(output, skin)
                 job.emit({"phase": stage, "message": "Repainting the model" if stage == "repaint"
                           else "Finishing, with the model's own settings", "overall_pct": 0 if stage == "repaint" else 80})
                 job.process = runner(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

@@ -241,20 +241,27 @@ def test_a_build_repaints_finishes_and_tidies_up(output):
 
     def runner(command, **kwargs):
         seen.append(command)
-        if len(seen) == 1:   # the repaint leaves its scratch behind
+        if len(seen) == 1:   # the repaint leaves its scratch behind, and the camera Pixel Match needs
             return _FakeProcess(["[4/6] decode", "[6/6] write"], on_wait=lambda: [
                 _write(folder / "repaint" / "repaint.post.bin", b"x"),
                 _write(folder / "repaint" / "repaint.ply", b"x"),
+                _write(folder / "repaint" / "repaint_base.png", b"x"),
+                _write(folder / "repaint" / "repaint.svviews" / "transforms.json", "{}"),
                 _write(folder / "repaint" / "repaint.glb", b"glb")])
         return _FakeProcess(["I2L_STAGE::photo::Pixel Match"],
                             on_wait=lambda: _write(folder / "gold-skirt_20k.glb", b"skin"))
 
+    _write(output / "finish" / FIN / "input" / "source.post.bin", b"dump")   # the model took Pixal3D's own route
+    skin.base["native"] = True
     job = sk.SkinBuilds(store).start(skin, background=False, runner=runner, box=_same_box)
     assert job.status == "done"
+    # Finish was built after the repaint wrote its files: same route as the model, with Pixel Match
+    assert "--native-dump" in seen[1] and "--views" in seen[1]
     saved = store.get(skin.id)
     assert saved.status == "done" and saved.result == f"skins/{skin.id}/gold-skirt_20k.glb"
     assert not (folder / "repaint" / "repaint.post.bin").exists()
     assert not (folder / "repaint" / "repaint.ply").exists()
+    assert not (folder / "repaint" / "repaint_base.png").exists()
     assert (folder / "repaint" / "repaint.glb").is_file()
     assert [e["overall_pct"] for e in job.events if "overall_pct" in e][-1] == 100
 

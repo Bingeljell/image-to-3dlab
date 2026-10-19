@@ -146,7 +146,7 @@ def test_the_server_registers_every_tool():
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend",
                      "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
-                     "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin"}
+                     "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins"}
 
 
 # --------------------------------------------------------------------------- create
@@ -564,3 +564,36 @@ def test_list_assets_shows_a_models_skins():
 def test_preview_can_show_a_skin(studio):
     ms.preview(studio, asset_id="aaaaaaaaaaaa", skin="k1")
     assert studio.http.last_params["skin"] == "k1"
+
+
+class ExportHttp(FakeHttp):
+    def get(self, url, params=None, timeout=None):
+        path = url.split("8777/", 1)[1]
+        self.last_params = params
+        if path == "api/assets":
+            dancer = {**DANCER, "skins": [{"id": "k1", "name": "gold", "file": "skins/k1/gold_20k.glb"}]}
+            return Response(200, {"assets": [dancer]})
+        if path == "api/skins/all":
+            return Response(200, {"file": "skins/all/d__skins-abc.glb"})
+        if path == "api/skins/k1/dressed":
+            return Response(200, {"file": "skins/k1/dressed/" + params["file"].split("/")[-1]})
+        return super().get(url, params, timeout)
+
+
+def test_export_dresses_the_rig_and_every_move_in_the_skin():
+    studio = ms.Studio("http://127.0.0.1:8777", http=ExportHttp(), start=lambda: None)
+    out = ms.export_skins(studio, asset_id=DANCER["id"], skin_id="k1")
+    assert out["files"] == {"finished": "output/skins/k1/gold_20k.glb",
+                            "rigged": "output/skins/k1/dressed/d_rigged.glb",
+                            "idle": "output/skins/k1/dressed/d_idle.glb"}
+
+
+def test_export_without_a_skin_is_one_file_with_every_skin():
+    studio = ms.Studio("http://127.0.0.1:8777", http=ExportHttp(), start=lambda: None)
+    out = ms.export_skins(studio, asset_id=DANCER["id"])
+    assert out["file"] == "output/skins/all/d__skins-abc.glb" and studio.http.last_params["file"] == DANCER["rigged"]
+
+
+def test_export_says_when_there_is_nothing_to_export(studio):
+    with pytest.raises(ms.StudioError, match="no finished skins"):
+        ms.export_skins(studio, asset_id=KNIGHT["id"])

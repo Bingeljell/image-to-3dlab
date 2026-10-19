@@ -505,3 +505,59 @@ def test_a_part_lost_to_the_background_stops_the_build_before_painting(output):
 def test_an_empty_cut_out_is_caught(output):
     _, skin = _ready(output)
     assert "came out empty" in sk.framing_problem(output, skin, box=lambda p: None if "skins" in str(p) else (0, 0, 1, 1))
+
+
+# --- wearing a skin: rigged models, moves, one file with every skin ----------------------------
+
+
+def _glb(paint: bytes) -> bytes:
+    from tests.test_glb_skins import _glb as make
+    return make(paint, paint + b"-SHINE")
+
+
+def _finished_skin(output, name="gold skirt", paint=b"GOLD"):
+    store, skin = _ready(output)
+    skin.name, skin.status, skin.result = name, "done", f"skins/{skin.id}/{sk.slug(name)}_20k.glb"
+    _write(output / skin.result, _glb(paint))
+    store.save(skin)
+    return store, skin
+
+
+def test_a_rigged_model_is_dressed_once_and_kept(output):
+    from image_to_3dlab.glb_skins import paint_images
+    from image_to_3dlab.glb_turn import parse_glb
+
+    _, skin = _finished_skin(output)
+    _write(output / "animate" / "r" / "p_rigged.glb", _glb(b"MODEL-PAINT"))
+    made = sk.dressed(output, skin, "animate/r/p_rigged.glb")
+    assert made.startswith(f"skins/{skin.id}/dressed/") and b"GOLD" in (output / made).read_bytes()
+    document, _ = parse_glb((output / made).read_bytes())
+    assert set(paint_images(document)) == {"baseColorTexture", "metallicRoughnessTexture"}
+    first = (output / made).stat().st_mtime
+    assert sk.dressed(output, skin, "animate/r/p_rigged.glb") == made and (output / made).stat().st_mtime == first
+
+
+def test_the_finished_model_in_a_skin_is_the_skin_itself(output):
+    _, skin = _finished_skin(output)
+    assert sk.dressed(output, skin, skin.base["finished"]) == skin.result
+
+
+def test_an_unfinished_skin_or_a_stray_path_is_refused(output):
+    _, skin = _ready(output)
+    with pytest.raises(sk.SkinError, match="not finished"):
+        sk.dressed(output, skin, skin.base["finished"])
+    _, done = _finished_skin(output)
+    with pytest.raises(sk.SkinError):
+        sk.dressed(output, done, "../../etc/passwd")
+
+
+def test_one_file_carries_every_finished_skin(output):
+    from image_to_3dlab.glb_skins import variant_names
+
+    _, gold = _finished_skin(output, "gold skirt", b"GOLD")
+    _, purple = _finished_skin(output, "purple", b"PURPLE")
+    _write(output / "animate" / "r" / "p_rigged.glb", _glb(b"MODEL-PAINT"))
+    made = sk.all_skins(output, "animate/r/p_rigged.glb", [gold, purple])
+    assert variant_names((output / made).read_bytes()) == ["Original paint", "gold skirt", "purple"]
+    with pytest.raises(sk.SkinError, match="no finished skins"):
+        sk.all_skins(output, "animate/r/p_rigged.glb", [])

@@ -791,6 +791,26 @@ def build_skin(studio: Studio, *, skin_id: str) -> dict[str, Any]:
     return skin_summary(studio.get(f"api/skins/{skin_id}"))
 
 
+def export_skins(studio: Studio, *, asset_id: str, skin_id: str | None = None) -> dict[str, Any]:
+    """Files for a game: with skin_id, the model (and its rig and every move) wearing that skin;
+    without, one GLB carrying the original paint and every skin as switchable variants."""
+    asset = find_asset(studio, asset_id)
+    if not asset.get("skins"):
+        raise StudioError("This model has no finished skins yet: make_skin makes one.")
+    if skin_id is None:
+        file = asset.get("rigged") or asset.get("finished")
+        made = studio.get("api/skins/all", asset=asset_id, file=file)
+        return {"file": f"output/{made['file']}", "skins": [k["name"] for k in asset["skins"]],
+                "tip": "One GLB: Blender, three.js and <model-viewer> list the skins as material variants."}
+    if not any(k["id"] == skin_id for k in asset["skins"]):
+        raise StudioError(f"{asset.get('name')} has no finished skin {skin_id!r}; list_assets shows its skins.")
+    files = {"finished": next(k["file"] for k in asset["skins"] if k["id"] == skin_id)}
+    for key, source in ([("rigged", asset.get("rigged"))] + [(c["name"], c["file"]) for c in asset.get("clips", [])]):
+        if source:
+            files[key] = studio.get(f"api/skins/{skin_id}/dressed", file=source)["file"]
+    return {"files": {k: f"output/{v}" for k, v in files.items()}}
+
+
 def cancel_skin(studio: Studio, *, skin_id: str) -> dict[str, Any]:
     build = studio.get(f"api/skins/{skin_id}").get("build_job")
     if not build:
@@ -966,6 +986,13 @@ def build_server(studio: Studio | None = None):
         """Both pictures approved: repaint the model from them and Finish it with the model's own settings
         (a few minutes). Then skin_status until done."""
         return safe(lambda: build_skin(studio, skin_id=skin_id))
+
+    @server.tool(name="export_skins", structured_output=False)
+    def tool_export_skins(asset_id: str, skin_id: str | None = None):
+        """Skins as files for a game. With skin_id: the finished model, its rig and every move, all
+        wearing that skin. Without: one GLB holding the original paint and every skin as switchable
+        material variants."""
+        return safe(lambda: export_skins(studio, asset_id=asset_id, skin_id=skin_id))
 
     @server.tool(name="cancel_skin", structured_output=False)
     def tool_cancel_skin(skin_id: str):

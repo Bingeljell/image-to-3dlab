@@ -100,7 +100,8 @@ export function skinCardHtml(asset, drafts, viewing, url) {
   const picker = skins.length ? `<label class="field">Show<select data-skin-pick>
       <option value="">Original paint</option>
       ${skins.map((s) => `<option value="${esc(s.id)}" ${viewing === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-    </select></label>${viewing ? '<button type="button" class="linkish" data-skin-delete>Delete this skin</button>' : ''}` : '';
+    </select></label>${viewing ? '<button type="button" class="linkish" data-skin-delete>Delete this skin</button>' : ''}
+    <button type="button" class="ghost" data-skin-all data-tip="One GLB with the original paint and every skin, switchable in Blender, three.js and other viewers.">Download with every skin</button>` : '';
   const working = drafts.map((d) => `<div class="skin-draft" data-draft="${esc(d.id)}">${draftHtml(d, url)}</div>`).join('');
   const count = skins.length ? `${skins.length} skin${skins.length > 1 ? 's' : ''} · same model, new paint` : 'Same model, new paint';
   return `<li class="step skins" data-step="skins"><header><span class="dot">◐</span><span style="min-width:0"><h3>Skins</h3><div class="sum">${count}</div></span></header>
@@ -140,6 +141,16 @@ export async function mountSkins(list, asset, ctx) {
 
   const pick = card.querySelector('[data-skin-pick]');
   if (pick) pick.onchange = () => ctx.view((asset.skins || []).find((s) => s.id === pick.value) || null);
+  card.querySelector('[data-skin-all]')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    const file = asset.rigged || asset.finished;
+    try {
+      const made = await call(`/api/skins/all?asset=${encodeURIComponent(asset.id)}&file=${encodeURIComponent(file)}`);
+      const link = Object.assign(document.createElement('a'), { href: ctx.url(made.file), download: made.file.split('/').pop() });
+      document.body.appendChild(link); link.click(); link.remove();
+    } catch (error) { note(error.message); }
+    e.target.disabled = false;
+  });
   card.querySelector('[data-skin-delete]')?.addEventListener('click', async (e) => {
     if (!confirm('Delete this skin from your disk? This cannot be undone.')) return;
     e.target.disabled = true;

@@ -2787,6 +2787,20 @@ class Handler(SimpleHTTPRequestHandler):
                 else:
                     self._send_json(200, {"skins": [s.to_dict() for s in skins_api.STORE.all()]})
                 return
+            query = parse_qs(urlparse(self.path).query)
+            if rest == ["all"]:
+                # one GLB of a model (`file`: its finished or rigged model) carrying every finished skin
+                file = (query.get("file") or [""])[0]
+                asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == (query.get("asset") or [""])[0]), None)
+                if asset is None or file not in {asset.get("finished"), asset.get("rigged")}:
+                    raise skins_api.SkinError("pick a model and its finished or rigged file")
+                skins = [skins_api.STORE.get(k["id"]) for k in asset.get("skins", [])]
+                self._send_json(200, {"file": skins_api.all_skins(OUTPUT_ROOT, file, skins)})
+                return
+            if len(rest) == 2 and rest[1] == "dressed":
+                skin = skins_api.STORE.get(rest[0])
+                self._send_json(200, {"file": skins_api.dressed(OUTPUT_ROOT, skin, (query.get("file") or [""])[0])})
+                return
             if len(rest) == 3 and rest[0] == "build" and rest[2] == "status":
                 job = skins_api.BUILDS.jobs.get(rest[1])
                 self._send_json(200 if job else 404, job.describe() if job else {"error": "no such build"})
@@ -2796,6 +2810,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
         except skins_api.SkinError as exc:
             self._send_json(404, {"error": str(exc)})
+            return
+        except ValueError as exc:   # a model the skin's paint can't be put on
+            self._send_json(422, {"error": str(exc)})
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 

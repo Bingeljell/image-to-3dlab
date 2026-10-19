@@ -500,5 +500,67 @@ class SkinBuilds:
                     self.active = None
 
 
+# ---------------------------------------------------------------------------- wearing a skin
+
+
+def _repo_on_path() -> None:
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+
+
+def _fresh(target: Path, *sources: Path) -> bool:
+    return target.is_file() and all(target.stat().st_mtime >= s.stat().st_mtime for s in sources)
+
+
+def dressed(output: Path, skin: Skin, file: str) -> str:
+    """`file` (the model's rigged character or one of its moves, or the finished model) wearing
+    `skin`, made once and kept in the skin's folder. Returns its path relative to output/."""
+    _repo_on_path()
+    from image_to_3dlab.glb_skins import dress
+
+    if skin.status != "done" or not skin.result:
+        raise SkinError("This skin is not finished yet.")
+    source = _inside(output, file)
+    if not source.is_file() or source.suffix != ".glb":
+        raise SkinError(f"not a model in output/: {file}")
+    if file == skin.base.get("finished"):
+        return skin.result                       # the skin itself is the finished model in that paint
+    paint = output / skin.result
+    target = output / SKINS_DIR / skin.id / "dressed" / f"{source.parent.name[:60]}__{source.name}"
+    if not _fresh(target, source, paint):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_suffix(".part")
+        partial.write_bytes(dress(source.read_bytes(), paint.read_bytes()))
+        partial.replace(target)
+    return _rel(output, target)
+
+
+def all_skins(output: Path, file: str, skins: list[Skin], original: str = "Original paint") -> str:
+    """One GLB of `file` with its own paint and every one of `skins` as a named variant, kept in
+    output/skins/all/. Remade when the model or any skin changes."""
+    _repo_on_path()
+    from image_to_3dlab.glb_skins import with_variants
+
+    done = [s for s in skins if s.status == "done" and s.result]
+    if not done:
+        raise SkinError("This model has no finished skins yet.")
+    source = _inside(output, file)
+    if not source.is_file():
+        raise SkinError(f"not a model in output/: {file}")
+    import hashlib
+
+    key = hashlib.sha1("|".join([file, *sorted(s.id for s in done)]).encode()).hexdigest()[:10]
+    target = output / SKINS_DIR / "all" / f"{source.stem[:60]}__skins-{key}.glb"
+    paints = [output / s.result for s in done]
+    if not _fresh(target, source, *paints):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_suffix(".part")
+        partial.write_bytes(with_variants(source.read_bytes(),
+                                          [(s.name, p.read_bytes()) for s, p in zip(done, paints, strict=True)],
+                                          original=original))
+        partial.replace(target)
+    return _rel(output, target)
+
+
 STORE = SkinStore()
 BUILDS = SkinBuilds(STORE)

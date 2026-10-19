@@ -120,7 +120,10 @@ function renderSteps(asset) {
     setDownload(file);
   }));
   const skin = viewingSkin && (asset.skins || []).find((k) => k.id === viewingSkin);
-  setDownload(skin ? skin.file : viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
+  // a character wearing a skin: the move picker points the download at the dressed move
+  if (!(skin && asset.rigged && asset.clips.length)) {
+    setDownload(skin ? skin.file : viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
+  }
   mountSkins($('steps'), asset, skinCtx);
 }
 
@@ -129,15 +132,29 @@ const skinCtx = {
   url: (relative) => url(relative),
   asset: () => current,
   viewing: () => viewingSkin,
-  view: (skin) => {
+  view: async (skin) => {
     if (!skin) { show(current); return; }
+    const asset = current;
     viewingSkin = skin.id;
     viewingStep = null;
     viewingPictures = false;
-    viewer.setFacing(null);
-    viewer.setClips([]);
-    viewer.load(url(skin.file), { label: `${current.name} · ${skin.name}` });
-    renderSteps(current);   // the card offers to delete the skin on show; the download follows it
+    if (asset.rigged && asset.clips.length) {
+      // a character: its rest pose and every move, each wearing the skin (made once, then kept)
+      const dress = async (file) => (await (await fetch(`/api/skins/${skin.id}/dressed?file=${encodeURIComponent(file)}`)).json()).file;
+      try {
+        const rest = await dress(asset.rigged);
+        const clips = [];
+        for (const clip of asset.clips) clips.push({ name: clip.name.replace(/_/g, ' '), file: await dress(clip.file) });
+        if (current !== asset || viewingSkin !== skin.id) return;   // moved on while dressing
+        viewer.setFacing(asset.facing);
+        viewer.setClips(clips.map((c) => ({ ...c, url: url(c.file) })), { restUrl: url(rest) });
+      } catch { viewer.showEmpty('Could not put this skin on the rigged model.'); }
+    } else {
+      viewer.setFacing(null);
+      viewer.setClips([]);
+      viewer.load(url(skin.file), { label: `${asset.name} · ${skin.name}` });
+    }
+    renderSteps(asset);   // the card offers to delete the skin on show; the download follows it
   },
   onBusy: (on) => ctx.onBusy(on),
   // a skin's original and new picture, full size where the model usually is

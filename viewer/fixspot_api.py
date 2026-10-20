@@ -22,6 +22,9 @@ from assets_api import FINISH_RUN
 
 from image_to_3dlab import spot_fix
 
+# The studio's brush slider range (viewer/studio/viewer.js BRUSH_MIN / BRUSH_MAX).
+BRUSH_MIN, BRUSH_MAX = 0.005, 0.08
+
 
 def finished_model(output: Path, relative: Any) -> Path | None:
     """The finished GLB `relative` names, or None unless it sits in a Finish run of `output`."""
@@ -55,10 +58,18 @@ def fix_spot_response(output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
     if (not isinstance(point, list) or len(point) != 3
             or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in point)):
         return 400, {"error": "The point must be three numbers."}
-    size = payload.get("size", "medium")
-    if size not in spot_fix.RADII:
-        return 400, {"error": f"Brush size is one of {', '.join(spot_fix.RADII)}."}
-    radius = spot_fix.RADII[size] * spot_fix.model_height(source)
+    # brush: a share of the model's height (the studio's slider), or a named size (agents, scripts)
+    share = payload.get("radius")
+    if share is not None:
+        if not isinstance(share, (int, float)) or not BRUSH_MIN <= share <= BRUSH_MAX:
+            return 400, {"error": f"The brush is {BRUSH_MIN} to {BRUSH_MAX} of the model's height."}
+        size = round(float(share), 4)
+    else:
+        size = payload.get("size", "medium")
+        if size not in spot_fix.RADII:
+            return 400, {"error": f"Brush size is one of {', '.join(spot_fix.RADII)}."}
+        share = spot_fix.RADII[size]
+    radius = share * spot_fix.model_height(source)
     run = new_run_dir(source.parent)
     run.mkdir(parents=True)
     try:

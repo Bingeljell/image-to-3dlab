@@ -27,14 +27,14 @@ const openFamilies = new Set();  // families whose versions are listed under the
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), onFixSpot: fixSpot });
 
 // Fix a spot: only on a finished model on screen (not a rigged one, a move or a raw model)
-async function fixSpot(point, size) {
+async function fixSpot(point, radius) {
   const file = current && !viewingStep && !viewingPictures ? displayModel(current) : null;
   if (!file || file !== current.finished) {
     alert('Fix a spot works on a finished model. Open the finished version, then click the spot.');
     return;
   }
   const response = await fetch('/api/fix-spot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file, point, size }) });
+    body: JSON.stringify({ file, point, radius }) });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) { alert(body.error || 'That spot could not be fixed.'); return; }
   const before = assets, family = current.family || current.id;

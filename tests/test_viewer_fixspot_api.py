@@ -65,3 +65,11 @@ def test_two_fixes_in_the_same_second_get_their_own_folders(tmp_path):
     first = fx.new_run_dir(run, now=0)
     first.mkdir()
     assert fx.new_run_dir(run, now=0) != first
+
+
+def test_the_studio_slider_sends_a_share_of_the_height(tmp_path):
+    output, rel = _finished(tmp_path)
+    assert fx.fix_spot_response(output, {"file": rel, "point": [0, 0, 0.9], "radius": 0.5})[0] == 400
+    assert fx.fix_spot_response(output, {"file": rel, "point": [0, 0, 0.9], "radius": "big"})[0] == 400
+    status, body = fx.fix_spot_response(output, {"file": rel, "point": [0, 0, 0.9], "radius": 0.08})
+    assert status in (200, 422), body

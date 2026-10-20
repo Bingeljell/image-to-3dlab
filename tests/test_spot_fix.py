@@ -103,14 +103,17 @@ def test_the_rim_does_not_move(tmp_path):
     assert np.allclose(out_pos[: len(pos)], pos)
 
 
-def test_the_studio_brush_ring_uses_the_same_sizes_as_the_fix():
+def test_the_studio_brush_range_matches_the_server():
+    import importlib.util
     import re
     from pathlib import Path
-
-    js = (Path(__file__).resolve().parents[1] / "viewer" / "studio" / "viewer.js").read_text()
-    table = re.search(r"const BRUSH = \{([^}]*)\}", js).group(1)
-    studio = {k: float(v) for k, v in re.findall(r"(\w+): ([0-9.]+)", table)}
-    assert studio == sf.RADII
+    repo = Path(__file__).resolve().parents[1]
+    js = (repo / "viewer" / "studio" / "viewer.js").read_text()
+    low, high = map(float, re.search(r"const BRUSH_MIN = ([0-9.]+), BRUSH_MAX = ([0-9.]+)", js).groups())
+    spec = importlib.util.spec_from_file_location("fx", repo / "viewer" / "fixspot_api.py")
+    fx = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fx)
+    assert (low, high) == (fx.BRUSH_MIN, fx.BRUSH_MAX)
 
 
 def test_a_rim_crossing_a_uv_seam_is_capped(tmp_path):

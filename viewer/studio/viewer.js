@@ -43,7 +43,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
       <button class="tool" data-act="clay" aria-pressed="false" data-tip="Clay: plain grey, so you judge the shape without the paint" aria-label="Clay view">${ICON.clay}</button>
       <button class="tool" data-act="normal" aria-pressed="false" data-tip="Normals: the surface's direction as colour; dents, lumps and flipped faces stand out" aria-label="Normal view">${ICON.normal}</button>
       <button class="tool" data-act="bones" aria-pressed="false" data-tip="Show skeleton: the bones the auto-rig placed" aria-label="Show skeleton">${ICON.bones}</button>
-      <button class="tool" data-act="fix" aria-pressed="false" data-tip="Fix a spot: click a hole or a messy patch to smooth it over. Shift-click for a bigger brush, Alt-click for a smaller one. Saves a new version" aria-label="Fix a spot">${ICON.fix}</button>
+      <button class="tool" data-act="fix" aria-pressed="false" data-tip="Fix a spot: click a hole or a messy patch to smooth it over and repaint it from your picture. Size it with the slider or [ and ]. Saves a new version" aria-label="Fix a spot">${ICON.fix}</button>
     </div>`;
   stage.appendChild(tools);
 
@@ -180,18 +180,37 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
     if (act === 'bones') setSkeleton(on);
     if (act === 'fix') {
       pane.classList.toggle('fixing', on);
+      brushPanel.hidden = !on;
       if (!on) hideRing();
-      if (on) overlayNote(onFixSpot ? 'Click a hole or a messy patch on a finished model.' : 'Fix a spot works on finished models.');
+      if (on) overlayNote(onFixSpot ? 'Click a hole or a messy patch. Brush size: the slider, or [ and ].' : 'Fix a spot works on finished models.');
     }
   });
 
   // Fix a spot: a click (not a drag) on the model, while the brush is on, picks the point.
-  // Brush sizes as a share of the model's height: the same table as image_to_3dlab/spot_fix.py.
-  const BRUSH = { small: 0.012, medium: 0.025, large: 0.045 };
-  const brushSize = (event) => (event.shiftKey ? 'large' : event.altKey ? 'small' : 'medium');
-  let ring = null;
+  // The brush is a share of the model's height; the server accepts the same range (fixspot_api.py).
+  const BRUSH_MIN = 0.005, BRUSH_MAX = 0.08;
+  let brushShare = 0.02;
+  const brushPanel = document.createElement('label');
+  brushPanel.className = 'sv-brush';
+  brushPanel.hidden = true;
+  brushPanel.innerHTML = `<span>Brush size</span><input type="range" min="${BRUSH_MIN}" max="${BRUSH_MAX}" step="0.0025" value="${brushShare}" aria-label="Brush size"><kbd>[ ]</kbd>`;
+  tools.appendChild(brushPanel);
+  const brushSlider = brushPanel.querySelector('input');
+  let ring = null, lastHit = null;
+  function setBrush(share) {
+    brushShare = Math.min(BRUSH_MAX, Math.max(BRUSH_MIN, share));
+    brushSlider.value = String(brushShare);
+    if (lastHit) showRing(lastHit);
+  }
+  brushSlider.addEventListener('input', () => setBrush(Number(brushSlider.value)));
+  window.addEventListener('keydown', (event) => {
+    if (brushPanel.hidden || event.target.closest?.('input, textarea, select')) return;
+    if (event.key === '[') setBrush(brushShare / 1.25);
+    if (event.key === ']') setBrush(brushShare * 1.25);
+  });
   function hideRing() {
     pane.classList.remove('ringing');
+    lastHit = null;
     if (ring) { ring.removeFromParent(); ring.geometry.dispose(); ring.material.dispose(); ring = null; requestRender(); }
   }
   function pick(event) {
@@ -202,11 +221,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
     ray.setFromCamera(ndc, view.camera);
     return ray.intersectObject(view.root, true).find((h) => h.object.isMesh && h.object !== ring) || null;
   }
-  pane.addEventListener('pointermove', (event) => {
-    const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
-    if (!fixing || !view?.root || event.buttons) { if (!fixing) hideRing(); return; }
-    const hit = pick(event);
-    if (!hit) { hideRing(); return; }
+  function showRing(hit) {
     if (!ring) {
       ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 64),
         new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
@@ -217,9 +232,16 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
     const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
     ring.position.copy(hit.point).addScaledVector(normal, height * 0.002);
     ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-    ring.scale.setScalar(BRUSH[brushSize(event)] * height);
+    ring.scale.setScalar(brushShare * height);
     pane.classList.add('ringing');
+    lastHit = hit;
     requestRender();
+  }
+  pane.addEventListener('pointermove', (event) => {
+    const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
+    if (!fixing || !view?.root || event.buttons) { if (!fixing) hideRing(); return; }
+    const hit = pick(event);
+    if (hit) showRing(hit); else hideRing();
   });
   pane.addEventListener('pointerleave', hideRing);
   let downAt = null;
@@ -232,10 +254,9 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
     if (!hit) { overlayNote('Missed the model: click right on it.'); return; }
     // the GLB's own coordinates: the mesh's local space (Finish writes no node transforms)
     const local = hit.object.worldToLocal(hit.point.clone());
-    const size = brushSize(event);
     hideRing();
     overlayNote('Fixing that spot…');
-    await onFixSpot([local.x, local.y, local.z], size);
+    await onFixSpot([local.x, local.y, local.z], brushShare);
   });
 
   let noteTimer = null;

@@ -38,6 +38,8 @@ STEP_IDS = ("picture", "back", "model", "finished", "split", "rigged", "animated
 # Server actions agents do not get, and why. Everything else the studio can do must be a
 # tool (the test reads the server's routes and checks this list against them).
 STUDIO_ONLY = {
+    "api/fix-spot": "a person points at the spot to fix on screen; guessing spots automatically "
+                    "also flattens real shape (fur tufts, mohawk spikes)",
     "api/assets/*/delete": "deleting is the user's call, made in the studio",
     "api/assets/*/hidden": "Library tidying, a person's choice",
     "api/assets/*/main": "marking the main version is the user's verdict",

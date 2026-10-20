@@ -17,11 +17,12 @@ const ICON = {
   clay: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8 9a5 5 0 0 1 5-2"/></svg>',
   normal: '<svg viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M12 18V5M8 9l4-4 4 4"/></svg>',
   bones: '<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 6v8M12 9l-5 3M12 9l5 3M12 14l-3 7M12 14l3 7"/></svg>',
+  fix: '<svg viewBox="0 0 24 24"><path d="M14 4l6 6-9 9H5v-6z"/><path d="M12 6l6 6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>',
 };
 
-export function createStudioViewer({ stage, logoUrl, onClipChange }) {
+export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) {
   const pane = document.createElement('div');
   pane.className = 'sv-pane';
   pane.innerHTML = '<span class="stats" hidden></span>';
@@ -42,6 +43,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
       <button class="tool" data-act="clay" aria-pressed="false" data-tip="Clay: plain grey, so you judge the shape without the paint" aria-label="Clay view">${ICON.clay}</button>
       <button class="tool" data-act="normal" aria-pressed="false" data-tip="Normals: the surface's direction as colour; dents, lumps and flipped faces stand out" aria-label="Normal view">${ICON.normal}</button>
       <button class="tool" data-act="bones" aria-pressed="false" data-tip="Show skeleton: the bones the auto-rig placed" aria-label="Show skeleton">${ICON.bones}</button>
+      <button class="tool" data-act="fix" aria-pressed="false" data-tip="Fix a spot: click a hole or a messy patch to smooth it over. Shift-click for a bigger brush, Alt-click for a smaller one. Saves a new version" aria-label="Fix a spot">${ICON.fix}</button>
     </div>`;
   stage.appendChild(tools);
 
@@ -176,6 +178,31 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     if (act === 'wire') setWireframe(on);
     if (act === 'grid' && view?.floor) { view.floor.visible = on; requestRender(); }
     if (act === 'bones') setSkeleton(on);
+    if (act === 'fix') {
+      pane.classList.toggle('fixing', on);
+      if (on) overlayNote(onFixSpot ? 'Click a hole or a messy patch on a finished model.' : 'Fix a spot works on finished models.');
+    }
+  });
+
+  // Fix a spot: a click (not a drag) on the model, while the brush is on, picks the point
+  let downAt = null;
+  pane.addEventListener('pointerdown', (event) => { downAt = [event.clientX, event.clientY]; });
+  pane.addEventListener('pointerup', async (event) => {
+    const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
+    if (!fixing || !view?.root || !onFixSpot || !downAt) return;
+    if (Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]) > 4) return;   // that was an orbit
+    const rect = view.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, view.camera);
+    const hit = ray.intersectObject(view.root, true).find((h) => h.object.isMesh);
+    if (!hit) { overlayNote('Missed the model: click right on it.'); return; }
+    // the GLB's own coordinates: the mesh's local space (Finish writes no node transforms)
+    const local = hit.object.worldToLocal(hit.point.clone());
+    const size = event.shiftKey ? 'large' : event.altKey ? 'small' : 'medium';
+    overlayNote('Fixing that spot…');
+    await onFixSpot([local.x, local.y, local.z], size);
   });
 
   let noteTimer = null;

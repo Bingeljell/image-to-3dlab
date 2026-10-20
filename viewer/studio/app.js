@@ -24,7 +24,23 @@ let viewingPictures = false;  // the viewer shows the asset's pictures instead o
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
 const openFamilies = new Set();  // families whose versions are listed under their row
 
-const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
+const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), onFixSpot: fixSpot });
+
+// Fix a spot: only on a finished model on screen (not a rigged one, a move or a raw model)
+async function fixSpot(point, size) {
+  const file = current && !viewingStep && !viewingPictures ? displayModel(current) : null;
+  if (!file || file !== current.finished) {
+    alert('Fix a spot works on a finished model. Open the finished version, then click the spot.');
+    return;
+  }
+  const response = await fetch('/api/fix-spot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, point, size }) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) { alert(body.error || 'That spot could not be fixed.'); return; }
+  const before = assets, family = current.family || current.id;
+  await loadLibrary(null, { pick: false });
+  show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+}
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const url = (relative) => servedUrl(base, relative);

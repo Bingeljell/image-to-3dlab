@@ -173,8 +173,8 @@ def test_a_round_hole_gets_an_even_curved_patch_not_a_fan(tmp_path):
 
 def test_a_full_texture_gains_a_strip_and_the_paint_still_lines_up(tmp_path):
     """The 2026-10-20 camouflage bug: UVs moved for a strip that was then never added."""
-    source, pos, _front = _sphere_with_pocket(tmp_path, n=48, texture=256)   # UVs fill the whole texture
-    before_pos, before_uv, before_faces, before_tex = pp.read_glb(source)
+    source, _pos, _front = _sphere_with_pocket(tmp_path, n=48, texture=256)   # UVs fill the whole texture
+    _bpos, before_uv, _bfaces, before_tex = pp.read_glb(source)
     sf.fix_spot(source, tmp_path / "out.glb", np.array([0, 0, 0.95]), radius=0.25)
     _pos, out_uv, _faces, out_tex = pp.read_glb(tmp_path / "out.glb")
     assert out_tex.shape[0] > before_tex.shape[0], "the texture grew a strip"

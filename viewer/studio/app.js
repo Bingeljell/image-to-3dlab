@@ -24,22 +24,28 @@ let viewingPictures = false;  // the viewer shows the asset's pictures instead o
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
 const openFamilies = new Set();  // families whose versions are listed under their row
 
-const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), onFixSpot: fixSpot });
+const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), fixSession: {
+  // only a finished model on screen (not a rigged one, a move or the raw model)
+  canFix: () => !!(current?.finished && !viewingStep && !viewingPictures && displayModel(current) === current.finished),
+  patch: async (spots, base) => {
+    const body = await postFix('preview', { from: current.finished, base, spots });
+    return { preview: body.preview, url: url(body.preview) };
+  },
+  keep: async (preview) => {
+    const before = assets, family = current.family || current.id;
+    const body = await postFix('keep', { from: current.finished, preview });
+    await loadLibrary(null, { pick: false });
+    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+  },
+  discard: (preview) => postFix('discard', { preview }).catch(() => {}),
+} });
 
-// Fix a spot: only on a finished model on screen (not a rigged one, a move or a raw model)
-async function fixSpot(point, radius) {
-  const file = current && !viewingStep && !viewingPictures ? displayModel(current) : null;
-  if (!file || file !== current.finished) {
-    alert('Fix a spot works on a finished model. Open the finished version, then click the spot.');
-    return;
-  }
-  const response = await fetch('/api/fix-spot', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file, point, radius }) });
+async function postFix(action, payload) {
+  const response = await fetch(`/api/fix-spot/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload) });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) { alert(body.error || 'That spot could not be fixed.'); return; }
-  const before = assets, family = current.family || current.id;
-  await loadLibrary(null, { pick: false });
-  show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+  if (!response.ok) throw new Error(body.error || 'That did not work.');
+  return body;
 }
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

@@ -8,10 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Fix a spot.** A new brush button in the 3D view: click a hole or a messy patch on a finished
-  model (a dark pocket in a pupil, under a brow, in a beard) and it is smoothed over and repainted
-  from your picture, so an eye comes back as an eye. A ring shows the brush; size it with the slider or the [ and ] keys. Shift-click for a bigger brush, Alt-click for a smaller one. Each fix is a new version,
-  so the original is kept.
+- **Fix a spot.** A brush in the 3D view for a finished model. Mark as many spots as you like
+  (Fill hole for dark pockets in pupils, brows or beards; Repaint for paint-only scuffs), press
+  Patch to preview, flip Before / After with the camera held still, then Keep one new version or
+  Discard. Filled holes get an even, curved patch repainted from your picture; size the brush with
+  the slider or [ and ].
 - **High detail Finish for cleaner faces.** Pick "High" under Finish > Detail (or `finish_detail="high"`
   for agents). Keeps more of the
   model (50,000 faces) and smooths away small bumps where your picture paints, so faces stay clean

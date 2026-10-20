@@ -408,6 +408,65 @@ def _own_squares(doc, binary, attributes, faces, caps, views_dir):
     return out, repainted
 
 
+def repaint_spot(source: Path, output: Path, point: np.ndarray, radius: float, views_dir: Path) -> dict:
+    """Paint only: repaint the texels of the triangles within `radius` of `point` from the
+    picture, shape untouched. For scuffs that are paint, not shape (a nose stays a nose)."""
+    doc, binary = pp._split_glb(Path(source).read_bytes())
+    primitive = doc["meshes"][0]["primitives"][0]
+    positions, uvs, faces, _tex = pp.read_glb(source)
+    faces = faces.reshape(-1, 3).astype(np.int64)
+    near = np.linalg.norm(positions[faces].mean(1) - np.asarray(point, dtype=np.float64), axis=1) < radius
+    maps = _material_images(doc)
+    if not near.any() or "base" not in maps or not (Path(views_dir) / "transforms.json").is_file():
+        return {"repainted_faces": 0}
+    base = _decode(doc, binary, maps["base"])
+    height, width = base.shape[:2]
+    face_of, _ = pp.rasterize(uvs[faces[near]] * np.array([width, height]), np.zeros((int(near.sum()), 3)),
+                              (height, width))
+    mask = face_of.reshape(height, width) >= 0
+    views, mesh_scale = pp.load_views(Path(views_dir))
+    painted, weight = pp.paint_texture(base, positions, uvs, faces, views, mesh_scale,
+                                       settings=pp.Settings(match_colour=False, align=False))
+    mask &= weight > 0.2           # only where the picture really sees it
+    base[mask] = painted[mask]
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.fromarray(base).save(buffer, "PNG")
+    attributes = {name: _read(doc, binary, index) for name, index in primitive["attributes"].items()}
+    _write(doc, binary, primitive, attributes, faces, output, {maps["base"]: buffer.getvalue()})
+    return {"repainted_faces": int(near.sum()), "repainted_texels": int(mask.sum())}
+
+
+MODES = ("fill", "repaint")
+
+
+def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path | None) -> list[dict]:
+    """Apply marked spots in order ({point, radius in model units, mode}); the result lands at
+    `output` (a copy of `source` when nothing changed). Returns one report per spot."""
+    import shutil
+    import tempfile
+
+    reports = []
+    with tempfile.TemporaryDirectory() as scratch:
+        current = Path(scratch) / "0.glb"
+        shutil.copy(source, current)
+        for i, spot in enumerate(spots, 1):
+            nxt = Path(scratch) / f"{i}.glb"
+            if spot["mode"] == "repaint":
+                report = repaint_spot(current, nxt, spot["point"], spot["radius"], views_dir) if views_dir else {
+                    "repainted_faces": 0}
+            else:
+                report = fix_spot(current, nxt, spot["point"], spot["radius"], views_dir)
+            reports.append({"mode": spot["mode"], **report})
+            if nxt.exists():
+                current = nxt
+        shutil.copy(current, output)
+    return reports
+
+
 def _write(doc: dict, binary: bytes, primitive: dict, attributes: dict, faces: np.ndarray, output: Path,
            images: dict[int, bytes] | None = None) -> None:
     """The GLB with the mesh's buffers (and any `images`, as PNG) replaced; the rest kept."""

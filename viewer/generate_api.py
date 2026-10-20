@@ -2502,13 +2502,15 @@ class Handler(SimpleHTTPRequestHandler):
             ok = self._chains().cancel(parts[2])
             self._send_json(200 if ok else 404, {"cancelled": ok})
             return
-        if parts == ["api", "fix-spot"]:
+        if len(parts) == 3 and parts[:2] == ["api", "fix-spot"] and parts[2] in {"preview", "keep", "discard"}:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else None
+                payload = json.loads(self.rfile.read(length)) if 0 < length <= 65536 else None
             except (ValueError, json.JSONDecodeError):
                 payload = None
-            self._send_json(*fixspot_api.fix_spot_response(OUTPUT_ROOT, payload))
+            handler = {"preview": fixspot_api.preview_response, "keep": fixspot_api.keep_response,
+                       "discard": fixspot_api.discard_response}[parts[2]]
+            self._send_json(*handler(OUTPUT_ROOT, payload))
             return
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()

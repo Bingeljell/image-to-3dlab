@@ -177,10 +177,10 @@ def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float,
     positions = attributes["POSITION"].astype(np.float64)
     centres = positions[faces].mean(1)
     cut = np.linalg.norm(centres - np.asarray(point, dtype=np.float64), axis=1) < radius
+    key = sc.weld(positions)
     if not cut.any():
         return {"cut": 0, "capped": 0}
     keep = faces[~cut]
-    key = sc.weld(positions)
     loops = _boundary_loops(keep, key)
     # only the openings this cut made: every rim vertex was on a removed triangle
     touched = set(np.unique(key[faces[cut]]).tolist())
@@ -231,9 +231,12 @@ def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float,
             return row
 
         # one copy per rim POINT: at a UV seam the rim passes through two vertices at one place
+        # (every end of every edge: beside wrong-way triangles the walk round a hole can
+        # end on a point it never started an edge from; a missing copy crashed Patch, 2026-10-20)
         copies = {}
-        for a in ring:
-            copies.setdefault(int(key[a]), add(vertex(positions[a], a)))
+        for end in (end for edge in loop for end in edge):
+            if int(key[end]) not in copies:
+                copies[int(key[end])] = add(vertex(positions[end], end))
         patch = _even_patch(positions[ring])
         if patch is not None:
             interior, triangles = patch

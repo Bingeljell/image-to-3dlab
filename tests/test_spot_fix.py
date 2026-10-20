@@ -197,3 +197,17 @@ def test_repaint_fades_in_from_the_edge_of_the_spot(tmp_path):
     assert (red >= 250).any(), "inside the spot the picture wins"
     blended = ((red > 190) & (red < 240)).sum()
     assert blended > 0.15 * (red >= 250).sum(), "past the ring, new paint fades into the old (a hard edge: ~4%)"
+
+
+def test_a_rim_that_does_not_close_is_still_patched(tmp_path, monkeypatch):
+    """Wrong-way triangles beside a cut can leave its rim as an open chain whose last point
+    starts no edge (2026-10-20, the elf); Patch crashed looking up that point."""
+    source, _pos, _front = _sphere_with_pocket(tmp_path)
+    real = sf._boundary_loops
+
+    def opened(faces, key):
+        return [loop[:-1] for loop in real(faces, key)]      # drop each loop's closing edge
+    monkeypatch.setattr(sf, "_boundary_loops", opened)
+    monkeypatch.setattr(sf, "_even_patch", lambda _rim: None)   # the fan, which reads each edge's end
+    report = sf.fix_spot(source, tmp_path / "out.glb", np.array([0, 0, 0.9]), radius=0.3)
+    assert report["cut"] > 0 and report["capped"] == 1

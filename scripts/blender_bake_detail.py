@@ -2,7 +2,7 @@
 
 Run with:
     blender --background --python-exit-code 1 --python scripts/blender_bake_detail.py -- \
-        SOURCE.glb TARGET.glb OUT.glb [size]
+        SOURCE.glb TARGET.glb OUT.glb [size] [fade.png]
 
 SOURCE is the generated high-poly asset, TARGET the retopologised (or repainted) mesh
 with its own UVs, OUT the target with the new maps wired into its material.
@@ -26,6 +26,12 @@ first orc attempt baked across a 2.06 spread and produced garbage with no error.
 **Normal sign.** Generated meshes are inconsistently wound, so some rays come back
 reversed. The fix is `resolve_tangent_sign` from `blender_bake_normals.py`, imported, not
 copied.
+
+**Flat where the picture painted.** Pixal3D builds realistic faces with ridged "goggle"
+eyes and brows, and the bake copies them faithfully: side-lit, in Blender or a game engine,
+every such face looked carved (2026-10-20). Where Pixel Match painted from the picture,
+the picture already carries its own shading, so the map fades to flat there (an optional
+mask from Finish's photo stage) and keeps the source's relief everywhere else.
 
 **Tangents ship with the map.** A tangent-space normal map only reads right against the
 tangents it was baked with. Left out, every engine generates its own, and the glTF
@@ -62,6 +68,7 @@ class Args(NamedTuple):
     target: str
     output: str
     size: int
+    fade: str | None = None
 
 
 class Fit(NamedTuple):
@@ -76,11 +83,27 @@ def parse_args(argv: list[str]) -> Args:
     if len(rest) < 3:
         raise SystemExit("usage: blender --background --python-exit-code 1 --python "
                          "scripts/blender_bake_detail.py "
-                         "-- SOURCE.glb TARGET.glb OUT.glb [size]")
+                         "-- SOURCE.glb TARGET.glb OUT.glb [size] [fade.png]")
     size = int(rest[3]) if len(rest) > 3 else 2048
     if not MIN_SIZE <= size <= MAX_SIZE:
         raise SystemExit(f"size must be within {MIN_SIZE}..{MAX_SIZE}, got {size}")
-    return Args(rest[0], rest[1], rest[2], size)
+    return Args(rest[0], rest[1], rest[2], size, rest[4] if len(rest) > 4 else None)
+
+
+def fade_toward_flat(rgba, mask):
+    """Blend a tangent-space normal map toward flat by `mask` (1 = flat, 0 = as baked).
+
+    `rgba` is (H, W, 4) in 0..1, `mask` (H, W) in 0..1 and the same size: a mask that
+    does not match is refused, since stretching it would fade the wrong texels.
+    """
+    import numpy as np
+
+    if mask.shape != rgba.shape[:2]:
+        raise ValueError(f"fade mask is {mask.shape}, normal map is {rgba.shape[:2]}")
+    flat = np.array([0.5, 0.5, 1.0], dtype=rgba.dtype)
+    out = rgba.copy()
+    out[..., :3] = flat + (rgba[..., :3] - flat) * (1.0 - mask[..., None])
+    return out
 
 
 def fit(high_size: tuple[float, float, float], low_size: tuple[float, float, float]) -> Fit:
@@ -286,6 +309,16 @@ def main() -> int:
     rgba = pixels.reshape(args.size, args.size, 4)
     fixed, flipped = resolve_tangent_sign((rgba[..., :3] * 255.0).round())
     rgba[..., :3] = fixed.astype(np.float32) / 255.0
+    faded = 0.0
+    if args.fade:
+        # Loaded through Blender so its rows run bottom-up like the bake's; read as data.
+        mask_img = bpy.data.images.load(args.fade)
+        mask_img.colorspace_settings.name = "Non-Color"
+        mask = np.empty(mask_img.size[0] * mask_img.size[1] * 4, dtype=np.float32)
+        mask_img.pixels.foreach_get(mask)
+        mask = mask.reshape(mask_img.size[1], mask_img.size[0], 4)[..., 0]
+        rgba = fade_toward_flat(rgba, mask)
+        faded = float(mask.mean())
     normal_img.pixels.foreach_set(rgba.ravel())
     normal_img.pack()
 
@@ -360,6 +393,7 @@ def main() -> int:
         "size": args.size, "scale": round(shape.scale, 5), "spread": round(shape.spread, 4),
         "normal_flipped_fraction": round(flipped, 4),
         "zero_tangents_repaired": repaired,
+        "normal_faded_share": round(faded, 4),
         "metallic_roughness": "transferred" if moved_mr else (
             "kept target's own" if target_has_map else "none on source"),
     }), flush=True)

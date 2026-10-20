@@ -150,12 +150,31 @@ def retopo_command(
 
 def bake_command(
     source: Path, target: Path, output: Path, size: int, blender: Path = BLENDER,
+    fade: Path | None = None,
 ) -> list[str]:
-    """The headless bake-detail invocation: original high-poly onto the current mesh."""
+    """The headless bake-detail invocation: original high-poly onto the current mesh.
+
+    `fade` is a mask (normal_fade_mask) of where the normal map goes flat.
+    """
     return [
         *headless(blender, "blender_bake_detail.py"),
         str(source), str(target), str(output), str(size),
+        *([str(fade)] if fade is not None else []),
     ]
+
+
+def normal_fade_mask(weights_png: Path, size: int, output: Path) -> Path:
+    """Pixel Match's trust map as the bake's fade mask: at the normal map's size, edges
+    softened so the fade leaves no seam. White = painted from the picture = flat normals.
+
+    The blur is 4 px at 2048 and scales with the map.
+    """
+    from PIL import Image, ImageFilter
+
+    with Image.open(weights_png) as trust:
+        mask = trust.convert("L").resize((size, size), Image.BILINEAR)
+    mask.filter(ImageFilter.GaussianBlur(4 * size / 2048)).save(output)
+    return output
 
 
 def reuse(path: Path, resume: bool) -> bool:
@@ -232,12 +251,14 @@ def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
         names = {"retopo": f"{stem}_retopo.glb", "retopo_log": f"{stem}_retopo.log",
                  "painted": f"{stem}_painted.glb", "photo": f"{stem}_photo.glb",
                  "photo_weights": f"{stem}_photo_weights.png",
+                 "photo_fade": f"{stem}_photo_fade.png",
                  "baked": f"{stem}_baked.glb", "bake_log": f"{stem}_bake.log"}
         return {key: Path(value) for key, value in names.items()}
     return {
         "retopo": steps_dir / "1_retopo.glb", "retopo_log": steps_dir / "1_retopo.log",
         "painted": steps_dir / "2_painted.glb", "photo": steps_dir / "3_photo.glb",
         "photo_weights": steps_dir / "3_photo_weights.png",
+        "photo_fade": steps_dir / "3_photo_fade.png",
         "baked": steps_dir / "4_baked.glb", "bake_log": steps_dir / "4_bake.log",
     }
 
@@ -434,14 +455,19 @@ def main() -> int:
         timings["photo"] = round(time.time() - step, 1)
         current = photo_glb
 
+    fade = None
     if not args.skip_bake:
         baked = steps["baked"]
         step = time.time()
         if reuse(baked, args.resume):
             emit_stage("bake", f"Reusing {baked.name}")
+            fade = steps["photo_fade"] if steps["photo_fade"].is_file() else None
         else:
             emit_stage("bake", "Baking normal map and surface from the original")
-            _run(bake_command(args.source, current, baked, args.atlas, args.blender),
+            # Flat normals where the picture painted: it carries its own shading there.
+            if args.views is not None and steps["photo_weights"].is_file():
+                fade = normal_fade_mask(steps["photo_weights"], args.atlas, steps["photo_fade"])
+            _run(bake_command(args.source, current, baked, args.atlas, args.blender, fade),
                  steps["bake_log"], "bake")
         timings["bake"] = round(time.time() - step, 1)
         current = baked
@@ -482,7 +508,8 @@ def main() -> int:
              "atlas": args.atlas, "voxel": args.voxel, "angle": args.angle}),
         "full_detail": args.keep_mesh,
         "surface": {"metallic": args.metallic, "roughness": args.roughness, "ior": args.ior},
-        "bake": None if args.skip_bake else {"size": args.atlas},
+        "bake": None if args.skip_bake else {"size": args.atlas,
+                                             "flat_where_photo": fade is not None},
         "paint": None if args.skip_paint else {
             "seed": args.paint_seed, "res": args.paint_res,
             "steps": args.paint_steps, "texture": args.paint_tex,

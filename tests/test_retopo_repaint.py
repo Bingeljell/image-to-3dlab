@@ -300,3 +300,29 @@ def test_a_refused_clean_up_falls_back_to_the_classic_route(tmp_path, monkeypatc
                                 tmp_path / "log") is None
     assert calls == ["classic"]
     assert "classic route" in capsys.readouterr().out
+
+
+def test_the_bake_command_passes_the_fade_mask_after_the_size():
+    command = rr.bake_command(Path("gen.glb"), Path("painted.glb"), Path("baked.glb"), 2048,
+                              blender=Path("/bl"), fade=Path("fade.png"))
+    assert command[command.index("--") + 1:] == [
+        "gen.glb", "painted.glb", "baked.glb", "2048", "fade.png"]
+
+
+def test_the_fade_mask_has_its_own_step_file(tmp_path):
+    assert rr.step_paths(tmp_path / "out.glb")["photo_fade"] == tmp_path / "out_photo_fade.png"
+    assert rr.step_paths(tmp_path / "o.glb", tmp_path / "s")["photo_fade"].name == "3_photo_fade.png"
+
+
+def test_the_fade_mask_is_the_trust_map_at_the_bake_size_with_soft_edges(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    trust = np.zeros((64, 64), dtype=np.uint8)
+    trust[:, 32:] = 255  # right half painted from the picture
+    Image.fromarray(trust).save(tmp_path / "w.png")
+    rr.normal_fade_mask(tmp_path / "w.png", 128, tmp_path / "fade.png")
+    mask = np.asarray(Image.open(tmp_path / "fade.png"))
+    assert mask.shape == (128, 128)
+    assert mask[64, 5] == 0 and mask[64, 122] == 255  # far from the edge: unchanged
+    assert 0 < mask[64, 64] < 255                       # at the edge: blended, no seam

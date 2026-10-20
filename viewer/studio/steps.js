@@ -94,6 +94,7 @@ function finishDetail() {
       <option value="10000">10,000 triangles · light</option>
       <option value="20000" selected>20,000 triangles · game-ready</option>
       <option value="40000">40,000 triangles · more detail</option>
+      <option value="high">High · 50,000 triangles, cleaner faces from the side (best for realistic people)</option>
       <option value="full">Full detail · every triangle, for renders (not games)</option>
       <option value="custom">Custom… (unexpected results)</option></select></label>
     <p class="hint" data-full hidden>Keeps the 3D model's own mesh (often near a million triangles) and paints it with

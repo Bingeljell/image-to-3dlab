@@ -670,3 +670,12 @@ def test_a_dump_is_copied_when_it_cannot_be_linked(tmp_path, monkeypatch):
     monkeypatch.setattr(finish.os, "link", no_links)
     finish.link_or_copy(source, tmp_path / "b.post.bin")
     assert (tmp_path / "b.post.bin").read_bytes() == b"dump"
+
+
+def test_high_detail_reaches_the_worker():
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    assert "--detail" not in finish.build_command(job, finish.normalise_settings({}))
+    settings = finish.normalise_settings({"faces": 50000, "high_detail": True})
+    command = finish.build_command(job, settings)
+    assert command[command.index("--detail") + 1] == "high"
+    assert command[command.index("--faces") + 1] == "50000"

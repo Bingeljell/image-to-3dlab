@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **High detail Finish for cleaner faces** (command line for now: `--detail high`). Keeps more of the
+- **High detail Finish for cleaner faces.** Pick "High" under Finish > Detail (or `finish_detail="high"`
+  for agents). Keeps more of the
   model (50,000 faces) and smooths away small bumps where your picture paints, so faces stay clean
   when turned to the side instead of showing scratches, flat planes and ridged eyes.
 

@@ -324,7 +324,8 @@ def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
     menu = source[source.index("function finishDetail()"):]
     menu = menu[: menu.index("</select>")]
     studio_values = set(re.findall(r'<option value="([^"]+)"', menu)) - {"custom"}
-    ours = {str(v.get("faces")) if "faces" in v else "full" for v in ms.FINISH_DETAILS.values()}
+    ours = {"high" if v.get("high_detail") else str(v.get("faces")) if "faces" in v else "full"
+            for v in ms.FINISH_DETAILS.values()}
     assert studio_values == ours, "The studio's Finish Detail menu and FINISH_DETAILS in mcp_server.py disagree."
 
 
@@ -482,3 +483,7 @@ def test_rig_from_the_raw_model_skips_finish(studio):
     form = sent(studio)
     assert json.loads(form["steps"]) == ["rigged"]
     assert "finished" not in json.loads(form["made"]) and json.loads(form["made"])["model"] == "k/k.glb"
+
+
+def test_agents_can_ask_for_high_detail():
+    assert ms.finish_choices("high") == {"faces": 50000, "high_detail": True}

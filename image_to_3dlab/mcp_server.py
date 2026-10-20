@@ -255,7 +255,8 @@ def want_for(asset: dict[str, Any]) -> str:
 
 # Finish's Detail choices, as the Steps panel offers them (tests check the two lists agree).
 FINISH_DETAILS: dict[str, dict[str, Any]] = {
-    "light": {"faces": 10000}, "game": {"faces": 20000}, "more": {"faces": 40000}, "full": {"keep_mesh": True},
+    "light": {"faces": 10000}, "game": {"faces": 20000}, "more": {"faces": 40000},
+    "high": {"faces": 50000, "high_detail": True}, "full": {"keep_mesh": True},
 }
 STEPS_AFTER_FINISH = ("rigged", "animated")
 
@@ -373,7 +374,7 @@ def options() -> dict[str, Any]:
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
-            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | a count 1000-200000 | "
+            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
             "pixel_match": "Paint the picture's real pixels onto the model in Finish. Default: on.",
             "move": "The animation to make (list_moves).",
@@ -766,7 +767,8 @@ def build_server(studio: Studio | None = None):
         picture for a fuller model (default: on when installed). move: first animation (see list_moves).
         add_wording: append the studio's proven prompt wording (pose, background, ...) to a description.
         finish_upload: also run Finish on an uploaded GLB.
-        finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), a count from
+        finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), "high" (50k,
+            cleaner faces from the side; best for realistic humans), a count from
         1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
         stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.

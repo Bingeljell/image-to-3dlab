@@ -381,11 +381,14 @@ def _own_squares(doc, binary, attributes, faces, caps, views_dir):
         pad = 2
         for vertex, (fu, fv) in zip(vertices, flat):
             uvs[vertex] = ((x + pad + fu * (cell - 2 * pad)) / width, (y + pad + fv * (cell - 2 * pad)) / height)
-        # fill every map's square from the texel the cap read before, so nothing goes black
+        # fill every map's square from the texel the cap read before, so nothing goes black; the
+        # normal map is flat there (the patch is smooth, its rim's bumps would tilt its light)
         for image, picture in pictures.items():
             h, w = picture.shape[:2]
             old = uvs[pick]
-            texel = picture[min(int(old[1] * h), h - 1), min(int(old[0] * w), w - 1)]
+            texel = picture[min(int(old[1] * h), h - 1), min(int(old[0] * w), w - 1)].copy()
+            if image == maps.get("normal"):
+                texel[:3] = (128, 128, 255)
             sx, sy = x * w // width, y * h // height
             picture[sy:sy + cell * h // height, sx:sx + cell * w // width] = texel
         squares.append((x, y))
@@ -403,22 +406,38 @@ def _own_squares(doc, binary, attributes, faces, caps, views_dir):
     out = {}
     for image, picture in pictures.items():
         buffer = io.BytesIO()
-        Image.fromarray(picture).save(buffer, "PNG")
+        Image.fromarray(picture).save(buffer, "PNG", compress_level=1)
         out[image] = buffer.getvalue()
     return out, repainted
 
 
-def repaint_spot(source: Path, output: Path, point: np.ndarray, radius: float, views_dir: Path) -> dict:
-    """Paint only: repaint the texels of the triangles within `radius` of `point` from the
-    picture, shape untouched. For scuffs that are paint, not shape (a nose stays a nose)."""
+# Inside a spot the user marked, the picture is trusted fully: no fading near edges where one
+# surface sits in front of another, a low facing threshold, and replace rather than blend.
+# Finish's own Pixel Match is cautious there, which is exactly what left the shards
+# (2026-10-20, the gnoll's brow).
+TRUST_PICTURE = {"match_colour": False, "local_colour": False, "align": False, "inner_edge": 0.0,
+                 "cutout_edge": 0.0, "edge_px": 1, "facing_low": 0.05, "facing_high": 0.2}   # edge_px 0 zeroes every weight
+SEAM_REACH = 1.3          # repaint a little past each spot, so its edge with the old paint is covered
+
+
+def repaint_area(source: Path, output: Path, spots: list[tuple[np.ndarray, float]], views_dir: Path) -> dict:
+    """Paint only: repaint the texels of every triangle within any (point, radius) of `spots`
+    from the picture, in one pass; the shape is untouched."""
+    import io
+
+    from PIL import Image
+
     doc, binary = pp._split_glb(Path(source).read_bytes())
     primitive = doc["meshes"][0]["primitives"][0]
     positions, uvs, faces, _tex = pp.read_glb(source)
     faces = faces.reshape(-1, 3).astype(np.int64)
-    near = np.linalg.norm(positions[faces].mean(1) - np.asarray(point, dtype=np.float64), axis=1) < radius
+    centres = positions[faces].mean(1)
+    near = np.zeros(len(faces), bool)
+    for point, radius in spots:
+        near |= np.linalg.norm(centres - np.asarray(point, dtype=np.float64), axis=1) < radius
     maps = _material_images(doc)
     if not near.any() or "base" not in maps or not (Path(views_dir) / "transforms.json").is_file():
-        return {"repainted_faces": 0}
+        return {"repainted_faces": 0, "repainted_texels": 0}
     base = _decode(doc, binary, maps["base"])
     height, width = base.shape[:2]
     face_of, _ = pp.rasterize(uvs[faces[near]] * np.array([width, height]), np.zeros((int(near.sum()), 3)),
@@ -426,26 +445,31 @@ def repaint_spot(source: Path, output: Path, point: np.ndarray, radius: float, v
     mask = face_of.reshape(height, width) >= 0
     views, mesh_scale = pp.load_views(Path(views_dir))
     painted, weight = pp.paint_texture(base, positions, uvs, faces, views, mesh_scale,
-                                       settings=pp.Settings(match_colour=False, align=False))
-    mask &= weight > 0.2           # only where the picture really sees it
+                                       settings=pp.Settings(**TRUST_PICTURE))
+    mask &= weight > 0
     base[mask] = painted[mask]
-    import io
-
-    from PIL import Image
-
     buffer = io.BytesIO()
-    Image.fromarray(base).save(buffer, "PNG")
+    Image.fromarray(base).save(buffer, "PNG", compress_level=1)
     attributes = {name: _read(doc, binary, index) for name, index in primitive["attributes"].items()}
     _write(doc, binary, primitive, attributes, faces, output, {maps["base"]: buffer.getvalue()})
     return {"repainted_faces": int(near.sum()), "repainted_texels": int(mask.sum())}
+
+
+def repaint_spot(source: Path, output: Path, point: np.ndarray, radius: float, views_dir: Path) -> dict:
+    """Paint only, one spot (see repaint_area)."""
+    return repaint_area(source, output, [(point, radius)], views_dir)
 
 
 MODES = ("fill", "repaint")
 
 
 def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path | None) -> list[dict]:
-    """Apply marked spots in order ({point, radius in model units, mode}); the result lands at
-    `output` (a copy of `source` when nothing changed). Returns one report per spot."""
+    """Apply marked spots ({point, radius in model units, mode}); the result lands at `output`.
+
+    Shapes first (every "fill", in order, with no painting in between), then ONE repaint of
+    every marked area from the picture, each a little wider so seams with the old paint are
+    covered. Painting per spot made Patch slower with every mark. Returns a report per spot.
+    """
     import shutil
     import tempfile
 
@@ -454,15 +478,23 @@ def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path |
         current = Path(scratch) / "0.glb"
         shutil.copy(source, current)
         for i, spot in enumerate(spots, 1):
+            if spot["mode"] != "fill":
+                reports.append({"mode": spot["mode"]})
+                continue
             nxt = Path(scratch) / f"{i}.glb"
-            if spot["mode"] == "repaint":
-                report = repaint_spot(current, nxt, spot["point"], spot["radius"], views_dir) if views_dir else {
-                    "repainted_faces": 0}
-            else:
-                report = fix_spot(current, nxt, spot["point"], spot["radius"], views_dir)
-            reports.append({"mode": spot["mode"], **report})
+            reports.append({"mode": "fill", **fix_spot(current, nxt, spot["point"], spot["radius"], None)})
             if nxt.exists():
                 current = nxt
+        if views_dir is not None:
+            painted = Path(scratch) / "painted.glb"
+            area = [(s["point"], s["radius"] * SEAM_REACH) for s in spots]
+            done = repaint_area(current, painted, area, views_dir)
+            if painted.exists():
+                current = painted
+            for report in reports:
+                report["repainted"] = bool(done["repainted_texels"])
+                if report["mode"] == "repaint":
+                    report["repainted_faces"] = done["repainted_faces"]
         shutil.copy(current, output)
     return reports
 

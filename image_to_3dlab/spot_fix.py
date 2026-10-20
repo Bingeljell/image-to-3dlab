@@ -306,7 +306,8 @@ def _free_cells(uvs: np.ndarray, faces: np.ndarray, height: int, width: int, cel
     covered = face_of.reshape(small_h, small_w) >= 0
     step = cell + 2 * GUTTER
     out = []
-    for y in range(0, height - step + 1, step):
+    # from the bottom up, so an added strip (always at the bottom) is never stepped over
+    for y in range(height - step, -1, -step):
         for x in range(0, width - step + 1, step):
             y0, y1 = y * small_h // height, -(-(y + step) * small_h // height)
             x0, x1 = x * small_w // width, -(-(x + step) * small_w // width)
@@ -361,15 +362,18 @@ def _own_squares(doc, binary, attributes, faces, caps, views_dir):
     if len(cells) < len(caps):
         strip = max(cell + 2 * GUTTER, int(height * STRIP_SHARE))
         strip += -strip % 4
-        uvs[:, 1] *= height / (height + strip)
-        for image, picture in list(pictures.items()):
-            h = picture.shape[0]
-            extra = int(round(strip * h / height))
-            pictures[image] = np.concatenate([picture, np.zeros((extra, *picture.shape[1:]), picture.dtype)], 0)
-        height += strip
-        cells = _free_cells(uvs.astype(np.float64), others, height, width, cell)
+        moved = uvs.astype(np.float64)
+        moved[:, 1] *= height / (height + strip)
+        cells = _free_cells(moved, others, height + strip, width, cell)
         if len(cells) < len(caps):
-            return None, False
+            return None, False     # nothing changed: the caps keep their one shared texel
+        # only now that it fits: move the UVs with the pixels and grow every map
+        uvs[:, 1] = moved[:, 1].astype(uvs.dtype)
+        for image, picture in list(pictures.items()):
+            extra = int(round(strip * picture.shape[0] / height))
+            # the strip repeats each map's last row, so filtering at the old edge pulls in no black
+            pictures[image] = np.concatenate([picture, np.repeat(picture[-1:], extra, axis=0)], 0)
+        height += strip
     base = pictures[maps["base"]]
     squares = []
     for (vertices, _normal, pick, _rim), flat, (x, y) in zip(caps, layouts, cells):

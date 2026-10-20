@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Faces no longer look carved under a side light.** Finished realistic faces could show ridged
+  "goggle" eyes and a lumpy mouth in Blender or a game engine (the studio's soft light hid it).
+  Finish now keeps the face as painted where it was matched to your picture, and still keeps the
+  surface detail on armour, cloth and everything else.
 - **Mac installs get the tested Pixal3D.** New Mac installs used to build upstream's newest code,
   which nothing here had been tested on. They now build the exact version every feature was tested on.
 - **No Blender? You're told at the start, in plain words.** Without Blender, Finish used to fail

@@ -69,6 +69,97 @@ def _boundary_loops(faces: np.ndarray, key: np.ndarray) -> list[list[tuple[int, 
     return loops
 
 
+def _inside(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    """Which 2D points lie inside the closed 2D polygon (even-odd ray casting)."""
+    x, y = points[:, 0][:, None], points[:, 1][:, None]
+    x0, y0 = polygon[:, 0][None], polygon[:, 1][None]
+    x1, y1 = np.roll(polygon[:, 0], -1)[None], np.roll(polygon[:, 1], -1)[None]
+    crosses = ((y0 > y) != (y1 > y)) & (x < (x1 - x0) * (y - y0) / np.where(y1 == y0, 1e-12, y1 - y0) + x0)
+    return crosses.sum(1) % 2 == 1
+
+
+def _edge_distance(points: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    a, b = polygon, np.roll(polygon, -1, axis=0)
+    ab = b - a
+    t = np.clip(((points[:, None] - a[None]) * ab[None]).sum(2) / np.maximum((ab ** 2).sum(1), 1e-12)[None], 0, 1)
+    nearest = a[None] + t[..., None] * ab[None]
+    return np.linalg.norm(points[:, None] - nearest, axis=2).min(1)
+
+
+def _even_patch(rim: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """Fill a hole with evenly spaced triangles about the size of its rim's edges.
+
+    `rim` is the hole's edge in loop order (n x 3). Returns (interior points, triangles over
+    rim 0..n-1 then interior n..), wound opposite to the rim's direction so they continue the
+    surface the rim belongs to, or None when the hole is too twisted to lay out flat.
+    """
+    from scipy.spatial import Delaunay
+
+    centre = rim.mean(0)
+    _s, _v, axes = np.linalg.svd(rim - centre)
+    flat = (rim - centre) @ axes[:2].T
+    spacing = float(np.linalg.norm(np.roll(rim, -1, axis=0) - rim, axis=1).mean())
+    lo, hi = flat.min(0), flat.max(0)
+    xs = np.arange(lo[0], hi[0] + spacing, spacing)
+    rows = []
+    for i, y in enumerate(np.arange(lo[1], hi[1] + spacing, spacing * 0.866)):
+        rows.append(np.stack([xs + (spacing / 2 if i % 2 else 0), np.full_like(xs, y)], 1))
+    grid = np.vstack(rows) if rows else np.zeros((0, 2))
+    if len(grid):
+        grid = grid[_inside(grid, flat) & (_edge_distance(grid, flat) > 0.55 * spacing)]
+    points = np.vstack([flat, grid])
+    if len(points) < 3:
+        return None
+    try:
+        triangles = Delaunay(points).simplices
+    except Exception:
+        return None
+    triangles = triangles[_inside(points[triangles].mean(1), flat)]
+    n = len(rim)
+    have = {tuple(sorted(e)) for t in triangles for e in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0]))}
+    if any(tuple(sorted((i, (i + 1) % n))) not in have for i in range(n)):
+        return None   # the rim is not all there: a twisted hole, so the fan does it
+    # wind every triangle against the rim's own direction (it runs the other way round the kept face)
+    loop_area = (flat[:, 0] * np.roll(flat[:, 1], -1) - np.roll(flat[:, 0], -1) * flat[:, 1]).sum()
+    a, b, c = points[triangles[:, 0]], points[triangles[:, 1]], points[triangles[:, 2]]
+    area = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
+    flip = np.sign(area) == np.sign(loop_area)
+    triangles[flip] = triangles[flip][:, ::-1]
+    interior = centre + grid @ axes[:2]
+    return interior, triangles
+
+
+def _fair(positions: np.ndarray, faces: np.ndarray, free: np.ndarray) -> np.ndarray:
+    """Positions with `free` vertices moved to the smoothest surface that continues their
+    surroundings (minimum bending: the uniform Laplacian squared is zero over them)."""
+    from scipy.sparse import coo_matrix, identity
+    from scipy.sparse.linalg import spsolve
+
+    key = sc.weld(positions)
+    count = key.max() + 1
+    welded = np.zeros((count, 3)); welded[key] = positions
+    wf = key[faces]
+    edges = np.concatenate([wf[:, [0, 1]], wf[:, [1, 2]], wf[:, [2, 0]]])
+    edges = np.unique(np.sort(edges[edges[:, 0] != edges[:, 1]], 1), axis=0)
+    a, b = edges[:, 0], edges[:, 1]
+    adjacency = coo_matrix((np.ones(2 * len(a)), (np.concatenate([a, b]), np.concatenate([b, a]))),
+                           shape=(count, count)).tocsr()
+    degree = np.asarray(adjacency.sum(1)).ravel()
+    laplacian = (identity(count, format="csr") - coo_matrix(
+        (1 / np.maximum(degree[np.concatenate([a, b])], 1), (np.concatenate([a, b]), np.concatenate([b, a]))),
+        shape=(count, count)).tocsr())
+    free_w = np.unique(key[free])
+    rows = np.unique(np.concatenate([free_w, adjacency[free_w].indices]))
+    system = laplacian[rows]
+    fixed = np.setdiff1d(np.arange(count), free_w)
+    a_free, a_fixed = system[:, free_w], system[:, fixed]
+    lhs = (a_free.T @ a_free).tocsc()
+    for axis in range(3):
+        rhs = -(a_free.T @ (a_fixed @ welded[fixed, axis]))
+        welded[free_w, axis] = spsolve(lhs, rhs)
+    return welded[key]
+
+
 def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float,
              views_dir: Path | None = None) -> dict:
     """Cut triangles with centres within `radius` (model units) of `point` and cap the opening.
@@ -104,6 +195,7 @@ def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float,
     new_faces = []
     centres_added = []
     caps = []          # (vertex indices of the cap, its normal, the rim vertex whose texel it reads)
+    even = 0
     count = len(positions)
 
     def add(name_values: dict) -> int:
@@ -142,30 +234,45 @@ def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float,
         copies = {}
         for a in ring:
             copies.setdefault(int(key[a]), add(vertex(positions[a], a)))
+        patch = _even_patch(positions[ring])
+        if patch is not None:
+            interior, triangles = patch
+            inner = [add(vertex(p, pick)) for p in interior]
+            centres_added.extend(inner)
+            local = [copies[int(key[a])] for a in ring] + inner
+            new_faces.extend((local[i], local[j], local[k]) for i, j, k in triangles)
+            caps.append((sorted(set(copies.values())) + inner, normal, pick, ring))
+            even += 1
+            continue
         centre_index = add(vertex(positions[ring].mean(0), pick))
         centres_added.append(centre_index)
-        caps.append((sorted(set(copies.values())) + [centre_index], normal, pick))
+        caps.append((sorted(set(copies.values())) + [centre_index], normal, pick, ring))
         for a, b in loop:
             new_faces.append((copies[int(key[b])], copies[int(key[a])], centre_index))   # kept face runs a->b
     for name, rows in new_rows.items():
         if rows:
             attributes[name] = np.vstack([attributes[name], np.array(rows, dtype=attributes[name].dtype)])
     faces_out = np.vstack([keep, np.array(new_faces, dtype=np.int64).reshape(-1, 3)])
-    # relax the cap centres toward their rims so the patch sits flush
-    weights = np.zeros(len(attributes["POSITION"]))
-    weights[centres_added] = 1.0      # only the cap centres move; the rim (and its copies) stays put
-    attributes["POSITION"] = sc.taubin(attributes["POSITION"].astype(np.float64), faces_out, weights,
-                                       rounds=5).astype(np.float32)
+    # bend the patches to continue the surface around them (the rim and its copies stay put)
+    if centres_added:
+        faired = _fair(attributes["POSITION"].astype(np.float64), faces_out, np.array(centres_added))
+        attributes["POSITION"] = faired.astype(np.float32)
+        if "NORMAL" in attributes:
+            weld = sc.weld(faired)
+            welded = np.zeros((weld.max() + 1, 3)); welded[weld] = faired
+            smooth = sc.vertex_normals(welded, weld[faces_out])[weld]
+            attributes["NORMAL"][count:] = smooth[count:].astype(attributes["NORMAL"].dtype)
     repainted = False
     images = None
     if uvs is not None and caps:
         images, repainted = _own_squares(doc, binary, attributes, faces_out, caps, views_dir)
     _write(doc, binary, primitive, attributes, faces_out, output, images)
-    return {"cut": int(cut.sum()), "capped": len(loops), "repainted": repainted}
+    return {"cut": int(cut.sum()), "capped": len(loops), "even": even, "repainted": repainted}
 
 
-CELL_SHARES = (1 / 32, 1 / 48, 1 / 64, 1 / 128)   # a cap's square, biggest that fits first
 GUTTER = 3               # free pixels kept around each square
+CELL_MIN, CELL_MAX = 16, 256
+STRIP_SHARE = 1 / 8      # the strip added under a full texture, as a share of its height
 
 
 def _material_images(doc: dict) -> dict[str, int]:
@@ -191,28 +298,41 @@ def _decode(doc: dict, binary: bytes, image: int) -> np.ndarray:
     return np.array(picture.convert("RGBA" if "A" in picture.getbands() else "RGB"))
 
 
-def _free_cells(uvs: np.ndarray, faces: np.ndarray, size: int, cell: int) -> list[tuple[int, int]]:
+def _free_cells(uvs: np.ndarray, faces: np.ndarray, height: int, width: int, cell: int) -> list[tuple[int, int]]:
     """Top-left corners of cell-sized squares no UV triangle touches (with a gutter)."""
-    small = max(64, size // 2)
-    xy = uvs[faces] * small
-    face_of, _ = pp.rasterize(xy, np.zeros((len(faces), 3)), (small, small))
-    covered = face_of.reshape(small, small) >= 0
+    small_h, small_w = max(32, height // 2), max(32, width // 2)
+    xy = uvs[faces] * np.array([small_w, small_h])
+    face_of, _ = pp.rasterize(xy, np.zeros((len(faces), 3)), (small_h, small_w))
+    covered = face_of.reshape(small_h, small_w) >= 0
     step = cell + 2 * GUTTER
     out = []
-    for y in range(0, size - step + 1, step):
-        for x in range(0, size - step + 1, step):
-            y0, y1 = y * small // size, -(-(y + step) * small // size)
-            x0, x1 = x * small // size, -(-(x + step) * small // size)
+    for y in range(0, height - step + 1, step):
+        for x in range(0, width - step + 1, step):
+            y0, y1 = y * small_h // height, -(-(y + step) * small_h // height)
+            x0, x1 = x * small_w // width, -(-(x + step) * small_w // width)
             if not covered[y0:y1, x0:x1].any():
                 out.append((x + GUTTER, y + GUTTER))
     return out
 
 
-def _own_squares(doc, binary, attributes, faces, caps, views_dir):
-    """Give each cap its own square of the texture; repaint the squares from the picture.
+def _cap_layout(positions, vertices, normal):
+    """A cap's vertices laid flat on its own plane, in model units (origin at its corner)."""
+    n = normal / max(np.linalg.norm(normal), 1e-12)
+    helper = np.array([1.0, 0, 0]) if abs(n[0]) < 0.9 else np.array([0, 1.0, 0])
+    u = np.cross(n, helper)
+    u /= np.linalg.norm(u)
+    v = np.cross(n, u)
+    flat = np.stack([positions[vertices] @ u, positions[vertices] @ v], 1)
+    return flat - flat.min(0)
 
-    Returns ({image index: PNG bytes} to write, whether Pixel Match repainted). Leaves the caps
-    on their one shared texel when the texture has no room.
+
+def _own_squares(doc, binary, attributes, faces, caps, views_dir):
+    """Give each cap its own square of the texture, as sharp as the paint around it, and
+    repaint the squares from the picture.
+
+    Pixal3D packs its atlas tightly, so when the gaps between islands are too small a strip
+    is added under every map (existing pixels are kept, not resampled; UVs move with them),
+    and later fixes find room in that strip. Returns ({image: PNG}, repainted).
     """
     import io
 
@@ -222,40 +342,48 @@ def _own_squares(doc, binary, attributes, faces, caps, views_dir):
     if "base" not in maps:
         return None, False
     pictures = {image: _decode(doc, binary, image) for image in set(maps.values())}
-    base = pictures[maps["base"]]
-    size = base.shape[1]
-    cap_vertices = {v for vertices, _n, _p in caps for v in vertices}
-    cap_faces = np.isin(faces, list(cap_vertices)).all(1)
-    # Pixal3D packs its atlas tightly: free space is small gaps between islands, so take the
-    # biggest square size that still fits every cap
-    for share in CELL_SHARES:
-        cell = max(8, int(size * share))
-        cells = _free_cells(attributes["TEXCOORD_0"].astype(np.float64), faces[~cap_faces], size, cell)
-        if len(cells) >= len(caps):
-            break
-    else:
-        return None, False
+    height, width = pictures[maps["base"]].shape[:2]
     uvs = attributes["TEXCOORD_0"]
     positions = attributes["POSITION"].astype(np.float64)
+    # texels per model unit around each rim, so a patch is as sharp as its surroundings
+    layouts, cell = [], CELL_MIN
+    for vertices, normal, _pick, rim in caps:
+        step_uv = np.linalg.norm((np.roll(uvs[rim], -1, axis=0) - uvs[rim]) * np.array([width, height]), axis=1)
+        step_xyz = np.linalg.norm(np.roll(positions[rim], -1, axis=0) - positions[rim], axis=1)
+        density = float(np.median(step_uv / np.maximum(step_xyz, 1e-12)))
+        flat = _cap_layout(positions, vertices, normal)
+        layouts.append(flat)
+        cell = max(cell, int(np.ceil(flat.max() * density)) + 4)
+    cell = min(cell, CELL_MAX)
+    cap_vertices = {v for vertices, *_rest in caps for v in vertices}
+    others = faces[~np.isin(faces, list(cap_vertices)).all(1)]
+    cells = _free_cells(uvs.astype(np.float64), others, height, width, cell)
+    if len(cells) < len(caps):
+        strip = max(cell + 2 * GUTTER, int(height * STRIP_SHARE))
+        strip += -strip % 4
+        uvs[:, 1] *= height / (height + strip)
+        for image, picture in list(pictures.items()):
+            h = picture.shape[0]
+            extra = int(round(strip * h / height))
+            pictures[image] = np.concatenate([picture, np.zeros((extra, *picture.shape[1:]), picture.dtype)], 0)
+        height += strip
+        cells = _free_cells(uvs.astype(np.float64), others, height, width, cell)
+        if len(cells) < len(caps):
+            return None, False
+    base = pictures[maps["base"]]
     squares = []
-    for (vertices, normal, pick), (x, y) in zip(caps, cells):
-        n = normal / max(np.linalg.norm(normal), 1e-12)
-        helper = np.array([1.0, 0, 0]) if abs(n[0]) < 0.9 else np.array([0, 1.0, 0])
-        u = np.cross(n, helper); u /= np.linalg.norm(u)
-        v = np.cross(n, u)
-        flat = np.stack([positions[vertices] @ u, positions[vertices] @ v], 1)
-        flat -= flat.min(0)
-        flat /= max(flat.max(), 1e-12)
+    for (vertices, _normal, pick, _rim), flat, (x, y) in zip(caps, layouts, cells):
+        flat = flat / max(flat.max(), 1e-12)
         pad = 2
         for vertex, (fu, fv) in zip(vertices, flat):
-            uvs[vertex] = ((x + pad + fu * (cell - 2 * pad)) / size, (y + pad + fv * (cell - 2 * pad)) / size)
+            uvs[vertex] = ((x + pad + fu * (cell - 2 * pad)) / width, (y + pad + fv * (cell - 2 * pad)) / height)
         # fill every map's square from the texel the cap read before, so nothing goes black
         for image, picture in pictures.items():
             h, w = picture.shape[:2]
-            old = attributes["TEXCOORD_0"][pick]
+            old = uvs[pick]
             texel = picture[min(int(old[1] * h), h - 1), min(int(old[0] * w), w - 1)]
-            sx, sy = x * w // size, y * h // size
-            picture[sy:sy + cell * h // size, sx:sx + cell * w // size] = texel
+            sx, sy = x * w // width, y * h // height
+            picture[sy:sy + cell * h // height, sx:sx + cell * w // width] = texel
         squares.append((x, y))
     repainted = False
     if views_dir is not None and (Path(views_dir) / "transforms.json").is_file():

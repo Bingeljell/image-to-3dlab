@@ -157,3 +157,15 @@ def test_with_room_in_the_texture_each_patch_gets_its_own_square(tmp_path):
     # its square was filled with the patch's colour, not left black
     px = (patch * 512).astype(int).clip(0, 511)
     assert texture[px[:, 1], px[:, 0], :3].min() > 50
+
+
+def test_a_round_hole_gets_an_even_curved_patch_not_a_fan(tmp_path):
+    source, pos, _front = _sphere_with_pocket(tmp_path, n=48)
+    report = sf.fix_spot(source, tmp_path / "out.glb", np.array([0, 0, 0.95]), radius=0.25)
+    assert report["even"] == report["capped"] == 1
+    out_pos, _uv, out_faces, _tex = pp.read_glb(tmp_path / "out.glb")
+    out_faces = out_faces.reshape(-1, 3)
+    assert _open_edges(out_faces, out_pos) == 0
+    patch = out_pos[len(pos):]
+    # curved like the sphere it fills (radius 1), not a flat lid across the hole
+    assert np.abs(np.linalg.norm(patch, axis=1) - 1).max() < 0.05

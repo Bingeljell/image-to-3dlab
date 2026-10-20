@@ -65,7 +65,8 @@ def fix_spot_response(output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
         if (source.parent / "input").is_dir():
             shutil.copytree(source.parent / "input", run / "input")
         result = run / f"{source.stem.removesuffix('_fixed')}_fixed.glb"
-        report = spot_fix.fix_spot(source, result, point, radius)
+        views = run / "input" / "source.views"
+        report = spot_fix.fix_spot(source, result, point, radius, views if (views / "transforms.json").is_file() else None)
         if not report["cut"]:
             shutil.rmtree(run)
             return 422, {"error": "Nothing to fix there: click right on the model."}

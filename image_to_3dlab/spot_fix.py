@@ -69,8 +69,16 @@ def _boundary_loops(faces: np.ndarray, key: np.ndarray) -> list[list[tuple[int, 
     return loops
 
 
-def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float) -> dict:
-    """Cut triangles with centres within `radius` (model units) of `point` and cap the opening."""
+def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float,
+             views_dir: Path | None = None) -> dict:
+    """Cut triangles with centres within `radius` (model units) of `point` and cap the opening.
+
+    Each cap first reads one texel, the rim's most typical colour. Then, where the texture has
+    room, each cap gets its own small square of it (every map filled from that texel, so the
+    normal and metal-roughness maps stay sensible), and with `views_dir` (the run's Pixel
+    Match pictures and cameras) only those squares are repainted from the picture: an eye
+    whose pocket was capped gets its eye back.
+    """
     doc, binary = pp._split_glb(Path(source).read_bytes())
     primitive = doc["meshes"][0]["primitives"][0]
     attributes = {name: _read(doc, binary, index) for name, index in primitive["attributes"].items()}
@@ -86,45 +94,201 @@ def fix_spot(source: Path, output: Path, point: np.ndarray, radius: float) -> di
     # only the openings this cut made: every rim vertex was on a removed triangle
     touched = set(np.unique(key[faces[cut]]).tolist())
     loops = [loop for loop in loops if all(int(key[a]) in touched for a, _ in loop)]
+    # The cap gets its own vertices (same places as the rim, so the shape stays closed), all
+    # reading ONE texel: the rim's most typical colour. Stretching the rim's own UVs across a
+    # fan smeared everything between them into stripes (2026-10-20, gnoll pupils).
+    texture = pp.read_glb(source)[3]
+    th, tw = texture.shape[:2]
+    uvs = attributes.get("TEXCOORD_0")
     new_rows = {name: [] for name in attributes}
     new_faces = []
+    centres_added = []
+    caps = []          # (vertex indices of the cap, its normal, the rim vertex whose texel it reads)
     count = len(positions)
+
+    def add(name_values: dict) -> int:
+        for name, value in name_values.items():
+            new_rows[name].append(value)
+        return count + len(new_rows["POSITION"]) - 1
+
     for loop in loops:
         ring = np.array([a for a, _ in loop])
-        first = int(ring[0])
-        centre = positions[ring].mean(0)
-        for name, values in attributes.items():
-            if name == "POSITION":
-                new_rows[name].append(centre)
-            elif name == "NORMAL":
-                n = values[ring].astype(np.float64).mean(0)
-                new_rows[name].append(n / max(np.linalg.norm(n), 1e-12))
-            else:
-                new_rows[name].append(values[first])
-        centre_index = count + len(new_rows["POSITION"]) - 1
+        pick = int(ring[0])
+        if uvs is not None:
+            px = np.clip((uvs[ring, 0] * tw).astype(int), 0, tw - 1)
+            py = np.clip((uvs[ring, 1] * th).astype(int), 0, th - 1)
+            colours = texture[py, px, :3].astype(np.float64)
+            pick = int(ring[np.argmin(np.linalg.norm(colours - np.median(colours, axis=0), axis=1))])
+        if "NORMAL" in attributes:
+            normal = attributes["NORMAL"][ring].astype(np.float64).mean(0)
+        else:   # the rim's own facing (Newell): sum of cross products round the loop
+            rim = positions[ring]
+            normal = np.cross(rim, np.roll(rim, -1, axis=0)).sum(0)
+
+        def vertex(position, source_index, normal=normal, pick=pick):
+            row = {}
+            for name, values in attributes.items():
+                if name == "POSITION":
+                    row[name] = position
+                elif name == "NORMAL":
+                    row[name] = normal / max(np.linalg.norm(normal), 1e-12)
+                elif name == "TEXCOORD_0":
+                    row[name] = values[pick]
+                else:
+                    row[name] = values[source_index]
+            return row
+
+        # one copy per rim POINT: at a UV seam the rim passes through two vertices at one place
+        copies = {}
+        for a in ring:
+            copies.setdefault(int(key[a]), add(vertex(positions[a], a)))
+        centre_index = add(vertex(positions[ring].mean(0), pick))
+        centres_added.append(centre_index)
+        caps.append((sorted(set(copies.values())) + [centre_index], normal, pick))
         for a, b in loop:
-            new_faces.append((b, a, centre_index))   # the kept face runs a->b, so the cap runs b->a
+            new_faces.append((copies[int(key[b])], copies[int(key[a])], centre_index))   # kept face runs a->b
     for name, rows in new_rows.items():
         if rows:
             attributes[name] = np.vstack([attributes[name], np.array(rows, dtype=attributes[name].dtype)])
     faces_out = np.vstack([keep, np.array(new_faces, dtype=np.int64).reshape(-1, 3)])
     # relax the cap centres toward their rims so the patch sits flush
     weights = np.zeros(len(attributes["POSITION"]))
-    weights[count:] = 1.0
+    weights[centres_added] = 1.0      # only the cap centres move; the rim (and its copies) stays put
     attributes["POSITION"] = sc.taubin(attributes["POSITION"].astype(np.float64), faces_out, weights,
                                        rounds=5).astype(np.float32)
-    _write(doc, binary, primitive, attributes, faces_out, output)
-    return {"cut": int(cut.sum()), "capped": len(loops)}
+    repainted = False
+    images = None
+    if uvs is not None and caps:
+        images, repainted = _own_squares(doc, binary, attributes, faces_out, caps, views_dir)
+    _write(doc, binary, primitive, attributes, faces_out, output, images)
+    return {"cut": int(cut.sum()), "capped": len(loops), "repainted": repainted}
 
 
-def _write(doc: dict, binary: bytes, primitive: dict, attributes: dict, faces: np.ndarray, output: Path) -> None:
-    """The GLB with the mesh's buffers replaced; images and every other buffer view kept."""
+CELL_SHARES = (1 / 32, 1 / 48, 1 / 64, 1 / 128)   # a cap's square, biggest that fits first
+GUTTER = 3               # free pixels kept around each square
+
+
+def _material_images(doc: dict) -> dict[str, int]:
+    """Which image each of the first material's maps uses."""
+    material = doc.get("materials", [{}])[0]
+    pbr = material.get("pbrMetallicRoughness", {})
+    slots = {"base": pbr.get("baseColorTexture"), "mr": pbr.get("metallicRoughnessTexture"),
+             "normal": material.get("normalTexture"), "occlusion": material.get("occlusionTexture"),
+             "emissive": material.get("emissiveTexture")}
+    def source(texture: dict) -> int:   # a WebP texture names its image in an extension
+        return texture.get("source", texture.get("extensions", {}).get("EXT_texture_webp", {}).get("source"))
+    return {name: source(doc["textures"][slot["index"]]) for name, slot in slots.items() if slot}
+
+
+def _decode(doc: dict, binary: bytes, image: int) -> np.ndarray:
+    import io
+
+    from PIL import Image
+
+    view = doc["bufferViews"][doc["images"][image]["bufferView"]]
+    start = view.get("byteOffset", 0)
+    picture = Image.open(io.BytesIO(binary[start:start + view["byteLength"]]))
+    return np.array(picture.convert("RGBA" if "A" in picture.getbands() else "RGB"))
+
+
+def _free_cells(uvs: np.ndarray, faces: np.ndarray, size: int, cell: int) -> list[tuple[int, int]]:
+    """Top-left corners of cell-sized squares no UV triangle touches (with a gutter)."""
+    small = max(64, size // 2)
+    xy = uvs[faces] * small
+    face_of, _ = pp.rasterize(xy, np.zeros((len(faces), 3)), (small, small))
+    covered = face_of.reshape(small, small) >= 0
+    step = cell + 2 * GUTTER
+    out = []
+    for y in range(0, size - step + 1, step):
+        for x in range(0, size - step + 1, step):
+            y0, y1 = y * small // size, -(-(y + step) * small // size)
+            x0, x1 = x * small // size, -(-(x + step) * small // size)
+            if not covered[y0:y1, x0:x1].any():
+                out.append((x + GUTTER, y + GUTTER))
+    return out
+
+
+def _own_squares(doc, binary, attributes, faces, caps, views_dir):
+    """Give each cap its own square of the texture; repaint the squares from the picture.
+
+    Returns ({image index: PNG bytes} to write, whether Pixel Match repainted). Leaves the caps
+    on their one shared texel when the texture has no room.
+    """
+    import io
+
+    from PIL import Image
+
+    maps = _material_images(doc)
+    if "base" not in maps:
+        return None, False
+    pictures = {image: _decode(doc, binary, image) for image in set(maps.values())}
+    base = pictures[maps["base"]]
+    size = base.shape[1]
+    cap_vertices = {v for vertices, _n, _p in caps for v in vertices}
+    cap_faces = np.isin(faces, list(cap_vertices)).all(1)
+    # Pixal3D packs its atlas tightly: free space is small gaps between islands, so take the
+    # biggest square size that still fits every cap
+    for share in CELL_SHARES:
+        cell = max(8, int(size * share))
+        cells = _free_cells(attributes["TEXCOORD_0"].astype(np.float64), faces[~cap_faces], size, cell)
+        if len(cells) >= len(caps):
+            break
+    else:
+        return None, False
+    uvs = attributes["TEXCOORD_0"]
+    positions = attributes["POSITION"].astype(np.float64)
+    squares = []
+    for (vertices, normal, pick), (x, y) in zip(caps, cells):
+        n = normal / max(np.linalg.norm(normal), 1e-12)
+        helper = np.array([1.0, 0, 0]) if abs(n[0]) < 0.9 else np.array([0, 1.0, 0])
+        u = np.cross(n, helper); u /= np.linalg.norm(u)
+        v = np.cross(n, u)
+        flat = np.stack([positions[vertices] @ u, positions[vertices] @ v], 1)
+        flat -= flat.min(0)
+        flat /= max(flat.max(), 1e-12)
+        pad = 2
+        for vertex, (fu, fv) in zip(vertices, flat):
+            uvs[vertex] = ((x + pad + fu * (cell - 2 * pad)) / size, (y + pad + fv * (cell - 2 * pad)) / size)
+        # fill every map's square from the texel the cap read before, so nothing goes black
+        for image, picture in pictures.items():
+            h, w = picture.shape[:2]
+            old = attributes["TEXCOORD_0"][pick]
+            texel = picture[min(int(old[1] * h), h - 1), min(int(old[0] * w), w - 1)]
+            sx, sy = x * w // size, y * h // size
+            picture[sy:sy + cell * h // size, sx:sx + cell * w // size] = texel
+        squares.append((x, y))
+    repainted = False
+    if views_dir is not None and (Path(views_dir) / "transforms.json").is_file():
+        views, mesh_scale = pp.load_views(Path(views_dir))
+        # the picture's own pixels, as they are: matching colours to the surrounding paint has
+        # nothing to solve on a brand-new square (it divided by zero and painted them grey)
+        plain = pp.Settings(match_colour=False, align=False)
+        painted, weight = pp.paint_texture(base, positions, uvs.astype(np.float64), faces, views, mesh_scale,
+                                           settings=plain)
+        for x, y in squares:
+            base[y:y + cell, x:x + cell] = painted[y:y + cell, x:x + cell]
+        repainted = bool(any((weight[y:y + cell, x:x + cell] > 0.2).any() for x, y in squares))
+    out = {}
+    for image, picture in pictures.items():
+        buffer = io.BytesIO()
+        Image.fromarray(picture).save(buffer, "PNG")
+        out[image] = buffer.getvalue()
+    return out, repainted
+
+
+def _write(doc: dict, binary: bytes, primitive: dict, attributes: dict, faces: np.ndarray, output: Path,
+           images: dict[int, bytes] | None = None) -> None:
+    """The GLB with the mesh's buffers (and any `images`, as PNG) replaced; the rest kept."""
     mesh_accessors = set(primitive["attributes"].values()) | {primitive["indices"]}
     mesh_views = {doc["accessors"][i]["bufferView"] for i in mesh_accessors}
+    image_views = {doc["images"][i]["bufferView"]: png for i, png in (images or {}).items()}
     chunks = []
     for index, view in enumerate(doc["bufferViews"]):
         start = view.get("byteOffset", 0)
-        chunks.append(b"" if index in mesh_views else binary[start:start + view["byteLength"]])
+        chunks.append(b"" if index in mesh_views else image_views.get(index, binary[start:start + view["byteLength"]]))
+    for image in images or {}:
+        doc["images"][image]["mimeType"] = "image/png"
+        pp._drop_webp_extension(doc, image)
     for name, index in primitive["attributes"].items():
         accessor = doc["accessors"][index]
         values = np.ascontiguousarray(attributes[name], dtype=FORMATS[accessor["componentType"]][0])

@@ -87,6 +87,7 @@ a { color: inherit; }
 .sv-pane { position: absolute; inset: 0; }
 .sv-pane canvas { display: block; }
 .sv-pane.fixing canvas { cursor: crosshair; }
+.sv-pane.fixing.ringing canvas { cursor: none; }   /* over the model the brush ring is the cursor */
 .sv-pane .stats { position: absolute; left: 14px; bottom: 14px; z-index: 4; font-size: 12px; color: var(--bone); opacity: .75; pointer-events: none; font-variant-numeric: tabular-nums; }
 .stage:has(.sv-clips:not([hidden])) .sv-pane .stats { bottom: 78px; }
 .sv-overlay { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; padding: 24px; }

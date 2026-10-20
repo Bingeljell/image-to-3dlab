@@ -180,27 +180,60 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
     if (act === 'bones') setSkeleton(on);
     if (act === 'fix') {
       pane.classList.toggle('fixing', on);
+      if (!on) hideRing();
       if (on) overlayNote(onFixSpot ? 'Click a hole or a messy patch on a finished model.' : 'Fix a spot works on finished models.');
     }
   });
 
-  // Fix a spot: a click (not a drag) on the model, while the brush is on, picks the point
+  // Fix a spot: a click (not a drag) on the model, while the brush is on, picks the point.
+  // Brush sizes as a share of the model's height: the same table as image_to_3dlab/spot_fix.py.
+  const BRUSH = { small: 0.012, medium: 0.025, large: 0.045 };
+  const brushSize = (event) => (event.shiftKey ? 'large' : event.altKey ? 'small' : 'medium');
+  let ring = null;
+  function hideRing() {
+    pane.classList.remove('ringing');
+    if (ring) { ring.removeFromParent(); ring.geometry.dispose(); ring.material.dispose(); ring = null; requestRender(); }
+  }
+  function pick(event) {
+    const rect = view.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, view.camera);
+    return ray.intersectObject(view.root, true).find((h) => h.object.isMesh && h.object !== ring) || null;
+  }
+  pane.addEventListener('pointermove', (event) => {
+    const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
+    if (!fixing || !view?.root || event.buttons) { if (!fixing) hideRing(); return; }
+    const hit = pick(event);
+    if (!hit) { hideRing(); return; }
+    if (!ring) {
+      ring = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 64),
+        new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.95, depthTest: false, side: THREE.DoubleSide }));
+      ring.renderOrder = 999;
+      view.scene.add(ring);
+    }
+    const height = new THREE.Box3().setFromObject(view.root).getSize(new THREE.Vector3()).y;
+    const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    ring.position.copy(hit.point).addScaledVector(normal, height * 0.002);
+    ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    ring.scale.setScalar(BRUSH[brushSize(event)] * height);
+    pane.classList.add('ringing');
+    requestRender();
+  });
+  pane.addEventListener('pointerleave', hideRing);
   let downAt = null;
   pane.addEventListener('pointerdown', (event) => { downAt = [event.clientX, event.clientY]; });
   pane.addEventListener('pointerup', async (event) => {
     const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
     if (!fixing || !view?.root || !onFixSpot || !downAt) return;
     if (Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]) > 4) return;   // that was an orbit
-    const rect = view.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1);
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, view.camera);
-    const hit = ray.intersectObject(view.root, true).find((h) => h.object.isMesh);
+    const hit = pick(event);
     if (!hit) { overlayNote('Missed the model: click right on it.'); return; }
     // the GLB's own coordinates: the mesh's local space (Finish writes no node transforms)
     const local = hit.object.worldToLocal(hit.point.clone());
-    const size = event.shiftKey ? 'large' : event.altKey ? 'small' : 'medium';
+    const size = brushSize(event);
+    hideRing();
     overlayNote('Fixing that spot…');
     await onFixSpot([local.x, local.y, local.z], size);
   });
@@ -221,6 +254,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, onFixSpot }) 
   }
 
   function dispose() {
+    if (ring) { ring.geometry.dispose(); ring.material.dispose(); ring = null; }
     pane.querySelector('.stats').hidden = true;   // a picture or an empty stage has no face count
     player?.dispose?.();
     player = null;

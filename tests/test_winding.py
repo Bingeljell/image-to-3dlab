@@ -12,7 +12,7 @@ from image_to_3dlab import spot_fix as sf
 from image_to_3dlab import winding
 
 
-def _views(tmp_path):
+def _views(tmp_path, colour=(0, 0, 0)):
     """A front and a back camera, Pixal3D style (view space Z up, front camera at -Y)."""
     folder = tmp_path / "views"
     folder.mkdir()
@@ -20,7 +20,7 @@ def _views(tmp_path):
     back = [[-1, 0, 0, 0], [0, 0, 1, 3.0], [0, 1, 0, 0], [0, 0, 0, 1]]
     frames = []
     for name, matrix in (("view_000.png", front), ("view_180.png", back)):
-        Image.new("RGBA", (64, 64), (0, 0, 0, 255)).save(folder / name)
+        Image.new("RGBA", (64, 64), (*colour, 255)).save(folder / name)
         frames.append({"file_path": name, "transform_matrix": matrix, "camera_angle_x": 0.8})
     (folder / "transforms.json").write_text(json.dumps({"camera_angle_x": 0.8, "mesh_scale": 1, "frames": frames}))
     return folder

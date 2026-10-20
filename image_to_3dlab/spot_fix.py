@@ -417,12 +417,13 @@ def _own_squares(doc, binary, attributes, faces, caps, views_dir):
 # (2026-10-20, the gnoll's brow).
 TRUST_PICTURE = {"match_colour": False, "local_colour": False, "align": False, "inner_edge": 0.0,
                  "cutout_edge": 0.0, "edge_px": 1, "facing_low": 0.05, "facing_high": 0.2}   # edge_px 0 zeroes every weight
-SEAM_REACH = 1.3          # repaint a little past each spot, so its edge with the old paint is covered
+SEAM_REACH = 1.3          # past each spot's ring, new paint fades into the old out to this, so no hard seam
 
 
 def repaint_area(source: Path, output: Path, spots: list[tuple[np.ndarray, float]], views_dir: Path) -> dict:
-    """Paint only: repaint the texels of every triangle within any (point, radius) of `spots`
-    from the picture, in one pass; the shape is untouched."""
+    """Paint only: repaint from the picture, in one pass, everything inside any (point, radius)
+    of `spots`, fading into the old paint out to SEAM_REACH x radius; the shape is untouched.
+    Inside the ring is fully new: a filled patch's own paint is only a placeholder."""
     import io
 
     from PIL import Image
@@ -434,20 +435,30 @@ def repaint_area(source: Path, output: Path, spots: list[tuple[np.ndarray, float
     centres = positions[faces].mean(1)
     near = np.zeros(len(faces), bool)
     for point, radius in spots:
-        near |= np.linalg.norm(centres - np.asarray(point, dtype=np.float64), axis=1) < radius
+        near |= np.linalg.norm(centres - np.asarray(point, dtype=np.float64), axis=1) < radius * SEAM_REACH
     maps = _material_images(doc)
     if not near.any() or "base" not in maps or not (Path(views_dir) / "transforms.json").is_file():
         return {"repainted_faces": 0, "repainted_texels": 0}
     base = _decode(doc, binary, maps["base"])
     height, width = base.shape[:2]
-    face_of, _ = pp.rasterize(uvs[faces[near]] * np.array([width, height]), np.zeros((int(near.sum()), 3)),
-                              (height, width))
-    mask = face_of.reshape(height, width) >= 0
+    face_of, bary = pp.rasterize(uvs[faces[near]] * np.array([width, height]), np.zeros((int(near.sum()), 3)),
+                                 (height, width))
+    face_of, bary = face_of.reshape(height, width), bary.reshape(height, width, 3)
+    mask = face_of >= 0
+    # 1 inside a ring, falling to 0 at SEAM_REACH x its radius
+    where = (positions[faces[near][face_of[mask]]] * bary[mask][..., None]).sum(1)
+    blend = np.zeros(len(where))
+    for point, radius in spots:
+        reach = radius * SEAM_REACH
+        inside = (reach - np.linalg.norm(where - np.asarray(point, dtype=np.float64), axis=1)) / (reach - radius)
+        blend = np.maximum(blend, np.clip(inside, 0.0, 1.0))
     views, mesh_scale = pp.load_views(Path(views_dir))
     painted, weight = pp.paint_texture(base, positions, uvs, faces, views, mesh_scale,
                                        settings=pp.Settings(**TRUST_PICTURE))
-    mask &= weight > 0
-    base[mask] = painted[mask]
+    blend *= weight[mask] > 0
+    mixed = base[mask].astype(np.float64) * (1 - blend[:, None]) + painted[mask].astype(np.float64) * blend[:, None]
+    base[mask] = np.rint(mixed).astype(np.uint8)
+    mask[mask] = blend > 0
     buffer = io.BytesIO()
     Image.fromarray(base).save(buffer, "PNG", compress_level=1)
     attributes = {name: _read(doc, binary, index) for name, index in primitive["attributes"].items()}
@@ -487,7 +498,7 @@ def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path |
                 current = nxt
         if views_dir is not None:
             painted = Path(scratch) / "painted.glb"
-            area = [(s["point"], s["radius"] * SEAM_REACH) for s in spots]
+            area = [(s["point"], s["radius"]) for s in spots]
             done = repaint_area(current, painted, area, views_dir)
             if painted.exists():
                 current = painted

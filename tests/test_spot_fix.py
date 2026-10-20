@@ -184,3 +184,16 @@ def test_a_full_texture_gains_a_strip_and_the_paint_still_lines_up(tmp_path):
     new_uv = out_uv[: len(before_uv)]
     now = out_tex[(new_uv[:, 1] * h1).astype(int).clip(0, h1 - 1), (new_uv[:, 0] * 256).astype(int).clip(0, 255)]
     assert np.array_equal(old[:, :3], now[:, :3])
+
+
+def test_repaint_fades_in_from_the_edge_of_the_spot(tmp_path):
+    from test_winding import _views
+
+    views = _views(tmp_path, colour=(255, 255, 255))            # the picture: all white
+    source, _pos, _front = _sphere_with_pocket(tmp_path, n=48, texture=256)
+    report = sf.repaint_area(source, tmp_path / "out.glb", [((0.0, 0.0, 1.0), 0.6)], views)
+    assert report["repainted_texels"] > 0
+    red = pp.read_glb(tmp_path / "out.glb")[3][..., 0].astype(int)
+    assert (red >= 250).any(), "inside the spot the picture wins"
+    blended = ((red > 190) & (red < 240)).sum()
+    assert blended > 0.15 * (red >= 250).sum(), "past the ring, new paint fades into the old (a hard edge: ~4%)"

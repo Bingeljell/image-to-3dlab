@@ -73,7 +73,8 @@ def test_spots_are_checked(tmp_path):
     output, rel = _finished(tmp_path)
     for bad in [[], [{"point": [0, 0], "radius": 0.02}], [{"point": [0, 0, 1], "radius": 0.5}],
                 [{"point": [0, 0, 1], "radius": 0.02, "mode": "melt"}], [{"point": [0, 0, float("nan")], "radius": 0.02}],
-                [SPOT] * (fx.MAX_SPOTS + 1)]:
+                [SPOT] * (fx.MAX_SPOTS + 1), [{**SPOT, "mode": "smooth", "strength": 3}],
+                [{**SPOT, "mode": "smooth", "strength": "lots"}]]:
         assert fx.preview_response(output, {"from": rel, "spots": bad})[0] == 400
 
 
@@ -96,3 +97,10 @@ def test_two_keeps_in_the_same_second_get_their_own_folders(tmp_path):
     first = fx.new_run_dir(run, now=0)
     first.mkdir()
     assert fx.new_run_dir(run, now=0) != first
+
+
+def test_smooth_makes_a_preview(tmp_path):
+    output, rel = _finished(tmp_path)
+    status, body = fx.preview_response(output, {"from": rel, "spots": [{**SPOT, "mode": "smooth", "strength": 0.8}]})
+    assert status == 200, body
+    assert body["reports"][0]["smoothed"] > 0

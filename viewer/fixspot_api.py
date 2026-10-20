@@ -2,9 +2,10 @@
 
 The user marks spots on a finished model, presses Patch to see a preview, flips Before /
 After, then Keeps it (one new version) or Discards it. Marks are applied by
-`image_to_3dlab.spot_fix`: "fill" cuts and caps a pocket, "repaint" repaints the paint only.
+`image_to_3dlab.spot_fix`: "fill" cuts and caps a pocket, "smooth" irons the surface out
+(by `strength`), "repaint" repaints the paint only.
 
-    POST /api/fix-spot/preview  {from, base?, spots: [{point, radius, mode}]} -> {preview, reports}
+    POST /api/fix-spot/preview  {from, base?, spots: [{point, radius, mode, strength?}]} -> {preview, reports}
     POST /api/fix-spot/keep     {from, preview} -> {file}   (a new sibling Finish run = new version)
     POST /api/fix-spot/discard  {preview}
 
@@ -83,7 +84,12 @@ def _spots(raw: Any, height: float) -> list[dict] | str:
             return f"The brush is {BRUSH_MIN} to {BRUSH_MAX} of the model's height."
         if mode not in spot_fix.MODES:
             return f"The brush mode is one of {', '.join(spot_fix.MODES)}."
-        spots.append({"point": point, "radius": float(share) * height, "mode": mode, "share": float(share)})
+        strength = spot.get("strength", spot_fix.STRENGTH_DEFAULT)
+        if (isinstance(strength, bool) or not isinstance(strength, (int, float))
+                or not spot_fix.STRENGTH_MIN <= strength <= spot_fix.STRENGTH_MAX):
+            return f"Smooth's strength is {spot_fix.STRENGTH_MIN} to {spot_fix.STRENGTH_MAX}."
+        spots.append({"point": point, "radius": float(share) * height, "mode": mode, "share": float(share),
+                      "strength": float(strength)})
     return spots
 
 
@@ -114,7 +120,7 @@ def preview_response(output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
     _clear_old_previews(folder, time.time())
     result = folder / f"{uuid.uuid4().hex}.glb"
     reports = spot_fix.apply_spots(base, result, spots, views)
-    if not any(r.get("cut") or r.get("repainted_faces") for r in reports):
+    if not any(r.get("cut") or r.get("smoothed") or r.get("repainted_faces") for r in reports):
         result.unlink(missing_ok=True)
         return 422, {"error": "Nothing changed: click right on the model."}
     if base != origin:

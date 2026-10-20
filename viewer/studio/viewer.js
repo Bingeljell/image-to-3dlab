@@ -195,21 +195,28 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
   // saves one version and Discard drops it. The brush is a share of the model's height; the
   // server takes the same range (viewer/fixspot_api.py).
   const BRUSH_MIN = 0.005, BRUSH_MAX = 0.08;
-  let brushShare = 0.02, brushMode = 'fill';
+  // Smooth's strength range matches the server (image_to_3dlab/spot_fix.py)
+  const STRENGTH_MIN = 0.1, STRENGTH_MAX = 1.0;
+  let brushShare = 0.02, brushMode = 'fill', brushStrength = 0.6;
+  const RING_COLOURS = { fill: 0xffffff, smooth: 0xff9a3c, repaint: 0x58c4ff };
   const brushPanel = document.createElement('div');
   brushPanel.className = 'sv-brush';
   brushPanel.hidden = true;
   brushPanel.innerHTML = `
     <div class="row"><span>Brush</span>
       <button class="chip" data-mode="fill" aria-pressed="true" data-tip="Fill hole: cut out a pocket or dent and patch it smooth">Fill hole</button>
+      <button class="chip" data-mode="smooth" aria-pressed="false" data-tip="Smooth: iron out bumps, ridges and dents, then repaint from your picture; nothing is cut">Smooth</button>
       <button class="chip" data-mode="repaint" aria-pressed="false" data-tip="Repaint: paint only, from your picture; the shape stays as it is">Repaint</button></div>
     <label class="row"><span>Size</span><input type="range" min="${BRUSH_MIN}" max="${BRUSH_MAX}" step="0.0025" value="${brushShare}" aria-label="Brush size"><kbd>[ ]</kbd></label>
+    <label class="row" data-strength hidden><span>Strength</span><input type="range" min="${STRENGTH_MIN}" max="${STRENGTH_MAX}" step="0.05" value="${brushStrength}" aria-label="Smooth strength"></label>
     <div class="row"><span data-count>Click to mark spots</span><button class="ghost" data-fix="undo" disabled>Undo</button>
       <button class="chip" data-fix="patch" disabled>Patch</button></div>
     <div class="row" data-review hidden><button class="ghost" data-fix="compare">Showing: after</button>
       <button class="chip" data-fix="keep">Keep</button><button class="ghost" data-fix="discard">Discard</button></div>`;
   tools.appendChild(brushPanel);
-  const brushSlider = brushPanel.querySelector('input');
+  const brushSlider = brushPanel.querySelector('input[aria-label="Brush size"]');
+  const strengthRow = brushPanel.querySelector('[data-strength]');
+  strengthRow.querySelector('input').addEventListener('input', (event) => { brushStrength = Number(event.target.value); });
   let ring = null, lastHit = null;
   const session = { marks: [], preview: null, beforeUrl: null, afterUrl: null, showing: 'after', busy: false };
   function setBrush(share) {
@@ -220,6 +227,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
   brushSlider.addEventListener('input', () => setBrush(Number(brushSlider.value)));
   brushPanel.querySelectorAll('[data-mode]').forEach((chip) => chip.addEventListener('click', () => {
     brushMode = chip.dataset.mode;
+    strengthRow.hidden = brushMode !== 'smooth';
     brushPanel.querySelectorAll('[data-mode]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
   }));
   window.addEventListener('keydown', (event) => {
@@ -295,7 +303,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     if (act === 'patch') {
       session.busy = true;
       syncPanel();
-      const spots = session.marks.map(({ point, share, mode }) => ({ point, radius: share, mode }));
+      const spots = session.marks.map(({ point, share, mode, strength }) => ({ point, radius: share, mode, strength }));
       try {
         const made = await fixSession.patch(spots, session.preview);
         if (!session.beforeUrl) session.beforeUrl = currentUrl;
@@ -345,10 +353,10 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     if (!hit) { overlayNote('Missed the model: click right on it.'); return; }
     // the GLB's own coordinates: the mesh's local space (Finish writes no node transforms)
     const local = hit.object.worldToLocal(hit.point.clone());
-    const mesh = ringMesh(brushMode === 'fill' ? 0xffffff : 0x58c4ff, 0.9);
+    const mesh = ringMesh(RING_COLOURS[brushMode], 0.9);
     placeRing(mesh, hit, brushShare);
     view.scene.add(mesh);
-    session.marks.push({ point: [local.x, local.y, local.z], share: brushShare, mode: brushMode, mesh });
+    session.marks.push({ point: [local.x, local.y, local.z], share: brushShare, mode: brushMode, strength: brushStrength, mesh });
     syncPanel();
     requestRender();
   });

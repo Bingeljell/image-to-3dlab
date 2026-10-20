@@ -474,13 +474,42 @@ def repaint_spot(source: Path, output: Path, point: np.ndarray, radius: float, v
     return repaint_area(source, output, [(point, radius)], views_dir)
 
 
-MODES = ("fill", "repaint")
+MODES = ("fill", "repaint", "smooth")
+STRENGTH_MIN, STRENGTH_MAX, STRENGTH_DEFAULT = 0.1, 1.0, 0.6     # Smooth's slider (viewer/studio/viewer.js)
+
+
+def smooth_spot(source: Path, output: Path, point: np.ndarray, radius: float, strength: float) -> dict:
+    """Iron out the surface inside the ball: bumps, ridges and dents relax toward the smoothest
+    surface that continues what is round them, fully at the centre (times `strength`) and not
+    at all at the ring. Nothing is cut or added, so the paint stays where it was."""
+    doc, binary = pp._split_glb(Path(source).read_bytes())
+    primitive = doc["meshes"][0]["primitives"][0]
+    attributes = {name: _read(doc, binary, index) for name, index in primitive["attributes"].items()}
+    faces = _read(doc, binary, primitive["indices"]).reshape(-1, 3).astype(np.int64)
+    positions = attributes["POSITION"].astype(np.float64)
+    distance = np.linalg.norm(positions - np.asarray(point, dtype=np.float64), axis=1)
+    free = np.flatnonzero(distance < radius)
+    if not len(free):
+        return {"smoothed": 0}
+    target = _fair(positions, faces, free)
+    reach = (1 - (distance[free] / radius) ** 2) ** 2 * float(strength)   # 1 at the centre, 0 at the ring
+    moved = positions.copy()
+    moved[free] += reach[:, None] * (target[free] - positions[free])
+    attributes["POSITION"] = moved.astype(attributes["POSITION"].dtype)
+    if "NORMAL" in attributes:
+        key = sc.weld(moved)
+        welded = np.zeros((key.max() + 1, 3))
+        welded[key] = moved
+        near = np.flatnonzero(distance < radius * 1.2)        # the ring's neighbours' light changes too
+        attributes["NORMAL"][near] = sc.vertex_normals(welded, key[faces])[key][near].astype(attributes["NORMAL"].dtype)
+    _write(doc, binary, primitive, attributes, faces, output)
+    return {"smoothed": int(len(free)), "moved": float(np.linalg.norm(moved[free] - positions[free], axis=1).max())}
 
 
 def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path | None) -> list[dict]:
     """Apply marked spots ({point, radius in model units, mode}); the result lands at `output`.
 
-    Shapes first (every "fill", in order, with no painting in between), then ONE repaint of
+    Shapes first (every "fill" and "smooth", in order, no painting between), then ONE repaint of
     every marked area from the picture, each a little wider so seams with the old paint are
     covered. Painting per spot made Patch slower with every mark. Returns a report per spot.
     """
@@ -492,11 +521,16 @@ def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path |
         current = Path(scratch) / "0.glb"
         shutil.copy(source, current)
         for i, spot in enumerate(spots, 1):
-            if spot["mode"] != "fill":
-                reports.append({"mode": spot["mode"]})
+            if spot["mode"] == "repaint":
+                reports.append({"mode": "repaint"})
                 continue
             nxt = Path(scratch) / f"{i}.glb"
-            reports.append({"mode": "fill", **fix_spot(current, nxt, spot["point"], spot["radius"], None)})
+            if spot["mode"] == "smooth":
+                done = smooth_spot(current, nxt, spot["point"], spot["radius"],
+                                   spot.get("strength", STRENGTH_DEFAULT))
+            else:
+                done = fix_spot(current, nxt, spot["point"], spot["radius"], None)
+            reports.append({"mode": spot["mode"], **done})
             if nxt.exists():
                 current = nxt
         if views_dir is not None:

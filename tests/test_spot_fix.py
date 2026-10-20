@@ -211,3 +211,46 @@ def test_a_rim_that_does_not_close_is_still_patched(tmp_path, monkeypatch):
     monkeypatch.setattr(sf, "_even_patch", lambda _rim: None)   # the fan, which reads each edge's end
     report = sf.fix_spot(source, tmp_path / "out.glb", np.array([0, 0, 0.9]), radius=0.3)
     assert report["cut"] > 0 and report["capped"] == 1
+
+
+def test_smooth_lifts_a_dent_without_cutting_anything(tmp_path):
+    source, _pos, front = _sphere_with_pocket(tmp_path)
+    report = sf.smooth_spot(source, tmp_path / "out.glb", np.array([0, 0, 0.4]), 0.5, strength=1.0)
+    assert report["smoothed"] > 0
+    before, after = pp.read_glb(source), pp.read_glb(tmp_path / "out.glb")
+    assert np.array_equal(before[2], after[2]), "same triangles: nothing cut or added"
+    assert np.array_equal(before[1], after[1]), "same UVs: the paint stays put"
+    assert after[0][front, 2] > 0.8, "the dent rose to the surface round it"
+    far = np.linalg.norm(before[0] - [0, 0, 0.4], axis=1) > 0.5
+    assert np.allclose(before[0][far], after[0][far]), "outside the ring nothing moves"
+
+
+def test_smooth_strength_sets_how_far_it_goes(tmp_path):
+    source, _pos, front = _sphere_with_pocket(tmp_path)
+    lifts = []
+    for strength in (0.2, 1.0):
+        sf.smooth_spot(source, tmp_path / f"{strength}.glb", np.array([0, 0, 0.4]), 0.5, strength=strength)
+        lifts.append(pp.read_glb(tmp_path / f"{strength}.glb")[0][front, 2] - 0.4)
+    assert 0 < lifts[0] < lifts[1]
+
+
+def test_smooth_marks_are_applied_and_repainted_with_the_rest(tmp_path):
+    from test_winding import _views
+
+    source, _pos, front = _sphere_with_pocket(tmp_path, n=48, texture=256)
+    spots = [{"point": [0, 0, 0.4], "radius": 0.5, "mode": "smooth", "strength": 1.0}]
+    reports = sf.apply_spots(source, tmp_path / "out.glb", spots, _views(tmp_path, colour=(255, 255, 255)))
+    assert reports[0]["smoothed"] > 0 and reports[0]["repainted"]
+    assert pp.read_glb(tmp_path / "out.glb")[0][front, 2] > 0.8
+
+
+def test_the_studio_smooth_strength_range_matches_the_server():
+    import re
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[1] / "viewer" / "studio" / "viewer.js").read_text()
+    low, high = map(float, re.search(r"const STRENGTH_MIN = ([0-9.]+), STRENGTH_MAX = ([0-9.]+)", js).groups())
+    assert (low, high) == (sf.STRENGTH_MIN, sf.STRENGTH_MAX)
+    assert re.search(r"brushStrength = ([0-9.]+)", js).group(1) == str(sf.STRENGTH_DEFAULT)
+    for mode in sf.MODES:
+        assert f'data-mode="{mode}"' in js and f"{mode}:" in js, f"the studio offers {mode}"

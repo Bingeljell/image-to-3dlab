@@ -106,12 +106,15 @@ def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
     `keep_mesh` finishes the generator's own mesh as it is: no retopology, so nothing
     to repaint or bake detail onto, just Pixel Match and the texture squeeze.
     `calm` (High detail) smooths small bumps where the pictures paint, so it needs them.
+    `orient` turns round triangles a picture camera sees from behind (needs the pictures too).
     """
     if keep_mesh:
         return (["photo"] if photo else []) + ([] if skip_compress else ["compress"])
     stages = ["retopologise"]
     if calm and photo:
         stages.append("calm")
+    if photo:
+        stages.append("orient")   # triangles the pictures see from behind are turned round
     if not skip_paint:
         stages.append("repaint")
     if photo:
@@ -252,7 +255,7 @@ def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
     if steps_dir is None:
         stem = str(output.with_suffix(""))
         names = {"retopo": f"{stem}_retopo.glb", "retopo_log": f"{stem}_retopo.log",
-                 "calm": f"{stem}_calm.glb",
+                 "calm": f"{stem}_calm.glb", "orient": f"{stem}_orient.glb",
                  "painted": f"{stem}_painted.glb", "photo": f"{stem}_photo.glb",
                  "photo_weights": f"{stem}_photo_weights.png",
                  "photo_fade": f"{stem}_photo_fade.png",
@@ -260,7 +263,7 @@ def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
         return {key: Path(value) for key, value in names.items()}
     return {
         "retopo": steps_dir / "1_retopo.glb", "retopo_log": steps_dir / "1_retopo.log",
-        "calm": steps_dir / "1_calm.glb",
+        "calm": steps_dir / "1_calm.glb", "orient": steps_dir / "1_orient.glb",
         "painted": steps_dir / "2_painted.glb", "photo": steps_dir / "3_photo.glb",
         "photo_weights": steps_dir / "3_photo_weights.png",
         "photo_fade": steps_dir / "3_photo_fade.png",
@@ -461,6 +464,21 @@ def main() -> int:
         timings["calm"] = round(time.time() - step, 1)
         current = calm_glb
 
+    orient_record = None
+    if "orient" in stages:
+        from image_to_3dlab import winding
+
+        orient_glb = steps["orient"]
+        step = time.time()
+        if reuse(orient_glb, args.resume):
+            emit_stage("orient", f"Reusing {orient_glb.name}")
+        else:
+            emit_stage("orient", "Turning round triangles the pictures see from behind")
+            orient_record = winding.face_the_cameras(current, orient_glb, args.views)
+            print(f"[orient] {orient_record['flipped']:,} triangles turned round", flush=True)
+        timings["orient"] = round(time.time() - step, 1)
+        current = orient_glb
+
     if not args.skip_paint:
         painted = steps["painted"]
         step = time.time()
@@ -548,6 +566,7 @@ def main() -> int:
         "full_detail": args.keep_mesh,
         "detail": args.detail,
         "calm": None if "calm" not in stages else (calm_record or {"reused": True}),
+        "orient": None if "orient" not in stages else (orient_record or {"reused": True}),
         "surface": {"metallic": args.metallic, "roughness": args.roughness, "ior": args.ior},
         "bake": None if args.skip_bake else {"size": args.atlas,
                                              "flat_where_photo": fade is not None},

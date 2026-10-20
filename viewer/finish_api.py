@@ -89,6 +89,7 @@ INTEGER_SETTINGS = {
 # model. Ordered as the worker runs them.
 STAGE_ARTIFACTS: tuple[tuple[str, str | None], ...] = (
     ("retopologise", "retopo"),
+    ("orient", "orient"),
     ("repaint", "painted"),
     ("photo", "photo"),
     ("bake", "baked"),
@@ -100,7 +101,7 @@ STAGE_ARTIFACTS: tuple[tuple[str, str | None], ...] = (
 # thirds would park the bar at 33% for five of its six minutes. The bake-detail stage took
 # 4.3s on the orc (2026-09-27), about half a retopology.
 STAGE_WEIGHTS: dict[str, float] = {
-    "retopologise": 5.0, "repaint": 90.0, "photo": 1.0, "bake": 2.0, "compress": 3.0,
+    "retopologise": 5.0, "orient": 0.5, "repaint": 90.0, "photo": 1.0, "bake": 2.0, "compress": 3.0,
 }
 
 # Where the repaint's own log lines fall inside that stage. Same run: ~30s of setup, 165s

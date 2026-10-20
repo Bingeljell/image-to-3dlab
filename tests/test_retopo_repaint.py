@@ -173,14 +173,14 @@ def test_skip_bake_is_on_the_real_parser_and_off_by_default():
 
 def test_the_photo_stage_runs_after_the_repaint_and_before_the_bake():
     assert rr.stage_plan(skip_paint=False, skip_compress=False, photo=True) == [
-        "retopologise", "repaint", "photo", "bake", "compress",
+        "retopologise", "orient", "repaint", "photo", "bake", "compress",
     ]
     assert "photo" not in rr.stage_plan(skip_paint=False, skip_compress=False)
 
 
 def test_the_photo_stage_follows_retopology_when_there_is_no_repaint():
     assert rr.stage_plan(skip_paint=True, skip_compress=False, photo=True) == [
-        "retopologise", "photo", "bake", "compress",
+        "retopologise", "orient", "photo", "bake", "compress",
     ]
 
 
@@ -346,7 +346,7 @@ def test_an_explicit_face_count_wins_over_the_detail_level():
 
 def test_high_detail_calms_the_surface_before_pixel_match():
     assert rr.stage_plan(skip_paint=True, skip_compress=False, photo=True, calm=True) == [
-        "retopologise", "calm", "photo", "bake", "compress"]
+        "retopologise", "calm", "orient", "photo", "bake", "compress"]
 
 
 def test_calm_needs_the_pictures_to_know_where_to_work():

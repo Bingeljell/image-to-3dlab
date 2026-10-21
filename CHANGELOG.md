@@ -17,11 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for agents). Keeps more of the
   model (50,000 faces) and smooths away small bumps where your picture paints, so faces stay clean
   when turned to the side instead of showing scratches, flat planes and ridged eyes.
-- **Hero characters: a sharper face on the full body (command line, early).**
-  `scripts/hero_route.py picture.png [--back back.png]` builds the character, then builds its
-  head again from a close, upscaled crop and joins the two into one GLB (about 25 minutes on a
-  Mac). Faces get real eyelids instead of goggle eyes; long hair stays solid. The body and head
-  keep separate textures, so a new skin can later replace the body's without touching the face.
+- **Hero face: a sharper face on the full body.** Pick "Hero face" under Finish > Detail (or
+  `finish_detail="hero"` for agents). The body is finished as usual, then the head is built again
+  from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes,
+  and long hair stays solid. About 25 minutes on a Mac; needs a model made from a picture. The
+  body and head keep separate textures, so a new skin can later replace the body's without
+  touching the face. Also on the command line: `scripts/hero_route.py picture.png [--back back.png]`.
 
 ### Fixed
 - **Faces no longer look carved under a side light.** Finished realistic faces could show ridged

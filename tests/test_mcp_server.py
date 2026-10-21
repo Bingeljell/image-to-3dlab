@@ -324,7 +324,7 @@ def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
     menu = source[source.index("function finishDetail()"):]
     menu = menu[: menu.index("</select>")]
     studio_values = set(re.findall(r'<option value="([^"]+)"', menu)) - {"custom"}
-    ours = {"high" if v.get("high_detail") else str(v.get("faces")) if "faces" in v else "full"
+    ours = {"high" if v.get("high_detail") else "hero" if v.get("hero") else str(v.get("faces")) if "faces" in v else "full"
             for v in ms.FINISH_DETAILS.values()}
     assert studio_values == ours, "The studio's Finish Detail menu and FINISH_DETAILS in mcp_server.py disagree."
 

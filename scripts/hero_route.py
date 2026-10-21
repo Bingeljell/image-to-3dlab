@@ -2,6 +2,7 @@
 """Build a hero character: a full-body model with a high-detail head grafted on, as one GLB.
 
     .venv/bin/python scripts/hero_route.py picture.png [--back back.png] [--out output/hero/NAME]
+    ... --body model.glb --body-views model.svviews [--body-dump model.post.bin] --result out.glb
 
 A face that is a few dozen pixels of a full-body picture comes out of Pixal3D soft: goggle
 eyes, smeared paint. The hero route builds the head again from an upscaled crop, where it
@@ -118,6 +119,38 @@ class Run:
         return True
 
 
+STAGE_MARKER = "I2L_STAGE"   # the studio's Finish progress reads these (viewer/finish_api.py)
+STAGES = ("body", "measure", "crop", "head", "graft", "join", "check")
+
+
+def stage(run: Run, name: str, message: str) -> None:
+    """Announce a stage on stdout for the studio, and in the log."""
+    print(f"{STAGE_MARKER}::{name}::{message}", flush=True)
+    run.log.write(f"{STAGE_MARKER}::{name}::{message}\n")
+
+
+def missing_parts(parts: dict[str, Path]) -> list[str]:
+    """The named parts whose file is not on disk: checked before 20 minutes of work, not after."""
+    return [name for name, path in parts.items() if not Path(path).exists()]
+
+
+def needed_parts() -> dict[str, Path]:
+    """Everything the route runs, by what to install to get it."""
+    import autorig_api
+    import pixal3d_generate
+    import retopo_repaint
+
+    weights = PAINT_PYTHON.parents[2] / "weights" / "realesrgan" / "rrdbnet.npz"
+    mlx_weights = PAINT_PYTHON.parents[2] / "weights" / "hunyuan3d-paintpbr-v2-1" / "realesrgan" / "rrdbnet_mlx.safetensors"
+    return {
+        "Pixal3D (3D models)": pixal3d_generate.CLI,
+        "Auto-rig (finds the head)": autorig_api.venv_python(),
+        "Hunyuan3D-MLX paint (its Real-ESRGAN upscaler)": PAINT_PYTHON,
+        "Real-ESRGAN weights (come with Hunyuan3D-MLX paint)": mlx_weights if mlx_weights.exists() else weights,
+        "Blender (Finish)": retopo_repaint.find_blender() or Path("/missing/blender"),
+    }
+
+
 def finish(run: Run, model: Path, picture: Path, views: Path, out: Path, faces: int, dump: Path | None) -> None:
     command = [PYTHON, "-u", FINISH, model, picture, out, "--steps-dir", out.with_suffix(".steps"),
                "--views", views, "--faces", str(faces), *FINISH_FLAGS]
@@ -151,7 +184,23 @@ def main() -> int:
     parser.add_argument("--match-paint", action="store_true",
                         help="also move the head's paint to the body's level (metal and roughness always are)")
     parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--body", type=Path, default=None,
+                        help="an existing Pixal3D model of the picture, used as the body instead of building one")
+    parser.add_argument("--body-views", type=Path, default=None, help="that model's cameras (its .svviews folder)")
+    parser.add_argument("--body-dump", type=Path, default=None, help="that model's clean-up dump (.post.bin)")
+    parser.add_argument("--body-record", type=Path, default=None, help="that model's run record, for provenance")
+    parser.add_argument("--result", type=Path, default=None, help="also copy the finished GLB here")
     args = parser.parse_args()
+
+    missing = missing_parts(needed_parts())
+    if missing:
+        print("[hero] cannot start, not installed: " + "; ".join(missing)
+              + ". Install them from the Setup page (nothing was downloaded).", file=sys.stderr)
+        return 2
+    if args.body and not (args.body_views and (args.body_views / "transforms.json").is_file()):
+        print("[hero] the body model needs its cameras (--body-views with transforms.json): the hero "
+              "route works on Pixal3D models made from a picture.", file=sys.stderr)
+        return 2
 
     import numpy as np
     import trimesh
@@ -180,6 +229,16 @@ def main() -> int:
 
     # 1. body
     body_raw = out / "body_raw.glb"
+    stage(run, "body", "Building the body" if not args.body else "Finishing the body")
+    if args.body and not body_raw.exists():
+        # The studio's own 3D model of this picture: no second Pixal3D run for the body.
+        shutil.copytree(args.body_views, body_raw.with_suffix(".svviews"), dirs_exist_ok=True)
+        if args.body_dump and args.body_dump.is_file():
+            shutil.copy(args.body_dump, body_raw.with_suffix(".post.bin"))
+        if args.body_record and args.body_record.is_file():
+            shutil.copy(args.body_record, body_raw.with_suffix(".json"))
+        shutil.copy(args.body, body_raw)
+        run.say(f"body: using {args.body}")
     if run.step("body: Pixal3D", body_raw):
         run.run([PYTHON, "-u", GENERATE, picture, body_raw, "--seed", str(args.seed),
                  *(["--back", back] if back else [])])
@@ -190,6 +249,7 @@ def main() -> int:
                dump if dump.is_file() else None)
 
     # 2. measure
+    stage(run, "measure", "Finding the head")
     rig = out / "measure_rig.glb"
     if run.step("measure: throwaway rig", rig):
         import autorig_api
@@ -200,6 +260,7 @@ def main() -> int:
             run.run(command, cwd=cwd, tries=2)
 
     # 3. crop
+    stage(run, "crop", "Cropping and upscaling the head")
     body_mesh = trimesh.load(body, force="mesh", process=False)
     positions, joints = hero.skinned_vertices(rig.read_bytes())
     bone = hero.regions(body_mesh.vertices, positions, joints)
@@ -221,6 +282,7 @@ def main() -> int:
     head_picture, head_cutout, head_crop = crop_up, crop_cutout, crop
 
     # 4. head
+    stage(run, "head", "Building the head on its own (the long step)")
     head_raw = out / "head_raw.glb"
     if run.step("head: Pixal3D on the crop", head_raw):
         run.run([PYTHON, "-u", GENERATE, head_picture, head_raw, "--seed", str(args.seed)])
@@ -249,6 +311,7 @@ def main() -> int:
             run.flag("the head's bump-map bake refused (see run.log); the head has no bump map")
 
     # 5. graft
+    stage(run, "graft", "Putting the new head on the body")
     grafted = out / "grafted.glb"
     if run.step("graft", grafted):
         head_mesh = trimesh.load(head_baked, force="mesh", process=False)
@@ -291,6 +354,7 @@ def main() -> int:
         (out / "graft.json").write_text(json.dumps({"crop": crop, **report}, indent=2))
 
     # 6. join
+    stage(run, "join", "Joining head and body into one model")
     import autorig_api
 
     joined, final = out / "joined.glb", out / "hero.glb"
@@ -300,6 +364,7 @@ def main() -> int:
         run.run([PYTHON, COMPRESS, joined, final])
 
     # 7. check
+    stage(run, "check", "Rendering the check sheet")
     check = out / "check"
     if run.step("check sheet", check / "head_front.png"):
         run.run([autorig_api.venv_python(), BLENDER, "check", final, check])
@@ -332,6 +397,11 @@ def main() -> int:
         "sub_runs": [str(p.with_suffix(".json")) for p in (body_raw, head_raw)],
     }
     final.with_suffix(".provenance.json").write_text(json.dumps(record, indent=2))
+    if args.result:
+        args.result.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(final, args.result)
+        args.result.with_suffix(".provenance.json").write_text(
+            json.dumps({**record, "output": {"path": str(args.result), "sha256": sha256_file(args.result)}}, indent=2))
     run.say(f"done: {final} ({final.stat().st_size / 1e6:.1f} MB); check sheet {out / 'check_sheet.jpg'}")
     for note in run.unsure:
         run.say(f"  to check: {note}")

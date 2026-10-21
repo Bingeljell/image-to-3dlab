@@ -102,7 +102,7 @@ function finishDetail() {
       Pixel Match: the sharpest look, in under a minute. Too heavy for a game; rig and animate a lighter version.</p>
     <p class="hint" data-hero hidden>For characters whose face matters. The body is finished as usual, then the head
       is built again from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes.
-      Needs a model made from a picture, plus the Auto-rig and Hunyuan3D-MLX paint installs.</p>
+      Needs a model made from a picture, plus Auto-rig and the Hero face upscaler (67 MB), both in Setup.</p>
     <div data-custom hidden>
       <label class="field">Triangles<input type="number" data-k="customFaces" min="1000" max="200000" step="1000" value="30000"></label>
       <p class="hint">Unexpected results: very low counts break up shapes and very high ones add rough patches. Try 10,000 to 40,000 first.</p>

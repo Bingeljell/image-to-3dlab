@@ -40,7 +40,6 @@ sys.path.insert(0, str(REPO / "viewer"))
 sys.path.insert(0, str(REPO / "scripts"))
 
 PYTHON = REPO / ".venv" / "bin" / "python"
-PAINT_PYTHON = REPO / "hunyuan_mlx" / "paint" / ".venv" / "bin" / "python"
 GENERATE = REPO / "scripts" / "pixal3d_generate.py"
 FINISH = REPO / "scripts" / "retopo_repaint.py"
 UPSCALE = REPO / "scripts" / "upscale_esrgan.py"
@@ -140,13 +139,12 @@ def needed_parts() -> dict[str, Path]:
     import pixal3d_generate
     import retopo_repaint
 
-    weights = PAINT_PYTHON.parents[2] / "weights" / "realesrgan" / "rrdbnet.npz"
-    mlx_weights = PAINT_PYTHON.parents[2] / "weights" / "hunyuan3d-paintpbr-v2-1" / "realesrgan" / "rrdbnet_mlx.safetensors"
+    from image_to_3dlab import upscale
+
     return {
         "Pixal3D (3D models)": pixal3d_generate.CLI,
         "Auto-rig (finds the head)": autorig_api.venv_python(),
-        "Hunyuan3D-MLX paint (its Real-ESRGAN upscaler)": PAINT_PYTHON,
-        "Real-ESRGAN weights (come with Hunyuan3D-MLX paint)": mlx_weights if mlx_weights.exists() else weights,
+        "Hero face upscaler (Real-ESRGAN, 67 MB)": upscale.WEIGHTS_FILE,
         "Blender (Finish)": retopo_repaint.find_blender() or Path("/missing/blender"),
     }
 
@@ -275,7 +273,7 @@ def main() -> int:
     crop_raw, crop_up = out / "head_crop_raw.png", out / "head_crop.png"
     if run.step("crop + Real-ESRGAN", crop_up):
         Image.open(picture).convert("RGB").crop(crop).save(crop_raw)
-        run.run([PAINT_PYTHON, "-I", UPSCALE, crop_raw, crop_up, "--size", "1024"])
+        run.run([PYTHON, UPSCALE, crop_raw, crop_up, "--size", "1024"])
     crop_cutout = out / "head_crop_cutout.png"
     if run.step("crop cut-out", crop_cutout):
         matte.cut_out(Image.open(crop_up).convert("RGB"))[0].save(crop_cutout)

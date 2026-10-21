@@ -29,3 +29,9 @@ def test_stage_prints_the_marker_the_studio_reads(capsys, tmp_path):
 
 def test_stages_are_in_running_order():
     assert hero_route.STAGES == ("body", "measure", "crop", "head", "graft", "join", "check")
+
+
+def test_hero_needs_the_upscaler_not_the_paint_install():
+    parts = hero_route.needed_parts()
+    assert any("upscaler" in name.lower() for name in parts)
+    assert not any("hunyuan" in name.lower() or "hunyuan" in str(path).lower() for name, path in parts.items())

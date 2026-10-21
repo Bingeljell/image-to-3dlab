@@ -45,6 +45,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_gltfpack.py` | Install gltfpack for split props, from meshoptimizer's GitHub release. |
 | `bootstrap_hunyuan_xiong.py` | Set up Hunyuan3D-MLX (Xiong, full pipeline): both Python environments, then the weights. |
 | `bootstrap_matte.py` | Install BiRefNet-lite, the background remover every backend uses once it is present. |
+| `bootstrap_upscaler.py` | Install Real-ESRGAN x4plus, the 4x upscaler Hero face uses on the head crop. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
 | `hero_route.py` | Build a hero character: a full-body model with a high-detail head grafted on, as one GLB. |

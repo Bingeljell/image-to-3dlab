@@ -516,6 +516,22 @@ def apply_spots(source: Path, output: Path, spots: list[dict], views_dir: Path |
     import shutil
     import tempfile
 
+    from image_to_3dlab import glb_parts
+
+    if glb_parts.count(source) > 1:
+        # A model in parts (a Hero's body and head): fix each part's own file, then join them.
+        # A spot that misses a part leaves it as it was.
+        with tempfile.TemporaryDirectory() as scratch:
+            fixed = []
+            reports = None
+            for part in glb_parts.split(Path(source), Path(scratch) / "parts"):
+                out = part.with_name(part.stem + "_fixed.glb")
+                done = apply_spots(part, out, spots, views_dir)
+                fixed.append(out)
+                reports = done if reports is None else [_merge_report(a, b) for a, b in zip(reports, done)]
+            glb_parts.join(fixed, output)
+        return reports
+
     reports = []
     with tempfile.TemporaryDirectory() as scratch:
         current = Path(scratch) / "0.glb"
@@ -586,7 +602,30 @@ def _write(doc: dict, binary: bytes, primitive: dict, attributes: dict, faces: n
     Path(output).write_bytes(pp._join_glb(doc, packed))
 
 
+def _merge_report(a: dict, b: dict) -> dict:
+    """One spot's report over two parts: counts add up, flags hold if either part had them."""
+    out = dict(a)
+    for key, value in b.items():
+        if isinstance(value, bool):
+            out[key] = bool(out.get(key)) or value
+        elif isinstance(value, (int, float)) and isinstance(out.get(key), (int, float)):
+            out[key] = out[key] + value
+        else:
+            out.setdefault(key, value)
+    return out
+
+
 def model_height(source: Path) -> float:
-    positions = pp.read_glb(source)[0]
-    return float(np.ptp(positions[:, 1]))
+    """The model's height over every part (a Hero model has a body and a head)."""
+    doc, binary = pp._split_glb(Path(source).read_bytes())
+    tops, bottoms = [], []
+    for mesh in doc["meshes"]:
+        for primitive in mesh["primitives"]:
+            accessor = doc["accessors"][primitive["attributes"]["POSITION"]]
+            if "min" in accessor and "max" in accessor:
+                bottoms.append(accessor["min"][1]); tops.append(accessor["max"][1])
+            else:
+                y = _read(doc, binary, primitive["attributes"]["POSITION"])[:, 1]
+                bottoms.append(float(y.min())); tops.append(float(y.max()))
+    return float(max(tops) - min(bottoms))
 

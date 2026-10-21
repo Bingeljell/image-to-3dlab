@@ -967,3 +967,38 @@ def test_without_blender_finish_says_so_before_anyone_clicks():
     assert "needs Blender" in missing and "blender.org" in missing and 'data-run="finished"' not in missing
     assert sheet.startswith("<p") and "Splitting into props" in sheet
     assert 'data-run="finished"' in ready and 'data-run="finished"' in unknown
+
+
+@needs_node
+def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
+    out = _run("steps.js", f"""
+      const knight = {json.dumps(KNIGHT)}, sheet = {json.dumps(SHEET)};
+      const s = {{ backend: 'pixal3d', detail: {{ faces: 32000, hero: true }}, photo: true, edgeFade: true, nudge: false,
+                   texture: 2048, preset: 'walk', speed: 1.2, spread: 5, rigSource: 'finished' }};
+      const plans = {{ model: m.chainPlan('model', knight, s), finished: m.chainPlan('finished', knight, s),
+        rigged: m.chainPlan('rigged', knight, s), rawRig: m.chainPlan('rigged', knight, {{ ...s, rigSource: 'model' }}),
+        animated: m.chainPlan('animated', knight, s), split: m.chainPlan('finished', sheet, s),
+        noPicture: m.chainPlan('finished', {{ ...knight, picture: null }}, s) }};
+      delete plans.model.modelSeed;
+      console.log(JSON.stringify(plans));""")
+    assert out["finished"]["steps"] == ["finished"]
+    assert out["finished"]["made"] == {"picture": "images/k/k.png", "model": "a/k.glb"}
+    assert out["finished"]["finishSettings"] == {"faces": 32000, "hero": True, "skip_photo": False,
+                                                 "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048}
+    assert out["model"]["steps"] == ["model"] and out["model"]["engine"] == "pixal3d"
+    assert out["rigged"]["made"]["finished"] == "finish/k/k_40k.glb" and "model" not in out["rigged"]["made"]
+    assert out["rawRig"]["made"]["model"] == "a/k.glb" and "finished" not in out["rawRig"]["made"]
+    assert out["animated"]["firstMove"] == "walk" and out["animated"]["moveSettings"] == {"speed": 1.2, "arm_spread": 5}
+    assert out["split"]["steps"] == ["split"]
+    assert out["noPicture"] is None   # the chain's Finish needs a picture: the card handles that case
+
+
+@needs_node
+def test_a_plan_s_files_and_settings_travel_to_the_server():
+    out = _run("create.js", """
+      const form = m.planForm({ description: 'k', steps: ['finished'], finishSettings: { hero: true },
+        moveSettings: { speed: 2 } }, { model: 'a/k.glb' });
+      console.log(JSON.stringify(Object.fromEntries([...form.entries()])));""")
+    assert json.loads(out["finish_settings"]) == {"hero": True}
+    assert json.loads(out["move_settings"]) == {"speed": 2}
+    assert json.loads(out["made"]) == {"model": "a/k.glb"}

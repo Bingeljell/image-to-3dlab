@@ -216,6 +216,8 @@ export function planForm(plan, made = {}) {
   if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
   if (plan.modelSeed != null) form.append('model_seed', String(plan.modelSeed));
   if (plan.keepEverything) form.append('keep_everything', '1');
+  if (plan.finishSettings) form.append('finish_settings', JSON.stringify(plan.finishSettings));
+  if (plan.moveSettings) form.append('move_settings', JSON.stringify(plan.moveSettings));
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
   return form;
@@ -235,7 +237,8 @@ export async function runChain(plan, { ui, ctx, attach = null, fetchImpl = fetch
   let id = attach;
   if (!id) {
     try {
-      const response = await fetchImpl('/api/chains', { method: 'POST', body: planForm(plan) });
+      // a Steps-panel run carries on from the asset's own files (`plan.made`)
+      const response = await fetchImpl('/api/chains', { method: 'POST', body: planForm(plan, plan.made || {}) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `the server answered ${response.status}`);
       id = payload.id;

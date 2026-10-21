@@ -148,6 +148,8 @@ export function wireStep(card, stepId, asset, ctx) {
       rigSource: k('rigsource')?.value || 'finished',
     };
     card.dataset.lastPreset = settings.preset || '';
+    const plan = chainPlan(stepId, asset, settings);
+    if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
         : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture })),
@@ -157,6 +159,38 @@ export function wireStep(card, stepId, asset, ctx) {
       ? 'Rigging anyway. Preset moves only fit humanoids, so this one can be downloaded and animated in Blender. The rig may be wonky.' : '';
     await runInCard(card, run, ctx, stepId, note);
   });
+}
+
+/** The step as a one-step chain from the asset's own files, or null when it cannot be one.
+ *  A chain is what a reopened studio picks back up, so long runs (Finish, Hero) survive a reload. */
+export function chainPlan(stepId, asset, settings) {
+  const made = Object.fromEntries(['picture', 'back', 'model', 'finished', 'rigged']
+    .filter((k) => asset[k]).map((k) => [k, asset[k]]));
+  const base = { description: asset.name || 'Asset', want: asset.kind === 'prop set' ? 'set' : asset.kind === 'prop' ? 'prop' : 'character' };
+  if (stepId === 'model') {
+    if (!asset.picture) return null;
+    return { ...base, steps: ['model'], made: { picture: asset.picture, ...(asset.back ? { back: asset.back } : {}) },
+      engine: settings.backend, modelSeed: freshSeed() };
+  }
+  if (stepId === 'finished') {
+    if (asset.kind === 'prop set') return asset.model ? { ...base, steps: ['split'], made } : null;
+    if (!asset.model || !asset.picture) return null;   // the chain's Finish needs both; the card handles the rest
+    return { ...base, steps: ['finished'], made: { picture: asset.picture, model: asset.model },
+      finishSettings: { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade,
+        skip_nudge: !settings.nudge, texture_size: settings.texture } };
+  }
+  if (stepId === 'rigged') {
+    const source = (settings.rigSource === 'model' ? asset.model : null) || asset.finished || asset.model;
+    if (!source) return null;
+    const key = source === asset.finished ? 'finished' : 'model';
+    return { ...base, steps: ['rigged'], made: { ...(asset.picture ? { picture: asset.picture } : {}), [key]: source } };
+  }
+  if (stepId === 'animated') {
+    if (!asset.rigged || !settings.preset) return null;
+    return { ...base, steps: ['animated'], made, firstMove: settings.preset,
+      moveSettings: { speed: settings.speed, arm_spread: settings.spread } };
+  }
+  return null;
 }
 
 async function startModel(asset, ctx, backend) {

@@ -206,6 +206,9 @@ const ctx = {
   get blenderReady() { return blenderReady; },
   url: (relative) => url(relative),
   asset: () => current,
+  // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
+  // up, and the server runs one big job at a time whoever starts it
+  startChain: (plan) => startChain(plan),
   onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
   // after a new move, open the asset on that move
   onDone: async (stepId, { preset } = {}) => {

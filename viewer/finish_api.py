@@ -74,11 +74,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
-    "high_detail": False,
+    "high_detail": False, "hero": False,
 }
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
-                 "high_detail"}
+                 "high_detail", "hero"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -103,6 +103,12 @@ STAGE_ARTIFACTS: tuple[tuple[str, str | None], ...] = (
 STAGE_WEIGHTS: dict[str, float] = {
     "retopologise": 5.0, "orient": 0.5, "repaint": 90.0, "photo": 1.0, "bake": 2.0, "compress": 3.0,
 }
+# The hero route's own stages (scripts/hero_route.py): building the head is most of its ~25 minutes.
+HERO_WEIGHTS: dict[str, float] = {
+    "body": 2.0, "measure": 5.0, "crop": 1.0, "head": 88.0, "graft": 1.0, "join": 1.0, "check": 2.0,
+}
+HERO_STAGES = ["body", "measure", "crop", "head", "graft", "join", "check"]
+HERO_WORKER = REPO / "scripts" / "hero_route.py"
 
 # Where the repaint's own log lines fall inside that stage. Same run: ~30s of setup, 165s
 # of diffusion steps, 9s decoding views and 72s of super-res. The diffusion steps are
@@ -231,6 +237,21 @@ def build_command(
     return command
 
 
+def hero_command(job: FinishJob, settings: dict[str, Any]) -> list[str]:
+    """The hero route on this run's model: its body is the asset's own Pixal3D model, its head
+    is built again from a close crop. Everything it makes stays under steps/hero."""
+    record = job.input_dir / "source.json"
+    return [
+        sys.executable, "-u", str(HERO_WORKER), str(job.image_path),
+        "--out", str((job.steps_dir or job.directory) / "hero"),
+        "--body", str(job.asset_path), "--body-views", str(job.views_dir),
+        *(["--body-dump", str(job.dump_path)] if job.dump_path.is_file() else []),
+        *(["--body-record", str(record)] if record.is_file() else []),
+        "--body-faces", str(settings["faces"]),
+        "--result", str(job.result_glb),
+    ]
+
+
 def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
     """The input files a run cannot do without. The picture only feeds Pixel Match and the
     repaint, so a run with both off (one started without a picture) needs only the model."""
@@ -290,6 +311,13 @@ def find_source_dump(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
     return None
 
 
+def find_source_record(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
+    """The run record (`<output>.json`) of the Pixal3D run that produced `asset`, or None."""
+    for record_path, _ in _matching_runs(asset, root):
+        return record_path
+    return None
+
+
 def _matching_runs(asset: bytes, root: Path):
     """(record path, record) for each Pixal3D run whose output has `asset`'s sha256."""
     digest = hashlib.sha256(asset).hexdigest()
@@ -315,12 +343,13 @@ def link_or_copy(source: Path, target: Path) -> None:
 
 def stage_bands(stages: list[str]) -> dict[str, tuple[float, float]]:
     """Slice 0..100 between the stages this run will actually execute."""
-    active = [stage for stage in stages if stage in STAGE_WEIGHTS]
-    total = sum(STAGE_WEIGHTS[stage] for stage in active) or 1.0
+    weights = {**STAGE_WEIGHTS, **HERO_WEIGHTS}
+    active = [stage for stage in stages if stage in weights]
+    total = sum(weights[stage] for stage in active) or 1.0
     bands: dict[str, tuple[float, float]] = {}
     cursor = 0.0
     for stage in active:
-        cursor_end = cursor + STAGE_WEIGHTS[stage] / total * 100.0
+        cursor_end = cursor + weights[stage] / total * 100.0
         bands[stage] = (cursor, cursor_end)
         cursor = cursor_end
     return bands
@@ -425,14 +454,16 @@ def faces_label(faces: int) -> str:
     return f"{faces / 1000:g}k"
 
 
-def final_name(directory_name: str, faces: int, full: bool = False) -> str:
+def final_name(directory_name: str, faces: int, full: bool = False, hero: bool = False) -> str:
     """The finished model's file name: the asset, then its face count (`vanguard_5k.glb`),
-    or `_full` for a full-detail finish that kept every triangle.
+    `_full` for a full-detail finish that kept every triangle, or `_hero` for one whose head
+    was built again on its own (scripts/hero_route.py).
 
     The asset is the run folder's name up to its first `__`, which drops the generator
     and timestamp tags a generated file carries (`vanguard__pixal3d` -> `vanguard`).
     """
-    return f"{directory_name.split('__')[0]}_{'full' if full else faces_label(faces)}.glb"
+    tag = "hero" if hero else "full" if full else faces_label(faces)
+    return f"{directory_name.split('__')[0]}_{tag}.glb"
 
 
 class FinishJob:
@@ -477,7 +508,8 @@ class FinishJob:
         if self.legacy:
             return self.directory / "result.glb"
         return self.directory / final_name(self.directory.name, int(self.settings["faces"]),
-                                           bool(self.settings.get("keep_mesh")))
+                                           bool(self.settings.get("keep_mesh")),
+                                           bool(self.settings.get("hero")))
 
     @property
     def record_path(self) -> Path:
@@ -535,13 +567,22 @@ class FinishJobManager:
                 job.asset_path.write_bytes(asset)
                 if image is not None:
                     job.image_path.write_bytes(image)
-                views = None if job.settings["skip_photo"] else find_source_views(
+                hero = bool(job.settings.get("hero"))
+                if hero and image is None:
+                    raise ValueError("Hero needs the picture the model was made from.")
+                views = None if job.settings["skip_photo"] and not hero else find_source_views(
                     asset, self.generated_root)
+                if hero and views is None:
+                    raise ValueError("Hero works on Pixal3D models made from a picture: this model has no "
+                                     "saved camera.")
                 if views is not None:
                     shutil.copytree(views, job.views_dir)
                 dump = find_source_dump(asset, self.generated_root)
                 if dump is not None:
                     link_or_copy(dump, job.dump_path)
+                record = find_source_record(asset, self.generated_root) if hero else None
+                if record is not None:
+                    shutil.copy(record, job.input_dir / "source.json")   # its licences, for provenance
                 # Written up front, not with the record at the end: a run that dies
                 # halfway is exactly the one worth resuming, and resuming it means
                 # knowing the settings the surviving intermediates were made with.
@@ -598,12 +639,16 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         return
     try:
         job.status = "running"
-        stages = worker_module().stage_plan(
+        hero = bool(job.settings.get("hero"))
+        stages = list(HERO_STAGES) if hero else worker_module().stage_plan(
             job.settings["skip_paint"], job.settings["skip_compress"],
             job.settings.get("skip_bake", False), photo=uses_photo(job, job.settings),
             keep_mesh=bool(job.settings.get("keep_mesh")),
         )
-        if job.resume:
+        if hero:
+            message = ("Starting Hero: the body is finished, then the head is built again on its own "
+                       "for a sharper face. About 25 minutes.")
+        elif job.resume:
             message = "Resuming from what is already on disk"
         elif "photo" in stages:
             message = "Starting: found the source camera, so Pixel Match will keep the photo's pixels"
@@ -614,7 +659,8 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         job.emit({"phase": "queued", "overall_pct": 0, "stages": stages, "message": message})
         progress = FinishProgress(stages)
         job.process = subprocess.Popen(
-            build_command(job, job.settings, resume=job.resume), cwd=str(REPO),
+            hero_command(job, job.settings) if hero else build_command(job, job.settings, resume=job.resume),
+            cwd=str(REPO),
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
             **processes.group_popen_kwargs(),
@@ -641,6 +687,10 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "log_tail": "\n".join(job.log_lines)[-8000:],
             })
         elif job.result_glb.is_file():
+            if hero and not job.record_path.is_file():
+                provenance = job.result_glb.with_suffix(".provenance.json")
+                if provenance.is_file():
+                    shutil.copy(provenance, job.record_path)   # what record_url serves
             job.status = "done"
             job.emit({
                 "phase": "done", "overall_pct": 100,

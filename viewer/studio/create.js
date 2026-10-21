@@ -51,7 +51,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   stage.appendChild(sheet);
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false,
+    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false, hero: false,
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
@@ -99,6 +99,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       <div class="wants">${Object.entries(WANTS).map(([k, v]) => { const ok = ALLOWED[state.have][k]; return `<button type="button" class="kind${ok === true ? '' : ' off'}" data-want="${k}" aria-pressed="${k === state.want}" ${ok === true ? '' : `disabled data-tip="${esc(ok)}"`}><b>${v.label}</b><small>${v.hint}</small></button>`; }).join('')}</div>
       <div class="q"><span class="qn">3</span><b>Steps</b><span class="hint">click a step to stop there</span></div>
       <div class="path">${plan.map((s, i) => `${i ? '<span class="arr">→</span>' : ''}<button type="button" class="pstep${active.includes(s) ? '' : ' skip'}" data-stop="${s}">${STEP_LABELS[s]}</button>`).join('')}</div>
+      ${heroChoice(state, active, pixal)}
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
       ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
         <div class="picset">
@@ -146,6 +147,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
     q('[data-k="keep"]')?.addEventListener('change', (e) => { state.keep = e.target.checked; });
+    sheet.querySelectorAll('[data-face]').forEach((b) => b.onclick = () => { state.hero = b.dataset.face === 'hero'; render(); });
     const reopen3d = () => { const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; };
     q('[data-k="frontback"]')?.addEventListener('change', (e) => { state.frontBack = e.target.checked; render(); reopen3d(); });
     sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
@@ -171,7 +173,8 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
         description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
         modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture
-        keepEverything: active.includes('model') && state.keep });
+        keepEverything: active.includes('model') && state.keep,
+        finishSettings: heroWanted(state, active, state.engine === 'pixal3d') ? { faces: 32000, hero: true } : null });
     };
     text?.focus();
   }
@@ -202,6 +205,23 @@ export function chainEvents(before, after) {
   if (after.status === 'error') out.push(['fail', after.current, after.error, after.full_log]);
   if (after.status === 'done') out.push(['finish']);
   return out;
+}
+
+/** Whether this plan asks for Hero face: a character made from a picture with Pixal3D, finished. */
+export function heroWanted(state, active, pixal) {
+  return Boolean(state.hero && pixal && state.want === 'character' && state.have !== 'model' && active.includes('finished'));
+}
+
+/** Create's Quick / Hero face choice, for characters whose plan reaches Finish. */
+export function heroChoice(state, active, pixal) {
+  if (state.want !== 'character' || state.have === 'model' || !active.includes('finished')) return '';
+  const off = pixal ? '' : ' disabled data-tip="Hero face needs Pixal3D as the 3D engine (Advanced: 3D model)."';
+  const hero = state.hero && pixal;
+  return `<div class="q"><span class="qn">4</span><b>Face</b></div>
+      <div class="wants faces">
+        <button type="button" class="kind" data-face="quick" aria-pressed="${!hero}"><b>Quick</b><small>The usual Finish. Fine for most characters, and props.</small></button>
+        <button type="button" class="kind${pixal ? '' : ' off'}" data-face="hero" aria-pressed="${hero}"${off}><b>Hero face</b><small>Builds the head again from a close, sharper crop: real eyelids instead of goggle eyes. Takes longer.</small></button>
+      </div>`;
 }
 
 /** The form a plan travels to the server in. */

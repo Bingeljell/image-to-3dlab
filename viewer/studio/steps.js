@@ -50,6 +50,7 @@ export function stepBody(stepId, asset, ctx) {
       <button class="primary" data-run="finished">Split into props</button>`;
   }
   if (stepId === 'finished') {
+    const hero = heroCard(asset);
     const photo = asset.picture
       ? '<label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture\'s sharp details on the front</span></span></label>'
       : '<p class="hint">No picture on disk for this model, so Pixel Match is skipped: Finish cleans up the mesh and re-bakes its own texture.</p>';
@@ -61,9 +62,9 @@ export function stepBody(stepId, asset, ctx) {
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
       </details>
       <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
-    return asset.finished
+    return hero + (asset.finished
       ? `<details class="adv redo"><summary>Redo Finish</summary><p class="hint">Makes a new finished model from the raw one, say at another detail level. It shows up as a new version; the current one is kept.</p>${controls}</details>`
-      : controls;
+      : controls);
   }
   if (stepId === 'rigged') {
     const both = asset.finished && asset.model;
@@ -89,6 +90,17 @@ function redoBox(title, note, body) {
 
 // Detail: three tested triangle counts, or a custom one (the server takes 1,000 to 200,000). Tested on
 // five very different models: 10k and 20k stay clean, 40k adds rough patches on some, 5k breaks.
+/** A clear way to make a Hero face for a character that can have one: made from a picture with
+ *  Pixal3D (Hero works from the model's saved camera). Shown even once the character is finished. */
+export function heroCard(asset) {
+  // a built model is 'model' until it is rigged ('character'); props and prop sheets never get one
+  if (!['model', 'character'].includes(asset.kind) || !asset.picture || !asset.model || !/__pixal3d__/.test(asset.model)) return '';
+  if (/_hero\.glb$/.test(asset.finished || '')) return '';
+  return `<div class="hero-card"><p><b>Hero face</b> · builds the head again from a close, sharper crop of your picture and
+      joins it on: real eyelids instead of goggle eyes. Takes longer than a normal Finish. ${asset.finished ? 'Makes a new version; the current one is kept.' : ''}</p>
+      <button class="primary" data-run="finished" data-hero>${asset.finished ? 'Make a Hero version' : 'Finish as a Hero'}</button></div>`;
+}
+
 function finishDetail() {
   return `<label class="field">Detail<select data-k="faces">
       <option value="10000">10,000 triangles · light</option>
@@ -147,6 +159,7 @@ export function wireStep(card, stepId, asset, ctx) {
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
     };
+    if (button.dataset.hero !== undefined) settings.detail = finishDetailSettings('hero');
     card.dataset.lastPreset = settings.preset || '';
     const plan = chainPlan(stepId, asset, settings);
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }

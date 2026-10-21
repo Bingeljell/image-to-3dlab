@@ -17,12 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for agents). Keeps more of the
   model (50,000 faces) and smooths away small bumps where your picture paints, so faces stay clean
   when turned to the side instead of showing scratches, flat planes and ridged eyes.
-- **Hero face: a sharper face on the full body.** Pick "Hero face" under Finish > Detail (or
-  `finish_detail="hero"` for agents). The body is finished as usual, then the head is built again
-  from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes,
-  and long hair stays solid. It takes longer than a normal Finish and needs a model made from a picture. The
-  body and head keep separate textures, so a new skin can later replace the body's without
-  touching the face. Also on the command line: `scripts/hero_route.py picture.png [--back back.png]`.
+- **Hero face: a sharper face on the full body.** Choose Face > Hero face when you create a
+  character, or press "Finish as a Hero" (or "Make a Hero version") on a character you already
+  have; agents use `finish_detail="hero"`. The body is finished as usual, then the head is built
+  again from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle
+  eyes, and long hair stays solid. It takes longer than a normal Finish and needs a model made
+  from a picture with Pixal3D, plus the Hero face upscaler (67 MB, in Setup). The body and head
+  keep separate textures, so a new skin can later replace the body's without touching the face.
+  Also on the command line: `scripts/hero_route.py picture.png [--back back.png]`.
+- **Runs from the Steps panel survive a reload.** Making a 3D model, Finish, Rig or a move from the
+  Steps panel now shows its progress in the middle like a Create run, and a reloaded or reopened
+  studio picks it back up instead of losing sight of it.
 
 ### Fixed
 - **Faces no longer look carved under a side light.** Finished realistic faces could show ridged

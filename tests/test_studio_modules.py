@@ -1002,3 +1002,33 @@ def test_a_plan_s_files_and_settings_travel_to_the_server():
     assert json.loads(out["finish_settings"]) == {"hero": True}
     assert json.loads(out["move_settings"]) == {"speed": 2}
     assert json.loads(out["made"]) == {"model": "a/k.glb"}
+
+
+@needs_node
+def test_hero_card_shows_for_pixal3d_characters_and_models_only():
+    out = _run("steps.js", """
+      const base = { picture: 'images/e/e.png', model: 'e__pixal3d__1/e.glb', finished: null };
+      console.log(JSON.stringify({
+        model: m.heroCard({ ...base, kind: 'model' }).includes('Finish as a Hero'),
+        finishedChar: m.heroCard({ ...base, kind: 'character', finished: 'finish/x/e_20k.glb' }).includes('Make a Hero version'),
+        alreadyHero: m.heroCard({ ...base, kind: 'character', finished: 'finish/x/e_hero.glb' }),
+        prop: m.heroCard({ ...base, kind: 'prop' }), sheet: m.heroCard({ ...base, kind: 'prop set' }),
+        trellis: m.heroCard({ ...base, kind: 'model', model: 'e__trellis__1/e.glb' }),
+        noPicture: m.heroCard({ ...base, kind: 'model', picture: null }) }));""")
+    assert out == {"model": True, "finishedChar": True, "alreadyHero": "", "prop": "", "sheet": "",
+                   "trellis": "", "noPicture": ""}
+
+
+@needs_node
+def test_create_offers_hero_face_only_where_it_can_run():
+    out = _run("create.js", """
+      const s = (o) => ({ want: 'character', have: 'idea', hero: true, ...o });
+      const steps = ['picture', 'model', 'finished'];
+      console.log(JSON.stringify({
+        offered: m.heroChoice(s({}), steps, true).includes('Hero face'),
+        notForProps: m.heroChoice(s({ want: 'prop' }), steps, true), notStoppedEarly: m.heroChoice(s({}), ['picture', 'model'], true),
+        greyedOnTrellis: m.heroChoice(s({}), steps, false).includes('disabled'),
+        wanted: m.heroWanted(s({}), steps, true), notOnTrellis: m.heroWanted(s({}), steps, false),
+        notWhenQuick: m.heroWanted(s({ hero: false }), steps, true), notFromAModel: m.heroWanted(s({ have: 'model' }), ['finished'], true) }));""")
+    assert out == {"offered": True, "notForProps": "", "notStoppedEarly": "", "greyedOnTrellis": True,
+                   "wanted": True, "notOnTrellis": False, "notWhenQuick": False, "notFromAModel": False}

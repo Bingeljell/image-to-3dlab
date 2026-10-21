@@ -241,6 +241,9 @@ textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); bord
 .kind { border: 1px solid var(--line); border-radius: 12px; background: var(--raise); padding: 12px; text-align: left; display: grid; gap: 4px; }
 .kind b { font-size: 14px; } .kind small { color: var(--ash); font-size: 12px; line-height: 1.4; }
 .kind[aria-pressed="true"] { border-color: var(--ember); box-shadow: 0 0 0 1px var(--ember); }
+.wants.faces { grid-template-columns: repeat(2, 1fr); }
+.hero-card { border: 1px solid var(--ember); border-radius: 12px; padding: 12px; margin-bottom: 12px; display: grid; gap: 10px; }
+.hero-card p { margin: 0; font-size: 13px; color: var(--bone); line-height: 1.45; }
 .kind.off { opacity: .4; cursor: not-allowed; }
 .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pstep { border: 1px solid var(--ember); background: rgb(253 109 20 / .12); color: var(--bone); border-radius: 9px; padding: 7px 11px; font-size: 13px; }

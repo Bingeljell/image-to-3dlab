@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hero face: a sharper face on the full body.** Pick "Hero face" under Finish > Detail (or
   `finish_detail="hero"` for agents). The body is finished as usual, then the head is built again
   from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes,
-  and long hair stays solid. About 25 minutes on a Mac; needs a model made from a picture. The
+  and long hair stays solid. It takes longer than a normal Finish and needs a model made from a picture. The
   body and head keep separate textures, so a new skin can later replace the body's without
   touching the face. Also on the command line: `scripts/hero_route.py picture.png [--back back.png]`.
 

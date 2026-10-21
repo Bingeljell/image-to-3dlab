@@ -379,7 +379,7 @@ def options() -> dict[str, Any]:
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
-            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; ~25 min; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
+            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
             "pixel_match": "Paint the picture's real pixels onto the model in Finish. Default: on.",
             "move": "The animation to make (list_moves).",
@@ -774,7 +774,7 @@ def build_server(studio: Studio | None = None):
         finish_upload: also run Finish on an uploaded GLB.
         finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), "high" (50k,
             cleaner faces from the side; best for realistic humans), "hero" (32k body plus a sharper head
-            built again from a close crop; characters whose face matters, ~25 min), a count from
+            built again from a close crop; characters whose face matters, takes much longer), a count from
         1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
         stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.

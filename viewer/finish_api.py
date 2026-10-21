@@ -103,7 +103,7 @@ STAGE_ARTIFACTS: tuple[tuple[str, str | None], ...] = (
 STAGE_WEIGHTS: dict[str, float] = {
     "retopologise": 5.0, "orient": 0.5, "repaint": 90.0, "photo": 1.0, "bake": 2.0, "compress": 3.0,
 }
-# The hero route's own stages (scripts/hero_route.py): building the head is most of its ~25 minutes.
+# The hero route's own stages (scripts/hero_route.py): building the head is most of its run time.
 HERO_WEIGHTS: dict[str, float] = {
     "body": 2.0, "measure": 5.0, "crop": 1.0, "head": 88.0, "graft": 1.0, "join": 1.0, "check": 2.0,
 }
@@ -647,7 +647,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         )
         if hero:
             message = ("Starting Hero: the body is finished, then the head is built again on its own "
-                       "for a sharper face. About 25 minutes.")
+                       "for a sharper face. This takes longer than a normal Finish.")
         elif job.resume:
             message = "Resuming from what is already on disk"
         elif "photo" in stages:

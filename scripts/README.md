@@ -47,6 +47,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_matte.py` | Install BiRefNet-lite, the background remover every backend uses once it is present. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
+| `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
 | `upscale_esrgan.py` | Upscale a picture 4x with Real-ESRGAN, then resize it to a square of SIZE pixels. |
 | `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |

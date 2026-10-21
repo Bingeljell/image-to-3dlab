@@ -99,6 +99,15 @@ def _clear_old_previews(folder: Path, now: float) -> None:
             old.unlink(missing_ok=True)
 
 
+def answer(handler, output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
+    """The handler's answer, or a plain error: an exception here used to drop the connection,
+    which the browser could only call "Failed to fetch"."""
+    try:
+        return handler(output, payload)
+    except Exception as exc:   # anything a model can throw at the patch code: say what, keep serving
+        return 500, {"error": f"Fix a spot could not patch this model: {exc}"}
+
+
 def preview_response(output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
     if not isinstance(payload, dict):
         return 400, {"error": "Send the model and the marked spots."}

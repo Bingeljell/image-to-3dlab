@@ -2510,7 +2510,7 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = None
             handler = {"preview": fixspot_api.preview_response, "keep": fixspot_api.keep_response,
                        "discard": fixspot_api.discard_response}[parts[2]]
-            self._send_json(*handler(OUTPUT_ROOT, payload))
+            self._send_json(*fixspot_api.answer(handler, OUTPUT_ROOT, payload))
             return
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()

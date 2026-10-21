@@ -683,7 +683,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         elif return_code != 0:
             job.status = "error"
             job.emit({
-                "phase": "error", "message": f"worker exited with code {return_code}",
+                "phase": "error", "message": failure_message(job.log_lines, return_code),
                 "log_tail": "\n".join(job.log_lines)[-8000:],
             })
         elif job.result_glb.is_file():
@@ -713,6 +713,15 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
     finally:
         job.directory.joinpath("pid").unlink(missing_ok=True)
         manager.finish(job)
+
+
+def failure_message(lines, return_code: int) -> str:
+    """The headline for a failed run: the hero route's own reason when it gave one (it says what
+    is missing, in plain words), else the exit code."""
+    for line in reversed(list(lines)):
+        if line.startswith("[hero] "):
+            return line.removeprefix("[hero] ")
+    return f"worker exited with code {return_code}"
 
 
 def library_path(path: Path) -> str | None:

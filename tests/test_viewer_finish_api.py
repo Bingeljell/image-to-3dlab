@@ -722,3 +722,10 @@ def test_hero_needs_the_picture_and_the_model_s_camera(tmp_path):
     manager = finish.FinishJobManager(tmp_path / "finish2", tmp_path / "none")
     with pytest.raises(ValueError, match="saved camera"):
         manager.create("robot.glb", b"glb-bytes", b"png", {"hero": True})
+
+
+def test_a_failed_hero_run_leads_with_its_own_reason():
+    lines = ["I2L_STAGE::body::Finishing the body",
+             "[hero] cannot start, not installed: Hero face upscaler (Real-ESRGAN, 67 MB). Install them from the Setup page."]
+    assert finish.failure_message(lines, 2).startswith("cannot start, not installed: Hero face upscaler")
+    assert finish.failure_message(["Traceback ...", "boom"], 1) == "worker exited with code 1"

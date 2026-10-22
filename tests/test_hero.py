@@ -109,6 +109,80 @@ def test_liner_off_drops_the_whole_old_head():
     assert gone.tolist() == [True, True, False] and np.allclose(moved, verts)
 
 
+def _ring(height, width, n=60):
+    a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    return np.stack([np.cos(a) * width / 2, np.full(n, height), np.sin(a) * width / 2], axis=1)
+
+
+def _profile(rows):
+    """A head region stacked from rings: (height, width) per row."""
+    return np.concatenate([_ring(h, w) for h, w in rows])
+
+
+def test_neck_height_cuts_between_the_collar_and_the_skull():
+    # The warrior's profile (2026-10-22): stray bits, a collar, the narrower jaw, the head. The
+    # neck hides inside the collar, so the narrow band above it is the chin: cutting in the middle
+    # of it left the old body's mouth showing under the new face. Cut at the collar's top.
+    rows = ([(0.862 + 0.002 * i, 0.022) for i in range(3)]
+            + [(0.882 + 0.002 * i, 0.090) for i in range(6)]      # collar, top at 0.892
+            + [(0.898 + 0.002 * i, 0.064) for i in range(5)]      # chin and jaw
+            + [(0.910 + 0.003 * i, 0.078) for i in range(25)])    # head
+    pts = _profile(rows)
+    cut = hero.neck_height(pts[:, 1], pts[:, 0])
+    assert 0.890 <= cut <= 0.899            # at the collar's top, below the chin
+
+
+def test_neck_height_is_none_without_a_collar():
+    # The region ends at a bare neck (the elf): nothing below is wider, so cut nothing extra.
+    rows = ([(0.88 + 0.002 * i, 0.050) for i in range(8)]
+            + [(0.896 + 0.003 * i, 0.075) for i in range(25)])
+    pts = _profile(rows)
+    assert hero.neck_height(pts[:, 1], pts[:, 0]) is None
+
+
+def test_neck_height_ignores_slices_with_too_few_points():
+    rows = ([(0.882 + 0.002 * i, 0.090) for i in range(6)]
+            + [(0.898 + 0.002 * i, 0.064) for i in range(5)]
+            + [(0.910 + 0.003 * i, 0.078) for i in range(25)])
+    pts = _profile(rows)
+    stray = np.array([[0.0, 0.87, 0.0], [0.001, 0.871, 0.0]])  # a few points below, very narrow
+    cut = hero.neck_height(np.r_[pts[:, 1], stray[:, 1]], np.r_[pts[:, 0], stray[:, 0]])
+    assert 0.890 <= cut <= 0.899
+
+
+def test_neck_ring_is_the_skull_s_radius_round_its_centre():
+    pts = np.concatenate([_ring(0.95 + 0.005 * i, 0.094) for i in range(6)])     # skull, radius 0.047
+    pts[:, 0] += 0.01                                                             # off the origin
+    real = np.ones(len(pts), bool)
+    axis, radius = hero.neck_ring(pts, real, cut=0.9)
+    assert np.allclose(axis, [0.01, 0.0], atol=1e-3) and abs(radius - 0.047) < 0.002
+
+
+def test_head_cut_splits_the_collar_band_by_the_ring_not_by_height():
+    # The warrior (2026-10-22): the new head sits a little lower, so in the collar band the body's
+    # old chin (inside the ring) and its collar (outside) share heights with the new mouth.
+    # x = distance from the neck's centre line; ring 0.047; collar top 0.90.
+    body = np.array([[0.0, 0.95, 0.04],    # old face above the collar: goes
+                     [0.0, 0.87, 0.03],    # old chin inside the ring: goes (it showed through)
+                     [0.0, 0.87, 0.07],    # its own collar: stays
+                     [0.0, 0.80, 0.03]])   # chest, not head region: stays
+    real = np.array([True, True, True, False])
+    head = np.array([[0.0, 0.95, 0.04],    # new face: stays
+                     [0.0, 0.88, 0.03],    # new mouth and chin inside the ring: stay
+                     [0.0, 0.87, 0.07]])   # its scuffed collar: goes
+    swap, keep = hero.head_cut(body, real, head, cut=0.90, axis=np.zeros(2), ring=0.047)
+    assert swap.tolist() == [True, True, False, False]
+    assert keep.tolist() == [True, True, False]
+
+
+def test_head_cut_off_swaps_the_whole_region():
+    body = np.array([[0, 0.95, 0.04], [0, 0.87, 0.07], [0, 0.80, 0.03]])
+    real = np.array([True, True, False])
+    swap, keep = hero.head_cut(body, real, np.array([[0, 0.95, 0.0], [0, 0.85, 0.08]]),
+                               cut=None, axis=np.zeros(2), ring=0.047)
+    assert swap.tolist() == [True, True, False] and keep.tolist() == [True, True]
+
+
 def test_paired_points_pair_only_spots_within_reach():
     head = np.array([[0.0, 0, 0], [1.0, 0, 0], [5.0, 5, 5]])
     body = np.array([[0.01, 0, 0], [1.02, 0, 0]])

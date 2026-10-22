@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from a picture with Pixal3D, plus the Hero face upscaler (67 MB, in Setup). The body and head
   keep separate textures, so a new skin can later replace the body's without touching the face.
   Also on the command line: `scripts/hero_route.py picture.png [--back back.png]`.
+- **Hero face can keep the body's own collar** (command line, for now). With
+  `scripts/hero_route.py ... --cut-at neck`, a character whose collar sits round the neck (armour,
+  high coats) keeps its clean collar from the body instead of the new head's scuffed one, and the
+  new face stays whole down to the chin. `--cut-at` also takes a height. Off by default.
 - **Runs from the Steps panel survive a reload.** Making a 3D model, Finish, Rig or a move from the
   Steps panel now shows its progress in the middle like a Create run, and a reloaded or reopened
   studio picks it back up instead of losing sight of it.

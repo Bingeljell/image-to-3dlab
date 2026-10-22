@@ -29,6 +29,8 @@ HEAD_FLOOR_PERCENTILE = 5
 OUTLINE_GROW_PX = 4       # the least margin round the real head's outline
 OUTLINE_GROW_SHARE = 0.1  # else a tenth of the head's width
 LINER_SHRINK = 0.04       # the body's own head, kept as a liner under the new hair, shrinks this much
+COLLAR_RATIO = 1.15       # a slice this much wider than the neck above it is a collar, not more neck
+MIN_SLICE_POINTS = 20     # fewer points than this in a slice and its width is noise
 
 _COMPONENTS = {5121: np.uint8, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
 _WIDTH = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
@@ -117,6 +119,64 @@ def head_bones(bone: np.ndarray, heights: np.ndarray) -> list[int]:
     return sorted(b for b, m in middle.items() if m >= floor)
 
 
+def neck_height(heights: np.ndarray, xs: np.ndarray, slices: int = 30) -> float | None:
+    """Where to cut the head off: the top of a collar, the first slice above it that is clearly
+    narrower (the jaw).
+
+    The rig's head region can reach down into a collar (the warrior's did), and the new head,
+    built from a crop whose edge runs through that collar, makes a scuffed one. Cutting at the
+    collar's top keeps the body's own collar. Not the narrowest slice: the neck hides inside the
+    collar, so the narrow band is the chin, and cutting through it left the old mouth showing.
+    None when nothing below is clearly wider (a bare neck): swap the whole region.
+    """
+    edges = np.linspace(heights.min(), heights.max(), slices + 1)
+    widths = np.full(slices, np.nan)
+    for i in range(slices):
+        inside = (heights >= edges[i]) & (heights < edges[i + 1])
+        if inside.sum() >= MIN_SLICE_POINTS:
+            widths[i] = np.percentile(xs[inside], 98) - np.percentile(xs[inside], 2)
+    valid = np.flatnonzero(~np.isnan(widths))
+    lower, upper = valid[valid < slices // 2], valid[valid >= slices // 2]
+    if not len(lower) or not len(upper):
+        return None
+    collar = lower[np.argmax(widths[lower])]
+    skull = upper[np.argmax(widths[upper])]
+    between = valid[(valid > collar) & (valid < skull)]
+    if not len(between):
+        return None
+    narrower = between[widths[collar] >= COLLAR_RATIO * widths[between]]
+    return float(edges[narrower[0]]) if len(narrower) else None
+
+
+def neck_ring(vertices: np.ndarray, real: np.ndarray, cut: float) -> tuple[np.ndarray, float]:
+    """(the neck's centre line as x, z; the skull's radius round it), from the upper half of the
+    head above CUT. A neck is narrower than the skull and a collar wider, so the skull's radius
+    is the ring between them, whatever the paint (no skin-colour guess)."""
+    y = vertices[:, 1]
+    skull = real & (y >= cut + 0.5 * (y[real].max() - cut))
+    axis = np.median(vertices[skull][:, [0, 2]], axis=0)
+    radius = np.hypot(vertices[skull, 0] - axis[0], vertices[skull, 2] - axis[1])
+    return axis, float(np.percentile(radius, 90))
+
+
+def head_cut(body: np.ndarray, real: np.ndarray, head: np.ndarray, cut: float | None,
+             axis: np.ndarray, ring: float) -> tuple[np.ndarray, np.ndarray]:
+    """(which body vertices the new head replaces, which new-head vertices may stay).
+
+    Above CUT (the collar's top) the whole head swaps. Below it, in the collar band, a height
+    cannot split them: the new head can sit a little lower, so its mouth shares heights with the
+    body's old chin and both sit inside the collar. So the band splits by distance from the neck's
+    centre line: inside RING is head (the body's old chin goes, the new chin stays), outside is
+    collar (the body's stays, the new head's scuffed one goes). CUT None swaps the whole region."""
+    if cut is None:
+        return real.copy(), np.ones(len(head), bool)
+
+    def inside(points):
+        return np.hypot(points[:, 0] - axis[0], points[:, 2] - axis[1]) < ring
+
+    return real & ((body[:, 1] >= cut) | inside(body)), (head[:, 1] >= cut) | inside(head)
+
+
 def crop_box(px: np.ndarray, py: np.ndarray, width: int, height: int,
              pad: float = CROP_PAD, drop: float = CROP_DROP) -> tuple[int, int, int, int]:
     """A square crop (x0, y0, x1, y1) round the head's pixels, padded and kept in the picture."""
@@ -194,8 +254,12 @@ def liner_split(vertices: np.ndarray, real: np.ndarray, shrink: float) -> tuple[
     return moved, real & (vertices[:, 2] > centre[2])
 
 
-def graft(full, head, full_box, head_box, crop, head_width, bone, shape, grow=None, liner=LINER_SHRINK):
+def graft(full, head, full_box, head_box, crop, head_width, bone, shape, grow=None, liner=LINER_SHRINK,
+          cut_at=None):
     """Swap FULL's head region for HEAD (both trimesh meshes; HEAD is moved in place).
+
+    CUT_AT: "neck" finds the neck (`neck_height`) and swaps only above it; a height (model
+    units) cuts there, e.g. one a person marked; None swaps the whole head region.
 
     1. The real head: FULL's head bones. 2. HEAD placed by the crop box, then on the real
     head at the same centre and height. 3. Fine line-up, position only. 4. FULL loses the
@@ -232,11 +296,17 @@ def graft(full, head, full_box, head_box, crop, head_width, bone, shape, grow=No
         cols = np.flatnonzero(outline.any(axis=0))
         grow = max(OUTLINE_GROW_PX, int(round(OUTLINE_GROW_SHARE * (cols.max() - cols.min()))))
     keep = on_mask(*project(head.vertices, full_frame), ndimage.binary_dilation(outline, iterations=grow))
+    cut = neck_height(full.vertices[real, 1], full.vertices[real, 0]) if cut_at == "neck" else cut_at
+    axis, ring = neck_ring(full.vertices, real, cut) if cut is not None else (None, None)
+    swap, in_head = head_cut(full.vertices, real, head.vertices, cut, axis, ring)
+    keep &= in_head
     body_mesh = full.copy()
-    body_mesh.vertices, gone = liner_split(full.vertices, real, liner)
+    body_mesh.vertices, gone = liner_split(full.vertices, swap, liner)
     body = body_mesh.submesh([np.flatnonzero(~gone[full.faces].any(axis=1))], append=True)
     part = head.submesh([np.flatnonzero(keep[head.faces].all(axis=1))], append=True)
     report = {"head_bones": picked, "outline_margin_px": int(grow), "liner_shrink": liner,
+              "cut_at": None if cut is None else round(cut, 4),
+              "neck_ring": None if ring is None else round(ring, 4),
               "scale_to_real_head": round(float(place[0, 0]), 4),
               "line_up_cost": float(cost), "body_faces": int(len(body.faces)),
               "head_faces": int(len(part.faces))}

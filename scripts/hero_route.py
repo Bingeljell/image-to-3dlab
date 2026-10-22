@@ -181,6 +181,9 @@ def main() -> int:
     parser.add_argument("--head-faces", type=int, default=HEAD_FACES)
     parser.add_argument("--match-paint", action="store_true",
                         help="also move the head's paint to the body's level (metal and roughness always are)")
+    parser.add_argument("--cut-at", default=None,
+                        help="swap only the head above this height (model units), or 'neck' to find it; "
+                             "default swaps the whole head region")
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--body", type=Path, default=None,
                         help="an existing Pixal3D model of the picture, used as the body instead of building one")
@@ -316,7 +319,8 @@ def main() -> int:
         crop_pic = hero.load_picture(head_cutout)
         part_body, part_head, report = hero.graft(
             body_mesh, head_mesh, full_box, hero.picture_box(crop_pic), head_crop, crop_pic.width,
-            bone, (cut.height, cut.width))
+            bone, (cut.height, cut.width),
+            cut_at=args.cut_at if args.cut_at in (None, "neck") else float(args.cut_at))
         run.say(f"graft {report}")
         # One piece: the head's paint and material always follow the body's own head.
         real = np.flatnonzero(np.isin(bone, picked))

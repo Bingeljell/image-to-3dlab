@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   studio picks it back up instead of losing sight of it.
 
 ### Fixed
+- Pictures on NVIDIA Linux servers and containers now use the GPU without a hand fix.
 - **Agents no longer finish the wrong version by accident.** After making a new 3D model of a
   character, asking an agent to Finish it by the character's first id finished the old model.
   `continue_asset` now says which version and file it starts from, and warns when a newer

@@ -8,6 +8,7 @@ that a non-interactive run cannot silently spend someone's bandwidth.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import zipfile
@@ -48,6 +49,10 @@ def no_real_install(monkeypatch, tmp_path):
         raise AssertionError("a test reached the network")
     monkeypatch.setattr(boot.urllib.request, "urlopen", offline)
     monkeypatch.setattr(boot.urllib.request, "urlretrieve", offline)
+    # never the real Vulkan folders, never the real driver library
+    monkeypatch.setattr(boot, "VULKAN_ICD_DIRS", (tmp_path / "icd-system",))
+    monkeypatch.setattr(boot, "user_icd_dir", lambda: tmp_path / "icd-user")
+    monkeypatch.setattr(boot, "nvidia_glx_present", lambda: False)
 
 
 def test_announcement_names_backend_route_size_and_licence():
@@ -359,6 +364,51 @@ def test_nvidia_install_continues_when_the_gpu_answers(monkeypatch):
     monkeypatch.setattr(boot, "install_weights", lambda: fetched.append(1))
     assert boot.main(["--yes"]) == 0
     assert fetched == [1]
+
+
+def test_a_missing_vulkan_icd_is_written_when_the_nvidia_library_is_there(tmp_path):
+    """NVIDIA containers often mount the driver library but not the small file that tells
+    Vulkan where it is, so sd-cli sees no GPU (RunPod A40, 2026-10-22)."""
+    written = boot.add_nvidia_icd(search_dirs=(tmp_path / "system",),
+                                  write_dir=tmp_path / "user", glx_present=True)
+    assert written == tmp_path / "user" / "nvidia_icd.json"
+    icd = json.loads(written.read_text())
+    assert icd["ICD"]["library_path"] == "libGLX_nvidia.so.0"
+
+
+def test_an_existing_nvidia_icd_is_left_alone(tmp_path):
+    (tmp_path / "system").mkdir()
+    (tmp_path / "system" / "nvidia_icd.json").write_text("{}")
+    assert boot.add_nvidia_icd(search_dirs=(tmp_path / "system",),
+                               write_dir=tmp_path / "user", glx_present=True) is None
+    assert not (tmp_path / "user").exists()
+
+
+def test_no_icd_is_written_without_the_nvidia_library(tmp_path):
+    assert boot.add_nvidia_icd(search_dirs=(tmp_path / "system",),
+                               write_dir=tmp_path / "user", glx_present=False) is None
+    assert not (tmp_path / "user").exists()
+
+
+def test_nvidia_install_writes_the_icd_and_checks_the_gpu_again(monkeypatch, tmp_path):
+    _nvidia_linux(monkeypatch)
+    monkeypatch.setattr(boot, "nvidia_glx_present", lambda: True)
+    answers = iter(["load_backend: loaded CPU backend", "ggml_vulkan: Found 1 Vulkan devices:"])
+    monkeypatch.setattr(boot, "probe_gpu", lambda *a: next(answers))
+    fetched = []
+    monkeypatch.setattr(boot, "install_weights", lambda: fetched.append(1))
+    assert boot.main(["--yes"]) == 0
+    assert fetched == [1]
+    assert (tmp_path / "icd-user" / "nvidia_icd.json").exists()
+
+
+def test_the_icd_is_not_tried_on_amd(monkeypatch, tmp_path):
+    _amd_linux(monkeypatch)
+    monkeypatch.setattr(boot, "nvidia_glx_present", lambda: True)
+    monkeypatch.setattr(boot, "probe_gpu", lambda *a: "load_backend: loaded CPU backend")
+    monkeypatch.setattr(boot, "install_weights", lambda: pytest.fail("downloaded"))
+    assert boot.main(["--yes"]) == 1
+    assert not (tmp_path / "icd-user").exists()
 
 
 def _amd_linux(monkeypatch):

@@ -17,6 +17,8 @@ export const ALLOWED = {
 };
 
 // Steps by id; `set` finishes by splitting the sheet into props.
+// The step-by-step guide on our site; How to use, Create's tips and About all link it.
+export const FULL_GUIDE = 'https://assetfurnace.com/blog/how-to-use-assetfurnace';
 export const STEP_LABELS = { picture: 'Picture', back: 'Back picture', model: '3D model', finished: 'Finish', split: 'Split into props', rigged: 'Rig', animated: 'Animate' };
 
 /** The steps to run, in order, before any "stop after".

@@ -37,20 +37,20 @@ asset_path = {str(asset)!r}
 output_dir = {str(output_dir)!r}
 label = {label!r}
 collection_name = "IMG3D_" + label
+RENDER_SCENE = "IMG3D render"
 
-# Start from a clean slate. A long-lived Blender session may still hold assets,
-# lights, or a default cube from an earlier render or from other tooling (which may
-# use different collection names). Because each asset is grounded at the origin, any
-# survivor would occlude or interpenetrate the new one, so remove every object and
-# collection up front; this script rebuilds the camera, lights, and world it needs.
-for obj in list(bpy.data.objects):
+# Render in a scene of our own and clear only that one. A long-lived Blender session
+# holds the user's own scenes; wiping every object (as this once did) emptied a day of
+# unsaved work. Each asset is grounded at the origin, so the render scene starts empty;
+# this script rebuilds the camera, lights, and world it needs.
+previous_scene = bpy.context.window.scene
+render_scene = bpy.data.scenes.get(RENDER_SCENE) or bpy.data.scenes.new(RENDER_SCENE)
+bpy.context.window.scene = render_scene
+for obj in list(render_scene.objects):
     bpy.data.objects.remove(obj, do_unlink=True)
-for prior in list(bpy.data.collections):
-    bpy.data.collections.remove(prior)
-try:
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
-except RuntimeError:
-    pass
+for prior in list(render_scene.collection.children):
+    if prior.name.startswith("IMG3D_"):
+        bpy.data.collections.remove(prior)
 
 collection = bpy.data.collections.new(collection_name)
 bpy.context.scene.collection.children.link(collection)
@@ -165,6 +165,8 @@ try:
     scene.view_settings.look = "AgX - Medium High Contrast"
 except TypeError:
     scene.view_settings.look = "Medium High Contrast"
+if scene.world is None:
+    scene.world = bpy.data.worlds.new("World")
 scene.world.color = {world_color}
 try:
     scene.eevee.use_raytracing = {raytracing}
@@ -185,6 +187,7 @@ for name, location in views.items():
     aim(camera, target)
     scene.render.filepath = output_dir + "/" + label + "_" + name + ".png"
     bpy.ops.render.render(write_still=True)
+bpy.context.window.scene = previous_scene   # hand the user's window back
 
 result = {{
     "objects": [obj.name for obj in mesh_objects],

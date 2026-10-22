@@ -17,11 +17,12 @@ const ICON = {
   clay: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M8 9a5 5 0 0 1 5-2"/></svg>',
   normal: '<svg viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M12 18V5M8 9l4-4 4 4"/></svg>',
   bones: '<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 6v8M12 9l-5 3M12 9l5 3M12 14l-3 7M12 14l3 7"/></svg>',
+  fix: '<svg viewBox="0 0 24 24"><path d="M14 4l6 6-9 9H5v-6z"/><path d="M12 6l6 6"/></svg>',
   play: '<svg viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>',
   pause: '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>',
 };
 
-export function createStudioViewer({ stage, logoUrl, onClipChange }) {
+export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = null }) {
   const pane = document.createElement('div');
   pane.className = 'sv-pane';
   pane.innerHTML = '<span class="stats" hidden></span>';
@@ -42,6 +43,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
       <button class="tool" data-act="clay" aria-pressed="false" data-tip="Clay: plain grey, so you judge the shape without the paint" aria-label="Clay view">${ICON.clay}</button>
       <button class="tool" data-act="normal" aria-pressed="false" data-tip="Normals: the surface's direction as colour; dents, lumps and flipped faces stand out" aria-label="Normal view">${ICON.normal}</button>
       <button class="tool" data-act="bones" aria-pressed="false" data-tip="Show skeleton: the bones the auto-rig placed" aria-label="Show skeleton">${ICON.bones}</button>
+      <button class="tool" data-act="fix" aria-pressed="false" data-tip="Fix a spot: click a hole or a messy patch to smooth it over and repaint it from your picture. Size it with the slider or [ and ]. Saves a new version" aria-label="Fix a spot">${ICON.fix}</button>
     </div>`;
   stage.appendChild(tools);
 
@@ -176,6 +178,187 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     if (act === 'wire') setWireframe(on);
     if (act === 'grid' && view?.floor) { view.floor.visible = on; requestRender(); }
     if (act === 'bones') setSkeleton(on);
+    if (act === 'fix') {
+      if (!on && session.preview && !confirm('Close the brush and throw away the patch you have not kept?')) {
+        button.setAttribute('aria-pressed', 'true');
+        return;
+      }
+      pane.classList.toggle('fixing', on);
+      brushPanel.hidden = !on;
+      if (!on) { hideRing(); endSession(true); }
+      if (on) overlayNote('Mark the spots to fix, then Patch. Size: the slider, or [ and ].');
+    }
+  });
+
+  // Fix a spot, as one session: clicks mark spots (rings that stay), Patch makes a preview,
+  // Before / After flips between the model and the preview with the camera held still, Keep
+  // saves one version and Discard drops it. The brush is a share of the model's height; the
+  // server takes the same range (viewer/fixspot_api.py).
+  const BRUSH_MIN = 0.005, BRUSH_MAX = 0.08;
+  // Smooth's strength range matches the server (image_to_3dlab/spot_fix.py)
+  const STRENGTH_MIN = 0.1, STRENGTH_MAX = 1.0;
+  let brushShare = 0.02, brushMode = 'fill', brushStrength = 0.6;
+  const RING_COLOURS = { fill: 0xffffff, smooth: 0xff9a3c, repaint: 0x58c4ff };
+  const brushPanel = document.createElement('div');
+  brushPanel.className = 'sv-brush';
+  brushPanel.hidden = true;
+  brushPanel.innerHTML = `
+    <div class="row"><span>Brush</span>
+      <button class="chip" data-mode="fill" aria-pressed="true" data-tip="Fill hole: cut out a pocket or dent and patch it smooth">Fill hole</button>
+      <button class="chip" data-mode="smooth" aria-pressed="false" data-tip="Smooth: iron out bumps, ridges and dents, then repaint from your picture; nothing is cut">Smooth</button>
+      <button class="chip" data-mode="repaint" aria-pressed="false" data-tip="Repaint: paint only, from your picture; the shape stays as it is">Repaint</button></div>
+    <label class="row"><span>Size</span><input type="range" min="${BRUSH_MIN}" max="${BRUSH_MAX}" step="0.0025" value="${brushShare}" aria-label="Brush size"><kbd>[ ]</kbd></label>
+    <label class="row" data-strength hidden><span>Strength</span><input type="range" min="${STRENGTH_MIN}" max="${STRENGTH_MAX}" step="0.05" value="${brushStrength}" aria-label="Smooth strength"></label>
+    <div class="row"><span data-count>Click to mark spots</span><button class="ghost" data-fix="undo" disabled>Undo</button>
+      <button class="chip" data-fix="patch" disabled>Patch</button></div>
+    <div class="row" data-review hidden><button class="ghost" data-fix="compare">Showing: after</button>
+      <button class="chip" data-fix="keep">Keep</button><button class="ghost" data-fix="discard">Discard</button></div>`;
+  tools.appendChild(brushPanel);
+  const brushSlider = brushPanel.querySelector('input[aria-label="Brush size"]');
+  const strengthRow = brushPanel.querySelector('[data-strength]');
+  strengthRow.querySelector('input').addEventListener('input', (event) => { brushStrength = Number(event.target.value); });
+  let ring = null, lastHit = null;
+  const session = { marks: [], preview: null, beforeUrl: null, afterUrl: null, showing: 'after', busy: false };
+  function setBrush(share) {
+    brushShare = Math.min(BRUSH_MAX, Math.max(BRUSH_MIN, share));
+    brushSlider.value = String(brushShare);
+    if (lastHit) showRing(lastHit);
+  }
+  brushSlider.addEventListener('input', () => setBrush(Number(brushSlider.value)));
+  brushPanel.querySelectorAll('[data-mode]').forEach((chip) => chip.addEventListener('click', () => {
+    brushMode = chip.dataset.mode;
+    strengthRow.hidden = brushMode !== 'smooth';
+    brushPanel.querySelectorAll('[data-mode]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+  }));
+  window.addEventListener('keydown', (event) => {
+    if (brushPanel.hidden || event.target.closest?.('input, textarea, select')) return;
+    if (event.key === '[') setBrush(brushShare / 1.25);
+    if (event.key === ']') setBrush(brushShare * 1.25);
+  });
+  function ringMesh(color, opacity) {
+    const mesh = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 64),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, side: THREE.DoubleSide }));
+    mesh.renderOrder = 999;
+    return mesh;
+  }
+  function placeRing(mesh, hit, share) {
+    const height = new THREE.Box3().setFromObject(view.root).getSize(new THREE.Vector3()).y;
+    const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    mesh.position.copy(hit.point).addScaledVector(normal, height * 0.002);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+    mesh.scale.setScalar(share * height);
+  }
+  function hideRing() {
+    pane.classList.remove('ringing');
+    lastHit = null;
+    if (ring) { ring.removeFromParent(); ring.geometry.dispose(); ring.material.dispose(); ring = null; requestRender(); }
+  }
+  function pick(event) {
+    const rect = view.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, view.camera);
+    const marks = new Set(session.marks.map((m) => m.mesh));
+    return ray.intersectObject(view.root, true).find((h) => h.object.isMesh && h.object !== ring && !marks.has(h.object)) || null;
+  }
+  function showRing(hit) {
+    if (!ring) { ring = ringMesh(0xff7a1a, 0.95); view.scene.add(ring); }
+    placeRing(ring, hit, brushShare);
+    pane.classList.add('ringing');
+    lastHit = hit;
+    requestRender();
+  }
+  function clearMarks() {
+    for (const mark of session.marks) { mark.mesh.removeFromParent(); mark.mesh.geometry.dispose(); mark.mesh.material.dispose(); }
+    session.marks = [];
+  }
+  function syncPanel() {
+    const n = session.marks.length;
+    brushPanel.querySelector('[data-count]').textContent = session.busy ? 'Patching…'
+      : n ? `${n} spot${n === 1 ? '' : 's'} marked` : session.preview ? 'Mark more, or keep it' : 'Click to mark spots';
+    brushPanel.querySelector('[data-fix="undo"]').disabled = !n || session.busy;
+    brushPanel.querySelector('[data-fix="patch"]').disabled = !n || session.busy;
+    brushPanel.querySelector('[data-fix="patch"]').textContent = n ? `Patch ${n}` : 'Patch';
+    brushPanel.querySelector('[data-review]').hidden = !session.preview || session.busy;
+    brushPanel.querySelector('[data-fix="compare"]').textContent = `Showing: ${session.showing}`;
+    brushPanel.querySelector('[data-fix="compare"]').disabled = n > 0;   // patch or undo the new marks first
+  }
+  function endSession(discard) {
+    if (discard && session.preview) fixSession?.discard(session.preview);
+    clearMarks();
+    Object.assign(session, { preview: null, beforeUrl: null, afterUrl: null, showing: 'after', busy: false });
+    syncPanel();
+    requestRender();
+  }
+  brushPanel.addEventListener('click', async (event) => {
+    const act = event.target.closest('[data-fix]')?.dataset.fix;
+    if (!act || !fixSession) return;
+    if (act === 'undo') {
+      const mark = session.marks.pop();
+      mark?.mesh.removeFromParent();
+      syncPanel();
+      requestRender();
+    }
+    if (act === 'patch') {
+      session.busy = true;
+      syncPanel();
+      const spots = session.marks.map(({ point, share, mode, strength }) => ({ point, radius: share, mode, strength }));
+      try {
+        const made = await fixSession.patch(spots, session.preview);
+        if (!session.beforeUrl) session.beforeUrl = currentUrl;
+        session.preview = made.preview;
+        session.afterUrl = made.url;
+        session.showing = 'after';
+        clearMarks();
+        load(made.url, { label: 'patched (not kept yet)', keepCamera: true });
+      } catch (error) {
+        overlayNote(String(error.message || error));
+      }
+      session.busy = false;
+      syncPanel();
+    }
+    if (act === 'compare' && session.preview) {
+      session.showing = session.showing === 'after' ? 'before' : 'after';
+      load(session.showing === 'after' ? session.afterUrl : session.beforeUrl, { label: `showing: ${session.showing}`, keepCamera: true });
+      syncPanel();
+    }
+    if (act === 'keep' && session.preview) {
+      const preview = session.preview;
+      endSession(false);
+      await fixSession.keep(preview);
+    }
+    if (act === 'discard' && session.preview) {
+      const before = session.beforeUrl;
+      endSession(true);
+      if (before) load(before, { label: 'as it was', keepCamera: true });
+    }
+  });
+  pane.addEventListener('pointermove', (event) => {
+    const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
+    if (!fixing || !view?.root || event.buttons) { if (!fixing) hideRing(); return; }
+    const hit = pick(event);
+    if (hit) showRing(hit); else hideRing();
+  });
+  pane.addEventListener('pointerleave', hideRing);
+  let downAt = null;
+  pane.addEventListener('pointerdown', (event) => { downAt = [event.clientX, event.clientY]; });
+  pane.addEventListener('pointerup', (event) => {
+    const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
+    if (!fixing || !view?.root || !downAt || session.busy) return;
+    if (Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]) > 4) return;   // that was an orbit
+    if (!fixSession?.canFix()) { overlayNote('Fix a spot works on a finished model. Open the finished version first.'); return; }
+    if (session.preview && session.showing === 'before') { overlayNote('Switch to "after" to mark more spots.'); return; }
+    const hit = pick(event);
+    if (!hit) { overlayNote('Missed the model: click right on it.'); return; }
+    // the GLB's own coordinates: the mesh's local space (Finish writes no node transforms)
+    const local = hit.object.worldToLocal(hit.point.clone());
+    const mesh = ringMesh(RING_COLOURS[brushMode], 0.9);
+    placeRing(mesh, hit, brushShare);
+    view.scene.add(mesh);
+    session.marks.push({ point: [local.x, local.y, local.z], share: brushShare, mode: brushMode, strength: brushStrength, mesh });
+    syncPanel();
+    requestRender();
   });
 
   let noteTimer = null;
@@ -194,6 +377,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
   }
 
   function dispose() {
+    if (ring) { ring.geometry.dispose(); ring.material.dispose(); ring = null; }
     pane.querySelector('.stats').hidden = true;   // a picture or an empty stage has no face count
     player?.dispose?.();
     player = null;
@@ -206,8 +390,12 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
     }
   }
 
-  function load(url, { label = '', autoplay = false } = {}) {
+  let currentUrl = null;
+  function load(url, { label = '', autoplay = false, keepCamera = false } = {}) {
     const token = ++loadToken;
+    const camera = keepCamera && view ? { position: view.camera.position.clone(), target: view.controls.target.clone() } : null;
+    if (!keepCamera) endSession(false);
+    currentUrl = url;
     dispose();
     setOverlay(`<div class="ph"><img src="${logoUrl}" alt=""><span>Loading model…</span></div>`);
     const created = createModelViewport({
@@ -226,6 +414,11 @@ export function createStudioViewer({ stage, logoUrl, onClipChange }) {
         loaded.floor.visible = tools.querySelector('[data-act="grid"]').getAttribute('aria-pressed') === 'true';
         loaded.scene.add(loaded.floor);
         snap('reset');
+        if (camera) {   // Before / After: the same view, so the change is what moves
+          view.camera.position.copy(camera.position);
+          view.controls.target.copy(camera.target);
+          view.controls.update();
+        }
         if (loaded.rig.animations.length) {
           player = new AnimationPlayer(new THREE.AnimationMixer(loaded.modelRoot), {
             onFrame: (time, duration) => { requestRender(); syncScrub(time, duration); },

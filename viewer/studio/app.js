@@ -24,7 +24,29 @@ let viewingPictures = false;  // the viewer shows the asset's pictures instead o
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
 const openFamilies = new Set();  // families whose versions are listed under their row
 
-const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
+const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), fixSession: {
+  // only a finished model on screen (not a rigged one, a move or the raw model)
+  canFix: () => !!(current?.finished && !viewingStep && !viewingPictures && displayModel(current) === current.finished),
+  patch: async (spots, base) => {
+    const body = await postFix('preview', { from: current.finished, base, spots });
+    return { preview: body.preview, url: url(body.preview) };
+  },
+  keep: async (preview) => {
+    const before = assets, family = current.family || current.id;
+    const body = await postFix('keep', { from: current.finished, preview });
+    await loadLibrary(null, { pick: false });
+    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+  },
+  discard: (preview) => postFix('discard', { preview }).catch(() => {}),
+} });
+
+async function postFix(action, payload) {
+  const response = await fetch(`/api/fix-spot/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'That did not work.');
+  return body;
+}
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const url = (relative) => servedUrl(base, relative);
@@ -72,7 +94,7 @@ function summaries(asset) {
   return {
     picture: asset.picture ? 'Done' : 'No picture kept (model uploaded or older run)',
     model: asset.model ? engineOf(asset.model) : asset.finished ? 'Made outside the app' : '',
-    finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : 'Done',
+    finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : /_hero\.glb$/.test(fileName(asset.finished)) ? 'Hero · sharper face, built on its own' : 'Done',
     rigged: 'Auto-rig',
     animated: asset.clips.map((c) => c.name.replace(/_/g, ' ')).join(', '),
   };
@@ -184,6 +206,9 @@ const ctx = {
   get blenderReady() { return blenderReady; },
   url: (relative) => url(relative),
   asset: () => current,
+  // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
+  // up, and the server runs one big job at a time whoever starts it
+  startChain: (plan) => startChain(plan),
   onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
   // after a new move, open the asset on that move
   onDone: async (stepId, { preset } = {}) => {

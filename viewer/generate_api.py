@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import activity_api
 import backend_catalog
 import bug_report_api
+import fixspot_api
 import hf_api
 import image_api
 import model_info_api
@@ -2500,6 +2501,16 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "chains"] and parts[3] == "cancel":
             ok = self._chains().cancel(parts[2])
             self._send_json(200 if ok else 404, {"cancelled": ok})
+            return
+        if len(parts) == 3 and parts[:2] == ["api", "fix-spot"] and parts[2] in {"preview", "keep", "discard"}:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length)) if 0 < length <= 65536 else None
+            except (ValueError, json.JSONDecodeError):
+                payload = None
+            handler = {"preview": fixspot_api.preview_response, "keep": fixspot_api.keep_response,
+                       "discard": fixspot_api.discard_response}[parts[2]]
+            self._send_json(*fixspot_api.answer(handler, OUTPUT_ROOT, payload))
             return
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()

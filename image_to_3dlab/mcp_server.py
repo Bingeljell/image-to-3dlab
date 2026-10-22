@@ -38,6 +38,10 @@ STEP_IDS = ("picture", "back", "model", "finished", "split", "rigged", "animated
 # Server actions agents do not get, and why. Everything else the studio can do must be a
 # tool (the test reads the server's routes and checks this list against them).
 STUDIO_ONLY = {
+    "api/fix-spot/preview": "a person marks the spots to fix on screen; guessing spots automatically "
+                            "also flattens real shape (fur tufts, mohawk spikes)",
+    "api/fix-spot/keep": "keeping a fix is the person's verdict after comparing before and after",
+    "api/fix-spot/discard": "part of the same on-screen editing session",
     "api/assets/*/delete": "deleting is the user's call, made in the studio",
     "api/assets/*/hidden": "Library tidying, a person's choice",
     "api/assets/*/main": "marking the main version is the user's verdict",
@@ -256,7 +260,8 @@ def want_for(asset: dict[str, Any]) -> str:
 # Finish's Detail choices, as the Steps panel offers them (tests check the two lists agree).
 FINISH_DETAILS: dict[str, dict[str, Any]] = {
     "light": {"faces": 10000}, "game": {"faces": 20000}, "more": {"faces": 40000},
-    "high": {"faces": 50000, "high_detail": True}, "full": {"keep_mesh": True},
+    "high": {"faces": 50000, "high_detail": True}, "hero": {"faces": 32000, "hero": True},
+    "full": {"keep_mesh": True},
 }
 STEPS_AFTER_FINISH = ("rigged", "animated")
 
@@ -374,7 +379,7 @@ def options() -> dict[str, Any]:
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
-            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | a count 1000-200000 | "
+            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
             "pixel_match": "Paint the picture's real pixels onto the model in Finish. Default: on.",
             "move": "The animation to make (list_moves).",
@@ -713,7 +718,11 @@ list_assets -> preview (show the user the picture) -> open_in_studio if they wan
 If a result looks off, call options: it lists every knob (Pixel Match's edge fade and nudge, texture
 size, rigging the raw model, move speed, ...) with when to try it; redo one step with
 continue_asset(again=True, advanced={...}), changing one knob at a time. list_versions shows every
-version of a character. Never download model weights without the user's explicit yes (install_backend asks first)."""
+version of a character. Never download model weights without the user's explicit yes (install_backend asks first).
+For characters whose face matters, finish with finish_detail="hero": the head is built again from a close
+crop and joined on (takes longer). Fix a spot (fill a hole, smooth a bump, repaint a scuff) is hands-on: if a
+model has a spot to fix, open_in_studio and point the user to the brush in the 3D view. Step-by-step guide for
+the user: https://assetfurnace.com/blog/how-to-use-assetfurnace"""
 
 
 def build_server(studio: Studio | None = None):
@@ -768,7 +777,8 @@ def build_server(studio: Studio | None = None):
         add_wording: append the studio's proven prompt wording (pose, background, ...) to a description.
         finish_upload: also run Finish on an uploaded GLB.
         finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), "high" (50k,
-            cleaner faces from the side; best for realistic humans), a count from
+            cleaner faces from the side; best for realistic humans), "hero" (32k body plus a sharper head
+            built again from a close crop; characters whose face matters, takes much longer), a count from
         1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
         stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.

@@ -967,3 +967,86 @@ def test_without_blender_finish_says_so_before_anyone_clicks():
     assert "needs Blender" in missing and "blender.org" in missing and 'data-run="finished"' not in missing
     assert sheet.startswith("<p") and "Splitting into props" in sheet
     assert 'data-run="finished"' in ready and 'data-run="finished"' in unknown
+
+
+@needs_node
+def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
+    out = _run("steps.js", f"""
+      const knight = {json.dumps(KNIGHT)}, sheet = {json.dumps(SHEET)};
+      const s = {{ backend: 'pixal3d', detail: {{ faces: 32000, hero: true }}, photo: true, edgeFade: true, nudge: false,
+                   texture: 2048, preset: 'walk', speed: 1.2, spread: 5, rigSource: 'finished' }};
+      const plans = {{ model: m.chainPlan('model', knight, s), finished: m.chainPlan('finished', knight, s),
+        rigged: m.chainPlan('rigged', knight, s), rawRig: m.chainPlan('rigged', knight, {{ ...s, rigSource: 'model' }}),
+        animated: m.chainPlan('animated', knight, s), split: m.chainPlan('finished', sheet, s),
+        noPicture: m.chainPlan('finished', {{ ...knight, picture: null }}, s) }};
+      delete plans.model.modelSeed;
+      console.log(JSON.stringify(plans));""")
+    assert out["finished"]["steps"] == ["finished"]
+    assert out["finished"]["made"] == {"picture": "images/k/k.png", "model": "a/k.glb"}
+    assert out["finished"]["finishSettings"] == {"faces": 32000, "hero": True, "skip_photo": False,
+                                                 "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048}
+    assert out["model"]["steps"] == ["model"] and out["model"]["engine"] == "pixal3d"
+    assert out["rigged"]["made"]["finished"] == "finish/k/k_40k.glb" and "model" not in out["rigged"]["made"]
+    assert out["rawRig"]["made"]["model"] == "a/k.glb" and "finished" not in out["rawRig"]["made"]
+    assert out["animated"]["firstMove"] == "walk" and out["animated"]["moveSettings"] == {"speed": 1.2, "arm_spread": 5}
+    assert out["split"]["steps"] == ["split"]
+    assert out["noPicture"] is None   # the chain's Finish needs a picture: the card handles that case
+
+
+@needs_node
+def test_a_plan_s_files_and_settings_travel_to_the_server():
+    out = _run("create.js", """
+      const form = m.planForm({ description: 'k', steps: ['finished'], finishSettings: { hero: true },
+        moveSettings: { speed: 2 } }, { model: 'a/k.glb' });
+      console.log(JSON.stringify(Object.fromEntries([...form.entries()])));""")
+    assert json.loads(out["finish_settings"]) == {"hero": True}
+    assert json.loads(out["move_settings"]) == {"speed": 2}
+    assert json.loads(out["made"]) == {"model": "a/k.glb"}
+
+
+@needs_node
+def test_hero_card_shows_for_pixal3d_characters_and_models_only():
+    out = _run("steps.js", """
+      const base = { picture: 'images/e/e.png', model: 'e__pixal3d__1/e.glb', finished: null };
+      console.log(JSON.stringify({
+        model: m.heroCard({ ...base, kind: 'model' }).includes('Finish as a Hero'),
+        finishedChar: m.heroCard({ ...base, kind: 'character', finished: 'finish/x/e_20k.glb' }).includes('Make a Hero version'),
+        alreadyHero: m.heroCard({ ...base, kind: 'character', finished: 'finish/x/e_hero.glb' }),
+        prop: m.heroCard({ ...base, kind: 'prop' }), sheet: m.heroCard({ ...base, kind: 'prop set' }),
+        trellis: m.heroCard({ ...base, kind: 'model', model: 'e__trellis__1/e.glb' }),
+        noPicture: m.heroCard({ ...base, kind: 'model', picture: null }) }));""")
+    assert out == {"model": True, "finishedChar": True, "alreadyHero": "", "prop": "", "sheet": "",
+                   "trellis": "", "noPicture": ""}
+
+
+@needs_node
+def test_create_offers_hero_face_only_where_it_can_run():
+    out = _run("create.js", """
+      const s = (o) => ({ want: 'character', have: 'idea', hero: true, ...o });
+      const steps = ['picture', 'model', 'finished'];
+      console.log(JSON.stringify({
+        offered: m.heroChoice(s({}), steps, true).includes('Hero face'),
+        notForProps: m.heroChoice(s({ want: 'prop' }), steps, true), notStoppedEarly: m.heroChoice(s({}), ['picture', 'model'], true),
+        greyedOnTrellis: m.heroChoice(s({}), steps, false).includes('disabled'),
+        wanted: m.heroWanted(s({}), steps, true), notOnTrellis: m.heroWanted(s({}), steps, false),
+        notWhenQuick: m.heroWanted(s({ hero: false }), steps, true), notFromAModel: m.heroWanted(s({ have: 'model' }), ['finished'], true) }));""")
+    assert out == {"offered": True, "notForProps": "", "notStoppedEarly": "", "greyedOnTrellis": True,
+                   "wanted": True, "notOnTrellis": False, "notWhenQuick": False, "notFromAModel": False}
+
+
+GUIDE_PAGE = "https://assetfurnace.com/blog/how-to-use-assetfurnace"
+
+
+@needs_node
+def test_the_full_guide_is_one_address_the_studio_shares():
+    assert _run("plan.js", "console.log(JSON.stringify(m.FULL_GUIDE));") == GUIDE_PAGE
+
+
+def test_how_to_use_tips_and_about_all_link_the_full_guide():
+    studio = REPO / "viewer" / "studio"
+    pages, create = (studio / "pages.js").read_text(), (studio / "create.js").read_text()
+    guide_sheet = pages.split("export function openGuide")[1].split("\n}\n")[0]
+    about = pages.split("<h3>Find us</h3>")[1].split("</div>")[0]
+    tips = create.split('class="tipsbox"')[1].split("</div>")[0]
+    for where, text in (("How to use", guide_sheet), ("About", about), ("Tips", tips)):
+        assert "FULL_GUIDE" in text, f"{where} does not link the full guide"

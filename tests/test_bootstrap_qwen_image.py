@@ -29,6 +29,25 @@ def _load():
 
 
 boot = _load()
+REAL_INSTALL_BINARY = boot.install_binary
+
+
+@pytest.fixture(autouse=True)
+def no_real_install(monkeypatch, tmp_path):
+    """Never the real vendor/sdcpp, never the network. On 2026-10-19 a test that ran main()
+    reached the real install_binary and put the Linux engine over a working Mac one."""
+    monkeypatch.setattr(boot, "VENDOR", tmp_path / "sdcpp")
+    monkeypatch.setattr(boot, "BINARY", tmp_path / "sdcpp" / "sd-cli")
+    # a test that says the engine is installed means the current one, unless it says otherwise
+    (tmp_path / "sdcpp").mkdir()
+    boot.record_release(tmp_path / "sdcpp", boot.PINNED_RELEASE)
+    monkeypatch.setattr(boot, "install_binary",
+                        lambda *a, **k: pytest.fail("a test reached the real engine download"))
+
+    def offline(*a, **k):
+        raise AssertionError("a test reached the network")
+    monkeypatch.setattr(boot.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(boot.urllib.request, "urlretrieve", offline)
 
 
 def test_announcement_names_backend_route_size_and_licence():
@@ -107,10 +126,67 @@ def test_an_existing_binary_is_not_redownloaded(monkeypatch, capsys):
     monkeypatch.setattr(boot, "install_binary", lambda *a, **k: pytest.fail("redownloaded"))
     monkeypatch.setattr(boot, "install_weights", lambda *a, **k: None)
     monkeypatch.setattr(boot, "binary_present", lambda: True)
+    monkeypatch.setattr(boot, "binary_stale", lambda: False)
     # The probe still runs on a re-run (the binary may have been swapped for a dud).
     monkeypatch.setattr(boot, "probe_gpu", lambda *a: "ggml_vulkan: Found 1 Vulkan devices:")
     assert boot.main(["--yes"]) == 0
     assert "already installed" in capsys.readouterr().out
+
+
+# --- The pinned engine (2026-10-19): the Sept build took 134 s to decode one picture on Metal,
+# master-975 takes 10 s. Every machine is pinned and updated in place.
+def test_every_machine_with_a_build_is_pinned_to_one_release():
+    assert set(boot.PINNED) == set(boot.BUILDS)
+    for key in boot.BUILDS:
+        assert boot.release_url(key).endswith("/releases/tags/" + boot.PINNED_RELEASE)
+    assert boot.release_url(None).endswith("/releases/latest")
+
+
+def test_the_pinned_release_has_every_build_we_install():
+    """Its asset list, 2026-10-18: one archive (or two, for Windows) per machine type."""
+    assets = [{"name": n} for n in (
+        "cudart-sd-bin-win-cu12-x64.zip", "sd-master-95b3090-bin-Darwin-macOS-26.6.2-arm64.zip",
+        "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-rocm-10.1.0.zip",
+        "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip",
+        "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64.zip", "sd-master-95b3090-bin-win-cpu-x64.zip",
+        "sd-master-95b3090-bin-win-cuda12-x64.zip", "sd-master-95b3090-bin-win-rocm-10.1.0-x64.zip",
+        "sd-master-95b3090-bin-win-vulkan-x64.zip")]
+    for build in boot.BUILDS.values():
+        assert len(boot.pick_assets(assets, build)) == len(build.assets)
+
+
+def test_the_installed_release_is_recorded_and_read_back(tmp_path):
+    assert boot.installed_release(tmp_path) is None
+    boot.record_release(tmp_path, "master-975-95b3090")
+    assert boot.installed_release(tmp_path) == "master-975-95b3090"
+
+
+@pytest.mark.parametrize("key, installed, stale", [
+    ("macos-arm64", None, True),                     # installed before we kept a record
+    ("macos-arm64", "master-899-28b454b", True),
+    ("macos-arm64", "master-975-95b3090", False),
+    ("linux-amd", None, True),
+    ("windows-nvidia", "master-899-28b454b", True),
+    ("linux-nvidia", "master-975-95b3090", False),
+    (None, None, False),                             # no build for this machine at all
+])
+def test_only_a_pinned_machine_on_another_release_is_stale(monkeypatch, tmp_path, key, installed, stale):
+    monkeypatch.setattr(boot, "target", lambda: key)
+    if installed:
+        boot.record_release(tmp_path, installed)
+    assert boot.binary_stale(tmp_path) is stale
+
+
+def test_a_stale_mac_engine_is_replaced_and_the_weights_left_alone(monkeypatch, capsys):
+    called = []
+    monkeypatch.setattr(boot, "target", lambda: "macos-arm64")
+    monkeypatch.setattr(boot, "binary_present", lambda: True)
+    monkeypatch.setattr(boot, "binary_stale", lambda: True)
+    monkeypatch.setattr(boot, "install_binary", lambda *a, **k: called.append("build"))
+    monkeypatch.setattr(boot, "install_weights", lambda *a, **k: called.append("weights"))
+    assert boot.main(["--yes", "--build-only"]) == 0
+    assert called == ["build"]
+    assert "Updating" in capsys.readouterr().out
 
 
 # The asset list of stable-diffusion.cpp release master-899-28b454b, 2026-09-23.
@@ -186,7 +262,7 @@ def test_install_refuses_an_unsupported_machine_before_touching_the_network(monk
     monkeypatch.setattr(boot.urllib.request, "urlopen",
                         lambda *a, **k: pytest.fail("went to the network"))
     with pytest.raises(SystemExit, match="no prebuilt"):
-        boot.install_binary()
+        REAL_INSTALL_BINARY()
 
 
 def test_finish_install_flattens_and_marks_executable(tmp_path, monkeypatch):

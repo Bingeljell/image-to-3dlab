@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Pictures are about twice as fast on a Mac** (about 2 minutes instead of 4), back views too.
+  The picture engine moves to a newer stable-diffusion.cpp whose last step takes 10 seconds
+  instead of over 2 minutes. Same model, same quality. Every machine now gets this tested
+  engine release; existing installs update it with
+  `python scripts/bootstrap_qwen_image.py --build-only` (the engine only; the weights stay).
+
 ### Added
 - **Fix a spot.** A brush in the 3D view for a finished model. Mark as many spots as you like
   (Fill hole for dark pockets in pupils, brows or beards; Repaint for paint-only scuffs), press

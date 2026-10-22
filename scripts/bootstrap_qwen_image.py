@@ -39,7 +39,15 @@ from image_to_3dlab.sdcpp import NO_AMD_GPU_HELP, NO_GPU_HELP, gpu_found
 
 VENDOR = REPO / "vendor" / "sdcpp"
 BINARY = host.executable(VENDOR, "sd-cli")
-RELEASES = "https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/latest"
+RELEASES = "https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/{which}"
+# Every machine's engine is pinned to one release, so a fresh install gets what was tested
+# rather than whatever upstream pushed last. On a Mac, the 22 Sep build took 134 s of a 249 s
+# picture just decoding it (its Metal path for the VAE's 3D convolutions was slow); master-975
+# decodes in 10 s, same weights, same settings (2026-10-19). Measured on the Mac only; the
+# others take it as an upgrade until tested (its AMD build targets ROCm 10.1, the one before 7.14).
+PINNED_RELEASE = "master-975-95b3090"
+PINNED = dict.fromkeys(("macos-arm64", "windows-nvidia", "linux-nvidia", "linux-amd"), PINNED_RELEASE)
+RELEASE_FILE = "release.txt"
 
 # (repo, filename, approximate gigabytes). These are the files the upstream Qwen-Image 2.1
 # guide names, at the quantisations that were measured to be worth it: Q8 for the image
@@ -59,6 +67,26 @@ LICENCE = (
     "  the weights stay on this machine. Built with Qwen.\n"
     "  https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE"
 )
+
+
+def release_url(key: str | None) -> str:
+    return RELEASES.format(which=f"tags/{PINNED[key]}" if key in PINNED else "latest")
+
+
+def record_release(destination: Path, tag: str) -> None:
+    (destination / RELEASE_FILE).write_text(tag + "\n", encoding="utf-8")
+
+
+def installed_release(destination: Path | None = None) -> str | None:
+    """Which release is installed; None for installs from before we kept a record."""
+    path = (destination or VENDOR) / RELEASE_FILE
+    return path.read_text(encoding="utf-8").strip() or None if path.is_file() else None
+
+
+def binary_stale(destination: Path | None = None) -> bool:
+    """A pinned machine running any other release (or one we never recorded)."""
+    key = target()
+    return key in PINNED and installed_release(destination) != PINNED[key]
 
 
 def total_gb() -> float:
@@ -165,7 +193,8 @@ def pick_assets(assets: list[dict], build: Build) -> list[dict]:
     return picked
 
 
-def install_binary(destination: Path = VENDOR) -> Path:
+def install_binary(destination: Path | None = None) -> Path:
+    destination = destination or VENDOR
     key = target()
     build = BUILDS.get(key)
     if build is None:
@@ -174,9 +203,9 @@ def install_binary(destination: Path = VENDOR) -> Path:
             "Apple Silicon Mac, or Linux/Windows with an NVIDIA card, or Linux with an "
             f"AMD card and ROCm. Otherwise build it from source and put sd-cli in {destination}."
         )
-    print("Finding the latest stable-diffusion.cpp release...")
+    print(f"Finding stable-diffusion.cpp release {PINNED.get(key, '(latest)')}...")
     try:
-        with urllib.request.urlopen(RELEASES, timeout=30) as response:
+        with urllib.request.urlopen(release_url(key), timeout=30) as response:
             release = json.loads(response.read())
     except (urllib.error.URLError, TimeoutError) as exc:
         raise SystemExit(f"Could not reach GitHub: {exc}") from exc
@@ -196,7 +225,9 @@ def install_binary(destination: Path = VENDOR) -> Path:
             bundle.extractall(destination)
             restore_symlinks(bundle, destination)
         archive.unlink(missing_ok=True)
-    return finish_install(destination)
+    installed = finish_install(destination)
+    record_release(destination, release.get("tag_name", ""))
+    return installed
 
 
 def restore_symlinks(bundle: zipfile.ZipFile, destination: Path) -> None:
@@ -319,7 +350,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if build:
-        if binary_present():
+        if binary_present() and binary_stale():
+            print(f"\nUpdating sd-cli at {BINARY} to {PINNED[target()]}: pictures about twice "
+                  "as fast. The weights stay as they are.")
+            install_binary()
+        elif binary_present():
             print(f"\nsd-cli is already installed at {BINARY}, leaving it alone.")
         else:
             install_binary()

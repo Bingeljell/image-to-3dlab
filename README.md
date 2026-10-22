@@ -9,6 +9,7 @@ NVIDIA PC, with the licence of every asset written down.</p>
 
 <p align="center">
   <a href="https://assetfurnace.com"><b>assetfurnace.com</b></a> ·
+  <a href="https://assetfurnace.com/blog/how-to-use-assetfurnace"><b>Step-by-step guide</b></a> ·
   <a href="https://discord.gg/3D4bcEhGx"><b>Join the Discord</b></a> ·
   <a href="https://x.com/bingeljell">X @bingeljell</a> ·
   <a href="https://github.com/Bingeljell/image-to-3dlab/discussions">Discussions</a>
@@ -113,6 +114,9 @@ run the same line again.
 
 For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
 (`--dry-run` shows what it would do).
+
+New here? The [step-by-step guide](https://assetfurnace.com/blog/how-to-use-assetfurnace) takes you
+from one picture to a finished, animated game character.
 
 **No picture to start from?** Press **+ Create** in the studio and type a sentence: it makes
 the picture first, then carries on to 3D. It runs Qwen-Image 2.1 on your own machine.

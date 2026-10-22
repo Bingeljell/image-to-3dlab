@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Cancelling a skin build really stops it.** The 3D engine and Blender used to keep running after
+  Cancel, so the next job could run out of memory.
+- **Hero face runs on Windows**, and tells you at the start, in plain words, when a model can't be
+  its body, instead of failing late or keeping a full-size body.
+- **Skins on a version changed by Fix a spot** now say to start from the version before the fix,
+  instead of quietly bringing the fixed spots back.
+
 ## [0.5.0] - 2026-10-22
 
 ### Added

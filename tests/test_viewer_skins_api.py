@@ -67,6 +67,13 @@ def test_the_base_carries_the_shape_pictures_seed_and_finish_settings(output):
     assert base["finish"]["faces"] == 20000
 
 
+def test_a_version_changed_by_fix_a_spot_cannot_take_a_skin(output):
+    """A skin repaints the shape the model was made with, so the fixed spots would come back."""
+    _write(output / "finish" / FIN / "fix-spot.json", "{}")
+    with pytest.raises(sk.SkinError, match="before Fix a spot"):
+        sk.base_from_asset(output, _asset())
+
+
 @pytest.mark.parametrize("change, words", [
     ({"finished": None}, "Finish this one first"),
     ({"picture": None}, "no picture"),
@@ -275,6 +282,50 @@ def test_a_failed_step_marks_the_skin_and_can_be_built_again(output):
     again = builds.start(store.get(skin.id), background=False,
                          runner=lambda c, **k: _FakeProcess(["boom"], code=1), box=_same_box)
     assert again.status == "error"  # allowed to try again; it simply failed again here
+
+
+def test_a_build_starts_its_steps_in_their_own_process_group(output):
+    """So Cancel can stop the engine and Blender the step started, not just the step itself."""
+    store, skin = _ready(output)
+    seen = []
+    sk.SkinBuilds(store).start(skin, background=False, box=_same_box,
+                               runner=lambda c, **k: seen.append(k) or _FakeProcess(["boom"], code=1))
+    assert seen and all(k.get("start_new_session") or k.get("creationflags") for k in seen)
+
+
+def test_cancel_stops_the_whole_group_not_just_the_step(output):
+    store, skin = _ready(output)
+    stopped = []
+    builds = sk.SkinBuilds(store, stop=stopped.append)
+
+    class Running(_FakeProcess):
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    def runner(command, **kwargs):
+        process = Running(["[1/6] load"], on_wait=lambda: builds.cancel(builds.active))
+        return process
+
+    job = builds.start(skin, background=False, runner=runner, box=_same_box)
+    assert stopped == [4242]
+    assert job.status == "cancelled"
+
+
+def test_a_cancel_during_the_picture_check_starts_no_step(output):
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store, stop=lambda pid: None)
+    launched = []
+
+    def box(path):
+        builds.cancel(builds.active)
+        return _same_box(path)
+
+    job = builds.start(skin, background=False, box=box,
+                       runner=lambda c, **k: launched.append(c) or _FakeProcess([]))
+    assert launched == []
+    assert job.status == "cancelled" and store.get(skin.id).status == "pictures"
 
 
 def test_nothing_builds_before_every_side_is_approved(output):

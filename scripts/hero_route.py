@@ -39,7 +39,8 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "viewer"))
 sys.path.insert(0, str(REPO / "scripts"))
 
-PYTHON = REPO / ".venv" / "bin" / "python"
+# The Python running this script: a hard-coded .venv/bin/python does not exist on Windows.
+PYTHON = Path(sys.executable)
 GENERATE = REPO / "scripts" / "pixal3d_generate.py"
 FINISH = REPO / "scripts" / "retopo_repaint.py"
 UPSCALE = REPO / "scripts" / "upscale_esrgan.py"
@@ -139,14 +140,32 @@ def needed_parts() -> dict[str, Path]:
     import pixal3d_generate
     import retopo_repaint
 
-    from image_to_3dlab import upscale
+    from image_to_3dlab import pixal3d_native, upscale
 
     return {
         "Pixal3D (3D models)": pixal3d_generate.CLI,
         "Auto-rig (finds the head)": autorig_api.venv_python(),
         "Hero face upscaler (Real-ESRGAN, 67 MB)": upscale.WEIGHTS_FILE,
         "Blender (Finish)": retopo_repaint.find_blender() or Path("/missing/blender"),
+        # Upstream's old NVIDIA download lacks it; Setup's Rebuild for Pixal3D adds it.
+        "Pixal3D's own clean-up (Setup: Rebuild Pixal3D)": pixal3d_native.POST_REPLAY,
     }
+
+
+NO_DUMP = ("this 3D model kept no clean-up data, so its body would stay at full size. Make the 3D "
+           "model again (same picture), then make the Hero version from the new one.")
+
+
+def body_problem(body: Path | None, views: Path | None, dump: Path | None) -> str | None:
+    """Why an existing model cannot be the Hero body, in plain words, or None."""
+    if body is None:
+        return None
+    if not (views and (Path(views) / "transforms.json").is_file()):
+        return ("the body model needs its cameras (--body-views with transforms.json): the hero "
+                "route works on Pixal3D models made from a picture.")
+    if not (dump and Path(dump).is_file()):
+        return NO_DUMP
+    return None
 
 
 def finish(run: Run, model: Path, picture: Path, views: Path, out: Path, faces: int, dump: Path | None) -> None:
@@ -198,9 +217,9 @@ def main() -> int:
         print("[hero] cannot start, not installed: " + "; ".join(missing)
               + ". Install them from the Setup page (nothing was downloaded).", file=sys.stderr)
         return 2
-    if args.body and not (args.body_views and (args.body_views / "transforms.json").is_file()):
-        print("[hero] the body model needs its cameras (--body-views with transforms.json): the hero "
-              "route works on Pixal3D models made from a picture.", file=sys.stderr)
+    problem = body_problem(args.body, args.body_views, args.body_dump)
+    if problem:
+        print(f"[hero] {problem}", file=sys.stderr)
         return 2
 
     import numpy as np
@@ -246,8 +265,9 @@ def main() -> int:
     body = out / "body.glb"
     if run.step(f"body: Finish {args.body_faces} + Pixel Match", body):
         dump = body_raw.with_suffix(".post.bin")
-        finish(run, body_raw, picture, body_raw.with_suffix(".svviews"), body, args.body_faces,
-               dump if dump.is_file() else None)
+        if not dump.is_file():
+            raise SystemExit(f"[hero] {NO_DUMP}")
+        finish(run, body_raw, picture, body_raw.with_suffix(".svviews"), body, args.body_faces, dump)
 
     # 2. measure
     stage(run, "measure", "Finding the head")

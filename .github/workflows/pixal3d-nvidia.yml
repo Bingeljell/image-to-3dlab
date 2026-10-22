@@ -3,8 +3,8 @@ name: Pixal3D NVIDIA build
 # Our own NVIDIA download of pixal3d.cpp, for scripts/bootstrap_pixal3d.py to install.
 #
 # Why not upstream's: their CUDA 12 download is compiled for 2016-17 cards only (sm 60/61/70),
-# and lacks our two patches (8 steps, and the clean-up dump the new Finish reruns) and the
-# post-replay tool. This builds the same pinned commit, with both patches, for every card
+# and lacks our three patches (8 steps, the clean-up dump the new Finish reruns, and shape reuse
+# for skins) and the post-replay tool. This builds the same pinned commit, with all three, for every card
 # from the 20 series to the 50 series, and attaches it to a pre-release on this repo.
 #
 # Run by hand (Actions -> Pixal3D NVIDIA build -> Run workflow). The release is a
@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. pixal3d-nvidia-1f432fd-r1"
+        description: "Release tag, e.g. pixal3d-nvidia-c89126d-r1"
         required: true
 
 permissions:
@@ -65,6 +65,7 @@ jobs:
           set -e
           python scripts/patch_pixal3d_steps.py pixal3d/src/flow_runner.cpp
           python scripts/patch_pixal3d_dump_continue.py pixal3d/src/trellis_cli.cpp
+          python scripts/patch_pixal3d_shape_reuse.py pixal3d/src/trellis_cli.cpp
 
       - name: MSVC dev shell (Windows)
         if: matrix.os == 'windows'
@@ -128,8 +129,8 @@ jobs:
             ASSET="pixal3d-cuda12-linux-x64.tar.gz"
             tar -C dist -czf "$ASSET" .
           fi
-          # Both patches must have made it into the binary.
-          for marker in PIXAL3D_STEPS PIXAL3D_DUMP_CONTINUE; do
+          # Every patch must have made it into the binary.
+          for marker in PIXAL3D_STEPS PIXAL3D_DUMP_CONTINUE PIXAL3D_LOAD_SHAPE; do
             grep -aq "$marker" dist/trellis-cli* || { echo "ERROR: $marker missing from trellis-cli"; exit 1; }
           done
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"

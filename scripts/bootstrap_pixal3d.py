@@ -73,7 +73,8 @@ MATTE_REVISION = "a57397bd3d351599d9729fc144b3f87c3f87d65b"
 
 # The upstream commit every NVIDIA and AMD build uses: upstream's v0.10.1-desktop-alpha,
 # run end to end on NVIDIA. A tag can be moved; a commit cannot.
-PREBUILT_COMMIT = "1f432fd3f0689c504fa1e9b15b038c33584174d1"
+# The same commit as MAC_COMMIT below: skins were built and tested on it.
+PREBUILT_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
 # The Mac source build's commit: the one every patch here (steps, dump, shape reuse for skins) was
 # built and run on. Upstream's newest could change what a saved shape means; move this only after
 # testing a skin end to end on the new commit.
@@ -81,7 +82,7 @@ MAC_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
 # Our own download of that commit (.github/workflows/pixal3d-nvidia.yml), not upstream's:
 # theirs is compiled for 2016-17 cards only and lacks our patches (8 steps, and the clean-up
 # dump the Pixal3D Finish reruns) and post-replay. A pre-release on this repo.
-PREBUILT_RELEASE = "pixal3d-nvidia-1f432fd-r1"
+PREBUILT_RELEASE = "pixal3d-nvidia-c89126d-r1"
 RELEASE_API = "https://api.github.com/repos/Bingeljell/image-to-3dlab/releases/tags/{tag}"
 
 # CUDA 12 rather than upstream's unversioned CUDA build (which is newer): CUDA 12 runs on

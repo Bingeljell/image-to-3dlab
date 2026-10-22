@@ -108,6 +108,17 @@ def test_the_prebuilt_comes_from_this_repo_and_the_workflow_builds_the_pinned_co
     assert "PREBUILT_COMMIT" in workflow
 
 
+def test_the_nvidia_download_can_take_skins_like_the_mac_build():
+    # Skins repaint a model's saved shape; without the shape-reuse patch the NVIDIA download
+    # could only say "rebuild", and a rebuild fetched the same download again (2026-10-22).
+    workflow = (boot.REPO / ".github" / "workflows" / "pixal3d-nvidia.yml").read_text()
+    assert "patch_pixal3d_shape_reuse.py" in workflow
+    assert "PIXAL3D_LOAD_SHAPE" in workflow.split("for marker in")[1].split("\n")[0]
+    # The commit Skins were built and tested on, not an older one.
+    assert boot.PREBUILT_COMMIT == boot.MAC_COMMIT
+    assert boot.PREBUILT_COMMIT[:7] in boot.PREBUILT_RELEASE
+
+
 def test_every_prebuilt_has_a_pinned_checksum():
     assert set(boot.PREBUILT_SHA256) == {name for name, _ in boot.PREBUILTS.values()}
     assert all(len(h) == 64 for h in boot.PREBUILT_SHA256.values())

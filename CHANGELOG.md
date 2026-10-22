@@ -7,12 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **Pictures are about twice as fast on a Mac** (about 2 minutes instead of 4), back views too.
-  The picture engine moves to a newer stable-diffusion.cpp whose last step takes 10 seconds
-  instead of over 2 minutes. Same model, same quality. Every machine now gets this tested
-  engine release; existing installs update it with
-  `python scripts/bootstrap_qwen_image.py --build-only` (the engine only; the weights stay).
+## [0.5.0] - 2026-10-22
 
 ### Added
 - **Fix a spot.** A brush in the 3D view for a finished model. Mark as many spots as you like
@@ -46,6 +41,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Runs from the Steps panel survive a reload.** Making a 3D model, Finish, Rig or a move from the
   Steps panel now shows its progress in the middle like a Create run, and a reloaded or reopened
   studio picks it back up instead of losing sight of it.
+- **Skins: new paint on the same model.** On any finished Pixal3D model, say what to change
+  ("make the skirt gold"). You see the new front picture next to the original and approve it or
+  ask again with a correction, then the same for the back. Only then is the model repainted and
+  finished, in a few minutes, with the same mesh, so its rig and moves still fit. Pick a skin
+  under the model to view or download it. Agents can do the same through the MCP. Models made
+  before this update can't take skins; make them again from the same picture.
+- **Paste a picture into Create.** With "A picture" chosen, press Ctrl+V to use an image from
+  your clipboard (a screenshot, or "Copy image" from a browser) instead of saving it to a file
+  first. Text pastes are left alone. Create now shows the picture you chose, pasted, dropped or
+  picked, above its name, and gives small files in KB instead of "0.0 MB".
+
+### Changed
+- **Pictures are about twice as fast on a Mac** (about 2 minutes instead of 4), back views too.
+  The picture engine moves to a newer stable-diffusion.cpp whose last step takes 10 seconds
+  instead of over 2 minutes. Same model, same quality. Every machine now gets this tested
+  engine release; existing installs update it with
+  `python scripts/bootstrap_qwen_image.py --build-only` (the engine only; the weights stay).
 
 ### Fixed
 - Pictures on NVIDIA Linux servers and containers now use the GPU without a hand fix.
@@ -70,20 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   normal smoothing of spiky tips (a gnoll's mane) for a model turned the wrong way round, and the
   Finish failed. The check now asks which way round fits best, and if it still objects, Finish
   carries on with the classic route instead of failing.
-
-### Added
-- **Skins: new paint on the same model.** On any finished Pixal3D model, say what to change
-  ("make the skirt gold"). You see the new front picture next to the original and approve it or
-  ask again with a correction, then the same for the back. Only then is the model repainted and
-  finished, in a few minutes, with the same mesh, so its rig and moves still fit. Pick a skin
-  under the model to view or download it. Agents can do the same through the MCP. Models made
-  before this update can't take skins; make them again from the same picture.
-- **Paste a picture into Create.** With "A picture" chosen, press Ctrl+V to use an image from
-  your clipboard (a screenshot, or "Copy image" from a browser) instead of saving it to a file
-  first. Text pastes are left alone. Create now shows the picture you chose, pasted, dropped or
-  picked, above its name, and gives small files in KB instead of "0.0 MB".
-
-### Fixed
 - **One big job at a time, whoever starts it.** Making a picture, a 3D model, a Finish, a prop
   sheet, a rig or a move now waits for any other of these to end, whether it came from the
   studio, an agent or a second tab. Two at once could run the machine out of memory.

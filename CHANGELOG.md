@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/hero_route.py ... --cut-at neck`, a character whose collar sits round the neck (armour,
   high coats) keeps its clean collar from the body instead of the new head's scuffed one, and the
   new face stays whole down to the chin. `--cut-at` also takes a height. Off by default.
+- **A step-by-step guide.** How to use, Create's Tips for best results and About now link the full
+  guide on assetfurnace.com: one picture to a finished, animated character, with what to do when
+  something looks off. Agents are pointed to it too.
 - **Runs from the Steps panel survive a reload.** Making a 3D model, Finish, Rig or a move from the
   Steps panel now shows its progress in the middle like a Create run, and a reloaded or reopened
   studio picks it back up instead of losing sight of it.

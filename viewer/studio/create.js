@@ -1,7 +1,7 @@
 // Create: one sheet that asks "start from" and "I want", then a runner that carries one
 // thing through every step it needs, using the same job APIs as the Steps panel.
 
-import { HAVES, WANTS, ALLOWED, STEP_LABELS, planFor, stopAfter, composePrompt, troubleFor } from './plan.js';
+import { HAVES, WANTS, ALLOWED, STEP_LABELS, FULL_GUIDE, planFor, stopAfter, composePrompt, troubleFor } from './plan.js';
 import { plainError } from './jobs.js';
 import { openPromptGuide, isGuideLink } from './guide.js';
 
@@ -91,7 +91,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       <div class="sheet-top"><h2>What should we <span>make?</span></h2><button type="button" class="ghost" data-close>Cancel</button></div>
       <div class="quick">${quick.map(([w, h, t]) => `<button type="button" class="qs${w === state.want && h === state.have ? ' on' : ''}" data-w="${w}" data-h="${h}">${t}</button>`).join('')}</div>
       <div class="q"><span class="qn">1</span><b>Start from</b>${tipKey ? `<button type="button" class="tipsbtn" data-tips aria-expanded="${state.tips}">Tips for best results</button>` : ''}</div>
-      ${tipKey && state.tips ? `<div class="tipsbox"><b>${esc(recipes?.goals?.[tipKey]?.label || '')}</b><ul>${(recipes?.goals?.[tipKey]?.tips || []).map((t) => `<li>${t}</li>`).join('')}</ul></div>` : ''}
+      ${tipKey && state.tips ? `<div class="tipsbox"><b>${esc(recipes?.goals?.[tipKey]?.label || '')}</b><ul>${(recipes?.goals?.[tipKey]?.tips || []).map((t) => `<li>${t}</li>`).join('')}</ul><p class="meta"><a href="${FULL_GUIDE}" target="_blank" rel="noopener">The full step-by-step guide</a></p></div>` : ''}
       <div class="seg haves">${Object.entries(HAVES).map(([k, v]) => `<button type="button" aria-pressed="${k === state.have}" data-have="${k}">${v}</button>`).join('')}</div>
       ${source}
       <input type="file" data-file hidden accept="${state.have === 'model' ? '.glb' : '.png,.jpg,.jpeg,.webp'}">

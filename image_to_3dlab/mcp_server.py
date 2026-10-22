@@ -718,7 +718,11 @@ list_assets -> preview (show the user the picture) -> open_in_studio if they wan
 If a result looks off, call options: it lists every knob (Pixel Match's edge fade and nudge, texture
 size, rigging the raw model, move speed, ...) with when to try it; redo one step with
 continue_asset(again=True, advanced={...}), changing one knob at a time. list_versions shows every
-version of a character. Never download model weights without the user's explicit yes (install_backend asks first)."""
+version of a character. Never download model weights without the user's explicit yes (install_backend asks first).
+For characters whose face matters, finish with finish_detail="hero": the head is built again from a close
+crop and joined on (takes longer). Fix a spot (fill a hole, smooth a bump, repaint a scuff) is hands-on: if a
+model has a spot to fix, open_in_studio and point the user to the brush in the 3D view. Step-by-step guide for
+the user: https://assetfurnace.com/blog/how-to-use-assetfurnace"""
 
 
 def build_server(studio: Studio | None = None):

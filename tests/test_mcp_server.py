@@ -487,3 +487,11 @@ def test_rig_from_the_raw_model_skips_finish(studio):
 
 def test_agents_can_ask_for_high_detail():
     assert ms.finish_choices("high") == {"faces": 50000, "high_detail": True}
+
+
+def test_agents_are_told_where_the_guide_is_and_that_fix_a_spot_is_hands_on():
+    from image_to_3dlab import mcp_server
+    text = mcp_server.INSTRUCTIONS
+    assert "https://assetfurnace.com/blog/how-to-use-assetfurnace" in text
+    assert "Fix a spot" in text and "open_in_studio" in text
+    assert 'finish_detail="hero"' in text

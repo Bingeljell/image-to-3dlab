@@ -1032,3 +1032,21 @@ def test_create_offers_hero_face_only_where_it_can_run():
         notWhenQuick: m.heroWanted(s({ hero: false }), steps, true), notFromAModel: m.heroWanted(s({ have: 'model' }), ['finished'], true) }));""")
     assert out == {"offered": True, "notForProps": "", "notStoppedEarly": "", "greyedOnTrellis": True,
                    "wanted": True, "notOnTrellis": False, "notWhenQuick": False, "notFromAModel": False}
+
+
+GUIDE_PAGE = "https://assetfurnace.com/blog/how-to-use-assetfurnace"
+
+
+@needs_node
+def test_the_full_guide_is_one_address_the_studio_shares():
+    assert _run("plan.js", "console.log(JSON.stringify(m.FULL_GUIDE));") == GUIDE_PAGE
+
+
+def test_how_to_use_tips_and_about_all_link_the_full_guide():
+    studio = REPO / "viewer" / "studio"
+    pages, create = (studio / "pages.js").read_text(), (studio / "create.js").read_text()
+    guide_sheet = pages.split("export function openGuide")[1].split("\n}\n")[0]
+    about = pages.split("<h3>Find us</h3>")[1].split("</div>")[0]
+    tips = create.split('class="tipsbox"')[1].split("</div>")[0]
+    for where, text in (("How to use", guide_sheet), ("About", about), ("Tips", tips)):
+        assert "FULL_GUIDE" in text, f"{where} does not link the full guide"

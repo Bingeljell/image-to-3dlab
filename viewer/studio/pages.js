@@ -2,7 +2,7 @@
 // step that ended (finished, stopped or failed), newest first; failures live here, not in
 // the way. About says what this is, who built what, and where to find us.
 
-import { STEP_LABELS } from './plan.js';
+import { STEP_LABELS, FULL_GUIDE } from './plan.js';
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -147,6 +147,7 @@ export async function openAbout(stage) {
     <h3>Find us</h3>
     <div class="row">
       <a class="ghost" href="https://assetfurnace.com" target="_blank" rel="noopener">assetfurnace.com</a>
+      <a class="ghost" href="${FULL_GUIDE}" target="_blank" rel="noopener">Guide</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab" target="_blank" rel="noopener">GitHub</a>
       <a class="ghost" href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">Report a problem</a>
@@ -184,6 +185,7 @@ export const GUIDE = [
 export function openGuide(stage) {
   sheet(stage, `<div class="sheet-card guide">
     <div class="sheet-top"><h2>How to use <span>AssetFurnace</span></h2><button type="button" class="ghost" data-close>Close</button></div>
+    <p class="meta">New here? The <a href="${FULL_GUIDE}" target="_blank" rel="noopener">step-by-step guide</a> takes you from one picture to a finished, animated character, with pictures.</p>
     <dl>${GUIDE.map(([title, text]) => `<dt>${escape(title)}</dt><dd>${escape(text)}</dd>`).join('')}</dl></div>`);
 }
 

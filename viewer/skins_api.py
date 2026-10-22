@@ -135,6 +135,9 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
                             "back picture is missing.")
         back = asset["back"]
     finished = _inside(output, asset["finished"])
+    if (finished.parent / "fix-spot.json").is_file():
+        # The skin repaints the shape the model was made with, so the fixed spots would come back.
+        raise SkinError("Skins start from the version before Fix a spot. Make the skin from that version.")
     try:
         finish = json.loads((finished.parent / "input" / "settings.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):

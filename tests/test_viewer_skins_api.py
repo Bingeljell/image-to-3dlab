@@ -67,6 +67,13 @@ def test_the_base_carries_the_shape_pictures_seed_and_finish_settings(output):
     assert base["finish"]["faces"] == 20000
 
 
+def test_a_version_changed_by_fix_a_spot_cannot_take_a_skin(output):
+    """A skin repaints the shape the model was made with, so the fixed spots would come back."""
+    _write(output / "finish" / FIN / "fix-spot.json", "{}")
+    with pytest.raises(sk.SkinError, match="before Fix a spot"):
+        sk.base_from_asset(output, _asset())
+
+
 @pytest.mark.parametrize("change, words", [
     ({"finished": None}, "Finish this one first"),
     ({"picture": None}, "no picture"),

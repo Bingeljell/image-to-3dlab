@@ -3,6 +3,7 @@ download without an explicit yes."""
 
 from __future__ import annotations
 
+import hashlib
 import io
 import tarfile
 import types
@@ -30,8 +31,8 @@ def new_driver(monkeypatch):
 
 @pytest.mark.parametrize("key,route,size", [
     ("macos-arm64", "built from source with Metal", "Xcode"),
-    ("linux-nvidia", "CUDA 12 prebuilt", "~640 MB"),
-    ("windows-nvidia", "CUDA 12 prebuilt", "~610 MB"),
+    ("linux-nvidia", "CUDA 12 prebuilt", "~910 MB"),
+    ("windows-nvidia", "CUDA 12 prebuilt", "~880 MB"),
 ])
 def test_announcement_names_backend_route_size_and_licence(monkeypatch, new_driver,
                                                            key, route, size):
@@ -79,25 +80,63 @@ def test_build_only_and_weights_only_do_one_half_each(monkeypatch, new_driver):
     assert called == ["build", "weights"]
 
 
-# The CUDA asset names on pixal3d.cpp's v0.10.1-desktop-alpha release, 2026-09-23.
+# Our own NVIDIA build (.github/workflows/pixal3d-nvidia.yml), beside upstream's names.
 RELEASE = [{"name": n, "browser_download_url": f"https://x/{n}"} for n in (
-    "trellis-cuda-linux-x64.tar.gz", "trellis-cuda-windows-x64.zip",
     "trellis-cuda12-linux-x64.tar.gz", "trellis-cuda12-windows-x64.zip",
-    "trellis-vulkan-linux-x64.tar.gz", "trellis-metal-macos-arm64.tar.gz",
+    "pixal3d-cuda12-linux-x64.tar.gz", "pixal3d-cuda12-windows-x64.zip",
 )]
 
 
 @pytest.mark.parametrize("key,expected", [
-    ("linux-nvidia", "trellis-cuda12-linux-x64.tar.gz"),
-    ("windows-nvidia", "trellis-cuda12-windows-x64.zip"),
+    ("linux-nvidia", "pixal3d-cuda12-linux-x64.tar.gz"),
+    ("windows-nvidia", "pixal3d-cuda12-windows-x64.zip"),
 ])
-def test_prebuilt_is_the_cuda12_build_for_this_os(key, expected):
-    """CUDA 12, not the unversioned (newer) CUDA build: it runs on older drivers."""
+def test_prebuilt_is_our_own_build_for_this_os(key, expected):
+    """Ours, not upstream's: theirs is compiled for 2016-17 cards and lacks our patches."""
     assert boot.pick_prebuilt(RELEASE, key)["name"] == expected
 
 
 def test_missing_prebuilt_is_none():
-    assert boot.pick_prebuilt(RELEASE[4:], "linux-nvidia") is None
+    assert boot.pick_prebuilt(RELEASE[:2], "linux-nvidia") is None
+
+
+def test_the_prebuilt_comes_from_this_repo_and_the_workflow_builds_the_pinned_commit():
+    assert "/repos/Bingeljell/image-to-3dlab/" in boot.RELEASE_API
+    workflow = (boot.REPO / ".github" / "workflows" / "pixal3d-nvidia.yml").read_text()
+    for name, _ in boot.PREBUILTS.values():
+        assert name in workflow
+    assert "PREBUILT_COMMIT" in workflow
+
+
+def test_the_nvidia_download_can_take_skins_like_the_mac_build():
+    # Skins repaint a model's saved shape; without the shape-reuse patch the NVIDIA download
+    # could only say "rebuild", and a rebuild fetched the same download again (2026-10-22).
+    workflow = (boot.REPO / ".github" / "workflows" / "pixal3d-nvidia.yml").read_text()
+    assert "patch_pixal3d_shape_reuse.py" in workflow
+    assert "PIXAL3D_LOAD_SHAPE" in workflow.split("for marker in")[1].split("\n")[0]
+    # The commit Skins were built and tested on, not an older one.
+    assert boot.PREBUILT_COMMIT == boot.MAC_COMMIT
+    assert boot.PREBUILT_COMMIT[:7] in boot.PREBUILT_RELEASE
+
+
+def test_every_prebuilt_has_a_pinned_checksum():
+    assert set(boot.PREBUILT_SHA256) == {name for name, _ in boot.PREBUILTS.values()}
+    assert all(len(h) == 64 for h in boot.PREBUILT_SHA256.values())
+
+
+def test_a_download_with_the_wrong_checksum_is_refused_and_removed(tmp_path):
+    archive = tmp_path / "a.tar.gz"
+    archive.write_bytes(b"not what was built")
+    with pytest.raises(SystemExit, match="checksum"):
+        boot.verify_download(archive, "0" * 64)
+    assert not archive.exists()
+
+
+def test_a_download_with_the_right_checksum_passes(tmp_path):
+    archive = tmp_path / "a.tar.gz"
+    archive.write_bytes(b"built")
+    boot.verify_download(archive, hashlib.sha256(b"built").hexdigest())
+    assert archive.exists()
 
 
 def _tarball(path: Path, members: dict[str, bytes], links: dict[str, str]) -> None:
@@ -485,6 +524,20 @@ def test_an_existing_build_is_only_rebuilt_when_asked(present, rebuild, kind, ex
     """0.3.4's 8-step default needs the steps patch compiled in; before --rebuild, an
     existing install printed "leaving it alone" and the release notes' command did nothing."""
     assert boot.build_decision(present, rebuild, kind) == expected
+
+
+@pytest.mark.parametrize("rebuild", [False, True])
+def test_upstreams_old_prebuilt_is_replaced_with_ours(rebuild):
+    """Upstream's download has no post-replay; running setup again swaps in our build."""
+    assert boot.build_decision(True, rebuild, "prebuilt", stale=True) == "install"
+
+
+def test_a_build_without_post_replay_is_stale(tmp_path, monkeypatch):
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: "linux")
+    (tmp_path / "trellis-cli").write_text("x")
+    assert boot.build_stale(tmp_path) is True
+    (tmp_path / "post-replay").write_text("x")
+    assert boot.build_stale(tmp_path) is False
 
 
 def test_rebuild_reaches_the_build_decision(monkeypatch, capsys):

@@ -39,11 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A step-by-step guide.** How to use, Create's Tips for best results and About now link the full
   guide on assetfurnace.com: one picture to a finished, animated character, with what to do when
   something looks off. Agents are pointed to it too.
+- **The new Pixal3D Finish on NVIDIA**, plus the faster 8-step generation Mac already had.
+  Pixal3D on NVIDIA now installs our own build, made for every card from the 20 series to
+  the 50 series. Already set up? The Setup page offers a Rebuild that fetches it (about
+  900 MB, a minute or two; your models stay).
 - **Runs from the Steps panel survive a reload.** Making a 3D model, Finish, Rig or a move from the
   Steps panel now shows its progress in the middle like a Create run, and a reloaded or reopened
   studio picks it back up instead of losing sight of it.
 
 ### Fixed
+- Pictures on NVIDIA Linux servers and containers now use the GPU without a hand fix.
 - **Hunyuan3D-MLX (Xiong) makes 3D models again.** Picking it answered "unknown backend
   'hunyuan_xiong'" even when it was installed. Thanks to @dennich for the report and the fix idea.
 - **Agents no longer finish the wrong version by accident.** After making a new 3D model of a

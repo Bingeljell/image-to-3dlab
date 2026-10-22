@@ -308,6 +308,52 @@ def probe_gpu(binary: Path = BINARY) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
+# Where the Vulkan loader looks for driver files (ICDs). An NVIDIA container often mounts
+# the driver library but none of these files, so sd-cli finds no GPU and runs on the CPU
+# (RunPod A40, 2026-10-22). Writing one by hand made pictures take 29 s instead of minutes.
+VULKAN_ICD_DIRS = (Path("/etc/vulkan/icd.d"), Path("/usr/share/vulkan/icd.d"),
+                   Path("/usr/local/share/vulkan/icd.d"))
+NVIDIA_GLX = "libGLX_nvidia.so.0"
+NVIDIA_ICD = {"file_format_version": "1.0.0",
+              "ICD": {"library_path": NVIDIA_GLX, "api_version": "1.3"}}
+
+
+def user_icd_dir() -> Path:
+    """The per-user ICD folder the loader also reads, so no root is needed to write one."""
+    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    return Path(data) / "vulkan" / "icd.d"
+
+
+def nvidia_glx_present() -> bool:
+    """Whether the NVIDIA driver's Vulkan library can be loaded on this machine."""
+    import ctypes
+    try:
+        ctypes.CDLL(NVIDIA_GLX)
+    except OSError:
+        return False
+    return True
+
+
+def add_nvidia_icd(search_dirs: tuple[Path, ...] | None = None, write_dir: Path | None = None,
+                   glx_present: bool | None = None) -> Path | None:
+    """Write the NVIDIA ICD file if none exists and the driver library is there.
+
+    Returns the file written, or None when there was nothing to do.
+    """
+    search_dirs = VULKAN_ICD_DIRS if search_dirs is None else search_dirs
+    write_dir = user_icd_dir() if write_dir is None else write_dir
+    glx_present = nvidia_glx_present() if glx_present is None else glx_present
+    if not glx_present:
+        return None
+    for folder in (*search_dirs, write_dir):
+        if folder.is_dir() and any(folder.glob("nvidia*.json")):
+            return None
+    write_dir.mkdir(parents=True, exist_ok=True)
+    path = write_dir / "nvidia_icd.json"
+    path.write_text(json.dumps(NVIDIA_ICD, indent=2) + "\n")
+    return path
+
+
 def install_weights() -> None:
     try:
         from huggingface_hub import hf_hub_download
@@ -363,7 +409,13 @@ def main(argv: list[str] | None = None) -> int:
         # 13 GB later.
         help_text = NO_AMD_GPU_HELP if target() == "linux-amd" else NO_GPU_HELP
         if target() in ("linux-nvidia", "windows-nvidia", "linux-amd"):
-            if not gpu_found(probe_gpu()):
+            found = gpu_found(probe_gpu())
+            if not found and target() == "linux-nvidia":
+                icd = add_nvidia_icd()
+                if icd is not None:
+                    print(f"Vulkan had no NVIDIA driver file; wrote {icd}.")
+                    found = gpu_found(probe_gpu())
+            if not found:
                 print("\n" + help_text + "\nThe weights were not downloaded.")
                 return 1
             print("sd-cli found the GPU.")

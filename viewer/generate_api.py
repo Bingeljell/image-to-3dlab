@@ -88,6 +88,7 @@ from backend_catalog import (
 )
 from download_api import (
     DOWNLOADS,
+    rebuild_download,
     rebuild_reason,
     running_payload,
 )
@@ -503,7 +504,8 @@ def catalog_payload() -> dict:
 
 
 def with_rebuild_reasons(catalog: dict[str, Any],
-                         reason: Callable[[str], str | None] = rebuild_reason) -> dict[str, Any]:
+                         reason: Callable[[str], str | None] = rebuild_reason,
+                         download: Callable[[str], str | None] = rebuild_download) -> dict[str, Any]:
     """Say which installed backends want recompiling, so the page can offer a Rebuild
     button instead of a Terminal command.
 
@@ -512,6 +514,7 @@ def with_rebuild_reasons(catalog: dict[str, Any],
     here = catalog.get("views", {}).get(catalog.get("host", {}).get("id"), [])
     for backend in [*catalog.get("backends", []), *here]:
         backend["rebuild_reason"] = reason(backend["id"]) if backend.get("supported_here") else None
+        backend["rebuild_downloads"] = download(backend["id"]) if backend["rebuild_reason"] else None
     return catalog
 
 

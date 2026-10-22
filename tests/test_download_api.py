@@ -370,7 +370,34 @@ def test_nothing_installed_or_a_prebuilt_is_never_offered_a_rebuild(tmp_path):
     """No binary is Set up's job; no source means a prebuilt, which cannot be patched."""
     source, cli = _pixal3d_tree(tmp_path, patched=False, cli_newer=True)
     assert dl.rebuild_reason("pixal3d", source, tmp_path / "missing") is None
+    (tmp_path / "post-replay").write_text("binary")   # our own prebuilt: nothing to patch
     assert dl.rebuild_reason("pixal3d", tmp_path / "missing", cli) is None
+
+
+def test_upstreams_old_nvidia_download_is_offered_ours(tmp_path):
+    """No source and no post-replay: upstream's prebuilt, from before our own NVIDIA build.
+    Rebuild swaps it for ours, which downloads, so the page must say how much."""
+    cli = tmp_path / "trellis-cli"
+    cli.write_text("binary")
+    missing = tmp_path / "missing.cpp"
+    assert "new Finish" in dl.rebuild_reason("pixal3d", missing, cli)
+    assert dl.rebuild_download("pixal3d", missing, cli) == dl.NEW_BUILD_SIZE
+    (tmp_path / "post-replay").write_text("binary")
+    assert dl.rebuild_reason("pixal3d", missing, cli) is None
+    assert dl.rebuild_download("pixal3d", missing, cli) is None
+
+
+def test_a_source_rebuild_downloads_nothing(tmp_path):
+    source, cli = _pixal3d_tree(tmp_path, patched=False, cli_newer=True)
+    assert dl.rebuild_download("pixal3d", source, cli) is None
+
+
+def test_the_catalog_says_when_a_rebuild_downloads():
+    import generate_api
+
+    catalog = {"backends": [{"id": "pixal3d", "supported_here": True}]}
+    out = generate_api.with_rebuild_reasons(catalog, reason=lambda b: "old", download=lambda b: "600 MB")
+    assert out["backends"][0]["rebuild_downloads"] == "600 MB"
 
 
 def test_backends_without_a_rebuild_command_are_never_offered_one(tmp_path):

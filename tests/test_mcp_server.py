@@ -197,6 +197,16 @@ def test_bad_requests_say_why_and_send_nothing(studio, kwargs, words):
     assert studio.http.posts == []
 
 
+# --------------------------------------------------------------------------- engines
+def test_an_engine_with_an_update_says_so_and_where_to_get_it(studio, monkeypatch):
+    """Rebuild is a Setup-page button; an agent can still tell the user it is there."""
+    pixal = next(b for b in CATALOG["backends"] if b["id"] == "pixal3d")
+    monkeypatch.setitem(pixal, "rebuild_reason", "An older download: the new one adds the new Finish.")
+    rows = {e["id"]: e for e in ms.list_engines(studio)}
+    assert "new Finish" in rows["pixal3d"]["update"] and "Setup" in rows["pixal3d"]["update"]
+    assert "update" not in rows["trellis"]
+
+
 # --------------------------------------------------------------------------- continue
 def test_continuing_a_finished_character_rigs_and_animates_from_its_files(studio):
     ms.continue_asset(studio, asset_id=KNIGHT["id"])

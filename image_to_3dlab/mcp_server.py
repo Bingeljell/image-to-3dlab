@@ -470,6 +470,8 @@ def list_engines(studio: Studio) -> list[dict[str, Any]]:
             "state": b.get("state"), "recommended": b.get("recommended") or None, "best_for": b.get("best_for"),
             "licence": (b.get("license") or {}).get("name"), "caveat": b.get("caveat"),
             "download_size": b.get("human_expected"), "runs_here": b.get("supported_here"),
+            "update": (f"{b['rebuild_reason']} The studio's Setup page has a Rebuild button for it."
+                       if b.get("rebuild_reason") else None),
         }.items() if v is not None})
     return out
 

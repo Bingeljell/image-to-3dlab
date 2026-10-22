@@ -209,6 +209,13 @@ def worth_waiting(status: int, payload: dict) -> bool:
     return status == 409 and "wait" in str(payload.get("error", "")).lower()
 
 
+def finish_route(events: list[dict]) -> str:
+    """"pixal3d" when Finish took Pixal3D's own clean-up, else "classic". A Finish that
+    quietly falls back still finishes, so a pod test must check which one ran."""
+    said = " ".join(str(e.get("message", "")) for e in events)
+    return "pixal3d" if "Pixal3D's own clean-up" in said else "classic"
+
+
 def setup_run_outcome(events: list[dict]) -> tuple[str, str]:
     """(status, the last lines it printed) from a setup run's event stream. The stream
     ends with a `setup_done` event; one that never arrived is "unfinished"."""
@@ -493,9 +500,13 @@ def run_smoke(pod: Pod, args, token: str, out: Path, results: list[dict]) -> lis
                            if e.get("stages")), [])
             if "photo" not in stages:
                 raise RuntimeError(f"Pixel Match did not run; stages were {stages}")
+            route = finish_route(sse_events(events.decode(errors="replace")))
+            if route != "pixal3d":
+                raise RuntimeError("Finish took the classic route, not Pixal3D's own clean-up "
+                                   "(no post-replay, or no dump beside the model)")
             _, glb = viewer.call("GET", f"/api/finish/{job_id}/result.glb", timeout=600)
             (out / "pixal3d-finished.glb").write_bytes(glb)
-            return f"stages {stages}; {len(glb) / 1e6:.1f} MB"
+            return f"Pixal3D clean-up route; stages {stages}; {len(glb) / 1e6:.1f} MB"
         step(results, "Finish the Pixal3D model (Pixel Match)", finish)
 
     return results

@@ -261,7 +261,8 @@ def test_a_failed_blender_install_still_tests_finish(tmp_path, monkeypatch):
             if path.endswith("result.glb"):
                 return 200, b"glTF" + b"0" * 2048
             if path.endswith("/events") and "finish" in path:
-                return 200, b'data: {"stages": ["photo", "compress"]}\n\n'
+                return 200, (b'data: {"stages": ["photo", "compress"]}\n\n'
+                             b'data: {"message": "Pixal3D\'s own clean-up to 20,000 faces"}\n\n')
             return 200, b"{}"
 
         def json(self, method, path, payload=None, **kw):
@@ -335,3 +336,11 @@ def test_pods_are_rented_with_a_driver_new_enough_for_the_pixal3d_prebuilt():
     """An older host driver silently turns a one-minute install into a 15-minute compile."""
     command = smoke.create_command("NVIDIA A40", "smoke", 2.0)
     assert command[command.index("--min-cuda-version") + 1] == "12.9"
+
+
+def test_finish_route_is_read_from_its_events():
+    """A Finish that falls back to the classic route still finishes; the pod test must notice."""
+    new = [{"phase": "queued"}, {"message": "Pixal3D's own clean-up to 20,000 faces"}]
+    old = [{"phase": "queued"}, {"message": "Retopologising to 20,000 faces"}]
+    assert smoke.finish_route(new) == "pixal3d"
+    assert smoke.finish_route(old) == "classic"

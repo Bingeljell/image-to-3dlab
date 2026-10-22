@@ -392,6 +392,17 @@ class BackendSpec:
 BACKENDS: dict[str, BackendSpec] = {}
 
 
+def backend_spec(backend_id: str) -> BackendSpec | None:
+    """The generator for a backend, by its own key or by the catalogue's id. The studio sends the
+    catalogue's (hunyuan_xiong); some generators are keyed otherwise (hunyuan-mlx-xiong), and
+    a plain lookup answered 'unknown backend' for an installed engine (issue #151)."""
+    spec = BACKENDS.get(backend_id)
+    if spec is None:
+        spec = next((BACKENDS.get(key) for key, catalog_id in backend_catalog.ALIASES.items()
+                     if catalog_id == backend_id), None)
+    return spec
+
+
 def gpu_busy_check(spec: BackendSpec) -> str | None:
     """Why this backend may not fit on the card right now, or None if it should.
 
@@ -3070,7 +3081,7 @@ class Handler(SimpleHTTPRequestHandler):
             if payload is None:
                 self._send_json(422, {"error": f"unknown backend {backend_id!r}"})
                 return
-            spec = BACKENDS.get(backend_id)
+            spec = backend_spec(backend_id)
             if spec is not None:
                 live = spec.readiness()
                 # A spec that reports no weights is not saying "this backend has none",
@@ -3251,7 +3262,7 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return
-            spec = BACKENDS.get(backend_id)
+            spec = backend_spec(backend_id)
             if spec is None:
                 self._send_json(422, {"error": f"unknown backend {backend_id!r}"})
                 return

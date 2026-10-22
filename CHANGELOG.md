@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Pictures on NVIDIA Linux servers and containers now use the GPU without a hand fix.
+- **Hunyuan3D-MLX (Xiong) makes 3D models again.** Picking it answered "unknown backend
+  'hunyuan_xiong'" even when it was installed. Thanks to @dennich for the report and the fix idea.
 - **Agents no longer finish the wrong version by accident.** After making a new 3D model of a
   character, asking an agent to Finish it by the character's first id finished the old model.
   `continue_asset` now says which version and file it starts from, and warns when a newer

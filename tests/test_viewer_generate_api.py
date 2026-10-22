@@ -1962,3 +1962,13 @@ def test_a_running_rebind_is_seen_by_the_shared_check(tmp_path, monkeypatch):
     assert api.busy_reason("animate") == "a rig rebind is running; wait for it to finish"
     job.status = "done"
     assert api.busy_reason("animate") is None
+
+
+def test_a_backend_is_found_by_its_catalogue_id_too():
+    # Issue #151: the studio sends the catalogue's id ("hunyuan_xiong"); the generator's own key
+    # is "hunyuan-mlx-xiong", so generating answered "unknown backend 'hunyuan_xiong'".
+    assert api.backend_spec("hunyuan_xiong") is api.BACKENDS["hunyuan-mlx-xiong"]
+    assert api.backend_spec("hunyuan-mlx-xiong") is api.BACKENDS["hunyuan-mlx-xiong"]
+    assert api.backend_spec("trellis") is api.BACKENDS["trellis"]
+    assert api.backend_spec("no-such-engine") is None
+

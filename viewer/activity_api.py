@@ -24,7 +24,7 @@ TERMINAL = {"done", "error", "cancelled"}
 STALL_SECONDS = 180
 STEPS = ("picture", "back", "model", "finished", "split", "rigged", "animated")
 LABELS = {"picture": "Picture", "back": "Back picture", "model": "3D model", "finished": "Finish",
-          "split": "Split into props", "rigged": "Rig", "animated": "Animate"}
+          "split": "Split into props", "rigged": "Rig", "animated": "Animate", "skin": "Skin"}
 KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "finish", "split": "props",
         "rigged": "animate", "animated": "animate"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).

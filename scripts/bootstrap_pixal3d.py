@@ -438,6 +438,23 @@ def apply_dump_patch(runner=subprocess.run) -> bool:
     return True
 
 
+def apply_shape_patch(runner=subprocess.run) -> bool:
+    """Patch the fetched source so a run can save its shape and a later run can repaint it
+    from new pictures (scripts/patch_pixal3d_shape_reuse.py).
+
+    Never fatal: if upstream moved an anchor the build still succeeds, and models simply
+    cannot take new skins. Returns whether the patch is in place.
+    """
+    result = runner([sys.executable, str(REPO / "scripts" / "patch_pixal3d_shape_reuse.py")],
+                    capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        print("Warning: could not apply the shape patch; models will not take new skins.\n"
+              f"  {(result.stderr or result.stdout).strip()}", flush=True)
+        return False
+    print(result.stdout.strip(), flush=True)
+    return True
+
+
 def source_ref(kind: str) -> str:
     """The commit to build: the Mac build pins the one its patches were tested on (it used to
     track upstream's newest, which nothing had tested); the CUDA and HIP builds pin the commit
@@ -516,6 +533,7 @@ def build_from_source(kind: str) -> Path:
     fetch_source(source_ref(kind))
     apply_steps_patch()
     apply_dump_patch()
+    apply_shape_patch()
     flags = [*cmake_flags(kind, find_nvcc(), host.compute_capability(), hipcc,
                           gfx_targets() if hipcc else None),
              *extra_cmake_flags()]
@@ -628,6 +646,7 @@ def rebuild_existing(runner=subprocess.run) -> Path:
     """
     apply_steps_patch(runner)
     apply_dump_patch(runner)
+    apply_shape_patch(runner)
     runner(build_command(host.build_jobs()), check=True)
     if not build_present():
         raise SystemExit("The rebuild finished without trellis-cli.")

@@ -9,6 +9,7 @@ import { projectAxes, AXES } from './gizmo.js';
 import { createBoneDisplay } from './bones.js';
 import { createFloor, standOnFloor, homeView, facingAngle } from './floor.js';
 import { applyLook, meshesOf, faceLabel } from './looks.js';
+import { attachZoom } from './zoom.js';
 
 const ICON = {
   reset: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
@@ -453,13 +454,15 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
   }
 
   /** One picture, or a front and back pair side by side (`back` given). */
-  function showImage(url, caption, back = null) {
+  // `labels` names the two pictures: front and back by default, original and new for a skin
+  function showImage(url, caption, back = null, labels = ['Front', 'Back']) {
     ++loadToken;
     dispose();
     const pictures = back
-      ? `<div class="pair"><div><img src="${url}" alt="Front"><span>Front</span></div><div><img src="${back}" alt="Back"><span>Back</span></div></div>`
-      : `<img src="${url}" alt="">`;
-    setOverlay(`<figure class="sv-picture${back ? ' two' : ''}">${pictures}<figcaption>${caption}</figcaption></figure>`);
+      ? `<div class="pair"><div><div class="zoombox"><img src="${url}" alt="${labels[0]}"></div><span>${labels[0]}</span></div><div><div class="zoombox"><img src="${back}" alt="${labels[1]}"></div><span>${labels[1]}</span></div></div>`
+      : `<div class="zoombox"><img src="${url}" alt=""></div>`;
+    setOverlay(`<figure class="sv-picture${back ? ' two' : ''}">${pictures}<div class="zoombar" role="group" aria-label="Zoom"></div><figcaption>${caption} <span class="zoomhint">Pick a zoom, or scroll over a picture; drag to move, double-click to reset.</span></figcaption></figure>`);
+    attachZoom(overlay);
     drawGizmo();
     clipBar.hidden = true;
   }

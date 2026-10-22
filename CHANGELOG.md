@@ -54,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carries on with the classic route instead of failing.
 
 ### Added
+- **Skins: new paint on the same model.** On any finished Pixal3D model, say what to change
+  ("make the skirt gold"). You see the new front picture next to the original and approve it or
+  ask again with a correction, then the same for the back. Only then is the model repainted and
+  finished, in a few minutes, with the same mesh, so its rig and moves still fit. Pick a skin
+  under the model to view or download it. Agents can do the same through the MCP. Models made
+  before this update can't take skins; make them again from the same picture.
 - **Paste a picture into Create.** With "A picture" chosen, press Ctrl+V to use an image from
   your clipboard (a screenshot, or "Copy image" from a browser) instead of saving it to a file
   first. Text pastes are left alone. Create now shows the picture you chose, pasted, dropped or

@@ -35,7 +35,7 @@ FINISH_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__finish__\d{8}-\d{6}(?:-\d+)?$")
 RIG_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__rig__\d{8}-\d{6}(?:-\d+)?$")
 PROPS_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__props__\d{8}-\d{6}(?:-\d+)?$")
 # Folders under output/ that hold other steps' runs, not 3D generations.
-NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate"}
+NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate", "skins"}
 # A second take of a preset (`_b`) is a choice between versions, not another move.
 TAKE_SUFFIX = re.compile(r"_[b-z]$")
 STAGES = ("picture", "model", "finished", "rigged", "animated")
@@ -417,6 +417,13 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
         asset["main"] = mains.get(asset["family"]) == asset["id"]
         if isinstance(names.get(asset["id"]), str):
             asset["name"] = names[asset["id"]]
+    # A model's finished skins (viewer/skins_api.py): same mesh, new paint, listed with it.
+    from skins_api import SkinStore  # same folder; imported late like activity_api
+
+    store = SkinStore(output)
+    every_skin = store.all()
+    for asset in assets:
+        asset["skins"] = store.skins_for(asset["finished"], every_skin) if asset.get("finished") else []
     assets.sort(key=lambda a: a["updated"], reverse=True)
     return assets
 
@@ -484,6 +491,14 @@ def plan_delete(output: Path, asset_id: str) -> dict[str, Any]:
         if root not in path.parents or not path.is_dir():
             raise ValueError(f"refusing to touch {run}: not a run folder inside output/")
         folders.append({"path": run, "bytes": _folder_bytes(path)})
+    # A finished model that goes takes its skins with it: they are new paint for that one mesh.
+    if asset.get("finished") and Path(asset["finished"]).parent.as_posix() in asset["runs"]:
+        from skins_api import SKINS_DIR, SkinStore
+
+        for skin in SkinStore(output).all():
+            if skin.base.get("finished") == asset["finished"]:
+                folder = output / SKINS_DIR / skin.id
+                folders.append({"path": f"{SKINS_DIR}/{skin.id}", "bytes": _folder_bytes(folder)})
     refused = None
     if asset["version"] == 1 and asset["versions"] > 1:
         refused = "This is the original: the other versions were built from it. Delete those first, or hide this one."

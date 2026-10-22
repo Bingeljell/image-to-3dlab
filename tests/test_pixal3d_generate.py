@@ -680,3 +680,76 @@ def test_the_env_asks_to_carry_on_only_when_dumping(no_rocm):
 
 def test_a_stray_dump_variable_in_the_shell_is_dropped(no_rocm):
     assert px.DUMP_ENV not in px.run_env(None, base={px.DUMP_ENV: "1"})
+
+
+# --- Saving a run's shape, and repainting a saved one (new skins) ------------------------------
+
+
+def test_a_binary_with_the_shape_patch_can_make_skins(tmp_path):
+    cli = tmp_path / "trellis-cli"
+    cli.write_bytes(b"\x00...PIXAL3D_LOAD_SHAPE...\x01")
+    assert px.shape_supported(cli) is True
+
+
+def test_a_binary_without_the_shape_patch_cannot(tmp_path):
+    """Upstream's prebuilt downloads, or a patched source not yet rebuilt."""
+    cli = tmp_path / "trellis-cli"
+    cli.write_bytes(b"\x00 plain trellis-cli \x01")
+    assert px.shape_supported(cli) is False
+    assert px.shape_supported(tmp_path / "missing") is False
+
+
+def test_a_normal_run_saves_its_shape(no_rocm):
+    env = px.run_env(None, base={}, save_shape=Path("/out/run.shape.bin"))
+    assert env[px.SHAPE_SAVE_ENV] == "/out/run.shape.bin"
+    assert px.SHAPE_LOAD_ENV not in env
+
+
+def test_a_repaint_loads_the_shape_and_saves_nothing(no_rocm):
+    """The repaint's shape IS the saved one; writing it again would only invite a mix-up."""
+    env = px.run_env(None, base={}, save_shape=Path("/new.shape.bin"),
+                     load_shape=Path("/old.shape.bin"))
+    assert env[px.SHAPE_LOAD_ENV] == "/old.shape.bin"
+    assert px.SHAPE_SAVE_ENV not in env
+
+
+def test_stray_shape_variables_in_the_shell_are_dropped(no_rocm):
+    """A leftover load would quietly repaint some other model's shape."""
+    env = px.run_env(None, base={px.SHAPE_LOAD_ENV: "/x", px.SHAPE_SAVE_ENV: "/y"})
+    assert px.SHAPE_LOAD_ENV not in env and px.SHAPE_SAVE_ENV not in env
+
+
+def test_the_marker_is_what_the_patch_puts_in_the_binary():
+    """shape_supported looks for the load variable's name, which only the patched code holds."""
+    spec = importlib.util.spec_from_file_location(
+        "shape_patch", SCRIPT.with_name("patch_pixal3d_shape_reuse.py"))
+    patch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(patch)
+    assert px.SHAPE_LOAD_ENV == patch.LOAD_ENV and px.SHAPE_SAVE_ENV == patch.SAVE_ENV
+    assert px.SHAPE_MARKER == patch.LOAD_ENV.encode()
+
+
+def _saved_shape(tmp_path, views=None):
+    shape = tmp_path / "run.shape.bin"
+    shape.write_bytes(b"x")
+    params = {"seed": 1} if views is None else {"seed": 1, "views": views}
+    (tmp_path / "run.json").write_text(json.dumps({"parameters": params}))
+    return shape
+
+
+def test_a_front_back_shape_needs_a_back_picture_to_repaint(tmp_path):
+    shape = _saved_shape(tmp_path, "front + back")
+    assert "--back" in px.reuse_problem(shape, has_back=False)
+    assert px.reuse_problem(shape, has_back=True) is None
+
+
+def test_a_front_only_shape_refuses_a_back_picture(tmp_path):
+    shape = _saved_shape(tmp_path)
+    assert "drop --back" in px.reuse_problem(shape, has_back=True)
+    assert px.reuse_problem(shape, has_back=False) is None
+
+
+def test_a_shape_without_its_record_is_allowed(tmp_path):
+    shape = tmp_path / "loose.shape.bin"
+    shape.write_bytes(b"x")
+    assert px.reuse_problem(shape, has_back=True) is None

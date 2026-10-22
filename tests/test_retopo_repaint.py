@@ -173,14 +173,14 @@ def test_skip_bake_is_on_the_real_parser_and_off_by_default():
 
 def test_the_photo_stage_runs_after_the_repaint_and_before_the_bake():
     assert rr.stage_plan(skip_paint=False, skip_compress=False, photo=True) == [
-        "retopologise", "repaint", "photo", "bake", "compress",
+        "retopologise", "orient", "repaint", "photo", "bake", "compress",
     ]
     assert "photo" not in rr.stage_plan(skip_paint=False, skip_compress=False)
 
 
 def test_the_photo_stage_follows_retopology_when_there_is_no_repaint():
     assert rr.stage_plan(skip_paint=True, skip_compress=False, photo=True) == [
-        "retopologise", "photo", "bake", "compress",
+        "retopologise", "orient", "photo", "bake", "compress",
     ]
 
 
@@ -300,3 +300,64 @@ def test_a_refused_clean_up_falls_back_to_the_classic_route(tmp_path, monkeypatc
                                 tmp_path / "log") is None
     assert calls == ["classic"]
     assert "classic route" in capsys.readouterr().out
+
+
+def test_the_bake_command_passes_the_fade_mask_after_the_size():
+    command = rr.bake_command(Path("gen.glb"), Path("painted.glb"), Path("baked.glb"), 2048,
+                              blender=Path("/bl"), fade=Path("fade.png"))
+    assert command[command.index("--") + 1:] == [
+        "gen.glb", "painted.glb", "baked.glb", "2048", "fade.png"]
+
+
+def test_the_fade_mask_has_its_own_step_file(tmp_path):
+    assert rr.step_paths(tmp_path / "out.glb")["photo_fade"] == tmp_path / "out_photo_fade.png"
+    assert rr.step_paths(tmp_path / "o.glb", tmp_path / "s")["photo_fade"].name == "3_photo_fade.png"
+
+
+def test_the_fade_mask_is_the_trust_map_at_the_bake_size_with_soft_edges(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    trust = np.zeros((64, 64), dtype=np.uint8)
+    trust[:, 32:] = 255  # right half painted from the picture
+    Image.fromarray(trust).save(tmp_path / "w.png")
+    rr.normal_fade_mask(tmp_path / "w.png", 128, tmp_path / "fade.png")
+    mask = np.asarray(Image.open(tmp_path / "fade.png"))
+    assert mask.shape == (128, 128)
+    assert mask[64, 5] == 0 and mask[64, 122] == 255  # far from the edge: unchanged
+    assert 0 < mask[64, 64] < 255                       # at the edge: blended, no seam
+
+
+def test_detail_is_standard_unless_asked():
+    args = rr.build_parser().parse_args(["a.glb", "b.png", "c.glb"])
+    assert args.detail == "standard"
+    assert rr.face_target(args) == 20000
+
+
+def test_high_detail_aims_for_more_faces():
+    args = rr.build_parser().parse_args(["a.glb", "b.png", "c.glb", "--detail", "high"])
+    assert rr.face_target(args) == 50000
+
+
+def test_an_explicit_face_count_wins_over_the_detail_level():
+    args = rr.build_parser().parse_args(["a.glb", "b.png", "c.glb", "--detail", "high", "--faces", "30000"])
+    assert rr.face_target(args) == 30000
+
+
+def test_high_detail_calms_the_surface_before_pixel_match():
+    assert rr.stage_plan(skip_paint=True, skip_compress=False, photo=True, calm=True) == [
+        "retopologise", "calm", "orient", "photo", "bake", "compress"]
+
+
+def test_calm_needs_the_pictures_to_know_where_to_work():
+    assert "calm" not in rr.stage_plan(skip_paint=True, skip_compress=False, photo=False, calm=True)
+
+
+def test_keeping_the_full_mesh_never_calms_it():
+    assert "calm" not in rr.stage_plan(skip_paint=True, skip_compress=False, photo=True,
+                                       keep_mesh=True, calm=True)
+
+
+def test_the_calmed_mesh_has_its_own_step_file(tmp_path):
+    assert rr.step_paths(tmp_path / "out.glb")["calm"] == tmp_path / "out_calm.glb"
+    assert rr.step_paths(tmp_path / "o.glb", tmp_path / "s")["calm"].name == "1_calm.glb"

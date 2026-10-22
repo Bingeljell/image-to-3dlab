@@ -29,7 +29,10 @@ KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "f
         "rigged": "animate", "animated": "animate"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
 MOVE_KEYS = ("speed", "arm_spread")
-FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size")
+# Every Detail choice the studio and agents offer must be able to pass (mcp_server.FINISH_DETAILS):
+# "high" and "hero" were dropped here, so an agent asking for them got a plain Finish.
+FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size",
+               "high_detail", "hero")
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
 # Steps that run headless Blender; a plan with one is checked for Blender before anything runs.

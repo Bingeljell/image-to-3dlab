@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Fix a spot.** A brush in the 3D view for a finished model. Mark as many spots as you like
+  (Fill hole for dark pockets in pupils, brows or beards; Repaint for paint-only scuffs), press
+  Patch to preview, flip Before / After with the camera held still, then Keep one new version or
+  Discard. Filled holes get an even, curved patch repainted from your picture; size the brush with
+  the slider or [ and ].
+- **High detail Finish for cleaner faces.** Pick "High" under Finish > Detail (or `finish_detail="high"`
+  for agents). Keeps more of the
+  model (50,000 faces) and smooths away small bumps where your picture paints, so faces stay clean
+  when turned to the side instead of showing scratches, flat planes and ridged eyes.
+- **Hero face: a sharper face on the full body.** Choose Face > Hero face when you create a
+  character, or press "Finish as a Hero" (or "Make a Hero version") on a character you already
+  have; agents use `finish_detail="hero"`. The body is finished as usual, then the head is built
+  again from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle
+  eyes, and long hair stays solid. It takes longer than a normal Finish and needs a model made
+  from a picture with Pixal3D, plus the Hero face upscaler (67 MB, in Setup). The body and head
+  keep separate textures, so a new skin can later replace the body's without touching the face.
+  Also on the command line: `scripts/hero_route.py picture.png [--back back.png]`.
+- **Hero face can keep the body's own collar** (command line, for now). With
+  `scripts/hero_route.py ... --cut-at neck`, a character whose collar sits round the neck (armour,
+  high coats) keeps its clean collar from the body instead of the new head's scuffed one, and the
+  new face stays whole down to the chin. `--cut-at` also takes a height. Off by default.
+- **A step-by-step guide.** How to use, Create's Tips for best results and About now link the full
+  guide on assetfurnace.com: one picture to a finished, animated character, with what to do when
+  something looks off. Agents are pointed to it too.
+- **Runs from the Steps panel survive a reload.** Making a 3D model, Finish, Rig or a move from the
+  Steps panel now shows its progress in the middle like a Create run, and a reloaded or reopened
+  studio picks it back up instead of losing sight of it.
+
 ### Fixed
+- **Faces no longer look carved under a side light.** Finished realistic faces could show ridged
+  "goggle" eyes and a lumpy mouth in Blender or a game engine (the studio's soft light hid it).
+  Finish now keeps the face as painted where it was matched to your picture, and still keeps the
+  surface detail on armour, cloth and everything else.
+- **Mac installs get the tested Pixal3D.** New Mac installs used to build upstream's newest code,
+  which nothing here had been tested on. They now build the exact version every feature was tested on.
 - **No Blender? You're told at the start, in plain words.** Without Blender, Finish used to fail
   after the picture and 3D model had run, saying "Blender stopped with an error" and pointing at a
   log that didn't exist. Create and Finish now check first, say how to install Blender, and offer

@@ -34,6 +34,7 @@ if str(REPO) not in sys.path:
 
 from image_to_3dlab import host as _host
 from image_to_3dlab import matte as _matte
+from image_to_3dlab import upscale as _upscale
 from image_to_3dlab.host import AMD, APPLE, NVIDIA
 
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
@@ -789,6 +790,23 @@ CATALOG: tuple[Backend, ...] = (
             WeightSet("BiRefNet-lite", _matte.LITE_URL, _matte.LITE_BYTES,
                       _matte.model_file(_matte.LITE_MODEL),
                       note="One file, used by Pixal3D, TRELLIS and SF3D alike."),
+        ),
+    ),
+    Backend(
+        id="upscaler",
+        label="Hero face upscaler (Real-ESRGAN)",
+        kind="tool",
+        best_for=("Sharpens the close crop of a character's head for Hero face, so the head "
+                  "built from it keeps real eyelids and solid hair."),
+        tradeoff="Needed only for Hero face (Finish > Detail).",
+        license_name="BSD-3-Clause",
+        license_url="https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+        install="scripts/bootstrap_upscaler.py",
+        runs_on=(APPLE, NVIDIA, AMD),
+        setup_minutes=1,
+        weights=(
+            WeightSet("Real-ESRGAN x4plus", _upscale.WEIGHTS_URL, _upscale.WEIGHTS_BYTES,
+                      _upscale.WEIGHTS_FILE, note="One file, run by the project's own PyTorch."),
         ),
     ),
     Backend(

@@ -537,7 +537,13 @@ def test_background_remover_is_fetched_once_and_only_when_missing(tmp_path):
 def test_the_cuda_source_build_fetches_the_tested_commit():
     assert boot.source_ref("cuda-source") == boot.PREBUILT_COMMIT
     assert len(boot.PREBUILT_COMMIT) == 40
-    assert boot.source_ref("metal-source") == "HEAD"
+
+
+
+def test_the_mac_source_build_fetches_a_pinned_commit_not_the_newest():
+    """Skins repaint saved shapes; a new upstream could change what a shape file means."""
+    assert boot.source_ref("metal-source") == boot.MAC_COMMIT
+    assert len(boot.MAC_COMMIT) == 40 and boot.MAC_COMMIT != "HEAD"
 
 
 def test_weights_come_from_the_tested_revisions(monkeypatch, tmp_path):

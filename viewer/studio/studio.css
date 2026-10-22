@@ -86,6 +86,8 @@ a { color: inherit; }
 .stage { position: relative; background: radial-gradient(70% 60% at 50% 85%, rgb(253 109 20 / .12), transparent 70%), #0c0a09; overflow: hidden; }
 .sv-pane { position: absolute; inset: 0; }
 .sv-pane canvas { display: block; }
+.sv-pane.fixing canvas { cursor: crosshair; }
+.sv-pane.fixing.ringing canvas { cursor: none; }   /* over the model the brush ring is the cursor */
 .sv-pane .stats { position: absolute; left: 14px; bottom: 14px; z-index: 4; font-size: 12px; color: var(--bone); opacity: .75; pointer-events: none; font-variant-numeric: tabular-nums; }
 .stage:has(.sv-clips:not([hidden])) .sv-pane .stats { bottom: 78px; }
 .sv-overlay { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; padding: 24px; }
@@ -130,6 +132,13 @@ a { color: inherit; }
 .sv-clips .sep { width: 1px; height: 22px; background: var(--line); }
 .chip { border: 1px solid var(--line); background: var(--raise); border-radius: 999px; padding: 5px 11px; font-size: 13px; color: var(--ash); }
 .chip[aria-pressed="true"] { background: var(--ember); border-color: var(--ember); color: #1b0b02; font-weight: 600; }
+.sv-brush { display: grid; gap: 8px; background: #1d1714; border: 1px solid var(--line-hi); border-radius: 10px; padding: 8px 10px; font-size: 12px; color: var(--bone); min-width: 280px; }
+.sv-brush[hidden], .sv-brush [hidden] { display: none; }
+.sv-brush .row { display: flex; align-items: center; gap: 8px; }
+.sv-brush .row > span:first-child { min-width: 38px; opacity: .8; }
+.sv-brush [data-count] { flex: 1; }
+.sv-brush input { flex: 1; accent-color: #ff7a1a; }
+.sv-brush kbd { opacity: .6; font-size: 11px; }
 .sv-note { position: absolute; left: 50%; top: 60px; transform: translateX(-50%); z-index: 8; background: #2a201b; border: 1px solid var(--line-hi); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
 
 /* steps */
@@ -239,6 +248,9 @@ textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); bord
 .kind { border: 1px solid var(--line); border-radius: 12px; background: var(--raise); padding: 12px; text-align: left; display: grid; gap: 4px; }
 .kind b { font-size: 14px; } .kind small { color: var(--ash); font-size: 12px; line-height: 1.4; }
 .kind[aria-pressed="true"] { border-color: var(--ember); box-shadow: 0 0 0 1px var(--ember); }
+.wants.faces { grid-template-columns: repeat(2, 1fr); }
+.hero-card { border: 1px solid var(--ember); border-radius: 12px; padding: 12px; margin-bottom: 12px; display: grid; gap: 10px; }
+.hero-card p { margin: 0; font-size: 13px; color: var(--bone); line-height: 1.45; }
 .kind.off { opacity: .4; cursor: not-allowed; }
 .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pstep { border: 1px solid var(--ember); background: rgb(253 109 20 / .12); color: var(--bone); border-radius: 9px; padding: 7px 11px; font-size: 13px; }

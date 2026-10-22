@@ -2,7 +2,7 @@
 // step that ended (finished, stopped or failed), newest first; failures live here, not in
 // the way. About says what this is, who built what, and where to find us.
 
-import { STEP_LABELS } from './plan.js';
+import { STEP_LABELS, FULL_GUIDE } from './plan.js';
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -147,6 +147,7 @@ export async function openAbout(stage) {
     <h3>Find us</h3>
     <div class="row">
       <a class="ghost" href="https://assetfurnace.com" target="_blank" rel="noopener">assetfurnace.com</a>
+      <a class="ghost" href="${FULL_GUIDE}" target="_blank" rel="noopener">Guide</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab" target="_blank" rel="noopener">GitHub</a>
       <a class="ghost" href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">Report a problem</a>
@@ -171,6 +172,9 @@ export const GUIDE = [
   ['5. Next steps', 'The Steps panel on the right shows what is done and what comes next: 3D model, Finish (a lighter, cleaner mesh, with Pixel Match keeping your picture sharp), Rig (adds a skeleton) and Animate (add moves). Rig and Animate are for humanoids: two arms, two legs, standing up.'],
   ['6. Look around', 'Drag to orbit, scroll to zoom, right-drag to pan. The buttons top right reset the view and show wireframe, clay (plain grey, to judge the shape), normals (to spot dents and flipped faces), floor grid or skeleton. The face count sits bottom left. Click an axis on the gizmo to look from that side.'],
   ['7. Take it into your game', 'Download GLB saves the model, or the move that is playing. It opens in Godot, Unity, Unreal, Blender and three.js.'],
+  ['Better pictures, better models', 'Most of a good model is decided by the picture. Ask for a soft 3D-render look with even lighting, an A-pose (arms angled down, hands open), eyes open, and slightly larger, clearly defined eyes for realistic people. Keep hair neat, in solid locks, clear of the face and shoulders: thin loose strands tear when the model is cut down for games. Say what you want, not what you don\'t: "smooth fabric" works, "no wrinkles" adds wrinkles. One subject, no props, plain background.'],
+  ['Hero face', 'For characters whose face matters. In the Finish step, set Detail to Hero face. The body is finished as usual, then the head is built again from a close, sharper crop of your picture and joined on, so faces get real eyelids instead of goggle eyes. It takes longer than a normal Finish, and needs a model made from a picture. Long hair below the shoulders keeps the body\'s plainer detail. Have a look at the eyes: if a pupil is a dark hole, Fix a spot\'s Fill hole closes it.'],
+  ['Fix a spot', 'The brush button in the 3D view, on a finished model. Click to mark spots (size the ring with the slider or [ ]), press Patch to preview, flip Before / After, then Keep (a new version) or Discard. Fill hole cuts out a pocket or dent and patches it smooth: dark pupils, goggle eyes, pits in a beard. Smooth irons out bumps and ridges without cutting (set its strength). Repaint changes paint only, from your picture: scuffs and smears.'],
   ['Open GLB', 'Look at any GLB from your computer, or drop one anywhere on the page. View only: nothing is copied into your Library.'],
   ['Activity', 'Everything that has run, finished, stopped or failed, with logs when something breaks.'],
   ['Report a bug', 'Tell us what broke. The studio adds the version, your machine and the error; you read it all, then send it through our site, GitHub or Discord.'],
@@ -181,6 +185,7 @@ export const GUIDE = [
 export function openGuide(stage) {
   sheet(stage, `<div class="sheet-card guide">
     <div class="sheet-top"><h2>How to use <span>AssetFurnace</span></h2><button type="button" class="ghost" data-close>Close</button></div>
+    <p class="meta">New here? The <a href="${FULL_GUIDE}" target="_blank" rel="noopener">step-by-step guide</a> takes you from one picture to a finished, animated character, with pictures.</p>
     <dl>${GUIDE.map(([title, text]) => `<dt>${escape(title)}</dt><dd>${escape(text)}</dd>`).join('')}</dl></div>`);
 }
 

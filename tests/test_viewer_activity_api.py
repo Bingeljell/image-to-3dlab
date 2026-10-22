@@ -356,3 +356,11 @@ def test_a_plan_with_finish_is_refused_up_front_when_blender_is_missing(tmp_path
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_every_finish_detail_agents_can_ask_for_reaches_finish():
+    from image_to_3dlab import mcp_server as ms
+    for detail, settings in ms.FINISH_DETAILS.items():
+        form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
+                "finish_settings": {"value": json.dumps(settings)}}
+        assert aa.chain_from_form(form).finish_settings == settings, detail

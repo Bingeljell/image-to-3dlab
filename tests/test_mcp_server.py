@@ -325,7 +325,8 @@ def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
     menu = source[source.index("function finishDetail()"):]
     menu = menu[: menu.index("</select>")]
     studio_values = set(re.findall(r'<option value="([^"]+)"', menu)) - {"custom"}
-    ours = {str(v.get("faces")) if "faces" in v else "full" for v in ms.FINISH_DETAILS.values()}
+    ours = {"high" if v.get("high_detail") else "hero" if v.get("hero") else str(v.get("faces")) if "faces" in v else "full"
+            for v in ms.FINISH_DETAILS.values()}
     assert studio_values == ours, "The studio's Finish Detail menu and FINISH_DETAILS in mcp_server.py disagree."
 
 
@@ -597,3 +598,15 @@ def test_export_without_a_skin_is_one_file_with_every_skin():
 def test_export_says_when_there_is_nothing_to_export(studio):
     with pytest.raises(ms.StudioError, match="no finished skins"):
         ms.export_skins(studio, asset_id=KNIGHT["id"])
+
+
+def test_agents_can_ask_for_high_detail():
+    assert ms.finish_choices("high") == {"faces": 50000, "high_detail": True}
+
+
+def test_agents_are_told_where_the_guide_is_and_that_fix_a_spot_is_hands_on():
+    from image_to_3dlab import mcp_server
+    text = mcp_server.INSTRUCTIONS
+    assert "https://assetfurnace.com/blog/how-to-use-assetfurnace" in text
+    assert "Fix a spot" in text and "open_in_studio" in text
+    assert 'finish_detail="hero"' in text

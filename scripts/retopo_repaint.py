@@ -98,17 +98,20 @@ def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bo
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
-               photo: bool = False, keep_mesh: bool = False) -> list[str]:
+               photo: bool = False, keep_mesh: bool = False, calm: bool = False) -> list[str]:
     """The stages this run will execute, in order.
 
     Named separately from the running of them so a caller — the viewer's job API, say —
     can show the sequence before anything starts, and so the order is testable.
     `keep_mesh` finishes the generator's own mesh as it is: no retopology, so nothing
     to repaint or bake detail onto, just Pixel Match and the texture squeeze.
+    `calm` (High detail) smooths small bumps where the pictures paint, so it needs them.
     """
     if keep_mesh:
         return (["photo"] if photo else []) + ([] if skip_compress else ["compress"])
     stages = ["retopologise"]
+    if calm and photo:
+        stages.append("calm")
     if not skip_paint:
         stages.append("repaint")
     if photo:
@@ -249,6 +252,7 @@ def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
     if steps_dir is None:
         stem = str(output.with_suffix(""))
         names = {"retopo": f"{stem}_retopo.glb", "retopo_log": f"{stem}_retopo.log",
+                 "calm": f"{stem}_calm.glb",
                  "painted": f"{stem}_painted.glb", "photo": f"{stem}_photo.glb",
                  "photo_weights": f"{stem}_photo_weights.png",
                  "photo_fade": f"{stem}_photo_fade.png",
@@ -256,6 +260,7 @@ def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
         return {key: Path(value) for key, value in names.items()}
     return {
         "retopo": steps_dir / "1_retopo.glb", "retopo_log": steps_dir / "1_retopo.log",
+        "calm": steps_dir / "1_calm.glb",
         "painted": steps_dir / "2_painted.glb", "photo": steps_dir / "3_photo.glb",
         "photo_weights": steps_dir / "3_photo_weights.png",
         "photo_fade": steps_dir / "3_photo_fade.png",
@@ -286,7 +291,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("source", type=Path, help="generated GLB to finish")
     parser.add_argument("image", type=Path, help="source concept art, for the repaint")
     parser.add_argument("output", type=Path, help="finished GLB to write")
-    parser.add_argument("--faces", type=int, default=20000, help="retopology target")
+    parser.add_argument("--faces", type=int, default=None,
+                        help="retopology target (default: 20,000, or 50,000 with --detail high)")
+    parser.add_argument(
+        "--detail", choices=("standard", "high"), default="standard",
+        help="high: more faces, and the surface calmed where the pictures paint, for cleaner "
+             "faces from the side (needs --views). Recommended for realistic humans",
+    )
     parser.add_argument("--atlas", type=int, default=2048)
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(
@@ -353,6 +364,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def face_target(args: argparse.Namespace) -> int:
+    """The retopology target: an explicit --faces, else the detail level's."""
+    if args.faces is not None:
+        return args.faces
+    from image_to_3dlab import surface_calm
+
+    return surface_calm.HIGH_FACES if args.detail == "high" else 20000
+
+
 def required_inputs(args: argparse.Namespace) -> list[Path]:
     """The files this run must find. The picture feeds only the repaint and the photo
     stage, so a run with neither (a model that came with no picture) needs just the mesh."""
@@ -381,8 +401,10 @@ def main() -> int:
         raise SystemExit(f"--views has no transforms.json: {args.views}")
     if args.keep_mesh:
         args.skip_paint = args.skip_bake = True   # nothing simplified, so nothing to repaint or bake onto
+    args.faces = face_target(args)
+    calm = args.detail == "high"
     stages = stage_plan(args.skip_paint, args.skip_compress, args.skip_bake,
-                        photo=args.views is not None, keep_mesh=args.keep_mesh)
+                        photo=args.views is not None, keep_mesh=args.keep_mesh, calm=calm)
     print(f"[retopo-repaint] {args.source.name} -> {args.output.name}: "
           f"{' -> '.join(stages)}", flush=True)
 
@@ -422,6 +444,23 @@ def main() -> int:
         timings["retopologise"] = round(time.time() - step, 1)
 
     current = retopo_glb
+    calm_record = None
+    if "calm" in stages:
+        from image_to_3dlab import surface_calm
+
+        calm_glb = steps["calm"]
+        step = time.time()
+        if reuse(calm_glb, args.resume):
+            emit_stage("calm", f"Reusing {calm_glb.name}")
+        else:
+            emit_stage("calm", "High detail: smoothing small bumps where the picture paints")
+            calm_record = surface_calm.calm_glb(
+                current, calm_glb, surface_calm.front_weights(current, args.views))
+            print(f"[calm] {calm_record['vertices']:,} vertices calmed, "
+                  f"{calm_record['rounds']} rounds", flush=True)
+        timings["calm"] = round(time.time() - step, 1)
+        current = calm_glb
+
     if not args.skip_paint:
         painted = steps["painted"]
         step = time.time()
@@ -507,6 +546,8 @@ def main() -> int:
             {"route": "pixal3d" if native else "classic", "faces": args.faces,
              "atlas": args.atlas, "voxel": args.voxel, "angle": args.angle}),
         "full_detail": args.keep_mesh,
+        "detail": args.detail,
+        "calm": None if "calm" not in stages else (calm_record or {"reused": True}),
         "surface": {"metallic": args.metallic, "roughness": args.roughness, "ior": args.ior},
         "bake": None if args.skip_bake else {"size": args.atlas,
                                              "flat_where_photo": fade is not None},

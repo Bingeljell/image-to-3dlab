@@ -57,6 +57,7 @@ export function finishFaces(choice, custom) {
 
 /** What Finish's Detail control sends: a triangle count, or full detail (every triangle kept). */
 export function finishDetailSettings(choice, custom) {
+  if (choice === 'high') return { faces: 50000, high_detail: true };
   return choice === 'full' ? { keep_mesh: true } : { faces: finishFaces(choice, custom) };
 }
 

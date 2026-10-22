@@ -854,8 +854,9 @@ def test_an_agents_link_names_the_asset_to_open():
 @needs_node
 def test_finish_detail_sends_a_triangle_count_or_full_detail():
     out = _run("library.js", """console.log(JSON.stringify(
-      [m.finishDetailSettings('20000'), m.finishDetailSettings('custom', '30000'), m.finishDetailSettings('full')]));""")
-    assert out == [{"faces": 20000}, {"faces": 30000}, {"keep_mesh": True}]
+      [m.finishDetailSettings('20000'), m.finishDetailSettings('custom', '30000'), m.finishDetailSettings('full'),
+       m.finishDetailSettings('high')]));""")
+    assert out == [{"faces": 20000}, {"faces": 30000}, {"keep_mesh": True}, {"faces": 50000, "high_detail": True}]
 
 
 @needs_node

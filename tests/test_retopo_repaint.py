@@ -326,3 +326,38 @@ def test_the_fade_mask_is_the_trust_map_at_the_bake_size_with_soft_edges(tmp_pat
     assert mask.shape == (128, 128)
     assert mask[64, 5] == 0 and mask[64, 122] == 255  # far from the edge: unchanged
     assert 0 < mask[64, 64] < 255                       # at the edge: blended, no seam
+
+
+def test_detail_is_standard_unless_asked():
+    args = rr.build_parser().parse_args(["a.glb", "b.png", "c.glb"])
+    assert args.detail == "standard"
+    assert rr.face_target(args) == 20000
+
+
+def test_high_detail_aims_for_more_faces():
+    args = rr.build_parser().parse_args(["a.glb", "b.png", "c.glb", "--detail", "high"])
+    assert rr.face_target(args) == 50000
+
+
+def test_an_explicit_face_count_wins_over_the_detail_level():
+    args = rr.build_parser().parse_args(["a.glb", "b.png", "c.glb", "--detail", "high", "--faces", "30000"])
+    assert rr.face_target(args) == 30000
+
+
+def test_high_detail_calms_the_surface_before_pixel_match():
+    assert rr.stage_plan(skip_paint=True, skip_compress=False, photo=True, calm=True) == [
+        "retopologise", "calm", "photo", "bake", "compress"]
+
+
+def test_calm_needs_the_pictures_to_know_where_to_work():
+    assert "calm" not in rr.stage_plan(skip_paint=True, skip_compress=False, photo=False, calm=True)
+
+
+def test_keeping_the_full_mesh_never_calms_it():
+    assert "calm" not in rr.stage_plan(skip_paint=True, skip_compress=False, photo=True,
+                                       keep_mesh=True, calm=True)
+
+
+def test_the_calmed_mesh_has_its_own_step_file(tmp_path):
+    assert rr.step_paths(tmp_path / "out.glb")["calm"] == tmp_path / "out_calm.glb"
+    assert rr.step_paths(tmp_path / "o.glb", tmp_path / "s")["calm"].name == "1_calm.glb"

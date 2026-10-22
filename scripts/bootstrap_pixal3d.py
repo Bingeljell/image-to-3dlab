@@ -97,8 +97,8 @@ PREBUILTS = {
 }
 # From the workflow run's log. A download that does not match is deleted, never unpacked.
 PREBUILT_SHA256 = {
-    "pixal3d-cuda12-linux-x64.tar.gz": "6bcdd05ca92e757c74b36c8c95b7ce7d7ac3090c6f6e61d504acbcc2363db3ab",
-    "pixal3d-cuda12-windows-x64.zip": "4a50b052cc813bec4f3b29bb79bb8de577cbcdaf1247367c6f98909bebfa9c83",
+    "pixal3d-cuda12-linux-x64.tar.gz": "ca59ac8ca42c5c3597c23ada69082c7e1ed57a860dd2f4ab7dbaefbc4510e315",
+    "pixal3d-cuda12-windows-x64.zip": "ecd0f9320384c6bedbbd774277a86beb8885e3afa5a13250687d025e53102175",
 }
 
 # What the "Building (...)" line says, so a compile that runs for 20 minutes names the

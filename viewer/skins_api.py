@@ -28,6 +28,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from image_to_3dlab import processes
+
 REPO = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = REPO / "output"
 SKINS_DIR = "skins"
@@ -418,8 +420,10 @@ def progress(stage: str, line: str) -> float | None:
 class SkinBuilds:
     """One build at a time; it also counts as a heavy job (generate_api.HEAVY_JOBS)."""
 
-    def __init__(self, store: SkinStore):
+    def __init__(self, store: SkinStore, stop=None):
         self.store = store
+        # Stops a step's whole process group: the engine and Blender it started, not just the step.
+        self.stop = stop or processes.terminate_group
         self.jobs: dict[str, SkinBuild] = {}
         self.lock = threading.Lock()
         self.active: str | None = None
@@ -454,7 +458,7 @@ class SkinBuilds:
             return False
         job.cancel_requested = True
         if job.process and job.process.poll() is None:
-            job.process.terminate()
+            self.stop(job.process.pid)
         return True
 
     def run(self, job: SkinBuild, skin: Skin, runner=subprocess.Popen, box=cut_out_box) -> None:
@@ -464,17 +468,21 @@ class SkinBuilds:
         try:
             job.emit({"phase": "check", "message": "Checking the new pictures line up with the originals", "overall_pct": 1})
             problem = framing_problem(output, skin, box)
+            if job.cancel_requested:
+                raise InterruptedError
             if problem:
                 raise RuntimeError(problem)
             # Each command is built when its step starts: Finish only finds the repaint's clean-up
             # dump and cameras once the repaint has written them (2026-10-19: built up front, the
             # first skin took the classic route without Pixel Match, a different mesh).
             for stage, make in (("repaint", repaint_command), ("finish", finish_command)):
+                if job.cancel_requested:
+                    raise InterruptedError
                 command = make(output, skin)
                 job.emit({"phase": stage, "message": "Repainting the model" if stage == "repaint"
                           else "Finishing, with the model's own settings", "overall_pct": 0 if stage == "repaint" else 80})
                 job.process = runner(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, bufsize=1, cwd=str(REPO))
+                                     text=True, bufsize=1, cwd=str(REPO), **processes.group_popen_kwargs())
                 for raw in job.process.stdout:
                     line = raw.rstrip()
                     if not line:

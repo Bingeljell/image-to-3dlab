@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-22
+
 ### Fixed
 - **Cancelling a skin build really stops it.** The 3D engine and Blender used to keep running after
   Cancel, so the next job could run out of memory.

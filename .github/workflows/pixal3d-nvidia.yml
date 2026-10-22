@@ -66,6 +66,7 @@ jobs:
           python scripts/patch_pixal3d_steps.py pixal3d/src/flow_runner.cpp
           python scripts/patch_pixal3d_dump_continue.py pixal3d/src/trellis_cli.cpp
           python scripts/patch_pixal3d_shape_reuse.py pixal3d/src/trellis_cli.cpp
+          python scripts/patch_pixal3d_msvc.py pixal3d/src/uv_bake.cpp
 
       - name: MSVC dev shell (Windows)
         if: matrix.os == 'windows'

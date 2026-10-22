@@ -45,8 +45,12 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `bootstrap_gltfpack.py` | Install gltfpack for split props, from meshoptimizer's GitHub release. |
 | `bootstrap_hunyuan_xiong.py` | Set up Hunyuan3D-MLX (Xiong, full pipeline): both Python environments, then the weights. |
 | `bootstrap_matte.py` | Install BiRefNet-lite, the background remover every backend uses once it is present. |
+| `bootstrap_upscaler.py` | Install Real-ESRGAN x4plus, the 4x upscaler Hero face uses on the head crop. |
 | `bootstrap_qwen_image.py` | Install the text-to-image route: a stable-diffusion.cpp binary and Qwen-Image weights. |
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
+| `hero_route.py` | Build a hero character: a full-body model with a high-detail head grafted on, as one GLB. |
+| `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
+| `upscale_esrgan.py` | Upscale a picture 4x with Real-ESRGAN, then resize it to a square of SIZE pixels. |
 | `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
@@ -232,6 +236,7 @@ Numbers about the project itself, not about any asset.
 | `patch_pixal3d_low_vram.py` | Make Pixal3D's low-VRAM mode reachable, via `PIXAL3D_LOW_VRAM=1`. |
 | `patch_pixal3d_dump_continue.py` | Let Pixal3D save its clean-up input and still write the model, via `PIXAL3D_DUMP_CONTINUE=1`. |
 | `patch_pixal3d_steps.py` | Let Pixal3D (pixal3d.cpp) run fewer sampling steps, via `PIXAL3D_STEPS=N`. |
+| `patch_pixal3d_shape_reuse.py` | Let Pixal3D save a run's shape and later repaint it from new pictures, via `PIXAL3D_SAVE_SHAPE` / `PIXAL3D_LOAD_SHAPE`. |
 | `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
 | `patch_hunyuan_rocm.py` | Make Tencent's Hunyuan3D-2.1 survive on an AMD card, without touching what NVIDIA runs. |
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |

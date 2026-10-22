@@ -66,6 +66,7 @@ COMMANDS: dict[str, list[str]] = {
     "qwen-image": [sys.executable, str(REPO / "scripts" / "bootstrap_qwen_image.py"),
                    "--yes"],
     "matte": [sys.executable, str(REPO / "scripts" / "bootstrap_matte.py"), "--yes"],
+    "upscaler": [sys.executable, str(REPO / "scripts" / "bootstrap_upscaler.py"), "--yes"],
     "autorig": [sys.executable, str(REPO / "scripts" / "bootstrap_autorig.py"), "--yes"],
     "front-back": [sys.executable, str(REPO / "scripts" / "bootstrap_front_back.py"), "--yes"],
     # NVIDIA-only: Tencent's own Hunyuan3D-2.1, built for CUDA. The catalogue marks it
@@ -150,7 +151,11 @@ def rebuild_reason(backend_id: str, source: Path | None = None,
     cli = cli or pixal3d_generate.CLI
     if not cli.is_file() or not source.is_file():
         return None
-    return pixal3d_generate.steps_problem(pixal3d_generate.FAST_STEPS, source, cli)
+    problem = pixal3d_generate.steps_problem(pixal3d_generate.FAST_STEPS, source, cli)
+    if problem is None and not pixal3d_generate.shape_supported(cli):
+        # Built before skins: its models keep no shape, so none can take a new skin.
+        return "this build cannot keep a model's shape for new skins: rebuild to add it"
+    return problem
 
 
 def strip_ansi(line: str) -> str:

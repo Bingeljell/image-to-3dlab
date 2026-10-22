@@ -80,6 +80,20 @@ def test_the_wrong_half_turn_is_caught_even_though_sizes_match():
     assert "wrong side" in pn.frame_problem(raw, turned)
 
 
+def test_a_clean_up_that_trims_every_side_still_passes():
+    """2026-10-19 gnoll: the clean-up smoothed the back of the mane off by 0.88% and the old
+    fixed 0.5% limit failed the Finish. Turned round it would be off by 1.32%: the right
+    way round fits better, so it passes."""
+    raw = np.array([[-0.4088, -0.4405, -0.1922], [0.4095, 0.4418, 0.1822]])
+    cleaned = np.array([[-0.4065, -0.4384, -0.1844], [0.4064, 0.4368, 0.1805]])
+    assert pn.frame_problem(raw, cleaned) is None
+
+
+def test_a_model_far_from_the_raw_one_is_refused_whichever_way_round():
+    raw = np.array([[-0.4, -0.4, -0.2], [0.4, 0.4, 0.2]])
+    assert "not the same shape" in pn.frame_problem(raw, raw * 1.2)
+
+
 def test_normals_are_shared_across_a_uv_seam():
     """Two triangles of one flat quad, split at the seam like post-replay writes them."""
     positions = [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]]
@@ -155,7 +169,7 @@ def test_native_retopo_refuses_a_model_in_the_wrong_frame(tmp_path):
     def runner(command, **kwargs):
         Path(command[2]).write_bytes(_glb(mirrored, WEDGE_FACES))
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(pn.FrameMismatch):
         pn.native_retopo(tmp_path / "run.post.bin", raw, tmp_path / "out.glb", 100, 1024,
                          tmp_path / "replay.log", post_replay=tmp_path / "post-replay",
                          runner=runner)

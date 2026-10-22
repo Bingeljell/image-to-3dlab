@@ -8,6 +8,7 @@ import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet } from './pages.js';
 import { STEP_LABELS } from './plan.js';
+import { mountSkins } from './skins.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
@@ -18,12 +19,36 @@ let filter = 'all', query = '', showHidden = false, limit = 30;
 let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
+let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
+let viewingSkin = null;       // a skin id when the viewer shows one of the model's skins
 const openFamilies = new Set();  // families whose versions are listed under their row
 
-const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file) });
+const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), fixSession: {
+  // only a finished model on screen (not a rigged one, a move or the raw model)
+  canFix: () => !!(current?.finished && !viewingStep && !viewingPictures && displayModel(current) === current.finished),
+  patch: async (spots, base) => {
+    const body = await postFix('preview', { from: current.finished, base, spots });
+    return { preview: body.preview, url: url(body.preview) };
+  },
+  keep: async (preview) => {
+    const before = assets, family = current.family || current.id;
+    const body = await postFix('keep', { from: current.finished, preview });
+    await loadLibrary(null, { pick: false });
+    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+  },
+  discard: (preview) => postFix('discard', { preview }).catch(() => {}),
+} });
+
+async function postFix(action, payload) {
+  const response = await fetch(`/api/fix-spot/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'That did not work.');
+  return body;
+}
 
 const escape = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const url = (relative) => servedUrl(base, relative);
@@ -71,7 +96,7 @@ function summaries(asset) {
   return {
     picture: asset.picture ? 'Done' : 'No picture kept (model uploaded or older run)',
     model: asset.model ? engineOf(asset.model) : asset.finished ? 'Made outside the app' : '',
-    finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : 'Done',
+    finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : /_hero\.glb$/.test(fileName(asset.finished)) ? 'Hero · sharper face, built on its own' : 'Done',
     rigged: 'Auto-rig',
     animated: asset.clips.map((c) => c.name.replace(/_/g, ' ')).join(', '),
   };
@@ -116,8 +141,63 @@ function renderSteps(asset) {
     renderSteps(asset);
     setDownload(file);
   }));
-  setDownload(viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
+  const skin = viewingSkin && (asset.skins || []).find((k) => k.id === viewingSkin);
+  // a character wearing a skin: the move picker points the download at the dressed move
+  if (!(skin && asset.rigged && asset.clips.length)) {
+    setDownload(skin ? skin.file : viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
+  }
+  mountSkins($('steps'), asset, skinCtx);
 }
+
+// what the Skins card needs from the page (viewer/studio/skins.js)
+const skinCtx = {
+  url: (relative) => url(relative),
+  asset: () => current,
+  viewing: () => viewingSkin,
+  view: async (skin) => {
+    if (!skin) { show(current); return; }
+    const asset = current;
+    viewingSkin = skin.id;
+    viewingStep = null;
+    viewingPictures = false;
+    if (asset.rigged && asset.clips.length) {
+      // a character: its rest pose and every move, each wearing the skin (made once, then kept)
+      const dress = async (file) => (await (await fetch(`/api/skins/${skin.id}/dressed?file=${encodeURIComponent(file)}`)).json()).file;
+      try {
+        const rest = await dress(asset.rigged);
+        const clips = [];
+        for (const clip of asset.clips) clips.push({ name: clip.name.replace(/_/g, ' '), file: await dress(clip.file) });
+        if (current !== asset || viewingSkin !== skin.id) return;   // moved on while dressing
+        viewer.setFacing(asset.facing);
+        viewer.setClips(clips.map((c) => ({ ...c, url: url(c.file) })), { restUrl: url(rest) });
+      } catch { viewer.showEmpty('Could not put this skin on the rigged model.'); }
+    } else {
+      viewer.setFacing(null);
+      viewer.setClips([]);
+      viewer.load(url(skin.file), { label: `${asset.name} · ${skin.name}` });
+    }
+    renderSteps(asset);   // the card offers to delete the skin on show; the download follows it
+  },
+  onBusy: (on) => ctx.onBusy(on),
+  // a skin's original and new picture, full size where the model usually is
+  compare: (original, fresh, caption, version) => {
+    viewingSkin = null;
+    viewingStep = null;
+    viewingPictures = true;
+    viewer.setFacing(null);
+    viewer.setClips([]);
+    viewer.showImage(url(original), escape(caption), `${url(fresh)}?v=${version}`, ['Original', 'New']);
+  },
+  // a finished skin: reload the Library and show the model wearing it
+  onDone: async (skin) => {
+    const keepId = current?.id;
+    await loadLibrary(null, { pick: false });
+    const asset = assets.find((a) => a.id === keepId) ?? current;
+    show(asset);
+    const made = skin && (asset?.skins || []).find((k) => k.id === skin.id);
+    if (made) { skinCtx.view(made); renderSteps(asset); }
+  },
+};
 
 function stepLink(asset, stepId) {
   if (stepId === 'picture' && canViewPictures(asset)) {
@@ -180,8 +260,12 @@ $('copyPathBtn').addEventListener('click', async (event) => {
 const ctx = {
   get engines() { return engines; },
   get presets() { return presets; },
+  get blenderReady() { return blenderReady; },
   url: (relative) => url(relative),
   asset: () => current,
+  // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
+  // up, and the server runs one big job at a time whoever starts it
+  startChain: (plan) => startChain(plan),
   onBusy: (on) => { busy = on; document.body.classList.toggle('busy', on); },
   // after a new move, open the asset on that move
   onDone: async (stepId, { preset } = {}) => {
@@ -199,6 +283,7 @@ function show(asset) {
   viewingMaking = false;
   viewingPictures = false;
   viewingStep = null;
+  viewingSkin = null;
   $('progress').hidden = true;
   renderLibrary();
   $('vTitle').textContent = asset?.name ?? '';
@@ -346,10 +431,12 @@ async function refreshAssets() {
 }
 
 async function loadTools() {
-  const [catalog, animate] = await Promise.all([
+  const [catalog, animate, finishCaps] = await Promise.all([
     fetch('/api/catalog').then((r) => r.json()).catch(() => null),
     fetch('/api/animate/models').then((r) => r.json()).catch(() => null),
+    fetch('/api/finish/capabilities').then((r) => r.json()).catch(() => null),
   ]);
+  blenderReady = finishCaps ? !!finishCaps.ready : true;   // unknown: let the server say
   engines = readyEngines(catalog);
   frontBack = catalog?.front_back || null;
   presets = animate?.installed ? animate.presets : [];

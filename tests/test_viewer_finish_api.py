@@ -670,3 +670,62 @@ def test_a_dump_is_copied_when_it_cannot_be_linked(tmp_path, monkeypatch):
     monkeypatch.setattr(finish.os, "link", no_links)
     finish.link_or_copy(source, tmp_path / "b.post.bin")
     assert (tmp_path / "b.post.bin").read_bytes() == b"dump"
+
+
+def test_high_detail_reaches_the_worker():
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    assert "--detail" not in finish.build_command(job, finish.normalise_settings({}))
+    settings = finish.normalise_settings({"faces": 50000, "high_detail": True})
+    command = finish.build_command(job, settings)
+    assert command[command.index("--detail") + 1] == "high"
+    assert command[command.index("--faces") + 1] == "50000"
+
+
+# --- Hero: the body finished, the head built again from a close crop (scripts/hero_route.py)
+
+def test_hero_is_a_setting_and_names_its_result(tmp_path):
+    assert finish.normalise_settings({"hero": 1})["hero"] is True
+    assert finish.final_name("elf__pixal3d__1", 32000, hero=True) == "elf_hero.glb"
+
+
+def test_hero_stages_match_the_route_it_runs():
+    import sys
+    sys.path.insert(0, str(MODULE.parents[1]))
+    from scripts import hero_route
+    assert finish.HERO_STAGES == list(hero_route.STAGES)
+    assert set(finish.HERO_STAGES) == set(finish.HERO_WEIGHTS)
+
+
+def test_a_hero_run_starts_from_the_asset_s_own_model(tmp_path):
+    _pixal3d_run(tmp_path / "generated")
+    run = tmp_path / "generated" / "seb" / "robot__pixal3d__1"
+    (run / "robot__pixal3d__1.post.bin").write_bytes(b"dump")
+    record = json.loads((run / "robot__pixal3d__1.json").read_text())
+    (run / "robot__pixal3d__1.json").write_text(json.dumps({**record, "post_dump": "robot__pixal3d__1.post.bin"}))
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"glb-bytes", b"png", {"hero": True, "faces": 32000})
+    command = finish.hero_command(job, job.settings)
+    assert command[2].endswith("hero_route.py") and command[3] == str(job.image_path)
+    assert command[command.index("--body") + 1] == str(job.asset_path)
+    assert command[command.index("--body-views") + 1] == str(job.views_dir)
+    assert command[command.index("--body-dump") + 1] == str(job.dump_path)
+    assert command[command.index("--body-record") + 1] == str(job.input_dir / "source.json")
+    assert command[command.index("--body-faces") + 1] == "32000"
+    assert command[command.index("--result") + 1] == str(job.result_glb)
+    assert job.result_glb.name.endswith("_hero.glb")
+
+
+def test_hero_needs_the_picture_and_the_model_s_camera(tmp_path):
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "none")
+    with pytest.raises(ValueError, match="picture"):
+        manager.create("robot.glb", b"glb-bytes", None, {"hero": True})
+    manager = finish.FinishJobManager(tmp_path / "finish2", tmp_path / "none")
+    with pytest.raises(ValueError, match="saved camera"):
+        manager.create("robot.glb", b"glb-bytes", b"png", {"hero": True})
+
+
+def test_a_failed_hero_run_leads_with_its_own_reason():
+    lines = ["I2L_STAGE::body::Finishing the body",
+             "[hero] cannot start, not installed: Hero face upscaler (Real-ESRGAN, 67 MB). Install them from the Setup page."]
+    assert finish.failure_message(lines, 2).startswith("cannot start, not installed: Hero face upscaler")
+    assert finish.failure_message(["Traceback ...", "boom"], 1) == "worker exited with code 1"

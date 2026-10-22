@@ -40,11 +40,17 @@ export function stepBody(stepId, asset, ctx) {
       <button class="primary" data-run="model">${asset.model ? 'Make another 3D model' : 'Make 3D model'}</button>`;
     return asset.model ? redoBox('Make another 3D model', 'Builds a new 3D model from the same picture. It shows up as a new version; the current one is kept.', body) : body;
   }
+  if ((stepId === 'finished') && ctx.blenderReady === false) {
+    return `<p class="hint">${asset.kind === 'prop set' ? 'Splitting into props' : 'Finish'} needs Blender, a free app,
+      and it isn't installed. <a href="https://www.blender.org/download/" target="_blank" rel="noopener">Get Blender</a>
+      (drag it into Applications), then reopen this page. <a href="./setup.html">Setup</a> shows what's installed.</p>`;
+  }
   if (stepId === 'finished' && asset.kind === 'prop set') {
     return `<p class="hint">Cuts the sheet into one model per prop, each cleaned up with lighter versions for far away. A few minutes.</p>
       <button class="primary" data-run="finished">Split into props</button>`;
   }
   if (stepId === 'finished') {
+    const hero = heroCard(asset);
     const photo = asset.picture
       ? '<label class="check"><input type="checkbox" data-k="photo" checked><span>Pixel Match <span class="hint">keeps your picture\'s sharp details on the front</span></span></label>'
       : '<p class="hint">No picture on disk for this model, so Pixel Match is skipped: Finish cleans up the mesh and re-bakes its own texture.</p>';
@@ -56,9 +62,9 @@ export function stepBody(stepId, asset, ctx) {
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
       </details>
       <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
-    return asset.finished
+    return hero + (asset.finished
       ? `<details class="adv redo"><summary>Redo Finish</summary><p class="hint">Makes a new finished model from the raw one, say at another detail level. It shows up as a new version; the current one is kept.</p>${controls}</details>`
-      : controls;
+      : controls);
   }
   if (stepId === 'rigged') {
     const both = asset.finished && asset.model;
@@ -84,15 +90,31 @@ function redoBox(title, note, body) {
 
 // Detail: three tested triangle counts, or a custom one (the server takes 1,000 to 200,000). Tested on
 // five very different models: 10k and 20k stay clean, 40k adds rough patches on some, 5k breaks.
+/** A clear way to make a Hero face for a character that can have one: made from a picture with
+ *  Pixal3D (Hero works from the model's saved camera). Shown even once the character is finished. */
+export function heroCard(asset) {
+  // a built model is 'model' until it is rigged ('character'); props and prop sheets never get one
+  if (!['model', 'character'].includes(asset.kind) || !asset.picture || !asset.model || !/__pixal3d__/.test(asset.model)) return '';
+  if (/_hero\.glb$/.test(asset.finished || '')) return '';
+  return `<div class="hero-card"><p><b>Hero face</b> · builds the head again from a close, sharper crop of your picture and
+      joins it on: real eyelids instead of goggle eyes. Takes longer than a normal Finish. ${asset.finished ? 'Makes a new version; the current one is kept.' : ''}</p>
+      <button class="primary" data-run="finished" data-hero>${asset.finished ? 'Make a Hero version' : 'Finish as a Hero'}</button></div>`;
+}
+
 function finishDetail() {
   return `<label class="field">Detail<select data-k="faces">
       <option value="10000">10,000 triangles · light</option>
       <option value="20000" selected>20,000 triangles · game-ready</option>
       <option value="40000">40,000 triangles · more detail</option>
+      <option value="high">High · 50,000 triangles, cleaner faces from the side (best for realistic people)</option>
+      <option value="hero">Hero face · 32,000 triangles and a sharper head built on its own (takes longer)</option>
       <option value="full">Full detail · every triangle, for renders (not games)</option>
       <option value="custom">Custom… (unexpected results)</option></select></label>
     <p class="hint" data-full hidden>Keeps the 3D model's own mesh (often near a million triangles) and paints it with
       Pixel Match: the sharpest look, in under a minute. Too heavy for a game; rig and animate a lighter version.</p>
+    <p class="hint" data-hero hidden>For characters whose face matters. The body is finished as usual, then the head
+      is built again from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes.
+      Needs a model made from a picture, plus Auto-rig and the Hero face upscaler (67 MB), both in Setup.</p>
     <div data-custom hidden>
       <label class="field">Triangles<input type="number" data-k="customFaces" min="1000" max="200000" step="1000" value="30000"></label>
       <p class="hint">Unexpected results: very low counts break up shapes and very high ones add rough patches. Try 10,000 to 40,000 first.</p>
@@ -124,6 +146,7 @@ export function wireStep(card, stepId, asset, ctx) {
   if (faces) faces.onchange = () => {
     card.querySelector('[data-custom]').hidden = faces.value !== 'custom';
     card.querySelector('[data-full]').hidden = faces.value !== 'full';
+    card.querySelector('[data-hero]').hidden = faces.value !== 'hero';
   };
   if (engine) engine.onchange = () => { card.querySelector('[data-k="licence"]').textContent = ctx.engines.find((e) => e.id === engine.value)?.license || ''; };
 
@@ -136,7 +159,10 @@ export function wireStep(card, stepId, asset, ctx) {
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
     };
+    if (button.dataset.hero !== undefined) settings.detail = finishDetailSettings('hero');
     card.dataset.lastPreset = settings.preset || '';
+    const plan = chainPlan(stepId, asset, settings);
+    if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
         : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture })),
@@ -146,6 +172,38 @@ export function wireStep(card, stepId, asset, ctx) {
       ? 'Rigging anyway. Preset moves only fit humanoids, so this one can be downloaded and animated in Blender. The rig may be wonky.' : '';
     await runInCard(card, run, ctx, stepId, note);
   });
+}
+
+/** The step as a one-step chain from the asset's own files, or null when it cannot be one.
+ *  A chain is what a reopened studio picks back up, so long runs (Finish, Hero) survive a reload. */
+export function chainPlan(stepId, asset, settings) {
+  const made = Object.fromEntries(['picture', 'back', 'model', 'finished', 'rigged']
+    .filter((k) => asset[k]).map((k) => [k, asset[k]]));
+  const base = { description: asset.name || 'Asset', want: asset.kind === 'prop set' ? 'set' : asset.kind === 'prop' ? 'prop' : 'character' };
+  if (stepId === 'model') {
+    if (!asset.picture) return null;
+    return { ...base, steps: ['model'], made: { picture: asset.picture, ...(asset.back ? { back: asset.back } : {}) },
+      engine: settings.backend, modelSeed: freshSeed() };
+  }
+  if (stepId === 'finished') {
+    if (asset.kind === 'prop set') return asset.model ? { ...base, steps: ['split'], made } : null;
+    if (!asset.model || !asset.picture) return null;   // the chain's Finish needs both; the card handles the rest
+    return { ...base, steps: ['finished'], made: { picture: asset.picture, model: asset.model },
+      finishSettings: { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade,
+        skip_nudge: !settings.nudge, texture_size: settings.texture } };
+  }
+  if (stepId === 'rigged') {
+    const source = (settings.rigSource === 'model' ? asset.model : null) || asset.finished || asset.model;
+    if (!source) return null;
+    const key = source === asset.finished ? 'finished' : 'model';
+    return { ...base, steps: ['rigged'], made: { ...(asset.picture ? { picture: asset.picture } : {}), [key]: source } };
+  }
+  if (stepId === 'animated') {
+    if (!asset.rigged || !settings.preset) return null;
+    return { ...base, steps: ['animated'], made, firstMove: settings.preset,
+      moveSettings: { speed: settings.speed, arm_spread: settings.spread } };
+  }
+  return null;
 }
 
 async function startModel(asset, ctx, backend) {

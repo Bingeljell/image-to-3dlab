@@ -292,13 +292,19 @@ def find_move(asset: dict[str, Any], move: str) -> str:
 
 
 def preview(output: Path, asset: dict[str, Any], stage: str = "latest", look: str = "paint",
-            blender: Path | None = None, move: str | None = None) -> tuple[Path, str]:
+            blender: Path | None = None, move: str | None = None, skin: str | None = None) -> tuple[Path, str]:
     """(PNG path, what is shown) for one asset, made once and kept in output/.previews.
 
-    With `move`, four moments of that move instead of four sides of the model."""
+    With `move`, four moments of that move instead of four sides of the model; with `skin`
+    (a skin id from the asset's `skins`), the model wearing that skin."""
     if look not in ("paint", "clay"):
         raise ValueError("look is paint or clay")
-    if move:
+    if skin:
+        found = next((k for k in asset.get("skins") or [] if k.get("id") == skin), None)
+        if found is None:
+            raise ValueError(f"{asset.get('name', 'this asset')} has no finished skin {skin!r}")
+        shown, relative = f"skin: {found['name']}", found["file"]
+    elif move:
         shown, relative = f"move: {move}", find_move(asset, move)
     else:
         picked = stage_file(asset, stage)

@@ -145,7 +145,8 @@ def test_the_server_registers_every_tool():
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend",
-                     "model_info", "show_in_folder", "report_bug"}
+                     "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
+                     "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins"}
 
 
 # --------------------------------------------------------------------------- create
@@ -324,7 +325,8 @@ def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
     menu = source[source.index("function finishDetail()"):]
     menu = menu[: menu.index("</select>")]
     studio_values = set(re.findall(r'<option value="([^"]+)"', menu)) - {"custom"}
-    ours = {str(v.get("faces")) if "faces" in v else "full" for v in ms.FINISH_DETAILS.values()}
+    ours = {"high" if v.get("high_detail") else "hero" if v.get("hero") else str(v.get("faces")) if "faces" in v else "full"
+            for v in ms.FINISH_DETAILS.values()}
     assert studio_values == ours, "The studio's Finish Detail menu and FINISH_DETAILS in mcp_server.py disagree."
 
 
@@ -482,3 +484,129 @@ def test_rig_from_the_raw_model_skips_finish(studio):
     form = sent(studio)
     assert json.loads(form["steps"]) == ["rigged"]
     assert "finished" not in json.loads(form["made"]) and json.loads(form["made"])["model"] == "k/k.glb"
+
+
+# --------------------------------------------------------------------------- skins
+SKIN = {"id": "5k1n5k1n5k1n", "name": "gold skirt", "instruction": "make the skirt gold", "status": "pictures",
+        "base": {"finished": "finish/k/k_20k.glb", "front": "images/k/k.png", "back": "images/k/k__back.png"},
+        "tries": {"front": [{"number": 1, "instruction": "make the skirt gold", "seed": 42,
+                             "picture": "skins/5k1n5k1n5k1n/front-1.png"}], "back": []},
+        "approved": {"front": None, "back": None}, "needs_back": True, "ready": False, "next_side": "front",
+        "result": None, "error": None, "picture_job": {"status": "running"}, "build_job": None}
+
+
+class SkinHttp(FakeHttp):
+    def __init__(self, state):
+        super().__init__()
+        self.state = state
+
+    def get(self, url, params=None, timeout=None):
+        if "api/skins/" in url:
+            return Response(200, self.state)
+        return super().get(url, params, timeout)
+
+    def post(self, url, files=None, json=None, timeout=None):
+        path = url.split("8777/", 1)[1]
+        self.posts.append((path, json or files or {}))
+        if path.startswith("api/skins/build/"):
+            return Response(202, {"cancelled": True})
+        return Response(202 if path == "api/skins" else 200, {"skin": self.state, "job_id": "b1"})
+
+
+def test_make_skin_sends_the_change_and_says_qwen_is_drawing():
+    studio = ms.Studio("http://127.0.0.1:8777", http=SkinHttp(SKIN), start=lambda: None)
+    out = ms.make_skin(studio, asset_id="aaaaaaaaaaaa", change="make the skirt gold")
+    assert studio.http.posts[-1] == ("api/skins", {"asset": "aaaaaaaaaaaa", "instruction": "make the skirt gold"})
+    assert out["skin_id"] == SKIN["id"] and out["drawing"] is True and "skin_status" in out["next"]
+
+
+def test_a_drawn_front_asks_for_the_users_verdict():
+    state = {**SKIN, "picture_job": {"status": "done"}}
+    out = ms.skin_summary(state)
+    assert "skin_picture" in out["next"] and "approve_skin_picture" in out["next"]
+    assert out["tries"]["front"][0]["file"] == "output/skins/5k1n5k1n5k1n/front-1.png"
+
+
+def test_both_approved_points_at_build():
+    state = {**SKIN, "picture_job": {"status": "done"}, "ready": True, "next_side": None,
+             "approved": {"front": "skins/x/front-1.png", "back": "skins/x/back-1.png"}}
+    assert "build_skin" in ms.skin_summary(state)["next"]
+
+
+def test_redo_and_approve_send_side_change_and_number():
+    studio = ms.Studio("http://127.0.0.1:8777", http=SkinHttp(SKIN), start=lambda: None)
+    ms.redo_skin_picture(studio, skin_id=SKIN["id"], side="back", change="keep the belt blue")
+    assert studio.http.posts[-1] == (f"api/skins/{SKIN['id']}/try", {"side": "back", "instruction": "keep the belt blue"})
+    ms.approve_skin_picture(studio, skin_id=SKIN["id"], side="front", number=2)
+    assert studio.http.posts[-1] == (f"api/skins/{SKIN['id']}/approve", {"side": "front", "number": 2})
+
+
+def test_a_picture_still_drawing_is_not_shown():
+    studio = ms.Studio("http://127.0.0.1:8777", http=SkinHttp(SKIN), start=lambda: None)
+    with pytest.raises(ms.StudioError, match="still being drawn"):
+        ms.skin_picture(studio, skin_id=SKIN["id"])
+
+
+def test_cancel_reaches_the_running_build_only():
+    idle = ms.Studio("http://127.0.0.1:8777", http=SkinHttp(SKIN), start=lambda: None)
+    assert ms.cancel_skin(idle, skin_id=SKIN["id"])["cancelled"] is False
+    building = ms.Studio("http://127.0.0.1:8777", http=SkinHttp({**SKIN, "build_job": {"job_id": "b1"}}),
+                         start=lambda: None)
+    assert ms.cancel_skin(building, skin_id=SKIN["id"])["cancelled"] is True
+    assert building.http.posts[-1][0] == "api/skins/build/b1/cancel"
+
+
+def test_list_assets_shows_a_models_skins():
+    asset = {**KNIGHT, "skins": [{"id": "s1", "name": "gold skirt", "file": "skins/s1/gold-skirt_20k.glb"}]}
+    assert ms.asset_summary(asset)["skins"] == [{"id": "s1", "name": "gold skirt",
+                                                 "file": "output/skins/s1/gold-skirt_20k.glb"}]
+
+
+def test_preview_can_show_a_skin(studio):
+    ms.preview(studio, asset_id="aaaaaaaaaaaa", skin="k1")
+    assert studio.http.last_params["skin"] == "k1"
+
+
+class ExportHttp(FakeHttp):
+    def get(self, url, params=None, timeout=None):
+        path = url.split("8777/", 1)[1]
+        self.last_params = params
+        if path == "api/assets":
+            dancer = {**DANCER, "skins": [{"id": "k1", "name": "gold", "file": "skins/k1/gold_20k.glb"}]}
+            return Response(200, {"assets": [dancer]})
+        if path == "api/skins/all":
+            return Response(200, {"file": "skins/all/d__skins-abc.glb"})
+        if path == "api/skins/k1/dressed":
+            return Response(200, {"file": "skins/k1/dressed/" + params["file"].split("/")[-1]})
+        return super().get(url, params, timeout)
+
+
+def test_export_dresses_the_rig_and_every_move_in_the_skin():
+    studio = ms.Studio("http://127.0.0.1:8777", http=ExportHttp(), start=lambda: None)
+    out = ms.export_skins(studio, asset_id=DANCER["id"], skin_id="k1")
+    assert out["files"] == {"finished": "output/skins/k1/gold_20k.glb",
+                            "rigged": "output/skins/k1/dressed/d_rigged.glb",
+                            "idle": "output/skins/k1/dressed/d_idle.glb"}
+
+
+def test_export_without_a_skin_is_one_file_with_every_skin():
+    studio = ms.Studio("http://127.0.0.1:8777", http=ExportHttp(), start=lambda: None)
+    out = ms.export_skins(studio, asset_id=DANCER["id"])
+    assert out["file"] == "output/skins/all/d__skins-abc.glb" and studio.http.last_params["file"] == DANCER["rigged"]
+
+
+def test_export_says_when_there_is_nothing_to_export(studio):
+    with pytest.raises(ms.StudioError, match="no finished skins"):
+        ms.export_skins(studio, asset_id=KNIGHT["id"])
+
+
+def test_agents_can_ask_for_high_detail():
+    assert ms.finish_choices("high") == {"faces": 50000, "high_detail": True}
+
+
+def test_agents_are_told_where_the_guide_is_and_that_fix_a_spot_is_hands_on():
+    from image_to_3dlab import mcp_server
+    text = mcp_server.INSTRUCTIONS
+    assert "https://assetfurnace.com/blog/how-to-use-assetfurnace" in text
+    assert "Fix a spot" in text and "open_in_studio" in text
+    assert 'finish_detail="hero"' in text

@@ -39,6 +39,12 @@ character still looks realistic. Stylised characters with big eyes already come 
 **7. Name what you want, not what you don't.** "No wrinkles" tends to add wrinkles; "smooth
 fabric" doesn't. The same goes for props: describe empty hands rather than ruling a weapon out.
 
+**8. Tidy hair, kept clear of the face and shoulders.** Thin, loose strands come out as paper-thin
+sheets that tear into gaps when the model is simplified for games. Ask for what keeps hair solid:
+"smooth, neat hair in solid, defined locks, clear forehead, hair swept back from the face and
+kept behind the shoulders" (or "tied back"). Following rule 7, say this rather than "no bangs"
+or "no stray hairs".
+
 ## Things that tend to go wrong
 
 These have gone wrong more than once, but are less proven than the list above:
@@ -53,5 +59,6 @@ These have gone wrong more than once, but are less proven than the list above:
 ```
 A [character] in A-pose facing the camera, full body, arms angled down about 45 degrees
 with a clear gap from the body, hands open, palms facing down, eyes open, calm expression,
-slightly larger, clearly defined eyes with visible eyelids, [outfit], stylised 3D game character render, soft even lighting, plain light grey background
+slightly larger, clearly defined eyes with visible eyelids, smooth neat hair in solid locks
+kept clear of the face and shoulders, [outfit], stylised 3D game character render, soft even lighting, plain light grey background
 ```

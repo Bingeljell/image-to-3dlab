@@ -34,10 +34,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import activity_api
 import backend_catalog
 import bug_report_api
+import fixspot_api
 import hf_api
 import image_api
 import model_info_api
 import preview_api
+import skins_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from assets_api import assets_payload, list_assets
 from assets_api import delete_version as delete_asset_version
@@ -1238,9 +1240,11 @@ def _cleanup_debug_files(job: Job) -> None:
     # Pixal3D that record is <name>.json, and <name>.svviews/ is the camera Finish's Pixel
     # Match needs: deleting them shipped Pixal3D models with no provenance at all.
     out = job.output_path
-    # <name>.post.bin is Pixal3D's clean-up input, which the Pixal3D Finish route reruns.
+    # <name>.post.bin is Pixal3D's clean-up input, which the Pixal3D Finish route reruns;
+    # <name>.shape.bin is the shape every new skin repaints.
     keep = {out, out.with_suffix(".provenance.json"), out.with_suffix(".json"),
-            out.with_suffix(".svviews"), out.with_suffix(".post.bin")}
+            out.with_suffix(".svviews"), out.with_suffix(".post.bin"),
+            out.with_suffix(".shape.bin")}
     for path in job.directory.iterdir():
         if path in keep:
             continue
@@ -1331,12 +1335,14 @@ HEAVY_JOBS: dict[str, Callable[[], bool]] = {
     "props": lambda: _props_baking(),
     "rebind": lambda: _running(RIG_JOBS),
     "animate": lambda: _animate_running(),
+    "skin": lambda: skins_api.BUILDS.running(),
 }
 BUSY_WORDS = {
     "setup": "setup is running", "generate": "a generation is running",
     "image": "a picture is being made", "finish": "a model is being finished",
     "props": "a prop sheet is baking", "rebind": "a rig rebind is running",
     "animate": "an auto-rig or animation is running",
+    "skin": "a skin is being made",
 }
 
 
@@ -2478,10 +2484,25 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parts = self._path_parts()
+        if parts == ["api", "skins"]:
+            self._skins_post([])
+            return
+        if len(parts) == 4 and parts[:2] == ["api", "skins"] and parts[3] in {"try", "approve", "build", "discard"}:
+            self._skins_post(parts[2:])
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "skins", "build"] and parts[4] == "cancel":
+            self._skins_post(parts[2:])
+            return
         if parts == ["api", "chains"]:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
+                # Before the picture and the 3D model, not ten minutes later at Finish
+                if set(chain.steps) & activity_api.NEEDS_BLENDER and find_blender() is None:
+                    self._send_json(409, {"error": blender_missing_help() + " Or make it without Finish for now: "
+                                          "stop after the 3D model, and Finish it once Blender is in.",
+                                          "needs_blender": True})
+                    return
                 self._chains().submit(chain)
             except RuntimeError as exc:
                 self._send_json(409, {"error": str(exc)})
@@ -2494,6 +2515,16 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "chains"] and parts[3] == "cancel":
             ok = self._chains().cancel(parts[2])
             self._send_json(200 if ok else 404, {"cancelled": ok})
+            return
+        if len(parts) == 3 and parts[:2] == ["api", "fix-spot"] and parts[2] in {"preview", "keep", "discard"}:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length)) if 0 < length <= 65536 else None
+            except (ValueError, json.JSONDecodeError):
+                payload = None
+            handler = {"preview": fixspot_api.preview_response, "keep": fixspot_api.keep_response,
+                       "discard": fixspot_api.discard_response}[parts[2]]
+            self._send_json(*fixspot_api.answer(handler, OUTPUT_ROOT, payload))
             return
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()
@@ -2707,6 +2738,172 @@ class Handler(SimpleHTTPRequestHandler):
             "status_url": f"/api/image/{job.id}/status",
         })
 
+    # ------------------------------------------------------------------ skins
+    def _small_json(self, limit: int = 8192) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length > limit:
+            raise ValueError("the request is too large")
+        body = json.loads(self.rfile.read(length)) if length > 0 else {}
+        if not isinstance(body, dict):
+            raise ValueError("expected a JSON object")
+        return body
+
+    def _skin_state(self, skin: skins_api.Skin) -> dict[str, Any]:
+        """The skin, plus the job working on it now: its newest picture try or its build."""
+        build = next((b for b in skins_api.BUILDS.jobs.values()
+                      if b.skin_id == skin.id and b.status not in skins_api.TERMINAL), None)
+        state = skins_api.STORE.state(skin, build_running=build is not None)
+        tries = [t for side in skins_api.SIDES for t in skin.tries[side] if t.get("job_id")]
+        newest = max(tries, key=lambda t: t.get("started", 0), default=None)
+        job = image_api.MANAGER.jobs.get(newest["job_id"]) if newest else None
+        state["picture_job"] = job.describe() if job else None
+        state["build_job"] = build.describe() if build else None
+        return state
+
+    def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
+        """Start one picture try, or answer why not (and return None)."""
+        # Checked before the try is recorded: a refused start must not leave a try with no picture.
+        waiting = busy_reason("image") or ("a picture is being made; wait for it to finish"
+                                           if _running(image_api.MANAGER) else None)
+        if waiting or skins_api.BUILDS.running():
+            self._send_json(409, {"error": waiting or "a skin is being made; wait for it to finish",
+                                  "skin": self._skin_state(skin)})
+            return None
+        if not image_api.BINARY.exists():
+            self._send_json(503, {"error": "The picture engine is not installed.", "needs_setup": True})
+            return None
+        try:
+            image_api.resolve_weights()
+            if image_api.resolve_vision() is None:
+                raise image_api.MissingWeights([image_api.VISION_FILE[1]])
+        except image_api.MissingWeights as exc:
+            self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
+            return None
+        reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
+        job = image_api.start_edit(reference, target, prompt, seed)
+        skin.tries[side][-1].update(job_id=job.id, started=time.time())
+        skins_api.STORE.save(skin)
+        return {"job_id": job.id, "status_url": f"/api/image/{job.id}/status",
+                "events_url": f"/api/image/{job.id}/events"}
+
+    def _skins_get(self, rest: list[str]) -> None:
+        """GET /api/skins?finished=<path> (a model's finished skins), /api/skins/<id>,
+        /api/skins/build/<job>/status."""
+        try:
+            if not rest:
+                query = parse_qs(urlparse(self.path).query)
+                finished = (query.get("finished") or [""])[0]
+                if finished:
+                    self._send_json(200, {"skins": skins_api.STORE.skins_for(finished)})
+                else:
+                    self._send_json(200, {"skins": [s.to_dict() for s in skins_api.STORE.all()]})
+                return
+            query = parse_qs(urlparse(self.path).query)
+            if rest == ["all"]:
+                # one GLB of a model (`file`: its finished or rigged model) carrying every finished skin
+                file = (query.get("file") or [""])[0]
+                asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == (query.get("asset") or [""])[0]), None)
+                if asset is None or file not in {asset.get("finished"), asset.get("rigged")}:
+                    raise skins_api.SkinError("pick a model and its finished or rigged file")
+                skins = [skins_api.STORE.get(k["id"]) for k in asset.get("skins", [])]
+                self._send_json(200, {"file": skins_api.all_skins(OUTPUT_ROOT, file, skins)})
+                return
+            if len(rest) == 2 and rest[1] == "dressed":
+                skin = skins_api.STORE.get(rest[0])
+                self._send_json(200, {"file": skins_api.dressed(OUTPUT_ROOT, skin, (query.get("file") or [""])[0])})
+                return
+            if len(rest) == 3 and rest[0] == "build" and rest[2] == "status":
+                job = skins_api.BUILDS.jobs.get(rest[1])
+                self._send_json(200 if job else 404, job.describe() if job else {"error": "no such build"})
+                return
+            if len(rest) == 1:
+                self._send_json(200, self._skin_state(skins_api.STORE.get(rest[0])))
+                return
+        except skins_api.SkinError as exc:
+            self._send_json(404, {"error": str(exc)})
+            return
+        except ValueError as exc:   # a model the skin's paint can't be put on
+            self._send_json(422, {"error": str(exc)})
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def _skins_post(self, rest: list[str]) -> None:
+        """POST /api/skins {asset, instruction, name?}: a new skin, its first front try started.
+        /api/skins/<id>/try {side, instruction?}, /approve {side, number?}, /build,
+        /api/skins/build/<job>/cancel."""
+        try:
+            body = self._small_json()
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(400, {"error": f"could not read the request: {exc}"})
+            return
+        try:
+            if not rest:
+                asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == str(body.get("asset", ""))), None)
+                if asset is None:
+                    raise skins_api.SkinError("no such model in the Library")
+                skin = skins_api.STORE.create(asset, str(body.get("instruction", "")), body.get("name"))
+                started = self._start_skin_try(skin, "front", None)
+                if started is not None:
+                    self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
+                return
+            if len(rest) == 3 and rest[0] == "build" and rest[2] == "cancel":
+                ok = skins_api.BUILDS.cancel(rest[1])
+                self._send_json(202 if ok else 409, {"cancelled": ok})
+                return
+            if len(rest) != 2:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            skin = skins_api.STORE.get(rest[0])
+            action = rest[1]
+            if action == "try":
+                started = self._start_skin_try(skin, str(body.get("side", "front")), body.get("instruction"))
+                if started is not None:
+                    self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
+                return
+            if action == "approve":
+                if skins_api.BUILDS.running():
+                    self._send_json(409, {"error": "a skin is being made; wait for it to finish"})
+                    return
+                number = body.get("number")
+                skin = skins_api.STORE.approve(skin, str(body.get("side", "front")),
+                                               int(number) if number is not None else None)
+                started = None
+                # The back follows the front at once, with the same change asked for.
+                if skin.next_side() == "back" and not skin.tries["back"]:
+                    started = self._start_skin_try(skin, "back", None)
+                    if started is None:
+                        return
+                self._send_json(200, {"skin": self._skin_state(skin), "picture_job": started})
+                return
+            if action == "discard":
+                drawing = any(image_api.MANAGER.jobs.get(t.get("job_id")) is not None
+                              and image_api.MANAGER.jobs[t["job_id"]].status in {"queued", "running"}
+                              for side in skins_api.SIDES for t in skin.tries[side])
+                building = any(b.skin_id == skin.id and b.status not in skins_api.TERMINAL
+                               for b in skins_api.BUILDS.jobs.values())
+                if drawing or building:
+                    self._send_json(409, {"error": "This skin is being drawn or painted; wait for it to finish."})
+                    return
+                skins_api.STORE.discard(skin)
+                self._send_json(200, {"discarded": skin.id})
+                return
+            if action == "build":
+                waiting = busy_reason("skin")
+                if waiting:
+                    self._send_json(409, {"error": waiting})
+                    return
+                job = skins_api.BUILDS.start(skin)
+                self._send_json(202, {"job_id": job.id, "skin": skin.to_dict(),
+                                      "status_url": f"/api/skins/build/{job.id}/status"})
+                return
+        except skins_api.SkinError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
     def _cancel_image_job(self, job_id: str) -> None:
         if not _safe_id(job_id) or job_id not in image_api.MANAGER.jobs:
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -2782,6 +2979,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             return
         parts = self._path_parts()
+        if parts[:2] == ["api", "skins"]:
+            self._skins_get(parts[2:])
+            return
         if parts == ["api", "hf", "status"]:
             self._send_json(200, hf_api.status())
             return
@@ -3702,7 +3902,8 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             path, shown = preview_api.preview(OUTPUT_ROOT, asset, query.get("stage", ["latest"])[0],
                                               query.get("look", ["paint"])[0], blender=find_blender(),
-                                              move=query.get("move", [""])[0] or None)
+                                              move=query.get("move", [""])[0] or None,
+                                              skin=query.get("skin", [""])[0] or None)
             data = path.read_bytes()
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})

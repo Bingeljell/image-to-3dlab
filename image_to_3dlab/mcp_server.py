@@ -38,10 +38,15 @@ STEP_IDS = ("picture", "back", "model", "finished", "split", "rigged", "animated
 # Server actions agents do not get, and why. Everything else the studio can do must be a
 # tool (the test reads the server's routes and checks this list against them).
 STUDIO_ONLY = {
+    "api/fix-spot/preview": "a person marks the spots to fix on screen; guessing spots automatically "
+                            "also flattens real shape (fur tufts, mohawk spikes)",
+    "api/fix-spot/keep": "keeping a fix is the person's verdict after comparing before and after",
+    "api/fix-spot/discard": "part of the same on-screen editing session",
     "api/assets/*/delete": "deleting is the user's call, made in the studio",
     "api/assets/*/hidden": "Library tidying, a person's choice",
     "api/assets/*/main": "marking the main version is the user's verdict",
     "api/assets/*/name": "renaming is the user's choice",
+    "api/skins/*/discard": "deleting a skin is the user's call, made in the studio",
     "api/blender/install": "installs an app; the Setup page asks first",
     "api/gltfpack/install": "installs a tool; the Setup page asks first",
     "api/hf/sign-in": "takes the user's Hugging Face token; only they should paste it",
@@ -63,7 +68,8 @@ STUDIO_ONLY = {
     "api/animate/*/cancel": "via cancel_run", "api/rig/rebind/*/cancel": "via cancel_run",
 }
 # Server actions the tools below call.
-USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report"}
+USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report",
+        "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel"}
 
 
 class StudioError(RuntimeError):
@@ -170,6 +176,8 @@ def asset_summary(asset: dict[str, Any]) -> dict[str, Any]:
         "files": {k: f"output/{v}" for k, v in files.items()},
         "moves": [c["name"] for c in asset.get("clips", [])],
         "props": [p.get("name") for p in asset.get("props", [])] or None,
+        "skins": [{"id": k["id"], "name": k["name"], "file": f"output/{k['file']}"}
+                  for k in asset.get("skins", [])] or None,
         "prompt": asset.get("prompt"),
     }
 
@@ -255,7 +263,9 @@ def want_for(asset: dict[str, Any]) -> str:
 
 # Finish's Detail choices, as the Steps panel offers them (tests check the two lists agree).
 FINISH_DETAILS: dict[str, dict[str, Any]] = {
-    "light": {"faces": 10000}, "game": {"faces": 20000}, "more": {"faces": 40000}, "full": {"keep_mesh": True},
+    "light": {"faces": 10000}, "game": {"faces": 20000}, "more": {"faces": 40000},
+    "high": {"faces": 50000, "high_detail": True}, "hero": {"faces": 32000, "hero": True},
+    "full": {"keep_mesh": True},
 }
 STEPS_AFTER_FINISH = ("rigged", "animated")
 
@@ -373,7 +383,7 @@ def options() -> dict[str, Any]:
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
-            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | a count 1000-200000 | "
+            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
             "pixel_match": "Paint the picture's real pixels onto the model in Finish. Default: on.",
             "move": "The animation to make (list_moves).",
@@ -631,8 +641,9 @@ def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
 
 
 def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint",
-            move: str | None = None) -> tuple[bytes, dict[str, Any]]:
-    params = {"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
+            move: str | None = None, skin: str | None = None) -> tuple[bytes, dict[str, Any]]:
+    params = ({"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
+              | ({"skin": skin} if skin else {}))
     response = studio.get_bytes("api/preview", **params)
     path = REPO / "output" / response.headers.get("X-Preview-Path", "")
     return response.content, {
@@ -705,6 +716,115 @@ def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -
 
 
 # --------------------------------------------------------------------------- the server
+def skin_summary(state: dict[str, Any]) -> dict[str, Any]:
+    """A skin in short: its pictures (files the agent can show), what is approved, what to do next."""
+    tries = {side: [{"number": t["number"], "change": t["instruction"], "file": f"output/{t['picture']}",
+                     "ready": (REPO / "output" / t["picture"]).is_file()} for t in state["tries"].get(side, [])]
+             for side in ("front", "back")}
+    picture_job = state.get("picture_job") or {}
+    build = state.get("build_job") or {}
+    out: dict[str, Any] = {
+        "skin_id": state["id"], "name": state["name"], "change": state["instruction"], "status": state["status"],
+        "model": f"output/{state['base']['finished']}", "needs_back": state["needs_back"],
+        "tries": {k: v for k, v in tries.items() if v},
+        "approved": {k: f"output/{v}" for k, v in state["approved"].items() if v},
+        "drawing": picture_job.get("status") in ("queued", "running") or None,
+        "building": (build.get("last_event") or {}).get("message") if build else None,
+        "result": f"output/{state['result']}" if state.get("result") else None,
+        "error": state.get("error") or picture_job.get("error"),
+    }
+    side = state.get("next_side")
+    if state["status"] == "done":
+        out["next"] = "The skin is finished: show the user (skin_picture shows the approved front) and list_assets lists it."
+    elif state["status"] == "building":
+        out["next"] = "Building (repaint + Finish, a few minutes): call skin_status(wait_seconds=50) until done."
+    elif out["drawing"]:
+        out["next"] = f"Qwen is drawing the {side} picture (about a minute or two): call skin_status(wait_seconds=50)."
+    elif side:
+        out["next"] = (f"Show the user the newest {side} picture (skin_picture). If they like it, approve_skin_picture; "
+                       f"if not, redo_skin_picture with what to change.")
+    elif state["ready"]:
+        out["next"] = "Both pictures approved: build_skin repaints the model and finishes it."
+    return {k: v for k, v in out.items() if v not in (None, [], {})}
+
+
+def make_skin(studio: Studio, *, asset_id: str, change: str, name: str | None = None) -> dict[str, Any]:
+    made = studio.post_json("api/skins", {"asset": asset_id, "instruction": change, **({"name": name} if name else {})})
+    return skin_summary(made["skin"])
+
+
+def skin_status(studio: Studio, *, skin_id: str, wait_seconds: int = 0,
+                sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    state = studio.get(f"api/skins/{skin_id}")
+    deadline = time.time() + max(0, min(int(wait_seconds), WAIT_LIMIT))
+
+    def busy(s: dict[str, Any]) -> bool:
+        job = s.get("picture_job") or {}
+        return s["status"] == "building" or job.get("status") in ("queued", "running")
+    while busy(state) and time.time() < deadline:
+        sleep(2)
+        state = studio.get(f"api/skins/{skin_id}")
+    return skin_summary(state)
+
+
+def skin_picture(studio: Studio, *, skin_id: str, side: str = "front", number: int | None = None) -> tuple[bytes, dict[str, Any]]:
+    state = studio.get(f"api/skins/{skin_id}")
+    tries = state["tries"].get(side) or []
+    chosen = next((t for t in tries if t["number"] == number), None) if number else (tries[-1] if tries else None)
+    if chosen is None:
+        raise StudioError(f"There is no {side} picture for this skin yet.")
+    path = REPO / "output" / chosen["picture"]
+    if not path.is_file():
+        raise StudioError(f"The {side} picture is still being drawn: call skin_status(wait_seconds=50).")
+    original = state["base"].get(side)
+    return path.read_bytes(), {"side": side, "number": chosen["number"], "change": chosen["instruction"],
+                               "file": str(path), "original": f"output/{original}" if original else None,
+                               "approved": state["approved"].get(side) == chosen["picture"]}
+
+
+def approve_skin_picture(studio: Studio, *, skin_id: str, side: str = "front", number: int | None = None) -> dict[str, Any]:
+    body = {"side": side} | ({"number": number} if number else {})
+    return skin_summary(studio.post_json(f"api/skins/{skin_id}/approve", body)["skin"])
+
+
+def redo_skin_picture(studio: Studio, *, skin_id: str, side: str = "front", change: str | None = None) -> dict[str, Any]:
+    body = {"side": side} | ({"instruction": change} if change else {})
+    return skin_summary(studio.post_json(f"api/skins/{skin_id}/try", body)["skin"])
+
+
+def build_skin(studio: Studio, *, skin_id: str) -> dict[str, Any]:
+    studio.post_json(f"api/skins/{skin_id}/build", {})
+    return skin_summary(studio.get(f"api/skins/{skin_id}"))
+
+
+def export_skins(studio: Studio, *, asset_id: str, skin_id: str | None = None) -> dict[str, Any]:
+    """Files for a game: with skin_id, the model (and its rig and every move) wearing that skin;
+    without, one GLB carrying the original paint and every skin as switchable variants."""
+    asset = find_asset(studio, asset_id)
+    if not asset.get("skins"):
+        raise StudioError("This model has no finished skins yet: make_skin makes one.")
+    if skin_id is None:
+        file = asset.get("rigged") or asset.get("finished")
+        made = studio.get("api/skins/all", asset=asset_id, file=file)
+        return {"file": f"output/{made['file']}", "skins": [k["name"] for k in asset["skins"]],
+                "tip": "One GLB: Blender, three.js and <model-viewer> list the skins as material variants."}
+    if not any(k["id"] == skin_id for k in asset["skins"]):
+        raise StudioError(f"{asset.get('name')} has no finished skin {skin_id!r}; list_assets shows its skins.")
+    files = {"finished": next(k["file"] for k in asset["skins"] if k["id"] == skin_id)}
+    for key, source in ([("rigged", asset.get("rigged"))] + [(c["name"], c["file"]) for c in asset.get("clips", [])]):
+        if source:
+            files[key] = studio.get(f"api/skins/{skin_id}/dressed", file=source)["file"]
+    return {"files": {k: f"output/{v}" for k, v in files.items()}}
+
+
+def cancel_skin(studio: Studio, *, skin_id: str) -> dict[str, Any]:
+    build = studio.get(f"api/skins/{skin_id}").get("build_job")
+    if not build:
+        return {"cancelled": False, "note": "No build is running for this skin."}
+    result = studio.post_json(f"api/skins/build/{build['job_id']}/cancel", {})
+    return {"cancelled": bool(result.get("cancelled")), "note": "The approved pictures are kept."}
+
+
 INSTRUCTIONS = """AssetFurnace makes game-ready 3D assets on this machine: a picture or an idea becomes a
 3D model, then a finished game-ready model, then a rigged and animated character. Runs take minutes
 (a 3D model is ~5-15 min), one at a time. Typical flow: status -> create -> run_status (wait) ->
@@ -712,7 +832,14 @@ list_assets -> preview (show the user the picture) -> open_in_studio if they wan
 If a result looks off, call options: it lists every knob (Pixel Match's edge fade and nudge, texture
 size, rigging the raw model, move speed, ...) with when to try it; redo one step with
 continue_asset(again=True, advanced={...}), changing one knob at a time. list_versions shows every
-version of a character. Never download model weights without the user's explicit yes (install_backend asks first)."""
+version of a character. Skins: make_skin(asset_id, change="make the skirt gold") recolours a
+finished Pixal3D model's own pictures; show each to the user (skin_picture) and approve or redo, front
+then back; build_skin then repaints the same model (same mesh, so the rig and moves still fit).
+Never download model weights without the user's explicit yes (install_backend asks first).
+For characters whose face matters, finish with finish_detail="hero": the head is built again from a close
+crop and joined on (takes longer). Fix a spot (fill a hole, smooth a bump, repaint a scuff) is hands-on: if a
+model has a spot to fix, open_in_studio and point the user to the brush in the 3D view. Step-by-step guide for
+the user: https://assetfurnace.com/blog/how-to-use-assetfurnace"""
 
 
 def build_server(studio: Studio | None = None):
@@ -766,7 +893,9 @@ def build_server(studio: Studio | None = None):
         picture for a fuller model (default: on when installed). move: first animation (see list_moves).
         add_wording: append the studio's proven prompt wording (pose, background, ...) to a description.
         finish_upload: also run Finish on an uploaded GLB.
-        finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), a count from
+        finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), "high" (50k,
+            cleaner faces from the side; best for realistic humans), "hero" (32k body plus a sharper head
+            built again from a close crop; characters whose face matters, takes much longer), a count from
         1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
         stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
@@ -815,16 +944,72 @@ def build_server(studio: Studio | None = None):
         return safe(lambda: list_versions(studio, asset_id=asset_id))
 
     @server.tool(name="preview", structured_output=False)
-    def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None):
+    def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None,
+                     skin: str | None = None):
         """A picture of an asset from the front, three-quarter, side and back, so you can SEE the result
         and show it to the user. stage: latest | picture | model | finished | rigged. look: paint | clay
         (clay = shape only, no colours). move: one of the asset's moves (see list_assets) to show four
-        moments of it instead. A few seconds with Blender installed, then cached."""
+        moments of it instead. skin: a skin id (list_assets shows them) to show the model wearing it.
+        A few seconds with Blender installed, then cached."""
         try:
-            data, info = preview(studio, asset_id=asset_id, stage=stage, look=look, move=move)
+            data, info = preview(studio, asset_id=asset_id, stage=stage, look=look, move=move, skin=skin)
         except StudioError as exc:
             return {"error": str(exc)}
         return [Image(data=data, format="png"), json.dumps(info)]
+
+    @server.tool(name="make_skin", structured_output=False)
+    def tool_make_skin(asset_id: str, change: str, name: str | None = None):
+        """A new skin for a finished Pixal3D model: same shape, new paint. change says what to change
+        ("make the skirt gold", "silver armour, red cloak"); everything else is kept. Qwen redraws the model's
+        front picture first. Then: skin_status -> skin_picture (show the user) -> approve_skin_picture or
+        redo_skin_picture, front then back -> build_skin. The new skin fits the same rig and moves."""
+        return safe(lambda: make_skin(studio, asset_id=asset_id, change=change, name=name))
+
+    @server.tool(name="skin_status", structured_output=False)
+    def tool_skin_status(skin_id: str, wait_seconds: int = 30):
+        """Where a skin is: its pictures, what is approved, and what to do next. Waits up to wait_seconds
+        (max 50) while a picture is drawing or the skin is building."""
+        return safe(lambda: skin_status(studio, skin_id=skin_id, wait_seconds=wait_seconds))
+
+    @server.tool(name="skin_picture", structured_output=False)
+    def tool_skin_picture(skin_id: str, side: str = "front", number: int | None = None):
+        """Show a skin's picture (the newest try for side front|back, or try `number`). Always show the user
+        before approving: Qwen sometimes changes more than asked (an extra strap, spottier fur)."""
+        try:
+            data, info = skin_picture(studio, skin_id=skin_id, side=side, number=number)
+        except StudioError as exc:
+            return {"error": str(exc)}
+        return [Image(data=data, format="png"), json.dumps(info)]
+
+    @server.tool(name="approve_skin_picture", structured_output=False)
+    def tool_approve_skin_picture(skin_id: str, side: str = "front", number: int | None = None):
+        """The user likes this picture (the newest try, or try `number`). Approving the front starts the
+        back picture at once when the model has one."""
+        return safe(lambda: approve_skin_picture(studio, skin_id=skin_id, side=side, number=number))
+
+    @server.tool(name="redo_skin_picture", structured_output=False)
+    def tool_redo_skin_picture(skin_id: str, side: str = "front", change: str | None = None):
+        """Draw the picture again, with the user's correction in change (e.g. "gold skirt, but keep the
+        belt blue"); without change it simply tries again."""
+        return safe(lambda: redo_skin_picture(studio, skin_id=skin_id, side=side, change=change))
+
+    @server.tool(name="build_skin", structured_output=False)
+    def tool_build_skin(skin_id: str):
+        """Both pictures approved: repaint the model from them and Finish it with the model's own settings
+        (a few minutes). Then skin_status until done."""
+        return safe(lambda: build_skin(studio, skin_id=skin_id))
+
+    @server.tool(name="export_skins", structured_output=False)
+    def tool_export_skins(asset_id: str, skin_id: str | None = None):
+        """Skins as files for a game. With skin_id: the finished model, its rig and every move, all
+        wearing that skin. Without: one GLB holding the original paint and every skin as switchable
+        material variants."""
+        return safe(lambda: export_skins(studio, asset_id=asset_id, skin_id=skin_id))
+
+    @server.tool(name="cancel_skin", structured_output=False)
+    def tool_cancel_skin(skin_id: str):
+        """Stop a skin that is building. Its approved pictures are kept, so build_skin can start it again."""
+        return safe(lambda: cancel_skin(studio, skin_id=skin_id))
 
     @server.tool(name="open_in_studio", structured_output=False)
     def tool_open_in_studio(asset_id: str | None = None):

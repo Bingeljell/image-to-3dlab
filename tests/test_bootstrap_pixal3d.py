@@ -401,6 +401,7 @@ def test_the_hip_build_says_hip_not_cuda_on_its_progress_line(monkeypatch, capsy
     monkeypatch.setattr(boot, "fetch_source", lambda ref: None)
     monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
     monkeypatch.setattr(boot, "apply_dump_patch", lambda: True)
+    monkeypatch.setattr(boot, "apply_shape_patch", lambda: True)
     monkeypatch.setattr(boot, "gfx_targets", lambda: ["gfx1100"])
     monkeypatch.setattr(boot, "find_hipcc", lambda: HIPCC)
     # ROCm's Clang is looked up on disk; this test is about the label, not the lookup,
@@ -443,6 +444,15 @@ def test_a_failed_dump_patch_does_not_fail_the_install(capsys):
         return types.SimpleNamespace(returncode=1, stdout="", stderr="anchor found 0 times")
     assert boot.apply_dump_patch(runner) is False
     assert "classic route" in capsys.readouterr().out
+
+
+def test_a_failed_shape_patch_does_not_fail_the_install(capsys):
+    """Upstream moving an anchor must cost new skins, not the whole install."""
+    def runner(command, **kwargs):
+        assert command[-1].endswith("patch_pixal3d_shape_reuse.py")
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="anchor found 0 times")
+    assert boot.apply_shape_patch(runner) is False
+    assert "new skins" in capsys.readouterr().out
 
 
 def test_a_failed_steps_patch_does_not_fail_the_install(capsys):
@@ -504,7 +514,8 @@ def test_a_rebuild_patches_then_compiles_without_the_fresh_install_checks(monkey
     boot.rebuild_existing(runner)
     assert ran[0][-1].endswith("patch_pixal3d_steps.py")
     assert ran[1][-1].endswith("patch_pixal3d_dump_continue.py")
-    assert ran[2][:2] == ["cmake", "--build"]
+    assert ran[2][-1].endswith("patch_pixal3d_shape_reuse.py")
+    assert ran[3][:2] == ["cmake", "--build"]
     assert not any("xcrun" in part for command in ran for part in command)
 
 
@@ -526,7 +537,13 @@ def test_background_remover_is_fetched_once_and_only_when_missing(tmp_path):
 def test_the_cuda_source_build_fetches_the_tested_commit():
     assert boot.source_ref("cuda-source") == boot.PREBUILT_COMMIT
     assert len(boot.PREBUILT_COMMIT) == 40
-    assert boot.source_ref("metal-source") == "HEAD"
+
+
+
+def test_the_mac_source_build_fetches_a_pinned_commit_not_the_newest():
+    """Skins repaint saved shapes; a new upstream could change what a shape file means."""
+    assert boot.source_ref("metal-source") == boot.MAC_COMMIT
+    assert len(boot.MAC_COMMIT) == 40 and boot.MAC_COMMIT != "HEAD"
 
 
 def test_weights_come_from_the_tested_revisions(monkeypatch, tmp_path):
@@ -697,6 +714,7 @@ def test_the_metal_build_hands_the_found_xcode_to_cmake(monkeypatch):
     monkeypatch.setattr(boot, "fetch_source", lambda ref: None)
     monkeypatch.setattr(boot, "apply_steps_patch", lambda: True)
     monkeypatch.setattr(boot, "apply_dump_patch", lambda: True)
+    monkeypatch.setattr(boot, "apply_shape_patch", lambda: True)
     monkeypatch.setattr(boot, "build_present", lambda: True)
     env = {k: v for k, v in boot.os.environ.items() if k != "DEVELOPER_DIR"}
     monkeypatch.setattr(boot.os, "environ", env)  # the build writes to it; keep that here

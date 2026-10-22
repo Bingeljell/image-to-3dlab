@@ -74,6 +74,10 @@ The studio does not need to be open: the first tool call starts it in the backgr
 | `open_in_studio` | Opens the asset in your browser, so you can spin it and play its moves |
 | `model_info` | A model's numbers (triangles, vertices, textures and their sizes, bones, moves, file size) and its full path on your computer |
 | `show_in_folder` | Opens the folder holding a model in Finder or Explorer, with the file selected |
+| `make_skin` | A new skin for a finished Pixal3D model: say what to change ("make the skirt gold"), and the same model gets new paint. Its rig and moves still fit |
+| `skin_status` / `skin_picture` | Where a skin is, and its new pictures, so the agent can show you each one before anything is built |
+| `approve_skin_picture` / `redo_skin_picture` | Your verdict on a picture: approve it, or ask again with a correction. Front first, then back |
+| `build_skin` / `cancel_skin` | Paint the model from the approved pictures and finish it (a few minutes), or stop that |
 | `report_bug` | Drafts a bug report (your words, plus version, machine and the last error) and gives you the links to send it. It never sends anything itself |
 | `install_backend` | Sets up an engine, but **only after you say yes**: it first tells the agent what it would download, the size and the licence |
 

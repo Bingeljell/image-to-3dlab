@@ -232,3 +232,45 @@ def test_the_glb_reader_it_borrows_loads_inside_blender():
              "import compress_glb_textures; assert 'PIL' not in sys.modules")
     subprocess.run([sys.executable, "-c", probe], check=True)
 
+
+
+def test_a_fade_mask_is_an_optional_fifth_argument():
+    assert bd.parse_args(["--", "a.glb", "b.glb", "c.glb"]).fade is None
+    assert bd.parse_args(["--", "a.glb", "b.glb", "c.glb", "1024", "fade.png"]).fade == "fade.png"
+
+
+def _normals(height=2, width=3):
+    import numpy as np
+
+    rgba = np.zeros((height, width, 4), dtype=np.float32)
+    rgba[...] = (0.9, 0.2, 0.6, 1.0)  # a strongly tilted normal
+    return rgba
+
+
+def test_the_normal_goes_flat_where_the_picture_painted():
+    import numpy as np
+
+    faded = bd.fade_toward_flat(_normals(), np.ones((2, 3), dtype=np.float32))
+    assert np.allclose(faded[..., :3], (0.5, 0.5, 1.0))
+    assert np.allclose(faded[..., 3], 1.0)
+
+
+def test_the_normal_is_kept_where_the_model_painted_itself():
+    import numpy as np
+
+    faded = bd.fade_toward_flat(_normals(), np.zeros((2, 3), dtype=np.float32))
+    assert np.allclose(faded, _normals())
+
+
+def test_a_half_mask_fades_the_normal_halfway():
+    import numpy as np
+
+    faded = bd.fade_toward_flat(_normals(), np.full((2, 3), 0.5, dtype=np.float32))
+    assert np.allclose(faded[0, 0, :3], (0.7, 0.35, 0.8))
+
+
+def test_a_mask_of_the_wrong_size_is_refused_not_stretched():
+    import numpy as np
+
+    with pytest.raises(ValueError):
+        bd.fade_toward_flat(_normals(2, 3), np.ones((3, 3), dtype=np.float32))

@@ -313,6 +313,24 @@ def test_cancel_stops_the_whole_group_not_just_the_step(output):
     assert job.status == "cancelled"
 
 
+def test_a_cancel_while_a_step_is_starting_still_stops_it(output):
+    """Cancel lands after the last check but before the process exists: it had nothing to stop."""
+    store, skin = _ready(output)
+    stopped = []
+    builds = sk.SkinBuilds(store, stop=stopped.append)
+
+    class Started(_FakeProcess):
+        pid = 5151
+
+    def runner(command, **kwargs):
+        builds.cancel(builds.active)                   # job.process is not set yet
+        return Started(["[1/6] load"])
+
+    job = builds.start(skin, background=False, runner=runner, box=_same_box)
+    assert stopped == [5151]
+    assert job.status == "cancelled"
+
+
 def test_a_cancel_during_the_picture_check_starts_no_step(output):
     store, skin = _ready(output)
     builds = sk.SkinBuilds(store, stop=lambda pid: None)

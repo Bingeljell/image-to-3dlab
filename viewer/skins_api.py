@@ -28,9 +28,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))   # standing alone, not only after another module put it there
 from image_to_3dlab import processes
 
-REPO = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = REPO / "output"
 SKINS_DIR = "skins"
 RECORD = "skin.json"

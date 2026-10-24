@@ -42,8 +42,8 @@ ELSEWHERE = {
 }
 
 
-#: Upstream compiles the Metal operators with -std=metal4.0, which only macOS 26 loads (#154).
-MIN_MACOS = 26
+#: Upstream compiles the Metal operators with -std=metal4.0 (#154).
+MIN_MACOS = host.METAL4_MACOS
 
 
 def wrong_machine(build_target: str | None = None, card: str | None = None,

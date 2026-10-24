@@ -40,7 +40,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import processes
+from image_to_3dlab import host, processes
 
 OUTPUT_ROOT = REPO / "output" / "animate"
 SKINTOKENS = REPO / "vendor" / "SkinTokens"
@@ -73,9 +73,7 @@ KIMODO_LICENSE = {
 
 
 def venv_python(root: Path = SKINTOKENS) -> Path:
-    if os.name == "nt":
-        return root / ".venv" / "Scripts" / "python.exe"
-    return root / ".venv" / "bin" / "python"
+    return host.venv_python(root)
 
 
 def installed(root: Path = SKINTOKENS) -> bool:

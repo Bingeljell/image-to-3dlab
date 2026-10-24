@@ -253,7 +253,7 @@ def test_the_default_probe_is_the_trellis_one(monkeypatch):
 
 def test_venv_python_uses_the_windows_layout_on_windows(tmp_path, monkeypatch):
     # Windows keeps a venv's Python in Scripts\python.exe; bin/python made setup fail there.
-    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ba.host.os, "name", "nt")
     assert ba.venv_python(tmp_path) == tmp_path / ".venv" / "Scripts" / "python.exe"
-    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(ba.host.os, "name", "posix")
     assert ba.venv_python(tmp_path) == tmp_path / ".venv" / "bin" / "python"

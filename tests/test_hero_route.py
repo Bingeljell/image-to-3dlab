@@ -81,3 +81,25 @@ def test_a_body_without_its_clean_up_dump_is_refused_in_plain_words(tmp_path):
 
 def test_no_body_given_is_no_problem():
     assert hero_route.body_problem(None, None, None) is None
+
+
+def test_a_failed_step_prints_the_end_of_its_own_output(capsys, tmp_path):
+    import sys
+
+    import pytest
+
+    run = hero_route.Run(tmp_path)
+    script = "import sys\nfor i in range(30): print(f'line {i}')\nsys.exit('the real error')"
+    with pytest.raises(SystemExit, match="step failed"):
+        run.run([sys.executable, "-c", script])
+    out = capsys.readouterr().out
+    assert "the real error" in out and "line 29" in out
+    assert "line 0\n" not in out                      # only the end, so the report keeps room
+    assert "line 0" in (tmp_path / "run.log").read_text()
+
+
+def test_a_step_that_works_prints_nothing_of_its_own(capsys, tmp_path):
+    import sys
+
+    hero_route.Run(tmp_path).run([sys.executable, "-c", "print('quiet')"])
+    assert "quiet" not in capsys.readouterr().out.splitlines()   # the $ line names it; output does not

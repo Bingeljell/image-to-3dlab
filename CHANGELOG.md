@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-rig setup works on Windows.** It looked for Python in the wrong folder and stopped
   before installing anything.
 - **A failed Finish clean-up shows its real error** in the bug report, not just an exit code.
+- **A failed Hero step shows its real error** in the bug report too.
 - **The README says how to stop and restart the studio**, and no longer claims the Windows
   installer starts it.
 - **TRELLIS.2 on a Mac older than macOS 26 says so in Setup**, and points to Pixal3D, instead of

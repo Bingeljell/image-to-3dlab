@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -48,6 +49,8 @@ BLENDER = REPO / "scripts" / "hero_blender.py"
 COMPRESS = REPO / "scripts" / "compress_glb_textures.py"
 BODY_FACES = 32000
 HEAD_FACES = 16000
+#: How much of a failed step's own output is echoed, so a bug report carries the real error.
+FAIL_TAIL_LINES = 15
 SEED = 42
 #: Finish settings shared with the studio's defaults, Pixel Match only (no repaint).
 FINISH_FLAGS = ["--atlas", "2048", "--angle", "89.0", "--voxel", "0.004", "--metallic", "0.25",
@@ -96,10 +99,13 @@ class Run:
             self.say("$ " + " ".join(str(c) for c in command))
             process = subprocess.Popen([str(c) for c in command], cwd=cwd, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, text=True)
+            tail: deque[str] = deque(maxlen=FAIL_TAIL_LINES)
             for line in process.stdout:
                 self.log.write(line)
+                tail.append(line.rstrip("\n"))
             if not process.wait():
                 return True
+            print("\n".join(tail), flush=True)   # run.log has it all; the studio only sees stdout
             if attempt < tries:
                 self.flag(f"{Path(str(command[1])).name} failed once ({process.returncode}); tried again")
         if required:

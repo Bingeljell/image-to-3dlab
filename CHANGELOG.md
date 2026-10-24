@@ -14,7 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-rig setup works on Windows.** It looked for Python in the wrong folder and stopped
   before installing anything.
 - **A failed Finish clean-up shows its real error** in the bug report, not just an exit code.
-- **A failed Hero step shows its real error** in the bug report too.
+- **A failed Hero step shows its real error** in the bug report too, and in the error headline.
+- **Hero checks Pixal3D can save its clean-up data before it starts**, and says to Rebuild,
+  instead of failing after building the body.
+- **Hero and Finish on Windows cope with any folder name**, and with odd characters in a log.
+- **Installing TRELLIS.2 on an older Mac through an agent** says macOS is too old, not that
+  the Mac is the wrong kind.
+- **Cancel on a skin build** works even if clicked just as a step starts.
 - **The README says how to stop and restart the studio**, and no longer claims the Windows
   installer starts it.
 - **TRELLIS.2 on a Mac older than macOS 26 says so in Setup**, and points to Pixal3D, instead of
@@ -23,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **Bug reports hide your user name everywhere.** Errors pasted into the message, and Windows
   paths written as `C:/...` or `C:\\...`, used to keep it.
+- **Copy details hides your user name too**, like the bug report does. A user name that
+  starts another one (`ada` and `adam`) is no longer cut in half.
 
 ## [0.5.1] - 2026-10-22
 

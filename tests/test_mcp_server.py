@@ -273,6 +273,16 @@ def test_install_asks_first_and_downloads_nothing_without_confirm(studio):
     assert studio.http.posts[-1][0] == "api/setup/hunyuan/download"
 
 
+def test_install_refusal_gives_the_catalogues_reason(studio):
+    CATALOG["backends"].append({"id": "old-mac", "label": "TRELLIS.2", "supported_here": False, "requires": "an Apple Silicon Mac",
+                                "platform_note": "TRELLIS.2 on a Mac needs macOS 26 or newer; this Mac has macOS 15."})
+    try:
+        with pytest.raises(ms.StudioError, match="needs macOS 26"):
+            ms.install_backend(studio, backend_id="old-mac")
+    finally:
+        CATALOG["backends"].pop()
+
+
 def test_preview_returns_the_picture_and_a_studio_link(studio):
     data, info = ms.preview(studio, asset_id=KNIGHT["id"])
     assert data == b"PNG" and info["shown"] == "finished"

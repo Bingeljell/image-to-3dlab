@@ -40,7 +40,6 @@ from backend_catalog import (
     NVIDIA,
     Backend,
     human_bytes,
-    runs_on_phrase,
 )
 
 from image_to_3dlab import host, processes
@@ -301,10 +300,8 @@ def start(backend_id: str, rebuild: bool = False) -> DownloadRun:  # Come get so
     # Checked here rather than only in the browser, because the API is the thing that
     # spends someone's bandwidth and an unsupported machine cannot finish the job.
     if not backend.runs_here():
-        raise RuntimeError(
-            f"{backend.label} needs {runs_on_phrase(backend)}, which this machine is not. "
-            f"Nothing has been downloaded."
-        )
+        # The catalogue's own note: it also covers a Mac that is the right kind but too old.
+        raise RuntimeError(f"{backend._platform_note()} Nothing has been downloaded.")
     with LOCK:
         if active() is not None:
             raise RuntimeError("a download is already running")

@@ -1,7 +1,7 @@
 // The Steps panel's actions: each step's settings, its start call, and its progress card.
 // The job APIs live on the server; the studio sends them the asset's files. Prop sheets split here too.
 
-import { followJob, plainError, statusUrlFor, jobEnd } from './jobs.js';
+import { followJob, plainError, statusUrlFor, jobEnd, copyDetails } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
 
@@ -288,5 +288,5 @@ async function runInCard(card, starter, ctx, stepId, note) {
     <details><summary class="hint">Show log</summary><pre class="log">${esc(tail.split('\n').slice(-30).join('\n'))}</pre></details>
     <div class="row end"><button class="ghost" data-copy>Copy details</button><button class="ghost" data-back>Back</button></div></div>`);
   body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
-  body.querySelector('[data-copy]')?.addEventListener('click', () => navigator.clipboard?.writeText(`${why}\n\n${tail}`));
+  body.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(why, tail));
 }

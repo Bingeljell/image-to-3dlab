@@ -77,7 +77,7 @@ LOG_TAIL_LINES = 15
 
 def log_tail(log: Path, lines: int = LOG_TAIL_LINES) -> str:
     try:
-        text = log.read_text(errors="replace")
+        text = log.read_text(encoding="utf-8", errors="replace")   # Windows would read cp1252
     except OSError:
         return "(no log written)"
     return "\n".join(text.strip().splitlines()[-lines:]) or "(log is empty)"

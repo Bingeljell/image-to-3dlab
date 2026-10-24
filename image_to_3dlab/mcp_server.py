@@ -728,7 +728,8 @@ def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -
     if backend.get("state") == "ready":
         return {"already_installed": backend_id}
     if not backend.get("supported_here", True):
-        raise StudioError(f"{backend.get('label')} needs {backend.get('requires')}; it can't run on this machine.")
+        raise StudioError(backend.get("platform_note")
+                          or f"{backend.get('label')} needs {backend.get('requires')}; it can't run on this machine.")
     plan = {
         "backend": backend_id, "label": backend.get("label"),
         "route": backend.get("best_for"),

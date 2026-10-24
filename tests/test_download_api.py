@@ -220,6 +220,19 @@ def test_an_unsupported_machine_is_refused_before_anything_downloads(monkeypatch
     assert "hunyuan_xiong" not in dl.DOWNLOADS
 
 
+def test_a_mac_too_old_for_the_route_is_told_so_not_that_it_is_the_wrong_machine(monkeypatch):
+    import backend_catalog
+
+    monkeypatch.setattr(backend_catalog, "host_platform", lambda: backend_catalog.APPLE)
+    monkeypatch.setattr(backend_catalog._host, "macos_major", lambda release=None: 15)
+    with pytest.raises(RuntimeError) as raised:
+        dl.start("trellis")
+    assert "macOS 26" in str(raised.value) and "macOS 15" in str(raised.value)
+    assert "which this machine is not" not in str(raised.value)
+    assert "Nothing has been downloaded" in str(raised.value)
+    assert "trellis" not in dl.DOWNLOADS
+
+
 def test_trellis_on_nvidia_runs_the_cuda_bootstrap_with_yes():
     command = dl.command_for("trellis", host=dl.NVIDIA)
     assert command[1].endswith("bootstrap_trellis_cuda.py")

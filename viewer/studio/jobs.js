@@ -31,6 +31,18 @@ export function percentOf(event) {
 }
 
 /** Turn a raw failure into words a person can act on. */
+/** Copy a failure to paste elsewhere, scrubbed by the server exactly as a bug report is, so no
+ *  path carries the person's user name. Nothing is copied if the server can't scrub it. */
+export async function copyDetails(why, log = '', { send = globalThis.fetch, clipboard = globalThis.navigator?.clipboard } = {}) {
+  const details = String(log || '').slice(-30000);   // the server takes 64 kB; the end explains the failure
+  const response = await send('/api/bug-report', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: String(why || '').trim() || 'A step failed', details }) });
+  if (!response.ok) return false;
+  const { text } = await response.json();
+  await clipboard?.writeText(text);
+  return true;
+}
+
 export function plainError(message = '') {
   const text = String(message);
   // already written for a person (how to install Blender): shown as it is

@@ -644,3 +644,13 @@ def test_two_rigs_of_one_model_get_their_own_dressed_files(output):
 ])
 def test_a_skin_gets_a_short_name_for_lists_and_game_engines(instruction, name, expected):
     assert sk.skin_name(instruction, name) == expected
+
+
+def test_the_module_imports_on_its_own():
+    """It used to import only because another studio module had put the repo on sys.path first."""
+    import subprocess
+    import sys
+
+    viewer = Path(__file__).resolve().parents[1] / "viewer"
+    code = f"import sys; sys.path.insert(0, {str(viewer)!r}); import skins_api"
+    subprocess.run([sys.executable, "-I", "-c", code], check=True, cwd="/")

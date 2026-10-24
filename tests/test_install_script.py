@@ -493,3 +493,16 @@ def test_the_lock_covers_every_requirement():
             continue
         name = re.split(r"[<>=!~\[; ]", line, maxsplit=1)[0].lower().replace("_", "-")
         assert f"\n{name}==" in lock, f"{name} is in requirements.txt but not the lock"
+
+
+def test_windows_lab_starts_the_same_studio_as_the_shell_one():
+    """lab.cmd cannot run here: check it runs what ./lab runs, from its own folder, with the
+    Windows venv layout and Windows line endings (cmd misreads some lines without them)."""
+    shell = (REPO / "lab").read_text()
+    cmd = (REPO / "lab.cmd").read_bytes()
+    assert b"\r\n" in cmd and b"\n" not in cmd.replace(b"\r\n", b"")
+    text = cmd.decode()
+    assert "viewer/serve.py --auto" in shell and "viewer\\serve.py --auto %*" in text
+    assert "image_to_3dlab.mcp_server" in shell and "image_to_3dlab.mcp_server" in text
+    assert '.venv\\Scripts\\python.exe' in text and 'cd /d "%~dp0"' in text
+    assert ".\\lab" in (REPO / "install.ps1").read_text()

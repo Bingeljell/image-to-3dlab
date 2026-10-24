@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A failed Finish clean-up shows its real error** in the bug report, not just an exit code.
 - **The README says how to stop and restart the studio**, and no longer claims the Windows
   installer starts it.
+- **TRELLIS.2 on a Mac older than macOS 26 says so in Setup**, and points to Pixal3D, instead of
+  building and then crashing on the first run.
 
 ### Security
 - **Bug reports hide your user name everywhere.** Errors pasted into the message, and Windows

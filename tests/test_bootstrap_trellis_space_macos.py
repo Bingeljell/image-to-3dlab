@@ -31,7 +31,7 @@ def test_every_bootstrap_source_is_pinned():
 
 
 def test_it_runs_on_apple_silicon():
-    assert bootstrap.wrong_machine("macos-arm64") is None
+    assert bootstrap.wrong_machine("macos-arm64", macos=26) is None
 
 
 def test_it_refuses_on_amd_and_names_the_route_that_works():
@@ -87,3 +87,9 @@ def test_microsoft_space_versions_are_preserved():
         "kornia==0.8.2",
     ):
         assert pin in requirements
+
+
+def test_it_refuses_a_mac_older_than_macos_26_before_downloading():
+    problem = bootstrap.wrong_machine("macos-arm64", macos=15)
+    assert "macOS 26" in problem and "macOS 15" in problem and "Pixal3D" in problem
+    assert "Nothing downloaded" in problem

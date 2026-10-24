@@ -3,7 +3,7 @@
 
 import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
 import { createStudioViewer } from './viewer.js';
-import { readyEngines, readableLog } from './jobs.js';
+import { readyEngines, readableLog, copyDetails } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet } from './pages.js';
@@ -525,7 +525,7 @@ function drawProgress() {
         <div class="row end">${buttons}</div></div>`;
   box.querySelector('[data-x]')?.addEventListener('click', (e) => { e.target.disabled = true; making.cancel?.(); });
   box.querySelector('[data-report]')?.addEventListener('click', () => openReport($('stage')));   // the newest failure is this one
-  box.querySelector('[data-copy]')?.addEventListener('click', () => navigator.clipboard?.writeText(`${making.why}\n\n${making.fullLog || ''}`));
+  box.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(making.why, making.fullLog));
   box.querySelector('[data-close]')?.addEventListener('click', () => { const keep = making.result; making = null; show(keep ?? current ?? assets[0] ?? null); });
 }
 

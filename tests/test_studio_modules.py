@@ -1050,3 +1050,22 @@ def test_how_to_use_tips_and_about_all_link_the_full_guide():
     tips = create.split('class="tipsbox"')[1].split("</div>")[0]
     for where, text in (("How to use", guide_sheet), ("About", about), ("Tips", tips)):
         assert "FULL_GUIDE" in text, f"{where} does not link the full guide"
+
+
+@needs_node
+def test_copy_details_copies_what_the_server_scrubbed_and_nothing_if_it_cannot():
+    out = _run("jobs.js", """
+      const sent = [], copied = [];
+      const clipboard = { writeText: async (t) => copied.push(t) };
+      const ok = (text) => async (url, init) => { sent.push([url, JSON.parse(init.body)]);
+        return { ok: true, json: async () => ({ text }) }; };
+      const down = async () => ({ ok: false, json: async () => ({}) });
+      const first = await m.copyDetails('Finish failed', '/Users/ada/x.log\\n' + 'y'.repeat(40000), { send: ok('~/x.log'), clipboard });
+      const second = await m.copyDetails('', 'C:\\\\Users\\\\ada', { send: down, clipboard });
+      await m.copyDetails('', '', { send: ok('z'), clipboard });
+      console.log(JSON.stringify({ first, second, copied, url: sent[0][0], size: sent[0][1].details.length,
+                                   fallback: sent[1][1].message }));""")
+    assert out["first"] is True and out["second"] is False
+    assert out["copied"] == ["~/x.log", "z"]          # the server's text, never the raw log
+    assert out["url"] == "/api/bug-report" and out["size"] == 30000
+    assert out["fallback"] == "A step failed"         # the server refuses an empty message

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The README says how to stop and restart the studio**, and no longer claims the Windows
   installer starts it.
 
+### Security
+- **Bug reports hide your user name everywhere.** Errors pasted into the message, and Windows
+  paths written as `C:/...` or `C:\\...`, used to keep it.
+
 ## [0.5.1] - 2026-10-22
 
 ### Fixed

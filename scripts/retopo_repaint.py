@@ -206,7 +206,7 @@ def _run(command: list[str], log: Path, label: str) -> None:
     with log.open("w") as handle:
         process = subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT, check=False)
     if process.returncode != 0:
-        tail = "\n".join(log.read_text().splitlines()[-15:])
+        tail = pixal3d_native.log_tail(log, 15)
         raise SystemExit(f"[{label}] failed (exit {process.returncode}); last lines:\n{tail}")
 
 

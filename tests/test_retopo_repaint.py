@@ -165,6 +165,17 @@ def test_a_stage_line_still_names_the_script_it_runs(capsys, tmp_path):
     assert rr.shown(["gltfpack", "-i", "a.glb", "-o", "b.glb", "-cc"]) == "gltfpack -i a.glb -o"
 
 
+def test_a_failed_stage_shows_its_log_even_when_it_is_not_valid_text(tmp_path):
+    """Blender writes UTF-8 and the odd stray byte; Windows reads cp1252. Neither may hide the error."""
+    import sys
+
+    script = "import sys; sys.stdout.buffer.write(b'caf\\xc3\\xa9 \\x81\\xff\\nthe real error\\n'); sys.exit(3)"
+    with pytest.raises(SystemExit) as raised:
+        rr._run([sys.executable, "-c", script], tmp_path / "stage.log", "retopologise")
+    assert "failed (exit 3)" in str(raised.value)
+    assert "café" in str(raised.value) and "the real error" in str(raised.value)
+
+
 def test_skip_bake_is_on_the_real_parser_and_off_by_default():
     parser = rr.build_parser()
     assert parser.parse_args(["a.glb", "b.png", "c.glb"]).skip_bake is False

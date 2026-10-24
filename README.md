@@ -106,11 +106,14 @@ irm https://assetfurnace.com/install.ps1 | iex
 
 The installer is short, so [read it](install.sh) before you run it
 ([Windows version](install.ps1)). It checks your machine, installs the code and
-Python 3.11, then starts the studio and opens it in your browser. On a RunPod pod it prints
-the pod's link instead; over plain SSH it prints the tunnel command. Start it again any
-time with `./lab` in the install folder. It downloads **no model weights**: you choose
-those in **Setup & Status**, which states each size and licence and asks first. To update,
-run the same line again.
+Python 3.11, then starts the studio and opens it in your browser (on Windows it prints the
+start command instead). On a RunPod pod it prints the pod's link; over plain SSH it prints
+the tunnel command. It downloads **no model weights**: you choose those in
+**Setup & Status**, which states each size and licence and asks first.
+
+The studio runs in its terminal window. **Ctrl+C** stops it; `./lab` in the install folder
+(`.\lab` on Windows) starts it again. To update, stop it, run the install line again, then
+start it.
 
 For scripts and agents: `curl -fsSL …/install.sh | bash -s -- --yes --dir ~/lab`
 (`--dry-run` shows what it would do).

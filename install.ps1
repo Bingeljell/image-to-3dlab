@@ -108,7 +108,7 @@ if (Test-Path $Py) {
 # 6. Done
 Say "Done. Start the lab with:"
 Write-Host ""
-Write-Host "    cd `"$Dir`"; .venv\Scripts\python.exe viewer\serve.py"
+Write-Host "    cd `"$Dir`"; .\lab"
 Write-Host ""
 Say "Then open Setup & Status to choose what to install. Nothing large downloads until you say so there."
-Say "To update later, run this installer again, then restart the viewer."
+Say "Ctrl+C in that window stops it; .\lab starts it again. To update, stop it, run this installer again, then start it."

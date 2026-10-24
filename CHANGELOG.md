@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Auto-rig setup works on Windows.** It looked for Python in the wrong folder and stopped
   before installing anything.
+- **A failed Finish clean-up shows its real error** in the bug report, not just an exit code.
 
 ## [0.5.1] - 2026-10-22
 

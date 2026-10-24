@@ -8,6 +8,7 @@ the right face count.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -189,3 +190,24 @@ def test_native_retopo_writes_the_converted_model_and_reports_it(tmp_path):
     assert (tmp_path / "out.glb").is_file()
     assert record["route"] == "pixal3d" and record["triangles"] == 4
     assert not list(tmp_path.glob("*.replay.glb"))
+
+
+def test_a_failed_clean_up_puts_its_log_in_the_error(tmp_path):
+    """A user's bug report only carries the error, not the log file beside it."""
+    def runner(command, stdout=None, **kwargs):
+        stdout.write("loading dump\nerror: dump was written by another build\n")
+        raise subprocess.CalledProcessError(1, command)
+
+    with pytest.raises(pn.ReplayFailed, match="written by another build") as caught:
+        pn.native_retopo(tmp_path / "run.post.bin", tmp_path / "raw.glb", tmp_path / "out.glb",
+                         100, 1024, tmp_path / "replay.log", post_replay=tmp_path / "post-replay",
+                         runner=runner)
+    assert "code 1" in str(caught.value)
+
+
+def test_log_tail_keeps_only_the_last_lines(tmp_path):
+    log = tmp_path / "replay.log"
+    log.write_text("\n".join(f"line {i}" for i in range(40)))
+    tail = pn.log_tail(log, lines=3)
+    assert tail == "line 37\nline 38\nline 39"
+    assert pn.log_tail(tmp_path / "missing.log") == "(no log written)"

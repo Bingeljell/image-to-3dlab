@@ -66,6 +66,22 @@ FRAME_TOLERANCE = 0.03
 class FrameMismatch(Exception):
     """The clean-up's model does not sit where the raw model does."""
 
+
+class ReplayFailed(RuntimeError):
+    """post-replay exited with an error. The message carries its log's last lines, so a bug
+    report shows the real cause instead of just an exit code."""
+
+
+LOG_TAIL_LINES = 15
+
+
+def log_tail(log: Path, lines: int = LOG_TAIL_LINES) -> str:
+    try:
+        text = log.read_text(errors="replace")
+    except OSError:
+        return "(no log written)"
+    return "\n".join(text.strip().splitlines()[-lines:]) or "(log is empty)"
+
 INDEX_TYPES = {5121: "<u1", 5123: "<u2", 5125: "<u4"}
 
 
@@ -210,8 +226,16 @@ def native_retopo(dump: Path, raw_glb: Path, output: Path, faces: int, atlas: in
     """
     replayed = output.with_name(output.stem + ".replay.glb")
     with open(log, "w") as handle:
-        runner(replay_command(dump, replayed, faces, atlas, post_replay),
-               stdout=handle, stderr=subprocess.STDOUT, check=True)
+        try:
+            runner(replay_command(dump, replayed, faces, atlas, post_replay),
+                   stdout=handle, stderr=subprocess.STDOUT, check=True)
+        except subprocess.CalledProcessError as exc:
+            failed = exc
+        else:
+            failed = None
+    if failed:
+        raise ReplayFailed(f"Pixal3D clean-up exited with code {failed.returncode}. "
+                           f"Its log ({log.name}) ends:\n{log_tail(log)}") from failed
     converted = convert_replay_glb(replayed.read_bytes())
     problem = frame_problem(glb_bounds(raw_glb.read_bytes()), glb_bounds(converted))
     if problem:

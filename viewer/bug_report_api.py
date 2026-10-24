@@ -13,6 +13,7 @@ import base64
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -38,8 +39,15 @@ LOG_LINES = 40
 
 
 def scrub(text: str, home: str) -> str:
-    """`text` with the home folder shown as ~, so no path carries the user's name."""
-    return text.replace(home, "~") if home else text
+    """`text` with the home folder shown as ~, so no path carries the user's name.
+
+    Every spelling a Windows path takes: as typed, with / for \\, doubled \\\\ (how Python
+    prints a path inside a list, as in a failed command), and any letter case."""
+    if not home:
+        return text
+    spellings = {home, home.replace("\\", "/"), home.replace("\\", "\\\\")}
+    pattern = "|".join(re.escape(s) for s in sorted(spellings, key=len, reverse=True))
+    return re.sub(pattern, "~", text, flags=re.IGNORECASE if "\\" in home else 0)
 
 
 def _chip(system: str) -> str:
@@ -112,9 +120,14 @@ def _github_link(message: str, details_text: str) -> str:
     return url
 
 
-def links(message: str, details_text: str, version: str | None = None) -> dict[str, str]:
-    """The three ways to send: assetfurnace.com, a new GitHub issue, and text to paste in Discord."""
+def links(message: str, details_text: str, version: str | None = None, home: str | None = None) -> dict[str, str]:
+    """The three ways to send: assetfurnace.com, a new GitHub issue, and text to paste in Discord.
+
+    Both fields are scrubbed again here: people paste errors from other screens (Setup's
+    failures carry full paths) into the message, and can edit the details."""
     version = version or image_to_3dlab.__version__
+    home = str(Path.home()) if home is None else home
+    message, details_text = scrub(message, home), scrub(details_text, home)
     return {
         "site": _site_link(message, details_text, version),
         "github": _github_link(message, details_text),

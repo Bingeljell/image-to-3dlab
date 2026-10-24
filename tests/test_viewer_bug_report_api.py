@@ -96,3 +96,23 @@ def test_the_copied_text_has_the_message_and_the_details():
 @pytest.mark.parametrize("system, expected", [("darwin", "macOS"), ("linux", "Linux"), ("win32", "Windows")])
 def test_the_machine_line_starts_with_the_system(system, expected):
     assert br.machine_summary(sys_platform=system, chip=lambda: "Some GPU").startswith(expected)
+
+
+def test_every_spelling_of_a_windows_home_folder_is_hidden():
+    # A failed command prints its paths doubled (C:\\Users\\ada); tools also write C:/Users/ada,
+    # and Windows does not care about case.
+    home = r"C:\Users\ada"
+    text = (r"File C:\Users\ada\lab.py; ['C:\\Users\\ada\\.local\\bin\\uv.EXE']; "
+            r"C:/Users/ada/x; c:\users\ADA\y")
+    scrubbed = br.scrub(text, home)
+    assert "ada" not in scrubbed.lower()
+    assert scrubbed.startswith(r"File ~\lab.py; ['~\\.local")
+
+
+def test_a_pasted_message_is_scrubbed_too():
+    # A Setup failure copied into the message box carried the user's name in every path.
+    home = r"C:\Users\ada"
+    links = br.links(r"Setup failed: C:\Users\ada\.local\bin\uv.EXE", r"log at C:\\Users\\ada\\x",
+                     "0.5.1", home=home)
+    assert "ada" not in links["text"] and "ada" not in links["github"]
+    assert links["text"].startswith(r"Setup failed: ~\.local")

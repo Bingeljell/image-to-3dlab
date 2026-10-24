@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Auto-rig setup works on Windows.** It looked for Python in the wrong folder and stopped
+  before installing anything.
+
 ## [0.5.1] - 2026-10-22
 
 ### Fixed

@@ -116,3 +116,16 @@ def test_a_pasted_message_is_scrubbed_too():
                      "0.5.1", home=home)
     assert "ada" not in links["text"] and "ada" not in links["github"]
     assert links["text"].startswith(r"Setup failed: ~\.local")
+
+
+def test_scrub_hides_only_the_whole_home_folder():
+    assert br.scrub(r"C:\Users\ada\x and C:\Users\adam\y", r"C:\Users\ada") == r"~\x and C:\Users\adam\y"
+    assert br.scrub("/Users/ada/x /Users/adam/y /Users/ada.b in /Users/ada.", "/Users/ada") == \
+        "~/x /Users/adam/y /Users/ada.b in ~."
+    assert br.scrub("/Users/ada/x", "/Users/ada/") == "~/x"           # a trailing slash changes nothing
+
+
+def test_scrub_leaves_text_alone_when_home_is_a_root():
+    """Some services run with home at / or C:\\: replacing that would turn every path into ~."""
+    for home in ("/", "C:\\", "", "C:"):
+        assert br.scrub("/opt/lab/run.log C:\\lab\\x", home) == "/opt/lab/run.log C:\\lab\\x"

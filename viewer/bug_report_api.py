@@ -43,11 +43,13 @@ def scrub(text: str, home: str) -> str:
 
     Every spelling a Windows path takes: as typed, with / for \\, doubled \\\\ (how Python
     prints a path inside a list, as in a failed command), and any letter case."""
-    if not home:
+    home = home.rstrip("\\/")
+    if len(home) < 3:   # no home, or a root like / or C: (some services): nothing personal to hide
         return text
     spellings = {home, home.replace("\\", "/"), home.replace("\\", "\\\\")}
     pattern = "|".join(re.escape(s) for s in sorted(spellings, key=len, reverse=True))
-    return re.sub(pattern, "~", text, flags=re.IGNORECASE if "\\" in home else 0)
+    # Only the whole folder name: a home of /Users/ada leaves /Users/adam and /Users/ada.b alone.
+    return re.sub(f"(?:{pattern})(?![\\w-]|\\.\\w)", "~", text, flags=re.IGNORECASE if "\\" in home else 0)
 
 
 def _chip(system: str) -> str:

@@ -601,3 +601,9 @@ def test_rocm_libraries_go_on_the_loader_path_once(tmp_path):
 
 def test_no_rocm_leaves_the_environment_alone(tmp_path):
     assert host.with_rocm_libraries({"A": "1"}, tmp_path / "missing") == {"A": "1"}
+
+
+def test_macos_major_reads_the_first_number():
+    assert host.macos_major("15.8.1") == 15
+    assert host.macos_major("26.6.2") == 26
+    assert host.macos_major("") is None

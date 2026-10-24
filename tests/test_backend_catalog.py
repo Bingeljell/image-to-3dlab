@@ -432,7 +432,8 @@ def test_trellis_on_windows_nvidia_is_refused_with_a_reason():
     assert "Windows" in note and "Linux" in note
 
 
-def test_the_mac_trellis_route_is_unchanged():
+def test_the_mac_trellis_route_is_unchanged(monkeypatch):
+    monkeypatch.setattr(bc._host, "macos_major", lambda release=None: 26)
     entry = bc.BY_ID["trellis"].describe(bc.APPLE)
     assert entry["supported_here"] is True
     assert entry["install"] == "viewer"
@@ -839,3 +840,25 @@ def test_a_routes_removable_bytes_leave_out_shared_files():
     assert bc.is_shared(pixal, lite) is True
     assert bc.is_shared(bc.BY_ID["matte"], bc.BY_ID["matte"].weights[0]) is False
     assert "bytes_removable" in pixal.describe(bc.NVIDIA)
+
+
+def test_trellis_on_a_mac_older_than_macos_26_is_refused_and_points_at_pixal3d():
+    # #154: the Metal port builds on macOS 15, then crashes on its first run.
+    trellis = bc.BY_ID["trellis"]
+    assert trellis.runs_here(bc.APPLE, "macos", macos=15) is False
+    assert trellis.runs_here(bc.APPLE, "macos", macos=26) is True
+    note = trellis._platform_note(bc.APPLE, "macos", macos=15)
+    assert "macOS 26" in note and "macOS 15" in note and "Pixal3D" in note
+
+
+def test_the_macos_minimum_only_applies_on_a_mac():
+    trellis = bc.BY_ID["trellis"]
+    assert trellis.macos_too_old(bc.NVIDIA, macos=15) is None
+    assert bc.BY_ID["pixal3d"].macos_too_old(bc.APPLE, macos=15) is None
+
+
+def test_an_old_mac_sees_trellis_as_unsupported_in_setup(monkeypatch):
+    monkeypatch.setattr(bc._host, "macos_major", lambda release=None: 15)
+    entry = bc.BY_ID["trellis"].describe(bc.APPLE)
+    assert entry["supported_here"] is False and entry["action"] == "none"
+    assert "macOS 26" in entry["platform_note"]

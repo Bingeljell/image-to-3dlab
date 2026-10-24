@@ -42,8 +42,12 @@ ELSEWHERE = {
 }
 
 
+#: Upstream compiles the Metal operators with -std=metal4.0, which only macOS 26 loads (#154).
+MIN_MACOS = 26
+
+
 def wrong_machine(build_target: str | None = None, card: str | None = None,
-                   family: str | None = None) -> str | None:
+                   family: str | None = None, macos: int | None = None) -> str | None:
     """Why this script cannot run here, or None when it can.
 
     Everything below `install()` builds Metal operators through `xcrun`, which exists only
@@ -53,6 +57,11 @@ def wrong_machine(build_target: str | None = None, card: str | None = None,
     """
     target = host.build_target() if build_target is None else build_target
     if target == "macos-arm64":
+        version = host.macos_major() if macos is None else macos
+        if version is not None and version < MIN_MACOS:
+            return (f"TRELLIS.2 on a Mac needs macOS {MIN_MACOS} or newer; this Mac has macOS "
+                    f"{version}. Its GPU code is built for Metal 4, which older macOS cannot "
+                    f"load. Update macOS, or use Pixal3D, which runs here. Nothing downloaded.")
         return None
     card = host.host_platform() if card is None else card
     family = host.os_family() if family is None else family

@@ -39,6 +39,15 @@ def os_family(sys_platform: str | None = None) -> str:
     return OTHER
 
 
+def macos_major(release: str | None = None) -> int | None:
+    """The macOS major version (15, 26, ...), or None off a Mac or when it can't be told."""
+    release = platform.mac_ver()[0] if release is None else release
+    try:
+        return int(release.split(".")[0])
+    except ValueError:
+        return None
+
+
 def _smi(args: list[str], which: Callable, run: Callable) -> str | None:
     """`nvidia-smi <args>` stdout, or None if it is missing, fails or hangs."""
     smi = which("nvidia-smi")

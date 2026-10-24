@@ -281,6 +281,10 @@ class Backend:
     # sentence entirely. Without this field every blocked route borrows the extension
     # excuse, and SF3D ends up claiming an NVIDIA-only extension it does not have.
     amd_blocked_reason: str | None = None
+    # The oldest macOS a Mac can run this route on, with the reason. TRELLIS.2's Metal port
+    # is compiled as Metal 4.0, which older macOS refuses to load: the build succeeds, then
+    # the first run crashes (#154). None: any macOS.
+    min_macos: tuple[int, str] | None = None
 
     @property
     def bytes_expected(self) -> int:
@@ -305,11 +309,29 @@ class Backend:
         family = family or _host.os_family()
         return family if ((host or host_platform()), family) in self.excludes else None
 
-    def runs_here(self, host: str | None = None, family: str | None = None) -> bool:
-        host = host or host_platform()
-        return host in self.runs_on and self.excluded_os(host, family) is None
+    def macos_too_old(self, host: str | None = None, macos: int | None = None) -> int | None:
+        """This Mac's macOS major version when it is older than the route needs, or None."""
+        if self.min_macos is None or (host or host_platform()) != APPLE:
+            return None
+        macos = _host.macos_major() if macos is None else macos
+        return macos if macos is not None and macos < self.min_macos[0] else None
 
-    def _platform_note(self, host: str | None = None, family: str | None = None) -> str:
+    def runs_here(self, host: str | None = None, family: str | None = None,
+                  macos: int | None = None) -> bool:
+        host = host or host_platform()
+        return (host in self.runs_on and self.excluded_os(host, family) is None
+                and self.macos_too_old(host, macos) is None)
+
+    def _platform_note(self, host: str | None = None, family: str | None = None,
+                       macos: int | None = None) -> str:
+        old = self.macos_too_old(host, macos)
+        if old is not None:
+            needed, why = self.min_macos
+            works = [b.label for b in CATALOG if b.kind == "3d" and b is not self
+                     and APPLE in b.runs_on and b.min_macos is None]
+            tail = f" {works[0]} runs on this Mac." if works else ""
+            return (f"{self.label} on a Mac needs macOS {needed} or newer; this Mac has macOS {old}. "
+                    f"{why} Update macOS to use it.{tail}")
         excluded = self.excluded_os(host, family)
         if excluded:
             return (f"{self.label} is not supported on {excluded.capitalize()} yet. "
@@ -678,6 +700,7 @@ CATALOG: tuple[Backend, ...] = (
         # TRELLIS.2 yet (the bootstrap refuses it).
         runs_on=(APPLE, NVIDIA, AMD),
         excludes=((NVIDIA, "windows"),),
+        min_macos=(26, "Its GPU code is built for Metal 4, which older macOS cannot load."),
         install_by_host={
             NVIDIA: "scripts/bootstrap_trellis_cuda.py",
             AMD: "scripts/bootstrap_trellis_rocm.py",

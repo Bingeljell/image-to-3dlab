@@ -67,11 +67,12 @@ class Run:
     def __init__(self, out: Path):
         self.out = out
         out.mkdir(parents=True, exist_ok=True)
-        self.log = open(out / "run.log", "a", buffering=1)  # noqa: SIM115 - open for the whole run
+        # UTF-8 throughout: Windows defaults to cp1252, which can't write every folder name.
+        self.log = open(out / "run.log", "a", buffering=1, encoding="utf-8")  # noqa: SIM115 - open for the whole run
         # Kept on disk by step: a rerun skips finished steps and their notes must survive, while
         # a step that runs again replaces its own old notes.
         self.unsure_file = out / "unsure.json"
-        self.notes: dict[str, list[str]] = (json.loads(self.unsure_file.read_text())
+        self.notes: dict[str, list[str]] = (json.loads(self.unsure_file.read_text(encoding="utf-8"))
                                             if self.unsure_file.is_file() else {})
         if isinstance(self.notes, list):                  # older runs kept a flat list
             self.notes = {"earlier": self.notes}
@@ -91,25 +92,27 @@ class Run:
         notes = self.notes.setdefault(self.current, [])
         if text not in notes:
             notes.append(text)
-            self.unsure_file.write_text(json.dumps(self.notes, indent=2))
+            self.unsure_file.write_text(json.dumps(self.notes, indent=2), encoding="utf-8")
         self.say(f"UNSURE: {text}")
 
     def run(self, command: list, cwd: Path | None = None, tries: int = 1, required: bool = True) -> bool:
         for attempt in range(1, tries + 1):
             self.say("$ " + " ".join(str(c) for c in command))
             process = subprocess.Popen([str(c) for c in command], cwd=cwd, stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, text=True)
+                                       stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
             tail: deque[str] = deque(maxlen=FAIL_TAIL_LINES)
             for line in process.stdout:
                 self.log.write(line)
                 tail.append(line.rstrip("\n"))
             if not process.wait():
                 return True
-            print("\n".join(tail), flush=True)   # run.log has it all; the studio only sees stdout
             if attempt < tries:
                 self.flag(f"{Path(str(command[1])).name} failed once ({process.returncode}); tried again")
         if required:
-            raise SystemExit(f"[hero] step failed ({process.returncode}); see {self.out / 'run.log'}")
+            print("\n".join(tail), flush=True)   # run.log has it all; the studio only sees stdout
+            last = next((line.strip() for line in reversed(tail) if line.strip()), "")
+            raise SystemExit(f"[hero] step failed ({process.returncode})" + (f": {last}" if last else "")
+                             + f"; see {self.out / 'run.log'}")
         return False
 
     def step(self, name: str, output: Path) -> bool:
@@ -120,7 +123,7 @@ class Run:
             return False
         self.notes.pop(name, None)
         self.notes.pop("earlier", None)
-        self.unsure_file.write_text(json.dumps(self.notes, indent=2))
+        self.unsure_file.write_text(json.dumps(self.notes, indent=2), encoding="utf-8")
         self.say(f"{name} ...")
         return True
 
@@ -160,6 +163,12 @@ def needed_parts() -> dict[str, Path]:
 
 NO_DUMP = ("this 3D model kept no clean-up data, so its body would stay at full size. Make the 3D "
            "model again (same picture), then make the Hero version from the new one.")
+
+
+#: Checked before the run: every Hero step needs the dump, and a model made again on this
+#: build would still have none.
+NO_DUMP_BUILD = ("Pixal3D on this machine can't save its clean-up data, which the Hero version needs. "
+                 "Open Setup and pick Rebuild for Pixal3D, then try again (nothing was downloaded).")
 
 
 def body_problem(body: Path | None, views: Path | None, dump: Path | None) -> str | None:
@@ -222,6 +231,11 @@ def main() -> int:
     if missing:
         print("[hero] cannot start, not installed: " + "; ".join(missing)
               + ". Install them from the Setup page (nothing was downloaded).", file=sys.stderr)
+        return 2
+    import pixal3d_generate
+
+    if not pixal3d_generate.dump_supported():
+        print(f"[hero] {NO_DUMP_BUILD}", file=sys.stderr)
         return 2
     problem = body_problem(args.body, args.body_views, args.body_dump)
     if problem:

@@ -90,8 +90,8 @@ def test_a_failed_step_prints_the_end_of_its_own_output(capsys, tmp_path):
 
     run = hero_route.Run(tmp_path)
     script = "import sys\nfor i in range(30): print(f'line {i}')\nsys.exit('the real error')"
-    with pytest.raises(SystemExit, match="step failed"):
-        run.run([sys.executable, "-c", script])
+    with pytest.raises(SystemExit, match=r"step failed \(1\): the real error; see "):
+        run.run([sys.executable, "-u", "-c", script])   # -u, as every real step runs
     out = capsys.readouterr().out
     assert "the real error" in out and "line 29" in out
     assert "line 0\n" not in out                      # only the end, so the report keeps room
@@ -103,3 +103,38 @@ def test_a_step_that_works_prints_nothing_of_its_own(capsys, tmp_path):
 
     hero_route.Run(tmp_path).run([sys.executable, "-c", "print('quiet')"])
     assert "quiet" not in capsys.readouterr().out.splitlines()   # the $ line names it; output does not
+
+
+def test_a_step_that_works_on_its_second_try_prints_nothing_of_its_own(capsys, tmp_path):
+    import sys
+
+    flag = tmp_path / "tried"
+    script = (f"import pathlib, sys; f = pathlib.Path({str(flag)!r})\n"
+              "if not f.exists(): f.write_text('x'); print('first go broke'); sys.exit(1)")
+    assert hero_route.Run(tmp_path).run([sys.executable, "-c", script], tries=2)
+    assert "first go broke" not in capsys.readouterr().out.splitlines()
+
+
+def test_the_log_takes_any_folder_name_and_any_byte(tmp_path):
+    import sys
+
+    run = hero_route.Run(tmp_path / "Ünïcødé 名前")
+    run.say("hero route: 名前.png")
+    run.run([sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'ok \\x81\\xff\\n')"])
+    run.flag("名前 looked odd")
+    text = (tmp_path / "Ünïcødé 名前" / "run.log").read_text(encoding="utf-8")
+    assert "名前.png" in text and "ok " in text
+    assert "名前 looked odd" in hero_route.Run(tmp_path / "Ünïcødé 名前").unsure
+
+
+def test_hero_stops_before_any_work_on_a_build_that_cannot_save_its_clean_up(monkeypatch, tmp_path, capsys):
+    import sys
+
+    import pixal3d_generate
+
+    monkeypatch.setattr(hero_route, "needed_parts", dict)
+    monkeypatch.setattr(pixal3d_generate, "dump_supported", lambda cli=None: False)
+    monkeypatch.setattr(sys, "argv", ["hero_route.py", str(tmp_path / "x.png"), "--out", str(tmp_path / "run")])
+    assert hero_route.main() == 2
+    assert "Rebuild for Pixal3D" in capsys.readouterr().err
+    assert not (tmp_path / "run").exists()                # nothing started

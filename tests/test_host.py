@@ -607,3 +607,19 @@ def test_macos_major_reads_the_first_number():
     assert host.macos_major("15.8.1") == 15
     assert host.macos_major("26.6.2") == 26
     assert host.macos_major("") is None
+
+
+def test_one_venv_python_for_every_caller(monkeypatch, tmp_path):
+    """The catalogue, Auto-rig and its bootstrap all ask host, so Windows can't be fixed in one and not the others."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
+    import autorig_api
+    import backend_catalog
+
+    from scripts import bootstrap_autorig
+
+    monkeypatch.setattr(host.os, "name", "nt")
+    expected = tmp_path / ".venv" / "Scripts" / "python.exe"
+    assert {host.venv_python(tmp_path), backend_catalog.venv_python(tmp_path), autorig_api.venv_python(tmp_path),
+            bootstrap_autorig.venv_python(tmp_path)} == {expected}

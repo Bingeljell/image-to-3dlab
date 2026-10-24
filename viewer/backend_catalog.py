@@ -87,16 +87,7 @@ TAB_LABELS = {APPLE: "Mac (Apple Silicon)", NVIDIA: "NVIDIA (Linux)",
 VIEW_PLATFORMS = (APPLE, NVIDIA, AMD)
 
 
-def venv_python(project: Path) -> Path:
-    """The interpreter inside a project's `.venv`, named the way this OS names it.
-
-    Windows puts it in `Scripts/python.exe`, everywhere else it is `bin/python`. Hardcoding
-    the POSIX spelling is what turned a Windows visit into "[WinError 2] The system cannot
-    find the file specified" with no clue as to which file.
-    """
-    if os.name == "nt":
-        return project / ".venv" / "Scripts" / "python.exe"
-    return project / ".venv" / "bin" / "python"
+venv_python = _host.venv_python
 
 
 def _total_present(weights: list[dict[str, Any]]) -> int:
@@ -700,7 +691,7 @@ CATALOG: tuple[Backend, ...] = (
         # TRELLIS.2 yet (the bootstrap refuses it).
         runs_on=(APPLE, NVIDIA, AMD),
         excludes=((NVIDIA, "windows"),),
-        min_macos=(26, "Its GPU code is built for Metal 4, which older macOS cannot load."),
+        min_macos=(_host.METAL4_MACOS, "Its GPU code is built for Metal 4, which older macOS cannot load."),
         install_by_host={
             NVIDIA: "scripts/bootstrap_trellis_cuda.py",
             AMD: "scripts/bootstrap_trellis_rocm.py",

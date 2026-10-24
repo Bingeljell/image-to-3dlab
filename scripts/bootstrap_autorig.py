@@ -74,7 +74,7 @@ EXTRA_PACKAGES = ("scipy",)
 
 
 def venv_python(root: Path = VENDOR) -> Path:
-    return root / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    return host.venv_python(root)
 
 
 def route_label(family: str, index: str | None) -> str:

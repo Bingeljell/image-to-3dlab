@@ -39,6 +39,22 @@ def os_family(sys_platform: str | None = None) -> str:
     return OTHER
 
 
+#: The first macOS that loads Metal 4 GPU code (shaders built with -std=metal4.0, #154).
+METAL4_MACOS = 26
+
+
+def venv_python(project: Path) -> Path:
+    """The interpreter inside a project's `.venv`, named the way this OS names it.
+
+    Windows puts it in `Scripts/python.exe`, everywhere else it is `bin/python`. Hardcoding
+    the POSIX spelling is what turned a Windows visit into "[WinError 2] The system cannot
+    find the file specified" with no clue as to which file.
+    """
+    if os.name == "nt":
+        return project / ".venv" / "Scripts" / "python.exe"
+    return project / ".venv" / "bin" / "python"
+
+
 def macos_major(release: str | None = None) -> int | None:
     """The macOS major version (15, 26, ...), or None off a Mac or when it can't be told."""
     release = platform.mac_ver()[0] if release is None else release

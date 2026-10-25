@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-rig setup works on Windows.** It looked for Python in the wrong folder and stopped
   before installing anything.
 - **A failed Finish clean-up shows its real error** in the bug report, not just an exit code.
+- **Finish still finishes when Pixal3D's own clean-up crashes** (seen on Windows): it
+  switches to the classic clean-up instead of stopping.
 - **A failed Hero step shows its real error** in the bug report too, and in the error headline.
 - **Hero checks Pixal3D can save its clean-up data before it starts**, and says to Rebuild,
   instead of failing after building the body.

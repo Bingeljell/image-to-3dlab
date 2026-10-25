@@ -313,6 +313,27 @@ def test_a_refused_clean_up_falls_back_to_the_classic_route(tmp_path, monkeypatc
     assert "classic route" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("error", [
+    rr.pixal3d_native.ReplayFailed("Pixal3D clean-up exited with code 1. Its log ends:\nboom"),
+    FileNotFoundError("post-replay.exe"),
+])
+def test_a_crashed_clean_up_falls_back_to_the_classic_route(tmp_path, monkeypatch, capsys, error):
+    """post-replay crashing (seen on Windows) must not fail the Finish: it takes the classic
+    route, and the log keeps the crash's message."""
+    calls = []
+
+    def crash(*a, **k):
+        raise error
+
+    monkeypatch.setattr(rr.pixal3d_native, "native_retopo", crash)
+    assert rr.native_or_classic(lambda: calls.append("classic"), tmp_path / "run.post.bin",
+                                tmp_path / "raw.glb", tmp_path / "out.glb", 20000, 2048,
+                                tmp_path / "log") is None
+    assert calls == ["classic"]
+    out = capsys.readouterr().out
+    assert "classic route" in out and str(error) in out
+
+
 def test_the_bake_command_passes_the_fade_mask_after_the_size():
     command = rr.bake_command(Path("gen.glb"), Path("painted.glb"), Path("baked.glb"), 2048,
                               blender=Path("/bl"), fade=Path("fade.png"))

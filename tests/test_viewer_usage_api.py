@@ -344,7 +344,8 @@ def test_the_studio_counts_through_its_real_routes(isolated, monkeypatch):
     base = f"http://127.0.0.1:{server.server_port}/api/usage"
 
     def post(body, content_type="application/json"):
-        return urllib.request.Request(base, data=body, method="POST", headers={"Content-Type": content_type})
+        return urllib.request.Request(base, data=body, method="POST",
+                                      headers={"Content-Type": content_type, "X-AssetFurnace-Request": "studio"})
 
     try:
         with urllib.request.urlopen(base, timeout=10) as response:

@@ -6,7 +6,11 @@
     python viewer/serve.py --host 100.x.y.z      # explicit Tailscale/LAN interface
 
 Bound to 127.0.0.1 by default. An explicit --host exposes the whole repository, including
-`output/`, on that interface; use a private interface protected by appropriate ACLs.
+`output/`, on that interface; use a private interface protected by appropriate ACLs. Such a
+server relies on that network being trusted: it is not protected against DNS rebinding.
+Behind a proxy that keeps 127.0.0.1 (tailscale serve, cloudflared, ngrok, VS Code port
+forwarding), list the proxy's host names in I3D_ALLOWED_HOSTS, e.g.
+I3D_ALLOWED_HOSTS=box.tail1234.ts.net (see request_utils.py).
 
 The viewer exists because judging a mesh by eye is the acceptance test in this repo, and
 every such judgement previously required opening Blender. It is also driveable by browser

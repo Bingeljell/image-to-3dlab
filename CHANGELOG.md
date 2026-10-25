@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **A web page can no longer drive the studio behind your back.** Every write (setup and
+  weight removal, the Hugging Face sign-in, jobs, Library changes) now needs the studio's own
+  origin and a request header, which a form on another site cannot send. The studio's pages,
+  the plan runner, the MCP server and `scripts/pod_smoke_test.py` send one; any other script
+  that POSTs to the studio must send `X-AssetFurnace-Request` (any value). A studio on
+  127.0.0.1 answers only loopback names, so DNS rebinding cannot read the repository. Behind
+  tailscale serve, cloudflared, ngrok or VS Code port forwarding, list the name you open it
+  under in `I3D_ALLOWED_HOSTS` (comma-separated host names). A studio bound to another
+  address (`--host`, a pod) trusts its network and is not protected against DNS rebinding;
+  this was not tested on RunPod.
+
 ## [0.5.2] - 2026-10-25
 
 ### Added

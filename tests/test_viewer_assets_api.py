@@ -465,7 +465,8 @@ def test_the_delete_endpoints_preview_first_and_need_a_confirmation(output, monk
 
     def call(url, body=None):
         request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
-                                         headers={"Content-Type": "application/json"})
+                                         headers={"Content-Type": "application/json",
+                                                  "X-AssetFurnace-Request": "studio"})
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read())

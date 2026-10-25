@@ -151,7 +151,7 @@ def keep_response(output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
     result = run / f"{origin.stem.removesuffix('_fixed')}_fixed.glb"
     shutil.move(str(preview), result)
     (run / "fix-spot.json").write_text(json.dumps(
-        {"from": origin.relative_to(output).as_posix(), "spots": payload.get("spots")}, indent=2))
+        {"from": origin.relative_to(output).as_posix(), "spots": payload.get("spots")}, indent=2), encoding="utf-8")
     return 200, {"file": result.relative_to(output).as_posix()}
 
 

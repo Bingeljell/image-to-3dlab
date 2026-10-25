@@ -58,7 +58,7 @@ def update_command(repo: Path, family: str) -> str:
 
 def _read_cache(path: Path) -> dict[str, Any]:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
 
@@ -90,7 +90,7 @@ def check(current: str = image_to_3dlab.__version__, now: float | None = None,
             cached = {**cached, "checked_at": now}
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
-            cache.write_text(json.dumps(cached))
+            cache.write_text(json.dumps(cached), encoding="utf-8")
         except OSError:
             pass
 

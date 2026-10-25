@@ -420,7 +420,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                       "log_tail": "\n".join(job.log_lines)[-6000:]})
         else:
             job.result.with_suffix(".provenance.json").write_text(
-                json.dumps(job.record, indent=2))
+                json.dumps(job.record, indent=2), encoding="utf-8")
             # The done event (with the file's path) goes out BEFORE the status flips: a plan polls
             # the status and reads the last event, and the fit check takes seconds. The other order
             # lost a robot's rig mid-plan (2026-10-25).
@@ -467,6 +467,6 @@ def served_url(path: Path) -> str | None:
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None

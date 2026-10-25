@@ -156,7 +156,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
             **processes.group_popen_kwargs(),
         )
-        job.directory.joinpath("pid").write_text(str(job.process.pid))
+        job.directory.joinpath("pid").write_text(str(job.process.pid), encoding="utf-8")
         assert job.process.stdout is not None
         for raw in job.process.stdout:
             line = raw.rstrip("\n")

@@ -260,7 +260,7 @@ with open(out_dir + "/times.json", "w") as handle:
 def render_shots(blender: Path, source: Path, out_dir: Path, azimuth: float, look: str,
                  shots: list[tuple[str, float, float | None]]) -> list[tuple[str, Path]]:
     """Render every shot in one Blender run; returns (label, PNG) per panel."""
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as script:
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as script:
         script.write(blender_code())
     try:
         result = subprocess.run(
@@ -275,7 +275,7 @@ def render_shots(blender: Path, source: Path, out_dir: Path, azimuth: float, loo
         tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-6:])
         raise RuntimeError(f"Blender could not render the preview: {tail}")
     try:
-        times = json.loads((out_dir / "times.json").read_text())
+        times = json.loads((out_dir / "times.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         times = {}
     return [(moment_label(times.get(name)) if frac is not None else name, path)

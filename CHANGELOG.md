@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   just put uv there (#168).
 - **A plan no longer skips the move after rigging.** Rig and Finish said "done" a moment before
   recording their file, so a plan could carry on without it (seen on a robot).
+- **The studio reads and writes its text files as UTF-8 on every computer.** On Windows
+  Python defaults to cp1252, so non-ASCII text such as an em dash or a middle dot read from
+  `prompt_recipes.json` and similar files came out garbled.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

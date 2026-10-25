@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **On Windows the studio's helpers stop when the studio does,** even when it is ended
   from Task Manager: sd-cli and the other workers no longer keep running and holding GPU
   memory. Background jobs the studio tracks still outlive it, as before.
+- **The Windows installer installs the tested package versions** from `requirements.lock`,
+  as `install.sh` does, with CUDA PyTorch at the lock's versions. It used
+  `requirements.txt`, so each install got whatever PyPI had that day. If that PyTorch build
+  cannot be installed, it warns and installs as before: the newest CUDA PyTorch and
+  `requirements.txt`.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

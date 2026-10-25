@@ -49,7 +49,6 @@ STUDIO_ONLY = {
     "api/skins/*/discard": "deleting a skin is the user's call, made in the studio",
     "api/blender/install": "installs an app; the Setup page asks first",
     "api/gltfpack/install": "installs a tool; the Setup page asks first",
-    "api/usage": "sharing usage counts is the person's own choice, ticked on the About page",
     "api/hf/sign-in": "takes the user's Hugging Face token; only they should paste it",
     "api/setup/run": "first-run setup is a guided page for a person",
     "api/setup/*/rebuild": "rebuilds a backend from source; Setup page only",
@@ -69,7 +68,7 @@ STUDIO_ONLY = {
     "api/animate/*/cancel": "via cancel_run", "api/rig/rebind/*/cancel": "via cancel_run",
 }
 # Server actions the tools below call.
-USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report",
+USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report", "api/usage",
         "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel"}
 
 
@@ -465,7 +464,42 @@ def status(studio: Studio) -> dict[str, Any]:
         "animation": bool(moves.get("installed")),
         "running": run_summary(chains["running"], studio) if chains.get("running") else None,
         "needs_setup": catalog.get("needs_onboarding") or None,
+        "usage_counts": usage_question(studio),
     }
+
+
+USAGE_ASK = ("AssetFurnace would like to share anonymous usage counts once a day: how many pictures, models "
+             "and other jobs were made, from the studio or by an agent. Never prompts, pictures, models or "
+             "file names. We need a sense of how many people use the app, for what and how; it helps us pick "
+             "which features and fixes come first. Is that OK? You can change it any time.")
+
+
+def usage_question(studio: Studio) -> dict[str, Any] | None:
+    """Nothing once the person has answered; otherwise the question to put to them, word for word."""
+    try:
+        state = studio.get("api/usage")
+    except Exception:
+        return None
+    if state.get("noticed"):
+        return None
+    return {"ask_user": USAGE_ASK, "details": state.get("policy"),
+            "then": ("if they say yes, call usage_counts(user_said_yes=true). If they say no, nothing is sent: "
+                     "tell them to untick the box on the studio's About page (open_in_studio); only they can.")}
+
+
+USAGE_OFF = ("Only the user can turn usage counts on or off: the box on the studio's About page "
+             "(open_in_studio). Agents can't change it.")
+
+
+def usage_counts(studio: Studio, *, user_said_yes: bool = False) -> dict[str, Any]:
+    """Whether counts are shared and the exact daily message. `user_said_yes` records the person's own yes
+    to the first-start question, which lets sending begin. Agents can never switch sharing on or off."""
+    if user_said_yes:
+        state = studio.post_json("api/usage", {"noticed": True})
+    else:
+        state = studio.get("api/usage")
+    return {"sharing": bool(state.get("enabled")), "exact_message": state.get("sends"),
+            "to_change": USAGE_OFF, "details": state.get("policy")}
 
 
 def list_engines(studio: Studio) -> list[dict[str, Any]]:
@@ -878,6 +912,9 @@ version of a character. Skins: make_skin(asset_id, change="make the skirt gold")
 finished Pixal3D model's own pictures; show each to the user (skin_picture) and approve or redo, front
 then back; build_skin then repaints the same model (same mesh, so the rig and moves still fit).
 Never download model weights without the user's explicit yes (install_backend asks first).
+If status shows usage_counts.ask_user, put that question to the user; if they say yes, record it with
+usage_counts(user_said_yes=true). Never answer it for them. Only the user can turn sharing on or off, on the
+studio's About page.
 For characters whose face matters, finish with finish_detail="hero": the head is built again from a close
 crop and joined on (takes longer). Fix a spot (fill a hole, smooth a bump, repaint a scuff) is hands-on: if a
 model has a spot to fix, open_in_studio and point the user to the brush in the 3D view. Step-by-step guide for
@@ -1080,6 +1117,13 @@ def build_server(studio: Studio | None = None):
         last failed step's log (home folder hidden). Sends NOTHING: it returns the report and links for the
         USER to send it themselves. include_prompt: add the failed run's prompt (ask the user first)."""
         return safe(lambda: report_bug(studio, message=message, include_prompt=include_prompt))
+
+    @server.tool(name="usage_counts", structured_output=False)
+    def tool_usage_counts(user_said_yes: bool = False):
+        """Anonymous usage counts: whether they are shared and the exact daily message. When status shows
+        usage_counts.ask_user, ask the USER that question; pass user_said_yes=true only if they said yes.
+        Agents can't turn sharing on or off: only the user can, on the studio's About page."""
+        return safe(lambda: usage_counts(studio, user_said_yes=user_said_yes))
 
     @server.tool(name="install_backend", structured_output=False)
     def tool_install_backend(backend_id: str, confirm: bool = False):

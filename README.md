@@ -434,7 +434,8 @@ Once a day the studio sends a random id (made on your copy, not tied to you or y
 the version, the kind of computer, and how many pictures, models and other jobs were made,
 from the studio or by an agent. Never pictures, prompts or file names. The About page shows
 the exact message. Untick the box there to stop and forget the id, or set `I3D_NO_USAGE=1`
-(or `DO_NOT_TRACK=1`). Full details: [privacy policy](https://assetfurnace.com/privacy#usage-counts).
+(or `DO_NOT_TRACK=1`). An agent using AssetFurnace asks you once and can pass on your
+yes, but only you can turn sharing on or off. Full details: [privacy policy](https://assetfurnace.com/privacy#usage-counts).
 
 ## License
 

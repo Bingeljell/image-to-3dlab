@@ -3925,6 +3925,10 @@ class Handler(SimpleHTTPRequestHandler):
         if body.get("noticed") is True:
             self._send_json(200, usage_api.set_noticed())
             return
+        if usage_api.source_of(self.headers.get(usage_api.CLIENT_HEADER)) == usage_api.AGENT:
+            # An agent may pass on the person's yes (above), never flip the box itself
+            self._send_json(403, {"error": "Only the user can turn usage counts on or off, on the About page."})
+            return
         if not isinstance(body.get("share"), bool):
             self._send_json(422, {"error": "share must be true or false"})
             return

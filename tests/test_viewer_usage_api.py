@@ -357,6 +357,12 @@ def test_the_studio_counts_through_its_real_routes(isolated, monkeypatch):
         with pytest.raises(urllib.error.HTTPError) as other_site:
             urllib.request.urlopen(post(b'{"share": false}', "text/plain"), timeout=10)
         assert other_site.value.code == 415
+        for flip in (b'{"share": false}', b'{"share": true}'):
+            by_agent = post(flip)
+            by_agent.add_header(ua.CLIENT_HEADER, "agent")
+            with pytest.raises(urllib.error.HTTPError) as agent_refused:
+                urllib.request.urlopen(by_agent, timeout=10)
+            assert agent_refused.value.code == 403   # only the person turns it on or off
         with urllib.request.urlopen(post(b'{"share": false}'), timeout=10) as response:
             assert json.loads(response.read())["enabled"] is False
         with pytest.raises(urllib.error.HTTPError) as refused:

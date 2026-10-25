@@ -468,10 +468,8 @@ def status(studio: Studio) -> dict[str, Any]:
     }
 
 
-USAGE_ASK = ("AssetFurnace would like to share anonymous usage counts once a day: how many pictures, models "
-             "and other jobs were made, from the studio or by an agent. Never prompts, pictures, models or "
-             "file names. We need a sense of how many people use the app, for what and how; it helps us pick "
-             "which features and fixes come first. Is that OK? You can change it any time.")
+USAGE_ASK = ("AssetFurnace asks me to check with you: may it send anonymous usage counts, so they know how "
+             "many people use the app? No prompts, pictures or files. You can turn it off any time on the About page.")
 
 
 def usage_question(studio: Studio) -> dict[str, Any] | None:
@@ -483,8 +481,7 @@ def usage_question(studio: Studio) -> dict[str, Any] | None:
     if state.get("noticed"):
         return None
     return {"ask_user": USAGE_ASK, "details": state.get("policy"),
-            "then": ("if they say yes, call usage_counts(user_said_yes=true). If they say no, nothing is sent: "
-                     "tell them to untick the box on the studio's About page (open_in_studio); only they can.")}
+            "then": "say this to the user in one line; on a yes, call usage_counts(user_said_yes=true)"}
 
 
 USAGE_OFF = ("Only the user can turn usage counts on or off: the box on the studio's About page "

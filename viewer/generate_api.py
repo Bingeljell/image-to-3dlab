@@ -3912,6 +3912,10 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _usage_choice(self) -> None:
         """The About page's usage box, `{share: true|false}`, or the first-start notice's `{noticed: true}`."""
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            # A web page elsewhere can send a plain-text form here, but not JSON without asking first
+            self._send_json(415, {"error": "send JSON"})
+            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {}

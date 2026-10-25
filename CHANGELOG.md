@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `requirements.txt`, so each install got whatever PyPI had that day. If that PyTorch build
   cannot be installed, it warns and installs as before: the newest CUDA PyTorch and
   `requirements.txt`.
+- **Finish no longer paints texels twice.** Its wide-angle UV projection folded islands onto
+  themselves (about 10% of the UV area on two real models); the retopology is now unwrapped
+  so almost nothing overlaps (under 0.1%). Islands are now packed 0.002 apart instead of
+  0.0002: there are about twice as many, and a gap near zero lets neighbours share texels at
+  their edges.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

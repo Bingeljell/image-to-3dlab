@@ -49,6 +49,7 @@ STUDIO_ONLY = {
     "api/skins/*/discard": "deleting a skin is the user's call, made in the studio",
     "api/blender/install": "installs an app; the Setup page asks first",
     "api/gltfpack/install": "installs a tool; the Setup page asks first",
+    "api/usage": "sharing usage counts is the person's own choice, ticked on the About page",
     "api/hf/sign-in": "takes the user's Hugging Face token; only they should paste it",
     "api/setup/run": "first-run setup is a guided page for a person",
     "api/setup/*/rebuild": "rebuilds a backend from source; Setup page only",
@@ -77,6 +78,11 @@ class StudioError(RuntimeError):
 
 
 # --------------------------------------------------------------------------- the studio
+# Marks every call as an agent's, so the studio's usage counts can tell agents from people
+# (viewer/usage_api.py reads it).
+AGENT_HEADER = {"X-AssetFurnace-Client": "agent"}
+
+
 class Studio:
     """HTTP to the studio server, starting it once if nobody has."""
 
@@ -85,6 +91,7 @@ class Studio:
         if http is None:
             import requests
             http = requests.Session()
+            http.headers.update(AGENT_HEADER)
         self.http = http
         self._start = start or self._start_server
         self._checked = False

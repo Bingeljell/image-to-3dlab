@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from usage_api import CLIENT_HEADER
+
 HISTORY_NAME = ".activity.jsonl"
 TERMINAL = {"done", "error", "cancelled"}
 STALL_SECONDS = 180
@@ -39,8 +41,8 @@ FRONT_BACK_ENGINES = {"pixal3d"}
 NEEDS_BLENDER = {"finished", "split"}
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)
 
-# request(method, path, body, content_type) -> (http status, parsed JSON)
-Request = Callable[[str, str, bytes | None, str | None], tuple[int, dict[str, Any]]]
+# request(method, path, body, content_type, headers=None) -> (http status, parsed JSON)
+Request = Callable[..., tuple[int, dict[str, Any]]]
 
 
 def readable_log(text: str, count: int = 4) -> str:
@@ -100,6 +102,7 @@ class Chain:
     move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread (the animate job checks them)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
+    client: str | None = None                                        # "agent" when the MCP server asked for it
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     status: str = "running"
     current: str | None = None
@@ -284,6 +287,7 @@ class ChainRunner:
 
     def _start(self, chain: Chain, step: str) -> tuple[str, dict[str, Any]]:
         kind = KIND[step]
+        self._client = chain.client   # each step is counted as the chain's asker's, not the studio's
         if step == "picture":
             body = json.dumps({"prompt": chain.prompt or chain.title, "settings": chain.picture_settings}).encode()
             return kind, self._post("/api/image", body, "application/json")
@@ -333,7 +337,9 @@ class ChainRunner:
         raise ValueError(f"unknown step {step}")
 
     def _post(self, path: str, body: bytes, content_type: str) -> dict[str, Any]:
-        status, payload = self.request("POST", path, body, content_type)
+        client = getattr(self, "_client", None)
+        extra = {"headers": {CLIENT_HEADER: client}} if client else {}
+        status, payload = self.request("POST", path, body, content_type, **extra)
         if status >= 400 or "job_id" not in payload:
             raise RuntimeError(payload.get("error") or f"{path} answered {status}")
         return payload
@@ -391,8 +397,9 @@ def local_request(base: str) -> Request:
     import urllib.error
     import urllib.request
 
-    def request(method: str, path: str, body: bytes | None, content_type: str | None):
-        req = urllib.request.Request(base + path, data=body, method=method)
+    def request(method: str, path: str, body: bytes | None, content_type: str | None,
+                headers: dict[str, str] | None = None):
+        req = urllib.request.Request(base + path, data=body, method=method, headers=headers or {})
         if content_type:
             req.add_header("Content-Type", content_type)
         try:

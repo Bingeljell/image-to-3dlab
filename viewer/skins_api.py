@@ -30,6 +30,8 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))   # standing alone, not only after another module put it there
+import usage_api
+
 from image_to_3dlab import processes
 
 OUTPUT_ROOT = REPO / "output"
@@ -511,6 +513,7 @@ class SkinBuilds:
             shutil.rmtree(folder / "finish-steps", ignore_errors=True)
             skin.status, skin.result = "done", _rel(output, result)
             job.status = "done"
+            usage_api.count_done("skin")
             job.emit({"phase": "done", "message": "Skin ready", "overall_pct": 100, "path": skin.result})
         except InterruptedError:
             skin.status, job.status = "pictures", "cancelled"

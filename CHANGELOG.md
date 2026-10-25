@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **`lab` on Windows.** Start the studio with `.\lab`, the same as `./lab` on Mac and Linux.
+- **Anonymous usage counts.** Once a day the studio tells us it is in use and how many jobs
+  were made, from the studio or an agent. No pictures, prompts or file names. Turn it off on the
+  About page, or with `I3D_NO_USAGE=1`.
 
 ### Fixed
 - **Auto-rig setup works on Windows.** It looked for Python in the wrong folder and stopped

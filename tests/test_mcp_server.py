@@ -106,7 +106,7 @@ def post_routes() -> set[str]:
     """Every POST route the studio server answers, read from its handler."""
     import generate_api
 
-    source = inspect.getsource(generate_api.Handler.do_POST)
+    source = inspect.getsource(generate_api.Handler._route_post)
     routes = set()
     for cond in re.findall(r"if (.*?):\n", source):
         if "parts" not in cond or "api" not in cond:

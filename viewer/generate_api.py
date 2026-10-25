@@ -40,6 +40,7 @@ import image_api
 import model_info_api
 import preview_api
 import skins_api
+import usage_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from assets_api import assets_payload, list_assets
 from assets_api import delete_version as delete_asset_version
@@ -1495,6 +1496,7 @@ def _run_job(job: Job) -> None:
                 spec.finalize(job)
             if job.output_path.is_file():
                 job.status = "done"
+                usage_api.count_done("model")
                 job.append_log("generation complete")
                 _update_baseline(job)
                 if not job.debug:
@@ -2496,7 +2498,19 @@ class Handler(SimpleHTTPRequestHandler):
             cls._chain_runner = ChainRunner(OUTPUT_ROOT, activity_api.local_request(f"http://{host}:{port}"))
         return cls._chain_runner
 
+    def send_response(self, code, message=None) -> None:
+        self._status_code = int(code)   # what note_request counts a POST by
+        super().send_response(code, message)
+
     def do_POST(self) -> None:
+        self._status_code = None
+        try:
+            self._route_post()
+        finally:
+            usage_api.note_request(self._path_parts(), self.headers.get(usage_api.CLIENT_HEADER),
+                                   "POST", self._status_code)
+
+    def _route_post(self) -> None:
         parts = self._path_parts()
         if parts == ["api", "skins"]:
             self._skins_post([])
@@ -2517,6 +2531,7 @@ class Handler(SimpleHTTPRequestHandler):
                                           "stop after the 3D model, and Finish it once Blender is in.",
                                           "needs_blender": True})
                     return
+                chain.client = usage_api.source_of(self.headers.get(usage_api.CLIENT_HEADER))
                 self._chains().submit(chain)
             except RuntimeError as exc:
                 self._send_json(409, {"error": str(exc)})
@@ -2665,6 +2680,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "bug-report"]:
             self._bug_report_links()
+            return
+        if parts == ["api", "usage"]:
+            self._usage_choice()
             return
         if len(parts) == 4 and parts[:2] == ["api", "image"] and parts[3] == "cancel":
             self._cancel_image_job(parts[2])
@@ -2987,6 +3005,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_GET(self) -> None:
+        if self.headers.get(usage_api.CLIENT_HEADER):
+            usage_api.note_request(self._path_parts(), self.headers.get(usage_api.CLIENT_HEADER), "GET", None)
         if urlparse(self.path).path in ("", "/", "/viewer", "/viewer/"):
             self.send_response(HTTPStatus.FOUND)  # the front door is the studio
             self.send_header("Location", "/viewer/studio.html")
@@ -3064,6 +3084,10 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "update-check"]:
             self._send_json(200, update_check())
+            return
+        if parts == ["api", "usage"]:
+            usage_api.send_soon()   # asked once per page load; at most one message a day goes out
+            self._send_json(200, usage_api.status())
             return
         if parts == ["api", "welcome"]:
             since = parse_qs(urlparse(self.path).query).get("since", [None])[0]
@@ -3885,6 +3909,19 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(422, {"error": "Say what went wrong first."})
             return
         self._send_json(200, bug_report_api.links(message, details))
+
+    def _usage_choice(self) -> None:
+        """The About page's usage box: `{share: true|false}`."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {}
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        if not isinstance(body.get("share"), bool):
+            self._send_json(422, {"error": "share must be true or false"})
+            return
+        self._send_json(200, usage_api.set_sharing(body["share"]))
 
     def _reveal(self) -> None:
         """Show one output file in Finder / Explorer / the file manager, on this machine."""

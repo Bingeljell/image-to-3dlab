@@ -570,6 +570,7 @@ async function runningChain() {
 
 // open on a run still going, else on Create; the Library beside it holds the recent work
 async function boot() {
+  fetch('/api/usage').catch(() => {});   // sends the daily count only if the person opted in
   await loadTools();
   await loadLibrary(null, { pick: false });
   const running = await runningChain();

@@ -29,6 +29,7 @@ from typing import NamedTuple
 # and when loaded by the test suite via importlib (script dir not on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import usage_api
 from generate_api import (
     OUTPUT_ROOT,
     Handler,
@@ -123,6 +124,10 @@ def main() -> int:
             if plan.open_browser and not args.no_browser:
                 webbrowser.open(f"http://127.0.0.1:{args.port}/viewer/studio.html")
         print(f"serving {REPO} — ctrl-c to stop", flush=True)
+        if usage_api.sharing():
+            print("sharing anonymous usage counts, once a day; turn it off on the About page "
+                  "or with I3D_NO_USAGE=1", flush=True)
+            usage_api.send_soon()
         try:
             httpd.serve_forever()
         except (KeyboardInterrupt, SystemExit):

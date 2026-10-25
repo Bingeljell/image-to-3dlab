@@ -39,6 +39,8 @@ from rig_api import blender_executable
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+import usage_api
+
 from image_to_3dlab import processes
 from image_to_3dlab.blender import missing_help
 
@@ -569,6 +571,7 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
             job.settings_path.write_text(json.dumps(job.settings, indent=2))
         run = describe_run(job.directory)
         job.status = "done"
+        usage_api.count_done("prop")
         job.emit({
             "phase": "done", "overall_pct": 100,
             "message": (f"Turned and re-baked {job.only}" if job.only

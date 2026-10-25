@@ -123,7 +123,7 @@ export async function openAbout(stage) {
       <a href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>, or you can tag me in a post on
       <a href="https://x.com/bingeljell" target="_blank" rel="noopener">X</a>. Most of all, we’d love contributions.</p>
     <p>The goal is to enable you to make game-ready 3D characters and props on your own machine: from an idea, a picture or a model, to a rigged,
-      moving character you can drop into Godot, Unity, Unreal or Blender. Nothing leaves this computer.</p>
+      moving character you can drop into Godot, Unity, Unreal or Blender. Your pictures, prompts and models never leave this computer.</p>
     <p class="meta" data-version>AssetFurnace by Bingeljell</p>
     <!-- ABOUT COPY: the "What AssetFurnace adds" list below is the part to edit -->
     <h3>What AssetFurnace adds</h3>
@@ -144,6 +144,14 @@ export async function openAbout(stage) {
     </ul>
     <p class="meta">The full list with every licence: <a href="https://github.com/Bingeljell/image-to-3dlab/blob/main/docs/info_and_credits.md" target="_blank" rel="noopener">credits on GitHub</a>.
       AssetFurnace's own code is Apache-2.0.</p>
+    <h3>Usage counts</h3>
+    <div data-usage>
+      <p>We're keen to understand how many people are using AssetFurnace - all data shared is anonymous and you're free to stop sharing any time you want.</p>
+      <label><input type="checkbox" data-usage-box> Share anonymous usage counts</label>
+      <p class="meta">Once a day it sends a random id, the version, the kind of computer, and how many pictures, models and other jobs
+        were made, from the studio or by an agent. Never pictures, prompts or file names. Unticking stops it and forgets the id.</p>
+      <details data-usage-sends hidden><summary class="meta">Exactly what is sent</summary><pre class="log"></pre></details>
+    </div>
     <h3>Find us</h3>
     <div class="row">
       <a class="ghost" href="https://assetfurnace.com" target="_blank" rel="noopener">assetfurnace.com</a>
@@ -161,6 +169,24 @@ export async function openAbout(stage) {
       line.insertAdjacentHTML('beforeend', ` · <a href="${escape(update.url)}" target="_blank" rel="noopener">version ${escape(update.latest)} is out</a>`);
     }
   } catch { /* the version line just stays without a number */ }
+  wireUsage(el.querySelector('[data-usage]'));
+}
+
+async function wireUsage(box) {
+  const tick = box.querySelector('[data-usage-box]');
+  const sends = box.querySelector('[data-usage-sends]');
+  const show = (state) => {
+    tick.checked = !!state.enabled;
+    tick.disabled = state.allowed === false;   // I3D_NO_USAGE=1 keeps it off
+    sends.hidden = !state.sends;
+    sends.querySelector('pre').textContent = state.sends ? JSON.stringify(state.sends, null, 2) : '';
+  };
+  try { show(await (await fetch('/api/usage')).json()); } catch { box.hidden = true; return; }
+  tick.addEventListener('change', async () => {
+    const response = await fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ share: tick.checked }) }).catch(() => null);
+    if (response?.ok) show(await response.json()); else tick.checked = !tick.checked;
+  });
 }
 
 // How to use: one short walk through the studio. Each entry is [title, text]; keep it brief.

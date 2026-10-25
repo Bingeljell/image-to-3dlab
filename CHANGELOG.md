@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `prompt_recipes.json` and similar files came out garbled.
 - **The studio's jobs talk UTF-8 on Windows.** A Chinese prompt or a name outside cp1252 no
   longer breaks a job or the studio reading its progress.
+- **On Windows the studio's helpers stop when the studio does,** even when it is ended
+  from Task Manager: sd-cli and the other workers no longer keep running and holding GPU
+  memory. Background jobs the studio tracks still outlive it, as before.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

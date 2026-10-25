@@ -132,3 +132,60 @@ def test_a_malformed_pid_record_is_rejected(text):
 def test_this_process_is_alive_and_a_free_pid_is_not():
     assert processes.process_alive(os.getpid(), windows=False)
     assert not processes.process_alive(2**22 + 12345, windows=False)
+
+
+# ---- Windows: the server's children die with it ----------------------------------------
+
+REPO = Path(__file__).resolve().parents[1]
+CHILD = """
+import subprocess, sys, time
+sys.path.insert(0, {repo!r})
+from image_to_3dlab import processes
+before = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])   # as the browser
+print(processes.kill_children_with_this_process(), flush=True)
+held = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+kept = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **processes.outlive_kwargs())
+job = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **processes.group_popen_kwargs())
+print(held.pid, kept.pid, job.pid, before.pid, flush=True)
+time.sleep(120)
+"""
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects")
+def test_a_killed_server_takes_its_children_with_it_but_not_what_must_outlive_it():
+    """TerminateProcess (Task Manager, Stop-Process) runs no handler, so sd-cli kept running
+    after the server died; a job object that kills on close ends it. A program that breaks
+    away stays, and so does a group job, which outlives the server by design and is
+    reconciled at the next start. So does what the server started before joining the job,
+    such as the browser it opens."""
+    server = subprocess.Popen([sys.executable, "-c", CHILD.format(repo=str(REPO))],
+                              stdout=subprocess.PIPE, text=True)
+    held = kept = job = before = None
+    try:
+        assert server.stdout.readline().strip() == "True"
+        held, kept, job, before = (int(x) for x in server.stdout.readline().split())
+        assert processes.process_alive(held) and processes.process_alive(kept)
+        server.kill()                              # TerminateProcess, as Task Manager does
+        server.wait(10)
+        deadline = time.monotonic() + 10
+        while processes.process_alive(held) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not processes.process_alive(held)
+        assert processes.process_alive(kept) and processes.process_alive(job)
+        assert processes.process_alive(before)
+    finally:
+        server.kill()
+        for pid in (held, kept, job, before):
+            if pid:
+                processes.terminate_group(pid)
+
+
+def test_elsewhere_nothing_is_set_up():
+    assert processes.kill_children_with_this_process(windows=False) is False
+    assert processes.outlive_kwargs(windows=False) == {}
+    assert processes.group_popen_kwargs(windows=False) == {"start_new_session": True}
+
+
+def test_outside_the_servers_job_a_group_job_starts_as_before():
+    # the suite, the command line and the MCP server never make the job: no breakaway flag
+    assert processes.group_popen_kwargs(windows=True) == {"creationflags": processes.CREATE_NEW_PROCESS_GROUP}

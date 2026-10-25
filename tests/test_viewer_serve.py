@@ -81,3 +81,33 @@ def test_a_dropped_connection_is_quiet_and_real_errors_still_print(capsys):
     except RuntimeError:
         server.handle_error(None, ("127.0.0.1", 1))
     assert "a real bug" in capsys.readouterr().err
+
+
+def test_the_browser_opens_before_the_server_joins_its_job(monkeypatch, tmp_path):
+    """On Windows a browser the server starts would be in its job object and close with the
+    studio, tabs and all, if the server joined the job first."""
+    calls = []
+
+    class Server:
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(serve.sys, "argv", ["serve.py", "--auto"])
+    monkeypatch.setattr(serve.os, "environ", {})
+    monkeypatch.setattr(serve, "OUTPUT_ROOT", tmp_path / "missing")
+    monkeypatch.setattr(serve.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(serve, "ThreadingHTTPServer", Server)
+    monkeypatch.setattr(serve.usage_api, "sharing", lambda: False)
+    monkeypatch.setattr(serve.webbrowser, "open", lambda url: calls.append("browser"))
+    monkeypatch.setattr(serve.processes, "kill_children_with_this_process", lambda: calls.append("job"))
+    assert serve.main() == 0
+    assert calls == ["browser", "job"]

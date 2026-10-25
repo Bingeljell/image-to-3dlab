@@ -41,6 +41,8 @@ from generate_api import (
     _terminate_active_job,
 )
 
+from image_to_3dlab import processes
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -127,6 +129,10 @@ def main() -> int:
             print(plan.message, flush=True)
             if plan.open_browser and not args.no_browser:
                 webbrowser.open(f"http://127.0.0.1:{args.port}/viewer/studio.html")
+        # Windows: sd-cli and the other workers die with this server, also when it is killed
+        # from Task Manager (TerminateProcess runs none of the handlers above). Only after the
+        # browser opens: a browser this starts would be in the job and close with the studio.
+        processes.kill_children_with_this_process()
         print(f"serving {REPO} — ctrl-c to stop", flush=True)
         if usage_api.sharing():
             print("sharing anonymous usage counts, once a day; turn it off on the About page "

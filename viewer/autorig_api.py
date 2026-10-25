@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import subprocess
 import sys
@@ -396,8 +395,8 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         for command, cwd in job.commands:
             job.process = subprocess.Popen(
                 command, cwd=str(cwd),
-                env={**os.environ, "PYTHONUNBUFFERED": "1", "HF_HUB_OFFLINE": "1"},
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                env=processes.child_env(HF_HUB_OFFLINE="1"),
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
                 **processes.group_popen_kwargs(),
             )
             assert job.process.stdout is not None

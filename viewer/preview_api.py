@@ -267,7 +267,7 @@ def render_shots(blender: Path, source: Path, out_dir: Path, azimuth: float, loo
             [str(blender), "--background", "--factory-startup", "--python", script.name, "--",
              str(source), str(out_dir), str(azimuth), str(PANEL_W), str(PANEL_H), "1" if look == "clay" else "0",
              shots_arg(shots)],
-            capture_output=True, text=True, timeout=RENDER_TIMEOUT, check=False)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=RENDER_TIMEOUT, check=False)
     finally:
         Path(script.name).unlink(missing_ok=True)
     files = [(name, out_dir / f"{name}.png") for name, _, _ in shots]

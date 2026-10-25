@@ -663,8 +663,8 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         job.process = subprocess.Popen(
             hero_command(job, job.settings) if hero else build_command(job, job.settings, resume=job.resume),
             cwd=str(REPO),
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            env=processes.child_env(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
             **processes.group_popen_kwargs(),
         )
         job.directory.joinpath("pid").write_text(processes.pid_record(job.process.pid), encoding="utf-8")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import subprocess
@@ -152,8 +151,8 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
         job.status = "running"
         job.emit({"phase": "validate", "overall_pct": 5, "message": "Inputs verified"})
         job.process = subprocess.Popen(
-            build_command(job, blender), cwd=str(REPO), env={**os.environ, "PYTHONUNBUFFERED": "1"},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            build_command(job, blender), cwd=str(REPO), env=processes.child_env(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
             **processes.group_popen_kwargs(),
         )
         job.directory.joinpath("pid").write_text(str(job.process.pid), encoding="utf-8")

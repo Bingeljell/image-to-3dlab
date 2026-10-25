@@ -84,3 +84,44 @@ def test_the_scan_finds_what_it_should():
 @pytest.mark.parametrize("path", CHECKED, ids=lambda p: p.name)
 def test_text_files_are_read_and_written_as_utf8(path):
     assert unencoded(path.read_text(encoding="utf-8")) == [], f"{path.name}: say encoding='utf-8'"
+
+
+# ---- pipes between the studio and its jobs ------------------------------------------------
+
+# calls that start a child and may read its output as text
+PIPED = {"Popen", "runner", "run", "check_output"}
+
+
+def _keywords(call: ast.Call) -> dict:
+    return {k.arg: k.value for k in call.keywords if k.arg}
+
+
+def test_every_text_pipe_the_studio_reads_names_its_encoding():
+    """`text=True` alone decodes with the locale: cp1252 on Windows, where a Chinese prompt
+    or a name outside it breaks the reading loop or the child that prints it. A job's pipe,
+    a `subprocess.run`, or any child given the studio's UTF-8 environment, says how to read
+    it."""
+    loose = []
+    for path in sorted((REPO / "viewer").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            given = _keywords(node)
+            name = getattr(node.func, "attr", getattr(node.func, "id", None))
+            if name in PIPED or "env" in given:
+                text = given.get("text")
+                if isinstance(text, ast.Constant) and text.value is True and "encoding" not in given:
+                    loose.append(f"{path.name}:{node.lineno}")
+    assert loose == []
+
+
+def test_a_child_prints_any_character_to_the_studio():
+    import subprocess
+    import sys
+
+    from image_to_3dlab import processes
+
+    child = subprocess.run([sys.executable, "-c", "print('\u2192 \u4e2d\u6587 \u00b7 caf\u00e9')"],
+                           env=processes.child_env(), capture_output=True, check=True, **processes.TEXT_PIPE)
+    assert child.stdout.strip() == "\u2192 \u4e2d\u6587 \u00b7 caf\u00e9"
+    assert processes.child_env(HF_HUB_OFFLINE="1")["HF_HUB_OFFLINE"] == "1"

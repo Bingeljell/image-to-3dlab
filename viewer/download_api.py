@@ -18,7 +18,6 @@ than left to look like slow progress, which is the failure people actually hit.
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import subprocess
@@ -432,10 +431,9 @@ def _run(run: DownloadRun) -> None:
     try:
         run.process = subprocess.Popen(
             run.command, cwd=str(REPO),
-            env={**os.environ, "PYTHONUNBUFFERED": "1",
-                 # The bars are unreadable in a browser and the size watcher is the real
-                 # progress signal, so ask the downloader not to draw them at all.
-                 "HF_HUB_DISABLE_PROGRESS_BARS": "1"},
+            # The bars are unreadable in a browser and the size watcher is the real
+            # progress signal, so ask the downloader not to draw them at all.
+            env=processes.child_env(HF_HUB_DISABLE_PROGRESS_BARS="1"),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0,
             # Its own process group, so cancelling kills the downloader's children too.
             **processes.group_popen_kwargs(),

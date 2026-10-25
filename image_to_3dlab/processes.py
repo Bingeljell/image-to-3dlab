@@ -21,6 +21,17 @@ _IS_WINDOWS = os.name == "nt"
 # Jobs the viewer starts: Python workers, and Blender for rig rebinds.
 _OUR_IMAGES = ("python", "blender")
 
+# Python children print UTF-8 whatever the locale (PEP 686 makes it the default only from
+# 3.15; on Windows the pipe is cp1252 until then, and a Chinese prompt or a name outside it
+# raised UnicodeEncodeError in the child), and the studio reads them as UTF-8.
+UTF8_ENV = {"PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"}
+TEXT_PIPE = {"text": True, "encoding": "utf-8", "errors": "replace"}
+
+
+def child_env(**extra: str) -> dict:
+    """This process's environment for a child job: UTF-8 and unbuffered, plus `extra`."""
+    return {**os.environ, **UTF8_ENV, **extra}
+
 
 def group_popen_kwargs(windows: bool = _IS_WINDOWS) -> dict:
     """Popen keyword arguments that put the child in its own process group."""

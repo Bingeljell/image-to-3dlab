@@ -309,7 +309,7 @@ def _job_env() -> dict[str, str]:
     value in this server's environment (e.g. SPARSE_CONV_BACKEND=none exported earlier)
     would otherwise be inherited and silently break the run.
     """
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    env = processes.child_env()
     for key in BACKEND_ENV_KEYS:
         env.pop(key, None)
     return env
@@ -640,8 +640,8 @@ def run_trellis_input_advisor(image_path: Path) -> dict[str, Any]:
             env=_job_env(),
             check=True,
             capture_output=True,
-            text=True,
             timeout=TINYCLIP_TIMEOUT_SECONDS,
+            **processes.TEXT_PIPE,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("TinyCLIP input check timed out") from exc
@@ -1201,7 +1201,7 @@ def _process_rss_gb(pid: int) -> float:
     try:
         kb = subprocess.run(
             ["ps", "-o", "rss=", "-p", str(pid)],
-            capture_output=True, text=True, timeout=5, check=False,  # best-effort probe
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,  # best-effort probe
         ).stdout.strip()
         return round(int(kb) / (1024 ** 2), 2) if kb.isdigit() else 0.0
     except (OSError, ValueError, subprocess.TimeoutExpired):

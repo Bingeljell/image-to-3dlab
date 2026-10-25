@@ -19,7 +19,6 @@ import hashlib
 import importlib.util
 import json
 import math
-import os
 import re
 import shutil
 import struct
@@ -669,8 +668,8 @@ def _run_step(job: PropsJob, label: str, command: list[str], feed) -> bool:
         _cancelled(job)
         return False
     job.process = subprocess.Popen(
-        command, cwd=str(REPO), env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        command, cwd=str(REPO), env=processes.child_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
         **processes.group_popen_kwargs(),
     )
     job.directory.joinpath("pid").write_text(processes.pid_record(job.process.pid), encoding="utf-8")

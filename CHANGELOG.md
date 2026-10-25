@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The studio reads and writes its text files as UTF-8 on every computer.** On Windows
   Python defaults to cp1252, so non-ASCII text such as an em dash or a middle dot read from
   `prompt_recipes.json` and similar files came out garbled.
+- **The studio's jobs talk UTF-8 on Windows.** A Chinese prompt or a name outside cp1252 no
+  longer breaks a job or the studio reading its progress.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

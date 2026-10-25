@@ -677,7 +677,7 @@ class UsageHttp(FakeHttp):
 def test_status_hands_the_agent_the_question_until_the_user_answered():
     asked = ms.status(ms.Studio("http://127.0.0.1:8777", http=UsageHttp(noticed=False), start=lambda: None))
     assert asked["usage_counts"]["ask_user"] == ms.USAGE_ASK
-    assert "About page" in asked["usage_counts"]["then"]
+    assert "user_said_yes" in asked["usage_counts"]["then"]
     answered = ms.status(ms.Studio("http://127.0.0.1:8777", http=UsageHttp(noticed=True), start=lambda: None))
     assert answered["usage_counts"] is None
 

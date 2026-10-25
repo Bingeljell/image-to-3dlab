@@ -78,11 +78,12 @@ def emit_stage(phase: str, message: str) -> None:
 
 def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: int, atlas: int,
                       log: Path) -> dict | None:
-    """Pixal3D's own clean-up, or the classic route when its frame check objects. A model the
-    check refuses still gets finished; only the route changes, and the log says why."""
+    """Pixal3D's own clean-up, or the classic route when its frame check objects or the
+    clean-up itself crashes. The model still gets finished; only the route changes, and the
+    log says why."""
     try:
         return pixal3d_native.native_retopo(dump, source, output, faces, atlas, log)
-    except pixal3d_native.FrameMismatch as exc:
+    except (pixal3d_native.FrameMismatch, pixal3d_native.ReplayFailed, OSError) as exc:
         print(f"[retopo-repaint] note: {exc}; using the classic route", flush=True)
         classic()
         return None

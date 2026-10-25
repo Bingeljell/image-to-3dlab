@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify
+  finalize script,** whatever Blender's Auto Run preference says, and your add-ons are left
+  out.
 - **A web page can no longer drive the studio behind your back.** Every write (setup and
   weight removal, the Hugging Face sign-in, jobs, Library changes) now needs the studio's own
   origin and a request header, which a form on another site cannot send. The studio's pages,

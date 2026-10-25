@@ -146,10 +146,12 @@ export async function openAbout(stage) {
       AssetFurnace's own code is Apache-2.0.</p>
     <h3>Usage counts</h3>
     <div data-usage>
-      <p>We're keen to understand how many people are using AssetFurnace - all data shared is anonymous and you're free to stop sharing any time you want.</p>
+      <p>We're keen to understand how many people are using AssetFurnace - all data shared is anonymous and you're free to stop sharing any time you want.
+        We need a sense of how many people use the app, for what and how. It helps us pick which features and fixes come first, and lets us brag a little about the community's love.</p>
       <label><input type="checkbox" data-usage-box> Share anonymous usage counts</label>
       <p class="meta">Once a day it sends a random id, the version, the kind of computer, and how many pictures, models and other jobs
-        were made, from the studio or by an agent. Never pictures, prompts or file names. Unticking stops it and forgets the id.</p>
+        were made, from the studio or by an agent. Never pictures, prompts or file names. Unticking stops it and forgets the id.
+        <a href="https://assetfurnace.com/privacy#usage-counts" target="_blank" rel="noopener">Privacy policy</a></p>
       <details data-usage-sends hidden><summary class="meta">Exactly what is sent</summary><pre class="log"></pre></details>
     </div>
     <h3>Find us</h3>
@@ -187,6 +189,29 @@ async function wireUsage(box) {
       body: JSON.stringify({ share: tick.checked }) }).catch(() => null);
     if (response?.ok) show(await response.json()); else tick.checked = !tick.checked;
   });
+}
+
+// Shown once, on the first start that shares counts, until the person dismisses it or makes a choice on About.
+export async function usageNotice(openAboutPage) {
+  let state;
+  try { state = await (await fetch('/api/usage')).json(); } catch { return; }   // the page load also sends the daily count
+  if (state.noticed) return;
+  const card = document.createElement('aside');
+  card.className = 'usage-notice';
+  card.setAttribute('role', 'status');
+  card.innerHTML = `<p><b>Anonymous usage counts</b></p>
+    <p>Once a day AssetFurnace tells us it is in use, and how many pictures, models and other jobs were made. Never your prompts, pictures or models.
+      We need a sense of how many people use the app, for what and how. It helps us pick which features and fixes come first, and lets us brag a little about the community's love.</p>
+    <div class="row"><button class="primary" data-ok>Got it</button>
+      <button class="ghost" data-about>Turn off in About</button>
+      <a class="ghost" href="${escape(state.policy)}" target="_blank" rel="noopener">What we collect</a></div>`;
+  const done = () => {
+    card.remove();
+    fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noticed: true }) }).catch(() => {});
+  };
+  card.querySelector('[data-ok]').addEventListener('click', done);
+  card.querySelector('[data-about]').addEventListener('click', () => { done(); openAboutPage(); });
+  document.body.append(card);
 }
 
 // How to use: one short walk through the studio. Each entry is [title, text]; keep it brief.

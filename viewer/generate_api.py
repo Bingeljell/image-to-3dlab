@@ -3911,12 +3911,15 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json(200, bug_report_api.links(message, details))
 
     def _usage_choice(self) -> None:
-        """The About page's usage box: `{share: true|false}`."""
+        """The About page's usage box, `{share: true|false}`, or the first-start notice's `{noticed: true}`."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {}
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
+            return
+        if body.get("noticed") is True:
+            self._send_json(200, usage_api.set_noticed())
             return
         if not isinstance(body.get("share"), bool):
             self._send_json(422, {"error": "share must be true or false"})

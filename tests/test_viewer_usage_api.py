@@ -127,15 +127,42 @@ def test_turning_it_off_forgets_the_id_and_counts_nothing(isolated):
     ua.count_done("model", env=ON)
     first = json.loads(isolated.read_text())["id"]
     assert ua.set_sharing(False, env=ON)["enabled"] is False
-    assert json.loads(isolated.read_text()) == {"schema_version": ua.SCHEMA, "opted_out": True}
+    assert json.loads(isolated.read_text()) == {"schema_version": ua.SCHEMA, "noticed": True, "opted_out": True}
     ua.count_done("model", env=ON)
     start(["api", "generate"], header="agent")
     assert ua.send_daily(env=ON, today=DAY, post=lambda b: None) is False
-    assert json.loads(isolated.read_text()) == {"schema_version": ua.SCHEMA, "opted_out": True}
+    assert json.loads(isolated.read_text()) == {"schema_version": ua.SCHEMA, "noticed": True, "opted_out": True}
     ua.set_sharing(True, env=ON)
     sent = []
     ua.send_daily(env=ON, today=DAY, post=sent.append)
     assert sent[0]["id"] != first and sent[0]["finished"] == {}
+
+
+def test_the_first_start_notice_shows_until_dismissed_and_keeps_the_id(isolated):
+    assert ua.status(env=ON)["noticed"] is False
+    ua.count_done("model", env=ON)
+    first = json.loads(isolated.read_text())["id"]
+    assert ua.set_noticed(env=ON)["noticed"] is True
+    state = json.loads(isolated.read_text())
+    assert state["id"] == first and state["finished"] == {"model": 1}   # dismissing changes nothing else
+    assert ua.status(env=ON)["policy"].startswith("https://assetfurnace.com/privacy")
+
+
+def test_dismissing_before_anything_is_counted_survives_the_first_count(isolated):
+    ua.set_noticed(env=ON)
+    ua.count_done("model", env=ON)
+    assert ua.status(env=ON)["noticed"] is True
+
+
+def test_a_choice_on_about_also_counts_as_seen(isolated):
+    assert ua.set_sharing(True, env=ON)["noticed"] is True
+    ua.count_done("model", env=ON)
+    assert ua.status(env=ON)["noticed"] is True
+    assert ua.set_sharing(False, env=ON)["noticed"] is True
+
+
+def test_no_notice_when_sharing_is_off_by_the_environment(isolated):
+    assert ua.status(env=OFF)["noticed"] is True
 
 
 @pytest.mark.parametrize("env", [{"I3D_NO_USAGE": "1"}, {"DO_NOT_TRACK": "1"}])
@@ -209,6 +236,10 @@ def test_the_studio_counts_through_its_real_routes(isolated, monkeypatch):
         agent = urllib.request.Request(base, headers={ua.CLIENT_HEADER: "agent"})
         urllib.request.urlopen(agent, timeout=10).read()
         assert json.loads(isolated.read_text())["agent_seen"] is True
+        seen = urllib.request.Request(base, data=b'{"noticed": true}', method="POST",
+                                      headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(seen, timeout=10) as response:
+            assert json.loads(response.read())["noticed"] is True
         request = urllib.request.Request(base, data=json.dumps({"share": False}).encode(), method="POST",
                                          headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(request, timeout=10) as response:

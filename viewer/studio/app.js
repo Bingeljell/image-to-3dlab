@@ -6,7 +6,7 @@ import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
-import { openActivity, openAbout, openGuide, openReport, closeSheet } from './pages.js';
+import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice } from './pages.js';
 import { STEP_LABELS } from './plan.js';
 import { mountSkins } from './skins.js';
 
@@ -570,7 +570,7 @@ async function runningChain() {
 
 // open on a run still going, else on Create; the Library beside it holds the recent work
 async function boot() {
-  fetch('/api/usage').catch(() => {});   // sends the daily count only if the person opted in
+  usageNotice(() => openAbout($('stage')));   // also sends the daily count, unless sharing is off
   await loadTools();
   await loadLibrary(null, { pick: false });
   const running = await runningChain();

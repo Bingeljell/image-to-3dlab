@@ -427,12 +427,14 @@ Full credits and per-backend detail: [`docs/info_and_credits.md`](docs/info_and_
 
 We're keen to understand how many people are using AssetFurnace - all data shared is anonymous
 and you're free to stop sharing any time you want.
+We need a sense of how many people use the app, for what and how: it helps us pick which
+features and fixes come first, and lets us brag a little about the community's love.
 
 Once a day the studio sends a random id (made on your copy, not tied to you or your machine),
 the version, the kind of computer, and how many pictures, models and other jobs were made,
 from the studio or by an agent. Never pictures, prompts or file names. The About page shows
 the exact message. Untick the box there to stop and forget the id, or set `I3D_NO_USAGE=1`
-(or `DO_NOT_TRACK=1`).
+(or `DO_NOT_TRACK=1`). Full details: [privacy policy](https://assetfurnace.com/privacy#usage-counts).
 
 ## License
 

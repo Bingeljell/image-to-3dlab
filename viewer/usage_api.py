@@ -33,6 +33,7 @@ import image_to_3dlab
 from image_to_3dlab.host import host_platform, os_family
 
 USAGE_URL = os.environ.get("I3D_USAGE_URL", "https://assetfurnace.com/api/usage")
+POLICY_URL = "https://assetfurnace.com/privacy#usage-counts"
 STATE = REPO / "output" / ".usage.json"
 SCHEMA = 2
 LOCK = threading.Lock()   # a finished job, a page load and an agent call can land together
@@ -103,20 +104,30 @@ def _current(state: Path | None) -> dict[str, Any]:
     """The state with an id, made the first time anything is counted or sent."""
     current = _read(state)
     if not current.get("id"):
-        current = {"schema_version": SCHEMA, "id": uuid.uuid4().hex, "sent_day": None}
+        current = {"noticed": bool(current.get("noticed")),
+                   "schema_version": SCHEMA, "id": uuid.uuid4().hex, "sent_day": None}
     return current
 
 
 def set_sharing(on: bool, state: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
-    """Tick or untick the box. Off forgets the id and the counts; on starts afresh."""
+    """Tick or untick the box. Off forgets the id and the counts; on starts afresh.
+    Either way the person has seen the choice, so the first-start notice stays away."""
+    if blocked(env):
+        return status(state, env)   # the environment decides; the box is greyed out
     with LOCK:
         if on:
-            try:
-                _path(state).unlink()
-            except OSError:
-                pass
+            _write(state, {"schema_version": SCHEMA, "noticed": True})
         else:
-            _write(state, {"schema_version": SCHEMA, "opted_out": True})
+            _write(state, {"schema_version": SCHEMA, "noticed": True, "opted_out": True})
+    return status(state, env)
+
+
+def set_noticed(state: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
+    """The first-start notice was dismissed: it does not come back."""
+    with LOCK:
+        current = _read(state)
+        current["noticed"] = True
+        _write(state, current)
     return status(state, env)
 
 
@@ -244,4 +255,5 @@ def status(state: Path | None = None, env: dict[str, str] | None = None) -> dict
     on = sharing(state, env)
     return {"enabled": on, "allowed": not blocked(env),
             "sends": payload(current, _today()) if on else None,
-            "url": USAGE_URL}
+            "noticed": bool(current.get("noticed")) or not on,   # nothing to tell someone who is not sharing
+            "url": USAGE_URL, "policy": POLICY_URL}

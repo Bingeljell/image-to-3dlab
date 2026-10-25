@@ -693,8 +693,8 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 provenance = job.result_glb.with_suffix(".provenance.json")
                 if provenance.is_file():
                     shutil.copy(provenance, job.record_path)   # what record_url serves
-            job.status = "done"
-            usage_api.count_done("finish")   # nothing if the person turned sharing off
+            # The done event (with the file's path) goes out BEFORE the status flips: a plan polls
+            # the status and reads the last event, so the other order can lose the result.
             job.emit({
                 "phase": "done", "overall_pct": 100,
                 "message": f"Finished at {job.result_glb.stat().st_size / 1048576:.1f} MB",
@@ -707,6 +707,8 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "pixal3d": (job.views_dir / "transforms.json").is_file(),
                 "note": photo_note(job, job.settings),
             })
+            job.status = "done"
+            usage_api.count_done("finish")   # nothing if the person turned sharing off
         else:
             job.status = "error"
             job.emit({"phase": "error", "message": "worker exited without writing a GLB"})

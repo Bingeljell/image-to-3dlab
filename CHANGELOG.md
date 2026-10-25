@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A plan no longer skips the move after rigging.** Rig and Finish said "done" a moment before
+  recording their file, so a plan could carry on without it (seen on a robot).
+
 ## [0.5.2] - 2026-10-25
 
 ### Added

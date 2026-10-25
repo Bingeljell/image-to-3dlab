@@ -29,6 +29,8 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+import usage_api
+
 from image_to_3dlab import blender as blender_lookup
 from image_to_3dlab import processes
 from image_to_3dlab.host import APPLE, host_platform
@@ -692,6 +694,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 if provenance.is_file():
                     shutil.copy(provenance, job.record_path)   # what record_url serves
             job.status = "done"
+            usage_api.count_done("finish")   # nothing if the person turned sharing off
             job.emit({
                 "phase": "done", "overall_pct": 100,
                 "message": f"Finished at {job.result_glb.stat().st_size / 1048576:.1f} MB",

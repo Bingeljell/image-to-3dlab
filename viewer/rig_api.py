@@ -17,6 +17,8 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+import usage_api
+
 from image_to_3dlab import processes
 from image_to_3dlab.blender import find_blender
 from image_to_3dlab.rig_sidecar import (
@@ -175,6 +177,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
             job.result_glb, job.result_blend, job.result_sidecar, job.report_path,
         )):
             job.status = "done"
+            usage_api.count_done("rig")
             job.emit({
                 "phase": "done", "overall_pct": 100, "message": "Rebind complete",
                 "result_url": f"/api/rig/rebind/{job.id}/result.glb",

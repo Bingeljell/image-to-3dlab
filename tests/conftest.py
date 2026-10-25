@@ -23,6 +23,7 @@ them when convenient; migrate immediately if production code imports the same na
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -32,3 +33,6 @@ for directory in ("viewer", "scripts"):
     path = str(REPO / directory)
     if path not in sys.path:
         sys.path.insert(0, path)
+
+# The suite never counts or sends usage from a real install (tests of it pass their own env).
+os.environ["I3D_NO_USAGE"] = "1"

@@ -40,6 +40,8 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+import usage_api
+
 from image_to_3dlab import host, processes
 
 OUTPUT_ROOT = REPO / "output" / "animate"
@@ -420,6 +422,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
             job.result.with_suffix(".provenance.json").write_text(
                 json.dumps(job.record, indent=2))
             job.status = "done"
+            usage_api.count_done("rig" if job.kind == "rig" else "animation")
             fit = rig_fit(job.result) if job.kind == "rig" else {}
             job.emit({"phase": "done", "overall_pct": 100,
                       "message": fit.get("message") or ("Rigged" if job.kind == "rig" else "Animated"),

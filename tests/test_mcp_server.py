@@ -106,7 +106,7 @@ def post_routes() -> set[str]:
     """Every POST route the studio server answers, read from its handler."""
     import generate_api
 
-    source = inspect.getsource(generate_api.Handler.do_POST)
+    source = inspect.getsource(generate_api.Handler._route_post)
     routes = set()
     for cond in re.findall(r"if (.*?):\n", source):
         if "parts" not in cond or "api" not in cond:
@@ -147,7 +147,8 @@ def test_the_server_registers_every_tool():
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend",
                      "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
-                     "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins"}
+                     "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
+                     "usage_counts"}
 
 
 # --------------------------------------------------------------------------- create
@@ -652,3 +653,43 @@ def test_agents_are_told_where_the_guide_is_and_that_fix_a_spot_is_hands_on():
     assert "https://assetfurnace.com/blog/how-to-use-assetfurnace" in text
     assert "Fix a spot" in text and "open_in_studio" in text
     assert 'finish_detail="hero"' in text
+
+
+# --------------------------------------------------------------------------- usage counts
+class UsageHttp(FakeHttp):
+    def __init__(self, noticed):
+        super().__init__()
+        self.usage = {"enabled": True, "noticed": noticed, "sends": {"id": "a" * 32},
+                      "policy": "https://assetfurnace.com/privacy#usage-counts"}
+
+    def get(self, url, params=None, timeout=None):
+        if url.endswith("api/usage"):
+            return Response(200, self.usage)
+        return super().get(url, params, timeout)
+
+    def post(self, url, files=None, json=None, timeout=None):
+        if url.endswith("api/usage"):
+            self.posts.append(("api/usage", json))
+            return Response(200, {**self.usage, "noticed": True})
+        return super().post(url, files, json, timeout)
+
+
+def test_status_hands_the_agent_the_question_until_the_user_answered():
+    asked = ms.status(ms.Studio("http://127.0.0.1:8777", http=UsageHttp(noticed=False), start=lambda: None))
+    assert asked["usage_counts"]["ask_user"] == ms.USAGE_ASK
+    assert "About page" in asked["usage_counts"]["then"]
+    answered = ms.status(ms.Studio("http://127.0.0.1:8777", http=UsageHttp(noticed=True), start=lambda: None))
+    assert answered["usage_counts"] is None
+
+
+def test_an_older_studio_without_usage_counts_asks_nothing(studio):
+    assert ms.status(studio)["usage_counts"] is None
+
+
+def test_an_agent_passes_on_a_yes_and_can_never_switch_sharing():
+    http = UsageHttp(noticed=False)
+    studio = ms.Studio("http://127.0.0.1:8777", http=http, start=lambda: None)
+    looked = ms.usage_counts(studio)
+    assert http.posts == [] and "About page" in looked["to_change"]
+    ms.usage_counts(studio, user_said_yes=True)
+    assert http.posts == [("api/usage", {"noticed": True})]     # never {"share": ...}

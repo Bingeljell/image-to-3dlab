@@ -40,6 +40,8 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+import usage_api
+
 from image_to_3dlab import back_view, matte
 from image_to_3dlab.host import APPLE, executable, host_platform, with_rocm_libraries
 from image_to_3dlab.provenance import LICENSES, QWEN_OUTPUT_RIGHTS
@@ -508,6 +510,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             sidecar.write_text(json.dumps(record, indent=2))
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))
+            usage_api.count_done("picture")
     except MissingWeights as exc:
         job.error = str(exc)
         job.set_status("error", error=job.error, needs_setup=True)

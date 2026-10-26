@@ -91,6 +91,9 @@ class Studio:
             import requests
             http = requests.Session()
             http.headers.update(AGENT_HEADER)
+            # a studio on a pod or another machine needs its key (viewer/studio_auth.py)
+            if token := os.environ.get("I3D_STUDIO_TOKEN", "").strip():
+                http.headers["Authorization"] = f"Bearer {token}"
         self.http = http
         self._start = start or self._start_server
         self._checked = False

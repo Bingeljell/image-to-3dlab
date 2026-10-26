@@ -129,3 +129,13 @@ def test_the_plan_runner_and_mcp_on_the_pod_still_get_in(studio):
 def test_dotfiles_are_never_served_even_with_the_key(studio):
     status, _, body = call(studio, "GET", "/.env", {"Authorization": f"Bearer {TOKEN}"})
     assert status == 404 and b"secret" not in body
+
+
+def test_an_agent_elsewhere_sends_the_key_when_it_has_one(monkeypatch):
+    """ASSETFURNACE_URL pointing at a pod plus I3D_STUDIO_TOKEN: the MCP's requests carry the key."""
+    from image_to_3dlab import mcp_server
+
+    monkeypatch.setenv("I3D_STUDIO_TOKEN", TOKEN)
+    assert mcp_server.Studio("https://pod-8777.proxy.runpod.net").http.headers["Authorization"] == f"Bearer {TOKEN}"
+    monkeypatch.delenv("I3D_STUDIO_TOKEN")
+    assert "Authorization" not in mcp_server.Studio().http.headers

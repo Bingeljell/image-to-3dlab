@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -115,7 +114,7 @@ def apply_patches(root: Path) -> None:
 
 
 def install(root: Path, python: str) -> None:
-    uv = shutil.which("uv")
+    uv = host.find_uv()
     if uv is None:
         raise RuntimeError("uv is required for the reproducible Mac environment")
     venv = root / ".venv"

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Setup finds uv right after install.** In a shell that has not picked up `~/.local/bin`
+  yet (a fresh WSL one, say), setups stopped with "uv is required" although install.sh had
+  just put uv there (#168).
+
 ## [0.5.2] - 2026-10-25
 
 ### Added

@@ -52,7 +52,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -558,7 +557,7 @@ def build_record(version: tuple[int, int], route: str, gfx: list[str],
 
 
 def install_code(version: tuple[int, int], route: str = "source") -> None:
-    uv = shutil.which("uv")
+    uv = host.find_uv()
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
     gfx = host.rocm_gfx_targets()

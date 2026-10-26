@@ -198,7 +198,7 @@ def prove_torch_on_amd(python: Path, probe=None) -> None:
 
 def install_packages(root: Path = VENDOR, runner=run, index: str | None = None,
                      probe=None) -> None:
-    uv = shutil.which("uv")
+    uv = host.find_uv()
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
     index = this_machines_index() if index is None else index

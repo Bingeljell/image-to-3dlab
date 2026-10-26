@@ -39,6 +39,22 @@ def os_family(sys_platform: str | None = None) -> str:
     return OTHER
 
 
+def find_uv(which: Callable | None = None, home: Path | None = None,
+            family: str | None = None) -> str | None:
+    """The uv to run, or None when there is none.
+
+    PATH first, then ~/.local/bin, where install.sh and install.ps1 put it. A shell that has
+    not picked that folder up yet (a non-login shell, a fresh WSL one) would otherwise say
+    "uv is required" with uv sitting right there (#168).
+    """
+    found = (which or shutil.which)("uv")
+    if found:
+        return found
+    name = "uv.exe" if (family or os_family()) == "windows" else "uv"
+    local = (home or Path.home()) / ".local" / "bin" / name
+    return str(local) if local.is_file() and os.access(local, os.X_OK) else None
+
+
 #: The first macOS that loads Metal 4 GPU code (shaders built with -std=metal4.0, #154).
 METAL4_MACOS = 26
 

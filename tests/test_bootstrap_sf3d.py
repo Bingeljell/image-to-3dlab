@@ -75,7 +75,7 @@ def test_the_viewer_can_run_it():
 def test_packages_go_in_with_uv_when_the_environment_has_no_pip(monkeypatch):
     """The one-line installer builds the environment with uv, which ships no pip. On the
     second NVIDIA pod `python -m pip` failed with 'No module named pip'."""
-    monkeypatch.setattr(boot.shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    monkeypatch.setattr(boot.host, "find_uv", lambda: "/usr/bin/uv")
     monkeypatch.setattr(boot, "has_pip", lambda: False)
     command = boot.pip_install_command()
     assert command[:3] == ["/usr/bin/uv", "pip", "install"]
@@ -83,13 +83,13 @@ def test_packages_go_in_with_uv_when_the_environment_has_no_pip(monkeypatch):
 
 
 def test_pip_is_used_when_there_is_no_uv(monkeypatch):
-    monkeypatch.setattr(boot.shutil, "which", lambda name: None)
+    monkeypatch.setattr(boot.host, "find_uv", lambda: None)
     monkeypatch.setattr(boot, "has_pip", lambda: True)
     assert boot.pip_install_command() == [boot.sys.executable, "-m", "pip", "install"]
 
 
 def test_neither_uv_nor_pip_says_how_to_fix_it(monkeypatch):
-    monkeypatch.setattr(boot.shutil, "which", lambda name: None)
+    monkeypatch.setattr(boot.host, "find_uv", lambda: None)
     monkeypatch.setattr(boot, "has_pip", lambda: False)
     with pytest.raises(SystemExit, match="uv"):
         boot.pip_install_command()

@@ -173,7 +173,10 @@ from image_to_3dlab import processes
 from image_to_3dlab.blender import find_blender
 from image_to_3dlab.blender import missing_help as blender_missing_help
 from image_to_3dlab.gpu_memory import gpu_busy_note
-from image_to_3dlab.host import executable  # image_api put the repo on sys.path
+from image_to_3dlab.host import (
+    executable,  # image_api put the repo on sys.path
+    find_uv,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 WRAPPER = REPO / "scripts" / "trellis_space_generate.py"
@@ -689,7 +692,7 @@ def setup_available(host: str | None = None) -> tuple[bool, str | None]:
     if (host or host_platform()) != APPLE:
         return False, ("this setup runs the Mac port; on this machine use Setup & Status "
                        "> TRELLIS.2 > Set up")
-    if shutil.which("uv") is None:
+    if find_uv() is None:
         return False, "uv is not installed — install it first (https://docs.astral.sh/uv/)"
     bootstrap = REPO / "scripts" / "bootstrap_trellis_space_macos.py"
     if not bootstrap.is_file():

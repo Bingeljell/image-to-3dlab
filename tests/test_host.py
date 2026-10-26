@@ -623,3 +623,37 @@ def test_one_venv_python_for_every_caller(monkeypatch, tmp_path):
     expected = tmp_path / ".venv" / "Scripts" / "python.exe"
     assert {host.venv_python(tmp_path), backend_catalog.venv_python(tmp_path), autorig_api.venv_python(tmp_path),
             bootstrap_autorig.venv_python(tmp_path)} == {expected}
+
+
+def test_find_uv_prefers_path(tmp_path):
+    assert host.find_uv(which=lambda name: "/usr/bin/uv", home=tmp_path) == "/usr/bin/uv"
+
+
+def test_find_uv_falls_back_to_where_install_sh_puts_it(tmp_path):
+    """#168: a shell that has not picked up ~/.local/bin yet still finds the uv install.sh put there."""
+    local = tmp_path / ".local" / "bin" / "uv"
+    local.parent.mkdir(parents=True)
+    local.write_text("")
+    local.chmod(0o755)
+    assert host.find_uv(which=lambda name: None, home=tmp_path, family="linux") == str(local)
+
+
+def test_find_uv_on_windows_looks_for_the_exe(tmp_path):
+    local = tmp_path / ".local" / "bin" / "uv.exe"
+    local.parent.mkdir(parents=True)
+    local.write_text("")
+    local.chmod(0o755)
+    assert host.find_uv(which=lambda name: None, home=tmp_path, family="windows") == str(local)
+
+
+def test_find_uv_is_none_when_there_is_none(tmp_path):
+    assert host.find_uv(which=lambda name: None, home=tmp_path, family="linux") is None
+
+
+def test_no_caller_asks_path_for_uv_directly():
+    """Every bootstrap and the viewer go through host.find_uv, so none misses ~/.local/bin again."""
+    repo = Path(__file__).resolve().parents[1]
+    callers = [*repo.glob("scripts/*.py"), *repo.glob("viewer/*.py"), *repo.glob("image_to_3dlab/*.py")]
+    offenders = [p.name for p in callers if 'which("uv")' in p.read_text(encoding="utf-8")
+                 and p.name != "host.py"]
+    assert offenders == []

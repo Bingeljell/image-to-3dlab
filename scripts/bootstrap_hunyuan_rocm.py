@@ -283,7 +283,7 @@ def build_present() -> bool:
 
 
 def install_code(route: str) -> None:
-    uv = shutil.which("uv")
+    uv = host.find_uv()
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
     fetch_checkout()

@@ -10,7 +10,7 @@ NVIDIA PC, with the licence of every asset written down.</p>
 <p align="center">
   <a href="https://assetfurnace.com"><b>assetfurnace.com</b></a> ·
   <a href="https://assetfurnace.com/blog/how-to-use-assetfurnace"><b>Step-by-step guide</b></a> ·
-  <a href="https://discord.gg/3D4bcEhGx"><b>Join the Discord</b></a> ·
+  <a href="https://discord.gg/EuY9cQTRUt"><b>Join the Discord</b></a> ·
   <a href="https://x.com/bingeljell">X @bingeljell</a> ·
   <a href="https://github.com/Bingeljell/image-to-3dlab/discussions">Discussions</a>
 </p>

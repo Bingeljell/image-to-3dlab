@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The Discord link works again for good.** The old invite was set to expire; the README, the studio
+  and bug reports now use a permanent one.
 - **Setup finds uv right after install.** In a shell that has not picked up `~/.local/bin`
   yet (a fresh WSL one, say), setups stopped with "uv is required" although install.sh had
   just put uv there (#168).

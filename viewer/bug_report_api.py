@@ -33,7 +33,7 @@ from image_to_3dlab.host import os_family
 # I3D_REPORT_URL points the studio at a local copy of the site while testing it.
 SITE_REPORT_URL = os.environ.get("I3D_REPORT_URL", "https://assetfurnace.com/report")
 GITHUB_NEW_ISSUE = "https://github.com/Bingeljell/image-to-3dlab/issues/new"
-DISCORD_INVITE = "https://discord.gg/3D4bcEhGx"
+DISCORD_INVITE = "https://discord.gg/EuY9cQTRUt"
 GITHUB_URL_MAX = 7500     # GitHub refuses much longer links; the log tail is what gets cut
 LOG_LINES = 40
 

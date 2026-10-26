@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import types
@@ -96,8 +97,18 @@ def test_the_overlap_measure_sees_a_folded_island():
     assert overlap_percent(square + square[:1], 64) == pytest.approx(50, abs=3)
 
 
+def _full_version(blender: Path) -> tuple[int, ...] | None:
+    """Blender's "5.2.0" from `--version`, which opens no scene, so it is safe on a Blender that crashes."""
+    out = subprocess.run([str(blender), "--version"], capture_output=True, text=True, timeout=60).stdout
+    found = re.search(r"Blender (\d+)\.(\d+)\.(\d+)", out or "")
+    return tuple(int(n) for n in found.groups()) if found else None
+
+
 @pytest.mark.skipif(find_blender() is None, reason="needs Blender")
 def test_the_finish_unwraps_without_painting_a_texel_twice(tmp_path):
+    version = _full_version(find_blender())
+    if version is None or _load().unwrap_crashes(version):
+        pytest.skip(f"Blender {version} crashes in the unwrap's overlap check (or its version is unknown)")
     script = tmp_path / "unwrap.py"
     script.write_text(SCRIPT.format(scripts=str(REPO / "scripts"), out=str(tmp_path / "uv_")), encoding="utf-8")
     done = subprocess.run([str(find_blender()), "--background", "--factory-startup", "--python", str(script)],

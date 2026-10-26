@@ -2503,7 +2503,7 @@ class Handler(SimpleHTTPRequestHandler):
         if cls._chain_runner is None:
             host, port = self.server.server_address[:2]
             host = "127.0.0.1" if host in ("", "0.0.0.0") else host
-            cls._chain_runner = ChainRunner(OUTPUT_ROOT, activity_api.local_request(f"http://{host}:{port}"))
+            cls._chain_runner = ChainRunner(OUTPUT_ROOT, activity_api.local_request(f"http://{host}:{port}", cls.studio_token))
         return cls._chain_runner
 
     def send_response(self, code, message=None) -> None:
@@ -2526,8 +2526,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _allowed(self, *, mutation: bool) -> bool:
         """The studio page's own requests and local tools only (request_utils.check_request),
         with the studio's key when it is reachable from a network (studio_auth)."""
-        verdict = studio_auth.check(token=type(self).studio_token, client_address=self.client_address[0],
-                                    path=self.path, headers=self.headers)
+        verdict = studio_auth.check(token=type(self).studio_token, path=self.path, headers=self.headers)
         if not verdict.ok:
             self._refuse(401, "This studio needs its key: open the link it printed when it started "
                               "(the one ending in ?token=...).")

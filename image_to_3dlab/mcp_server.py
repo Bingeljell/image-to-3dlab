@@ -82,6 +82,19 @@ class StudioError(RuntimeError):
 AGENT_HEADER = {"X-AssetFurnace-Client": "agent"}
 
 
+STUDIO_KEY_FILE = REPO / "output" / ".studio-token"
+
+
+def studio_key(environ=None, path: Path = STUDIO_KEY_FILE) -> str | None:
+    environ = os.environ if environ is None else environ
+    if chosen := (environ.get("I3D_STUDIO_TOKEN") or "").strip():
+        return chosen
+    try:
+        return path.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
 class Studio:
     """HTTP to the studio server, starting it once if nobody has."""
 
@@ -91,8 +104,9 @@ class Studio:
             import requests
             http = requests.Session()
             http.headers.update(AGENT_HEADER)
-            # a studio on a pod or another machine needs its key (viewer/studio_auth.py)
-            if token := os.environ.get("I3D_STUDIO_TOKEN", "").strip():
+            # a studio reachable from a network needs its key (viewer/studio_auth.py): from
+            # I3D_STUDIO_TOKEN, else the file a keyed studio on this machine writes
+            if token := studio_key():
                 http.headers["Authorization"] = f"Bearer {token}"
         self.http = http
         self._start = start or self._start_server

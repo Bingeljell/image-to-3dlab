@@ -111,7 +111,9 @@ def kill_children_with_this_process(windows: bool = _IS_WINDOWS) -> bool:
         return False
     _JOB = job
     try:
-        subprocess.run(["cmd.exe", "/c", "exit 0"], check=True, stdout=subprocess.DEVNULL,
+        # the full path: a bare "cmd.exe" is looked up in the working folder first on Windows
+        cmd = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe")
+        subprocess.run([cmd, "/c", "exit 0"], check=True, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, creationflags=CREATE_BREAKAWAY_FROM_JOB | _CREATE_NO_WINDOW)
         _BREAKAWAY = True
     except (OSError, subprocess.CalledProcessError):

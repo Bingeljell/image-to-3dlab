@@ -307,6 +307,14 @@ USER_AGENT = "image-to-3dlab pod smoke test (+https://github.com/Bingeljell/imag
 class Viewer:
     def __init__(self, base: str):
         self.base = base
+        # a studio on a pod needs its key: I3D_STUDIO_TOKEN, else the file the studio writes
+        token = os.environ.get("I3D_STUDIO_TOKEN", "").strip()
+        if not token:
+            try:
+                token = (Path(__file__).resolve().parents[1] / "output" / ".studio-token").read_text(encoding="utf-8").strip()
+            except OSError:
+                token = ""
+        self.key = {"Authorization": f"Bearer {token}"} if token else {}
 
     def call(self, method: str, path: str, body: bytes | None = None,
              content_type: str = "application/json", timeout: float = 120) -> tuple[int, bytes]:
@@ -314,7 +322,8 @@ class Viewer:
                                          headers={"Content-Type": content_type,
                                                   "User-Agent": USER_AGENT,
                                                   # the studio refuses a write without it
-                                                  "X-AssetFurnace-Request": "pod-smoke-test"})
+                                                  "X-AssetFurnace-Request": "pod-smoke-test",
+                                                  **self.key})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.status, response.read()

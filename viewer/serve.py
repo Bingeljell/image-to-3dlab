@@ -102,14 +102,24 @@ def main() -> int:
     plan = launch_plan(os.environ, args.port) if args.auto else None
     if plan is not None:
         args.host = plan.host
-    # reachable from a network: only the printed link (it carries a key) gets in
-    token = studio_auth.make_token(os.environ) if studio_auth.needs_token(args.host) else None
+    # reachable from a network (or a tunnel): only the printed link (it carries a key) gets in
+    try:
+        token = studio_auth.make_token(os.environ) if studio_auth.needs_token(args.host) else None
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     Handler.studio_token = token
+    if token:
+        studio_auth.save_token(token)       # tools on this machine (MCP, plan runner) read it here
+    else:
+        studio_auth.forget_token()          # a key left from an earlier, keyed run
     if plan is not None and token:
         plan = launch_plan(os.environ, args.port, token)
 
     url = f"http://{args.host}:{args.port}/viewer/studio.html"
     print(studio_auth.link_with_token(url, token) if token else url, flush=True)
+    if token and os.environ.get("I3D_ALLOWED_HOSTS"):
+        print(f"Through your tunnel, open its address with ?token={token} at the end. Keep it private.", flush=True)
 
     # A prior server life may have died mid-generation (crash, closed terminal) without
     # ever recording how that job ended, and its detached child can still be running with
@@ -125,6 +135,7 @@ def main() -> int:
     # process outright, mid-job, with no chance to clean up), so both signals get one here.
     def _handle_shutdown_signal(signum, frame):
         _terminate_active_job()
+        studio_auth.forget_token()
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, _handle_shutdown_signal)

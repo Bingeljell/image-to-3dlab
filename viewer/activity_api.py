@@ -392,16 +392,17 @@ def read_history(output: Path, limit: int = 200) -> list[dict[str, Any]]:
     return records
 
 
-def local_request(base: str) -> Request:
+def local_request(base: str, token: str | None = None) -> Request:
     """Calls this same server, as the browser would, with the studio's request header (the
-    server refuses writes without one). Long-running jobs answer their start at once."""
+    server refuses writes without one) and its key when it has one (studio_auth). Long-running
+    jobs answer their start at once."""
     import urllib.error
     import urllib.request
 
     def request(method: str, path: str, body: bytes | None, content_type: str | None,
                 headers: dict[str, str] | None = None):
-        req = urllib.request.Request(base + path, data=body, method=method,
-                                     headers={"X-AssetFurnace-Request": "plan", **(headers or {})})
+        sent = {"X-AssetFurnace-Request": "plan", **({"Authorization": f"Bearer {token}"} if token else {})}
+        req = urllib.request.Request(base + path, data=body, method=method, headers={**sent, **(headers or {})})
         if content_type:
             req.add_header("Content-Type", content_type)
         try:

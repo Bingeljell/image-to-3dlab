@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
-- A studio reachable from a network (a RunPod pod, `--host`) now needs its key: it prints a private link,
-  and only that link gets in. On your own machine nothing changes. Hidden files such as `.env` are never served.
+- A studio reachable from a network (a RunPod pod, `--host`, or a tunnel set up with `I3D_ALLOWED_HOSTS`)
+  now needs its key: it prints a private link, and only that link gets in. On your own machine nothing
+  changes. Tools on the same machine read the key from `output/.studio-token`. Hidden files such as `.env`
+  are never served.
 
 ### Fixed
 - **The Discord link works again for good.** The old invite was set to expire; the README, the studio

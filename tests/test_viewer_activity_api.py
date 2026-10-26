@@ -342,7 +342,7 @@ def test_a_plan_with_finish_is_refused_up_front_when_blender_is_missing(tmp_path
     def post(steps):
         body, ctype = aa.multipart({"title": "knight", "steps": json.dumps(steps)}, {})
         request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/api/chains", data=body,
-                                         headers={"Content-Type": ctype})
+                                         headers={"Content-Type": ctype, "X-AssetFurnace-Request": "studio"})
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read())

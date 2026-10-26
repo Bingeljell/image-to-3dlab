@@ -729,3 +729,42 @@ def test_a_failed_hero_run_leads_with_its_own_reason():
              "[hero] cannot start, not installed: Hero face upscaler (Real-ESRGAN, 67 MB). Install them from the Setup page."]
     assert finish.failure_message(lines, 2).startswith("cannot start, not installed: Hero face upscaler")
     assert finish.failure_message(["Traceback ...", "boom"], 1) == "worker exited with code 1"
+
+
+def test_done_is_said_only_after_the_done_event_names_the_file(tmp_path, monkeypatch):
+    """A plan polls the status and reads the last event: "done" before the event lost the file.
+    Same race that lost a rig mid-plan on 2026-10-25 (see test_autorig_api)."""
+    import finish_api
+
+    job = finish_api.FinishJob("0" * 32, tmp_path / "out" / "fox__finish__20261025-010101")
+    job.settings = {**job.settings, "hero": True}
+
+    class Worker:
+        pid = 1
+        returncode = 0
+        stdout = iter(["[hero] done\n"])
+
+        def __init__(self, *args, **kwargs):
+            job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+            job.result_glb.write_bytes(b"glb")
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(finish_api, "hero_command", lambda job, settings: ["worker"])
+    monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
+    seen = []
+    real_emit = job.emit
+
+    def emit(event):
+        if event.get("phase") == "done":
+            seen.append(job.status)
+        real_emit(event)
+
+    job.emit = emit
+    finish_api.run_job(job, finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out"))
+    assert seen and "done" not in seen
+    assert job.status == "done" and job.events[-1]["phase"] == "done"

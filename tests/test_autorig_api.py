@@ -120,6 +120,30 @@ def test_a_finished_job_writes_its_provenance(tmp_path):
     assert "hello" in job.log_path.read_text()
 
 
+def test_done_is_said_only_after_the_done_event_names_the_file(tmp_path, monkeypatch):
+    """A plan polls the status and reads the last event: if "done" came first (the fit check takes
+    seconds), the plan saw no file and skipped the move. Lost a robot's rig on 2026-10-25."""
+    job = _fake_job(tmp_path, "open(r'{out}', 'wb').write(b'glb')")
+    seen = []
+
+    def slow_fit(path):
+        seen.append(job.status)          # what a poll would see while the fit check runs
+        return {}
+
+    monkeypatch.setattr(aa, "rig_fit", slow_fit)
+    real_emit = job.emit
+
+    def emit(event):
+        if event.get("phase") == "done":
+            seen.append(job.status)      # what a poll would see as the path arrives
+        real_emit(event)
+
+    job.emit = emit
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert seen and "done" not in seen
+    assert job.status == "done" and job.events[-1]["phase"] == "done"
+
+
 def test_a_job_that_writes_nothing_is_an_error_with_its_log(tmp_path):
     job = _fake_job(tmp_path, "import sys; print('boom'); sys.exit(3)")
     aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))

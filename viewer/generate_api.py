@@ -41,6 +41,7 @@ import model_info_api
 import preview_api
 import request_utils
 import skins_api
+import studio_auth
 import usage_api
 from activity_api import ChainRunner, chain_from_form, read_history
 from assets_api import assets_payload, list_assets
@@ -2490,6 +2491,9 @@ class Handler(SimpleHTTPRequestHandler):
     def _path_parts(self) -> list[str]:
         return [unquote(p) for p in urlparse(self.path).path.split("/") if p]
 
+    # the key a studio reachable from a network needs (studio_auth); None on 127.0.0.1. Set by serve.py.
+    studio_token: ClassVar[str | None] = None
+
     # one runner per server: it calls this server's own job endpoints, so a plan keeps going
     # after the browser tab that started it is closed
     _chain_runner: ClassVar[ChainRunner | None] = None
@@ -2520,7 +2524,25 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json(status, {"error": message})
 
     def _allowed(self, *, mutation: bool) -> bool:
-        """The studio page's own requests and local tools only (request_utils.check_request)."""
+        """The studio page's own requests and local tools only (request_utils.check_request),
+        with the studio's key when it is reachable from a network (studio_auth)."""
+        verdict = studio_auth.check(token=type(self).studio_token, client_address=self.client_address[0],
+                                    path=self.path, headers=self.headers)
+        if not verdict.ok:
+            self._refuse(401, "This studio needs its key: open the link it printed when it started "
+                              "(the one ending in ?token=...).")
+            return False
+        if verdict.redirect:
+            # the key came in the address: keep it in a cookie and drop it from the address bar
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("Location", verdict.redirect)
+            self.send_header("Set-Cookie", verdict.set_cookie)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return False
+        if studio_auth.hidden_path(self.path):
+            self._refuse(404, "Not found")
+            return False
         try:
             request_utils.check_request(self, mutation=mutation)
         except PermissionError as exc:

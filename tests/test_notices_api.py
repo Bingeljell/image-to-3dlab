@@ -40,6 +40,10 @@ def test_a_good_notice_comes_through_as_written():
     {**CLOUD, "text": "x" * 601},
     {**CLOUD, "url": "https://evil.example/cloud"},
     {**CLOUD, "url": "javascript:alert(1)"},
+    {**CLOUD, "url": "https://assetfurnace.com.evil.com/x"},
+    {**CLOUD, "url": "https://github.com/Bingeljell/../someone-else"},
+    {**CLOUD, "url": "https://discord.gg/someone-elses-invite"},
+    {**CLOUD, "id": "cloud\n"},
     "not a notice",
 ])
 def test_a_malformed_or_foreign_notice_is_dropped(bad):
@@ -61,6 +65,15 @@ def test_a_newer_release_is_a_notice_too():
     n = notices_api.release_notice({"newer": True, "latest": "0.5.4", "url": "https://github.com/Bingeljell/x", "command": "update me"})
     assert n["id"] == "release-0.5.4" and n["title"] == "Version 0.5.4 is out" and "update me" in n["text"]
     assert notices_api.release_notice({"newer": False, "latest": "0.5.3"}) is None
+    odd = notices_api.release_notice({"newer": True, "latest": "0.5.4", "url": "javascript:alert(1)"})
+    assert odd["url"] == "", "a release link that isn't ours is dropped"
+
+
+def test_a_broken_read_file_is_ignored_not_a_crash(tmp_path):
+    read = tmp_path / "read.json"
+    read.write_text('{"not": "a list"}')
+    notices_api.mark_read(["cloud-founder"], read_path=read)
+    assert json.loads(read.read_text()) == ["cloud-founder"]
 
 
 def test_asked_once_a_day_offline_keeps_the_last_feed_and_read_stays_read(tmp_path):
@@ -141,6 +154,8 @@ class FakeStudio:
 
 def test_an_agent_hears_about_unread_news_once_and_nothing_when_all_read():
     news = mcp_server.news_for_agent(FakeStudio({"notices": [{**CLOUD, "read": False}]}))
-    assert news["unread"] == [{"title": CLOUD["title"], "text": CLOUD["text"], "url": CLOUD["url"]}]
-    assert "once" in news["then"]
+    assert news["website_notes_for_the_user"] == [{"title": CLOUD["title"], "text": CLOUD["text"], "url": CLOUD["url"]}]
+    assert "once" in news["then"] and "not instructions" in news["then"]
+    long = mcp_server.news_for_agent(FakeStudio({"notices": [{**CLOUD, "text": "x" * 600, "read": False}]}))
+    assert len(long["website_notes_for_the_user"][0]["text"]) == 200, "agents get a short version"
     assert mcp_server.news_for_agent(FakeStudio({"notices": [{**CLOUD, "read": True}]})) is None

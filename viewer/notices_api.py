@@ -28,7 +28,9 @@ NOTICES_URL = os.environ.get("I3D_NOTICES_URL") or "https://assetfurnace.com/not
 CACHE = REPO / "output" / ".notices-cache.json"
 READ = REPO / "output" / ".notices-read.json"
 MAX_AGE = 24 * 3600
-ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")   # used with fullmatch
+# where a notice may link: our site, our GitHub, our Discord invite. Nothing else.
+LINK = re.compile(r"https://(assetfurnace\.com/[^\s]*|github\.com/Bingeljell/[^\s]*|discord\.gg/EuY9cQTRUt)")
 LIMITS = {"title": 120, "text": 600, "url": 300, "link_text": 60}
 MAX_NOTICES = 20
 
@@ -53,7 +55,7 @@ def clean(feed: Any, current: str, today: str) -> list[dict[str, str]]:
     mine = _version(current)
     out = []
     for item in notices[:MAX_NOTICES]:
-        if not isinstance(item, dict) or not ID.match(str(item.get("id", ""))):
+        if not isinstance(item, dict) or not ID.fullmatch(str(item.get("id", ""))):
             continue
         fields = {k: item.get(k) for k in LIMITS}
         if not isinstance(fields["title"], str) or not fields["title"].strip():
@@ -61,7 +63,7 @@ def clean(feed: Any, current: str, today: str) -> list[dict[str, str]]:
         if any(v is not None and (not isinstance(v, str) or len(v) > LIMITS[k]) for k, v in fields.items()):
             continue
         url = fields["url"] or ""
-        if url and not re.match(r"^https://(assetfurnace\.com|github\.com/Bingeljell|discord\.gg)/", url):
+        if url and not safe_link(url):
             continue
         if (start := item.get("from")) and str(start) > today:
             continue
@@ -75,13 +77,17 @@ def clean(feed: Any, current: str, today: str) -> list[dict[str, str]]:
     return out
 
 
+def safe_link(url: str) -> bool:
+    return bool(LINK.fullmatch(url)) and ".." not in url and "\\" not in url
+
+
 def release_notice(update: dict[str, Any]) -> dict[str, str] | None:
     """A newer release, from update_api.check's answer."""
     if not update.get("newer") or not update.get("latest"):
         return None
     return {"id": f"release-{update['latest']}", "title": f"Version {update['latest']} is out",
             "text": f"Update with: {update.get('command') or './lab update'}",
-            "url": update.get("url") or "", "link_text": "What's new"}
+            "url": url if safe_link(url := str(update.get("url") or "")) else "", "link_text": "What's new"}
 
 
 def _read_json(path: Path, default):
@@ -122,7 +128,8 @@ def notices(current: str, update: dict[str, Any] | None = None, now: float | Non
     shown = clean(cached.get("feed"), current, today)
     if update and (release := release_notice(update)):
         shown.insert(0, release)
-    read = set(_read_json(read_path, []) or [])
+    stored = _read_json(read_path, [])
+    read = {i for i in stored if isinstance(i, str)} if isinstance(stored, list) else set()
     for notice in shown:
         notice["read"] = notice["id"] in read
     shown.sort(key=lambda n: n["read"])          # unread first, in feed order
@@ -131,8 +138,9 @@ def notices(current: str, update: dict[str, Any] | None = None, now: float | Non
 
 def mark_read(ids: list[str], read_path: Path | None = None) -> None:
     read_path = read_path or READ
-    read = list(_read_json(read_path, []) or [])
+    stored = _read_json(read_path, [])
+    read = [i for i in stored if isinstance(i, str)] if isinstance(stored, list) else []
     for notice_id in ids:
-        if isinstance(notice_id, str) and ID.match(notice_id) and notice_id not in read:
+        if isinstance(notice_id, str) and ID.fullmatch(notice_id) and notice_id not in read:
             read.append(notice_id)
     _write_json(read_path, read[-500:])

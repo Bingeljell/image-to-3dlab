@@ -5,9 +5,9 @@
     python viewer/serve.py --auto               # what ./lab runs: picks how to listen, opens the browser
     python viewer/serve.py --host 100.x.y.z      # explicit Tailscale/LAN interface
 
-Bound to 127.0.0.1 by default. An explicit --host exposes the whole repository, including
-`output/`, on that interface; use a private interface protected by appropriate ACLs. Such a
-server relies on that network being trusted: it is not protected against DNS rebinding.
+Bound to 127.0.0.1 by default, with no key. Listening anywhere else (--host, a RunPod pod) it
+makes a random key and prints a link carrying it (studio_auth.py): only that link gets in.
+Set I3D_STUDIO_TOKEN to keep the same key across restarts. Dotfiles are never served.
 Behind a proxy that keeps 127.0.0.1 (tailscale serve, cloudflared, ngrok, VS Code port
 forwarding), list the proxy's host names in I3D_ALLOWED_HOSTS, e.g.
 I3D_ALLOWED_HOSTS=box.tail1234.ts.net (see request_utils.py).
@@ -33,6 +33,7 @@ from typing import NamedTuple
 # and when loaded by the test suite via importlib (script dir not on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import studio_auth
 import usage_api
 from generate_api import (
     OUTPUT_ROOT,
@@ -66,7 +67,7 @@ class LaunchPlan(NamedTuple):
     message: str
 
 
-def launch_plan(env: Mapping[str, str], port: int = 8777) -> LaunchPlan:
+def launch_plan(env: Mapping[str, str], port: int = 8777, token: str | None = None) -> LaunchPlan:
     """How `./lab` (serve.py --auto) should listen, for a new user who just ran the installer.
 
     On their own machine: privately, and open the browser. On a RunPod pod: on all
@@ -77,9 +78,11 @@ def launch_plan(env: Mapping[str, str], port: int = 8777) -> LaunchPlan:
     local = f"http://127.0.0.1:{port}/viewer/studio.html"
     pod = env.get("RUNPOD_POD_ID")
     if pod:
+        link = f"https://{pod}-{port}.proxy.runpod.net/viewer/studio.html"
         return LaunchPlan("0.0.0.0", False, (
-            f"Open https://{pod}-{port}.proxy.runpod.net/viewer/studio.html\n"
-            f"(the pod needs HTTP port {port} exposed; add it in the pod's settings if not)"))
+            f"Open {studio_auth.link_with_token(link, token) if token else link}\n"
+            f"(the pod needs HTTP port {port} exposed; add it in the pod's settings if not)\n"
+            f"Keep this link private: it is the key to this studio."))
     if env.get("SSH_CONNECTION") or env.get("SSH_CLIENT"):
         return LaunchPlan("127.0.0.1", False, (
             f"This is a remote machine. On your own computer, run\n"
@@ -99,9 +102,14 @@ def main() -> int:
     plan = launch_plan(os.environ, args.port) if args.auto else None
     if plan is not None:
         args.host = plan.host
+    # reachable from a network: only the printed link (it carries a key) gets in
+    token = studio_auth.make_token(os.environ) if studio_auth.needs_token(args.host) else None
+    Handler.studio_token = token
+    if plan is not None and token:
+        plan = launch_plan(os.environ, args.port, token)
 
     url = f"http://{args.host}:{args.port}/viewer/studio.html"
-    print(url, flush=True)
+    print(studio_auth.link_with_token(url, token) if token else url, flush=True)
 
     # A prior server life may have died mid-generation (crash, closed terminal) without
     # ever recording how that job ended, and its detached child can still be running with

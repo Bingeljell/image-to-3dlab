@@ -146,6 +146,13 @@ def ray_distance(dimensions, fraction: float = 0.005) -> float:
 
 
 UV_ROUNDS = 3
+# Blender versions whose uv.select_overlap crashes: 5.2.0 (fixed in 5.2.1; tested on macOS)
+SELECT_OVERLAP_CRASHES = {(5, 2, 0)}
+
+
+def unwrap_crashes(version) -> bool:
+    """Whether this Blender crashes in the unwrap's overlap check, so the Finish projects only."""
+    return tuple(version[:3]) in SELECT_OVERLAP_CRASHES
 
 
 def overlap_selection(bm) -> tuple[int, int]:
@@ -216,6 +223,15 @@ def unwrap_islands(bpy, mesh, angle_limit: float, rounds: int = UV_ROUNDS, margi
     finally:
         settings.use_uv_select_sync = synced
         settings.mesh_select_mode = mode
+
+
+def unwrap_finish(bpy, mesh, angle_limit: float) -> int | None:
+    """unwrap_islands, or on a Blender whose overlap check crashes Smart UV Project alone, as
+    before the unwrap (some islands then fold onto themselves): None, as nothing was checked."""
+    if unwrap_crashes(bpy.app.version):
+        bpy.ops.uv.smart_project(angle_limit=angle_limit, island_margin=0.0002)
+        return None
+    return unwrap_islands(bpy, mesh, angle_limit)
 
 
 def main() -> int:
@@ -341,8 +357,12 @@ def main() -> int:
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    left = unwrap_islands(bpy, retopo.data, angle_limit)
-    print(f"RETOPO:: uv faces still overlapping={left:,}")
+    left = unwrap_finish(bpy, retopo.data, angle_limit)
+    if left is None:
+        print(f"RETOPO:: Blender {bpy.app.version_string} crashes checking UV overlap; "
+              "Smart UV Project only (update to 5.2.1 or later)")
+    else:
+        print(f"RETOPO:: uv faces still overlapping={left:,}")
     bpy.ops.object.mode_set(mode="OBJECT")
 
     # --- emission material on the ORIGINAL, so the bake reads its albedo --------------

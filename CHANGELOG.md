@@ -30,7 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   themselves (about 10% of the UV area on two real models); the retopology is now unwrapped
   so almost nothing overlaps (under 0.1%). Islands are now packed 0.002 apart instead of
   0.0002: there are about twice as many, and a gap near zero lets neighbours share texels at
-  their edges.
+  their edges. On Blender 5.2.0, whose overlap check crashes (fixed in 5.2.1), Finish keeps the
+  old projection.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

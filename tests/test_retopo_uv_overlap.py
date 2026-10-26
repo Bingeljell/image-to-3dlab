@@ -125,6 +125,39 @@ def test_the_select_mode_and_sync_are_given_back_even_when_an_operator_fails(mon
     assert settings.use_uv_select_sync is False and settings.mesh_select_mode == (True, False, False)
 
 
+@pytest.mark.parametrize("version", [(4, 2, 23), (5, 0, 1), (5, 1, 2), (5, 2, 1), (5, 2, 2), (5, 3, 0)])
+def test_the_unwrap_runs_on_the_blender_versions_it_passed_on(version):
+    assert _load().unwrap_crashes(version) is False
+
+
+def test_blender_5_2_0_falls_back_to_the_projection():
+    """5.2.0 crashes inside uv.select_overlap (fixed in 5.2.1); bpy.app.version is a 3-tuple."""
+    assert _load().unwrap_crashes((5, 2, 0)) is True
+    assert _load().unwrap_crashes([5, 2, 0, "extra"]) is True
+
+
+def _versioned_bpy(version, calls):
+    def record(name):
+        return lambda **kwargs: calls.append((name, kwargs))
+
+    uv = types.SimpleNamespace(smart_project=record("smart_project"), select_overlap=record("select_overlap"))
+    return types.SimpleNamespace(app=types.SimpleNamespace(version=version), ops=types.SimpleNamespace(uv=uv))
+
+
+def test_the_finish_only_projects_on_blender_5_2_0(monkeypatch):
+    rb, calls = _load(), []
+    monkeypatch.setattr(rb, "unwrap_islands", lambda *args: pytest.fail("unwrap ran on 5.2.0"))
+    assert rb.unwrap_finish(_versioned_bpy((5, 2, 0), calls), object(), 1.5) is None
+    assert calls == [("smart_project", {"angle_limit": 1.5, "island_margin": 0.0002})]
+
+
+def test_the_finish_unwraps_on_blender_5_2_1(monkeypatch):
+    rb, calls = _load(), []
+    monkeypatch.setattr(rb, "unwrap_islands", lambda bpy, mesh, angle: 7)
+    assert rb.unwrap_finish(_versioned_bpy((5, 2, 1), calls), object(), 1.5) == 7
+    assert calls == []
+
+
 class _Face:
     def __init__(self, select=False, uv_select=None):
         self.select = select

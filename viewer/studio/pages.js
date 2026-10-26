@@ -120,7 +120,7 @@ export async function openAbout(stage) {
     <p>This is a young new project and will only survive when people like you use it, critique it, share feedback and most
       of all spread the word. So if you use this and like it, share it with a friend. If you have feedback, write up an issue
       on <a href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">GitHub</a>, we’re on
-      <a href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>, or you can tag me in a post on
+      <a href="https://discord.gg/EuY9cQTRUt" target="_blank" rel="noopener">Discord</a>, or you can tag me in a post on
       <a href="https://x.com/bingeljell" target="_blank" rel="noopener">X</a>. Most of all, we’d love contributions.</p>
     <p>The goal is to enable you to make game-ready 3D characters and props on your own machine: from an idea, a picture or a model, to a rigged,
       moving character you can drop into Godot, Unity, Unreal or Blender. Your pictures, prompts and models never leave this computer.</p>
@@ -159,7 +159,7 @@ export async function openAbout(stage) {
       <a class="ghost" href="https://assetfurnace.com" target="_blank" rel="noopener">assetfurnace.com</a>
       <a class="ghost" href="${FULL_GUIDE}" target="_blank" rel="noopener">Guide</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab" target="_blank" rel="noopener">GitHub</a>
-      <a class="ghost" href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">Discord</a>
+      <a class="ghost" href="https://discord.gg/EuY9cQTRUt" target="_blank" rel="noopener">Discord</a>
       <a class="ghost" href="https://github.com/Bingeljell/image-to-3dlab/issues" target="_blank" rel="noopener">Report a problem</a>
     </div>
     <p class="meta signoff" style="text-align:right;opacity:.55;margin-top:1.5em">✝︎ b'tzelem Elohim</p></div>`);
@@ -257,7 +257,7 @@ export async function openReport(stage, { chain = '', step = '' } = {}) {
       <button type="button" class="primary" data-send="site">Send via assetfurnace.com</button>
       <p class="meta">Opens our site. You sign in with your email first, so we can reply.</p>
       <div class="row"><button type="button" class="ghost" data-send="github">Open on GitHub</button><button type="button" class="ghost" data-send="copy">Copy report</button></div>
-      <p class="meta" data-note>GitHub needs an account. Or copy the report and paste it in <a href="https://discord.gg/3D4bcEhGx" target="_blank" rel="noopener">#bugs on our Discord</a>.</p>
+      <p class="meta" data-note>GitHub needs an account. Or copy the report and paste it in <a href="https://discord.gg/EuY9cQTRUt" target="_blank" rel="noopener">#bugs on our Discord</a>.</p>
     </div></div>`);
   const $ = (sel) => el.querySelector(sel);
   const load = async () => {

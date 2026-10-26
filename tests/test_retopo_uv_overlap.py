@@ -5,12 +5,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import types
 from pathlib import Path
-
-import re
 
 import numpy as np
 import pytest

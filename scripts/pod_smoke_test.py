@@ -312,7 +312,9 @@ class Viewer:
              content_type: str = "application/json", timeout: float = 120) -> tuple[int, bytes]:
         request = urllib.request.Request(self.base + path, data=body, method=method,
                                          headers={"Content-Type": content_type,
-                                                  "User-Agent": USER_AGENT})
+                                                  "User-Agent": USER_AGENT,
+                                                  # the studio refuses a write without it
+                                                  "X-AssetFurnace-Request": "pod-smoke-test"})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return response.status, response.read()

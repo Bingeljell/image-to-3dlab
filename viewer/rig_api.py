@@ -129,8 +129,12 @@ RIG_JOBS = RigJobManager()
 
 
 def build_command(job: RigJob, blender: Path) -> list[str]:
+    # The .blend is the user's upload: --disable-autoexec keeps its Python drivers and
+    # startup scripts from running whatever the user's Auto Run preference says, and
+    # --factory-startup leaves their add-ons out. Both before the file, as Blender applies
+    # arguments in order. Rigify's finalize script ignores autoexec, so the worker clears it.
     return [
-        str(blender), "--background", str(job.scene_path),
+        str(blender), "--background", "--factory-startup", "--disable-autoexec", str(job.scene_path),
         "--python-exit-code", "1", "--python", str(WORKER), "--",
         str(job.asset_path), str(job.sidecar_path), str(job.result_glb),
         str(job.result_blend), str(job.result_sidecar), str(job.report_path),

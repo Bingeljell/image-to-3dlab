@@ -39,6 +39,7 @@ import hf_api
 import image_api
 import model_info_api
 import preview_api
+import request_utils
 import skins_api
 import usage_api
 from activity_api import ChainRunner, chain_from_form, read_history
@@ -2505,10 +2506,38 @@ class Handler(SimpleHTTPRequestHandler):
         self._status_code = int(code)   # what note_request counts a POST by
         super().send_response(code, message)
 
+    def _refuse(self, status: int, message: str) -> None:
+        # read a small body first: closing on unread bytes resets the connection, and the
+        # caller would see a network error instead of the reason
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if 0 < length <= 1024 * 1024:
+            self.rfile.read(length)
+        else:
+            self.close_connection = True
+        self._send_json(status, {"error": message})
+
+    def _allowed(self, *, mutation: bool) -> bool:
+        """The studio page's own requests and local tools only (request_utils.check_request)."""
+        try:
+            request_utils.check_request(self, mutation=mutation)
+        except PermissionError as exc:
+            self._refuse(403, str(exc))
+            return False
+        return True
+
+    def do_HEAD(self) -> None:
+        if self._allowed(mutation=False):
+            super().do_HEAD()
+
     def do_POST(self) -> None:
         self._status_code = None
         try:
-            self._route_post()
+            # every POST changes something: weights, the HF token, jobs, names
+            if self._allowed(mutation=True):
+                self._route_post()
         finally:
             usage_api.note_request(self._path_parts(), self.headers.get(usage_api.CLIENT_HEADER),
                                    "POST", self._status_code)
@@ -3008,6 +3037,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def do_GET(self) -> None:
+        if not self._allowed(mutation=False):
+            return
         if self.headers.get(usage_api.CLIENT_HEADER):
             usage_api.note_request(self._path_parts(), self.headers.get(usage_api.CLIENT_HEADER), "GET", None)
         if urlparse(self.path).path in ("", "/", "/viewer", "/viewer/"):

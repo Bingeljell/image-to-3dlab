@@ -422,7 +422,8 @@ def test_the_endpoints_walk_a_skin_from_front_to_back(output, monkeypatch, tmp_p
 
     def call(url, body=None):
         request = urllib.request.Request(url, data=json.dumps(body).encode() if body is not None else None,
-                                         headers={"Content-Type": "application/json"})
+                                         headers={"Content-Type": "application/json",
+                                                  "X-AssetFurnace-Request": "studio"})
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.status, json.loads(response.read())

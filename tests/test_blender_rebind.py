@@ -69,3 +69,37 @@ def test_worker_resolves_persistent_ids_before_diagnostic_names():
     assert "expectedBoneName" in source
     assert 'weightStrategy": "voxel-proxy-transfer"' in source
     assert "transfer_weights(bpy, mesh, rig)" in source
+
+
+def test_rigify_never_runs_the_uploads_finalize_script():
+    """Rigify runs the metarig's finalize script after generating, whatever autoexec says."""
+    from types import SimpleNamespace
+
+    module = load_module()
+    armature = SimpleNamespace(rigify_finalize_script="Text: evil.py")
+    metarig = SimpleNamespace(data=armature, select_set=lambda value: None)
+    rig = SimpleNamespace(type="ARMATURE")
+    seen = []
+
+    def generate():
+        seen.append(armature.rigify_finalize_script)
+        armature.rigify_target_rig = rig
+
+    bpy = SimpleNamespace(
+        ops=SimpleNamespace(preferences=SimpleNamespace(addon_enable=lambda module: None),
+                            object=SimpleNamespace(select_all=lambda action: None),
+                            pose=SimpleNamespace(rigify_generate=generate)),
+        context=SimpleNamespace(view_layer=SimpleNamespace(objects=SimpleNamespace(active=None))),
+        data=SimpleNamespace(objects={}))
+    assert module.regenerate_rigify(bpy, metarig) is rig
+    assert seen == [None]
+
+
+def test_dropping_the_finalize_script_is_safe_without_one():
+    from types import SimpleNamespace
+
+    module = load_module()
+    module.drop_finalize_script(SimpleNamespace())   # Rigify not enabled: no such property
+    armature = SimpleNamespace(rigify_finalize_script=None)
+    module.drop_finalize_script(armature)
+    assert armature.rigify_finalize_script is None

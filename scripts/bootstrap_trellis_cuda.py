@@ -37,7 +37,6 @@ import argparse
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -326,7 +325,7 @@ def fetch_checkout(commit: str) -> None:
 
 
 def install_code(route: str, torch_tag: str | None) -> None:
-    uv = shutil.which("uv")
+    uv = host.find_uv()
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
     fetch_checkout(pinned_commit())

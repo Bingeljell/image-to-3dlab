@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Setup finds uv right after install.** In a shell that has not picked up `~/.local/bin`
+  yet (a fresh WSL one, say), setups stopped with "uv is required" although install.sh had
+  just put uv there (#168).
 - **A plan no longer skips the move after rigging.** Rig and Finish said "done" a moment before
   recording their file, so a plan could carry on without it (seen on a robot).
 

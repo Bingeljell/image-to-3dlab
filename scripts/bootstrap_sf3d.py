@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -108,7 +107,7 @@ def pip_install_command() -> list[str]:
     The one-line installer builds the environment with uv, and uv environments have no
     pip, so uv does the installing when it is there.
     """
-    uv = shutil.which("uv")
+    uv = host.find_uv()
     if uv and not has_pip():
         return [uv, "pip", "install", "--python", sys.executable]
     if has_pip():

@@ -17,6 +17,9 @@ NVIDIA PC, with the licence of every asset written down.</p>
 
 <p align="center"><sub>Formerly <i>Image to 3D Lab</i>. Same repo, new name.</sub></p>
 
+<p align="center"><b>No big GPU?</b> Make your own 3D characters in the cloud, 20¢ a pop:
+<a href="https://assetfurnace.com/cloud"><b>AssetFurnace Cloud</b></a>. The app stays free and open source.</p>
+
 ![Three source images above the textured 3D models generated from them: a photoreal warrior bust, a stylised garden gnome, and a multi-object shoe-house diorama](docs/images/one-image-in-textured-model-out.jpg)
 
 Type a sentence, drop a picture, or bring your own model. AssetFurnace makes the picture,
@@ -436,6 +439,13 @@ from the studio or by an agent. Never pictures, prompts or file names. The About
 the exact message. Untick the box there to stop and forget the id, or set `I3D_NO_USAGE=1`
 (or `DO_NOT_TRACK=1`). An agent using AssetFurnace asks you once and can pass on your
 yes, but only you can turn sharing on or off. Full details: [privacy policy](https://assetfurnace.com/privacy#usage-counts).
+
+## News
+
+The studio's **News** button shows short notes from us: a new version, AssetFurnace Cloud, a known
+problem and its fix. It looks at [assetfurnace.com/notices.json](https://assetfurnace.com/notices.json)
+at most once a day, sending nothing about you, and never pops up over your work. Turn it off with
+`I3D_NO_NOTICES=1`. Agents see unread news in the MCP's `status`.
 
 ## License
 

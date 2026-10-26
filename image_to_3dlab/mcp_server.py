@@ -50,6 +50,7 @@ STUDIO_ONLY = {
     "api/blender/install": "installs an app; the Setup page asks first",
     "api/gltfpack/install": "installs a tool; the Setup page asks first",
     "api/hf/sign-in": "takes the user's Hugging Face token; only they should paste it",
+    "api/notices/read": "marking news read is the person's own click in the studio; agents see it in status",
     "api/setup/run": "first-run setup is a guided page for a person",
     "api/setup/*/rebuild": "rebuilds a backend from source; Setup page only",
     "api/setup/*/remove": "deletes downloaded weights; the user's call",
@@ -468,7 +469,20 @@ def status(studio: Studio) -> dict[str, Any]:
         "running": run_summary(chains["running"], studio) if chains.get("running") else None,
         "needs_setup": catalog.get("needs_onboarding") or None,
         "usage_counts": usage_question(studio),
+        "news": news_for_agent(studio),
     }
+
+
+def news_for_agent(studio: Studio) -> dict[str, Any] | None:
+    """Unread notices from AssetFurnace (a new version, Cloud, a known problem), for the agent to pass on once."""
+    try:
+        answer = studio.get("api/notices")
+    except Exception:
+        return None
+    unread = [{k: n.get(k) for k in ("title", "text", "url")} for n in answer.get("notices", []) if not n.get("read")]
+    if not unread:
+        return None
+    return {"unread": unread, "then": "mention these to the user once, briefly; they can read them under News in the studio"}
 
 
 USAGE_ASK = ("AssetFurnace asks me to check with you: may it send anonymous usage counts, so they know how "

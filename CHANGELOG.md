@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **News in the studio.** A News button shows short notes from us: new versions, AssetFurnace Cloud,
+  known problems and fixes. It never pops up, and agents hear about unread news too.
+
 ### Security
 - A studio reachable from a network (a RunPod pod, `--host`) now needs its key: it prints a private link,
   and only that link gets in. On your own machine nothing changes. Hidden files such as `.env` are never served.

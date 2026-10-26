@@ -115,8 +115,16 @@ def apply_corrections(bpy, metarig, corrections: list[JointCorrection]) -> list[
     return applied
 
 
+def drop_finalize_script(armature) -> None:
+    """Rigify runs the metarig's finalize script after generating, autoexec or not. The
+    .blend is the user's upload, so its script must not run."""
+    if getattr(armature, "rigify_finalize_script", None) is not None:
+        armature.rigify_finalize_script = None
+
+
 def regenerate_rigify(bpy, metarig):
     bpy.ops.preferences.addon_enable(module="rigify")
+    drop_finalize_script(metarig.data)   # the property exists once Rigify is enabled
     bpy.ops.object.select_all(action="DESELECT")
     metarig.select_set(True)
     bpy.context.view_layer.objects.active = metarig

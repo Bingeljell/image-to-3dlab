@@ -75,8 +75,21 @@ Say "Setting up Python 3.11 and the viewer's packages (a few GB with an NVIDIA G
 & uv venv --quiet --allow-existing --python 3.11 (Join-Path $Dir ".venv")
 $Py = Join-Path $Dir ".venv\Scripts\python.exe"
 
+# The lock pins every package to versions tested together, as install.sh installs them;
+# requirements.txt only bounds them, so installing from it gave each install whatever
+# PyPI had that day. (It falls back to requirements.txt only in a checkout older than the lock.)
+$Reqs = Join-Path $Dir "requirements.lock"
+if (-not (Test-Path -LiteralPath $Reqs)) { $Reqs = Join-Path $Dir "requirements.txt" }
+# requirements.txt pins no torch, so then nothing matches and PyTorch stays unpinned, as before
+$TorchPin = Select-String -LiteralPath $Reqs -Pattern '^torch==([^ ;]+)' | Select-Object -First 1
+$VisionPin = Select-String -LiteralPath $Reqs -Pattern '^torchvision==([^ ;]+)' | Select-Object -First 1
+$TorchVersion = if ($TorchPin) { $TorchPin.Matches[0].Groups[1].Value } else { $null }
+$VisionVersion = if ($VisionPin) { $VisionPin.Matches[0].Groups[1].Value } else { $null }
+$Pinned = [bool]($TorchVersion -and $VisionVersion)
+
 # PyPI only has CPU-only PyTorch for Windows, so on an NVIDIA machine install the CUDA
-# build from PyTorch's own index first; requirements.txt then finds torch already there.
+# build from PyTorch's own index first, at the lock's versions: the lock then finds torch
+# already there (2.x+cu1yy satisfies ==2.x) instead of replacing it with the CPU wheel.
 # image_to_3dlab.host picks the build that matches the driver (tested in tests/test_host.py).
 # An update also replaces a CPU-only torch left by an older installer.
 if ($HasGpu) {
@@ -87,12 +100,31 @@ if ($HasGpu) {
     Pop-Location
     if (-not $TorchIndex) {
         Say "Your NVIDIA driver is too old for PyTorch's CUDA builds (they need CUDA 12.8 or newer). Update the driver, then run this again. Until then PyTorch will use the CPU."
-    } elseif (-not $TorchHasCuda) {
-        Say "Installing PyTorch with CUDA from $TorchIndex"
-        & uv pip install --quiet --python $Py --reinstall-package torch --reinstall-package torchvision --index-url $TorchIndex torch torchvision
+    } else {
+        $PinFailed = $false
+        if ($Pinned) {
+            $Torch = @("torch==$TorchVersion", "torchvision==$VisionVersion")
+            if (-not $TorchHasCuda) {
+                Say "Installing PyTorch with CUDA from $TorchIndex"
+                & uv pip install --quiet --python $Py --reinstall-package torch --reinstall-package torchvision --index-url $TorchIndex @Torch
+            } else {
+                # the locked version, if this install has another one
+                & uv pip install --quiet --python $Py --index-url $TorchIndex @Torch
+            }
+            $PinFailed = ($LASTEXITCODE -ne 0)
+            if ($PinFailed) {
+                # the lock would now swap PyTorch for the CPU wheel, so do as before the lock
+                Say "Warning: PyTorch ($($Torch -join ', ')) with CUDA could not be installed from $TorchIndex. Using its newest CUDA build and requirements.txt instead of the lock."
+                $Reqs = Join-Path $Dir "requirements.txt"
+            }
+        }
+        if ((-not $Pinned -or $PinFailed) -and -not $TorchHasCuda) {
+            Say "Installing PyTorch with CUDA from $TorchIndex"
+            & uv pip install --quiet --python $Py --reinstall-package torch --reinstall-package torchvision --index-url $TorchIndex torch torchvision
+        }
     }
 }
-& uv pip install --quiet --python $Py -r (Join-Path $Dir "requirements.txt")
+& uv pip install --quiet --python $Py -r $Reqs
 
 # 5. Blender: Finish needs it, and it is the user's to install. Same finder Finish uses.
 if (Test-Path $Py) {

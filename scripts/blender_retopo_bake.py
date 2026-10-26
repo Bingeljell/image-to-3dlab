@@ -145,6 +145,95 @@ def ray_distance(dimensions, fraction: float = 0.005) -> float:
     return max(dimensions) * fraction
 
 
+UV_ROUNDS = 3
+# Blender versions whose uv.select_overlap crashes: 5.2.0 (fixed in 5.2.1; tested on macOS)
+SELECT_OVERLAP_CRASHES = {(5, 2, 0)}
+
+
+def unwrap_crashes(version) -> bool:
+    """Whether this Blender crashes in the unwrap's overlap check, so the Finish projects only."""
+    return tuple(version[:3]) in SELECT_OVERLAP_CRASHES
+
+
+def overlap_selection(bm) -> tuple[int, int]:
+    """The faces uv.select_overlap picked, as mesh faces: (picked, newly selected on the mesh).
+
+    With UV sync select on, Blender 4.x marks the mesh faces. Blender 5.0 can keep a UV
+    selection of its own (BMFace.uv_select, in use while bm.uv_select_sync_valid), so a face
+    picked only there is selected on the mesh too, since the next operators work on that. A
+    fallback: this was not run on 5.0."""
+    uv_selection = bool(getattr(bm, "uv_select_sync_valid", False))
+    picked = [face for face in bm.faces if face.select or (uv_selection and getattr(face, "uv_select", False))]
+    added = 0
+    for face in picked:
+        if not face.select:
+            face.select_set(True)
+            added += 1
+    return len(picked), added
+
+
+def unwrap_islands(bpy, mesh, angle_limit: float, rounds: int = UV_ROUNDS, margin: float = 0.002) -> int:
+    """UVs with no island folded onto itself or another; returns the faces still overlapping.
+
+    Smart UV Project at a wide angle gives large islands but projects each onto one plane, so
+    where the surface turns within an island its faces land on each other and the bake paints
+    those texels twice (10% and 11% of two real models' UV area). Its islands are kept as
+    seams and unwrapped conformally, then the faces that still overlap are cut along islands
+    of half the angle and unwrapped again, a few rounds, and any still left become islands of
+    their own: 0.06% and 0.08% on the same models, with about twice the islands. The unwrap
+    packs them `margin` apart: 0.002, ten times the projection's 0.0002, since with twice the
+    islands a near-zero gap lets neighbours share texels at their edges. Call in edit mode
+    with every face selected; the select mode is given back.
+    """
+    import bmesh
+
+    settings = bpy.context.scene.tool_settings
+    synced, mode = settings.use_uv_select_sync, tuple(settings.mesh_select_mode)
+    settings.use_uv_select_sync = True   # UV operators then select mesh faces
+    settings.mesh_select_mode = (False, False, True)   # whole faces: a vertex mode would grow the selection
+    try:
+        bpy.ops.uv.smart_project(angle_limit=angle_limit, island_margin=0.0002)
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.seams_from_islands()
+        bpy.ops.uv.unwrap(method="CONFORMAL", margin=margin)
+
+        def overlapping() -> int:
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.uv.select_overlap()
+            count, added = overlap_selection(bmesh.from_edit_mesh(mesh))
+            if added:
+                bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+            return count
+
+        for _ in range(rounds):
+            if not overlapping():
+                break
+            bpy.ops.uv.smart_project(angle_limit=angle_limit / 2, island_margin=0.0002)
+            bpy.ops.uv.seams_from_islands()
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.uv.unwrap(method="CONFORMAL", margin=margin)
+        if overlapping():
+            # the last few (5 to 11 faces on the real models): each an island of its own
+            bpy.ops.mesh.mark_seam(clear=False)
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.uv.unwrap(method="CONFORMAL", margin=margin)
+        left = overlapping()
+        bpy.ops.mesh.select_all(action="SELECT")
+        return left
+    finally:
+        settings.use_uv_select_sync = synced
+        settings.mesh_select_mode = mode
+
+
+def unwrap_finish(bpy, mesh, angle_limit: float) -> int | None:
+    """unwrap_islands, or on a Blender whose overlap check crashes Smart UV Project alone, as
+    before the unwrap (some islands then fold onto themselves): None, as nothing was checked."""
+    if unwrap_crashes(bpy.app.version):
+        bpy.ops.uv.smart_project(angle_limit=angle_limit, island_margin=0.0002)
+        return None
+    return unwrap_islands(bpy, mesh, angle_limit)
+
+
 def main() -> int:
     import bpy
 
@@ -268,7 +357,12 @@ def main() -> int:
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=angle_limit, island_margin=0.0002)
+    left = unwrap_finish(bpy, retopo.data, angle_limit)
+    if left is None:
+        print(f"RETOPO:: Blender {bpy.app.version_string} crashes checking UV overlap; "
+              "Smart UV Project only (update to 5.2.1 or later)")
+    else:
+        print(f"RETOPO:: uv faces still overlapping={left:,}")
     bpy.ops.object.mode_set(mode="OBJECT")
 
     # --- emission material on the ORIGINAL, so the bake reads its albedo --------------

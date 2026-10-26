@@ -507,7 +507,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             record = provenance(job.prompt, job.settings, elapsed, job.output_path)
             if job.reference:
                 record["reference"] = {"picture": job.reference.name, "mode": job.mode}
-            sidecar.write_text(json.dumps(record, indent=2))
+            sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))
             usage_api.count_done("picture")

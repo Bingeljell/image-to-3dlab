@@ -69,7 +69,7 @@ def summarise(path: Path) -> str:
     parenthetical — those carry the rationale, which belongs in the file, not in a
     table cell.
     """
-    doc = ast.get_docstring(ast.parse(path.read_text())) or ""
+    doc = ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))) or ""
     if not doc.strip():
         raise ValueError(f"{path.name} has no module docstring")
     flat = " ".join(doc.strip().split("\n\n")[0].split())
@@ -107,7 +107,7 @@ def present_scripts() -> set[str]:
 
 def registry_entries() -> dict[str, str]:
     """Script name to summary, as the registry table rows spell them."""
-    rows = re.findall(r"^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|$", REGISTRY.read_text(), re.MULTILINE)
+    rows = re.findall(r"^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|$", REGISTRY.read_text(encoding="utf-8"), re.MULTILINE)
     return dict(rows)
 
 
@@ -128,7 +128,7 @@ def test_the_registry_lists_nothing_that_was_deleted():
 
 
 def test_no_script_is_listed_twice():
-    names = re.findall(r"^\|\s*`([^`]+)`\s*\|", REGISTRY.read_text(), re.MULTILINE)
+    names = re.findall(r"^\|\s*`([^`]+)`\s*\|", REGISTRY.read_text(encoding="utf-8"), re.MULTILINE)
     duplicated = sorted({n for n in names if names.count(n) > 1})
     assert not duplicated, f"listed under more than one heading: {duplicated}"
 
@@ -163,30 +163,30 @@ def test_summaries_stay_short_enough_to_scan():
 
 def test_summarise_trims_the_rationale_from_a_first_sentence(tmp_path):
     sample = tmp_path / "sample.py"
-    sample.write_text('"""Do the thing -- which matters because of a long reason.\n\nBody.\n"""\n')
+    sample.write_text('"""Do the thing -- which matters because of a long reason.\n\nBody.\n"""\n', encoding="utf-8")
     assert summarise(sample) == "Do the thing."
 
 
 def test_summarise_drops_a_trailing_parenthetical(tmp_path):
     sample = tmp_path / "sample.py"
-    sample.write_text('"""Render a sequence at the locked angle (see docs/bake-spec.md)."""\n')
+    sample.write_text('"""Render a sequence at the locked angle (see docs/bake-spec.md)."""\n', encoding="utf-8")
     assert summarise(sample) == "Render a sequence at the locked angle."
 
 
 def test_summarise_joins_a_wrapped_first_sentence(tmp_path):
     sample = tmp_path / "sample.py"
-    sample.write_text('"""Append a rigged character into the currently\nlive scene, positioned."""\n')
+    sample.write_text('"""Append a rigged character into the currently\nlive scene, positioned."""\n', encoding="utf-8")
     assert summarise(sample) == "Append a rigged character into the currently live scene, positioned."
 
 
 def test_summarise_converts_rest_literals_to_markdown_code(tmp_path):
     sample = tmp_path / "sample.py"
-    sample.write_text('"""Generate through the ``trellis-space-mac`` port."""\n')
+    sample.write_text('"""Generate through the ``trellis-space-mac`` port."""\n', encoding="utf-8")
     assert summarise(sample) == "Generate through the `trellis-space-mac` port."
 
 
 def test_summarise_rejects_a_script_with_no_docstring(tmp_path):
     sample = tmp_path / "sample.py"
-    sample.write_text("import os\n")
+    sample.write_text("import os\n", encoding="utf-8")
     with pytest.raises(ValueError, match="no module docstring"):
         summarise(sample)

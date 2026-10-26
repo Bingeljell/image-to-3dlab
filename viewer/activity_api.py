@@ -369,7 +369,7 @@ def _percent(event: dict[str, Any]) -> float | None:
 def append_history(output: Path, record: dict[str, Any]) -> None:
     try:
         output.mkdir(parents=True, exist_ok=True)
-        with (output / HISTORY_NAME).open("a") as handle:
+        with (output / HISTORY_NAME).open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
     except OSError:
         pass  # a history that cannot be written must never stop a run
@@ -378,7 +378,7 @@ def append_history(output: Path, record: dict[str, Any]) -> None:
 def read_history(output: Path, limit: int = 200) -> list[dict[str, Any]]:
     """Newest first. A damaged line is skipped, not fatal."""
     try:
-        lines = (output / HISTORY_NAME).read_text().splitlines()
+        lines = (output / HISTORY_NAME).read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
     records = []

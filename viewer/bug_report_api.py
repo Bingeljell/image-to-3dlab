@@ -60,7 +60,8 @@ def _chip(system: str) -> str:
     if not command:
         return ""
     try:
-        out = subprocess.run(command, capture_output=True, text=True, timeout=5, check=False).stdout
+        out = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=5, check=False).stdout
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return out.strip().splitlines()[0] if out.strip() else ""

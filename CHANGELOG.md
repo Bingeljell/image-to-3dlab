@@ -15,6 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   just put uv there (#168).
 - **A plan no longer skips the move after rigging.** Rig and Finish said "done" a moment before
   recording their file, so a plan could carry on without it (seen on a robot).
+- **The studio reads and writes its text files as UTF-8 on every computer.** On Windows
+  Python defaults to cp1252, so non-ASCII text such as an em dash or a middle dot read from
+  `prompt_recipes.json` and similar files came out garbled.
+- **The studio's jobs talk UTF-8 on Windows.** A Chinese prompt or a name outside cp1252 no
+  longer breaks a job or the studio reading its progress.
+- **On Windows the studio's helpers stop when the studio does,** even when it is ended
+  from Task Manager: sd-cli and the other workers no longer keep running and holding GPU
+  memory. Background jobs the studio tracks still outlive it, as before.
+- **The Windows installer installs the tested package versions** from `requirements.lock`,
+  as `install.sh` does, with CUDA PyTorch at the lock's versions. It used
+  `requirements.txt`, so each install got whatever PyPI had that day. If that PyTorch build
+  cannot be installed, it warns and installs as before: the newest CUDA PyTorch and
+  `requirements.txt`.
+- **Finish no longer paints texels twice.** Its wide-angle UV projection folded islands onto
+  themselves (about 10% of the UV area on two real models); the retopology is now unwrapped
+  so almost nothing overlaps (under 0.1%). Islands are now packed 0.002 apart instead of
+  0.0002: there are about twice as many, and a gap near zero lets neighbours share texels at
+  their edges. On Blender 5.2.0, whose overlap check crashes (fixed in 5.2.1), Finish keeps the
+  old projection.
 
 ### Security
 - **Re-rigging does not run the uploaded .blend's startup scripts, drivers or Rigify

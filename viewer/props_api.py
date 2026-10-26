@@ -19,7 +19,6 @@ import hashlib
 import importlib.util
 import json
 import math
-import os
 import re
 import shutil
 import struct
@@ -467,10 +466,10 @@ class PropsJobManager:
             try:
                 job.settings = clean
                 job.source_glb.write_bytes(asset)
-                job.settings_path.write_text(json.dumps(job.settings, indent=2))
+                job.settings_path.write_text(json.dumps(job.settings, indent=2), encoding="utf-8")
                 job.provenance_path.write_text(json.dumps(
                     provenance_record(asset_name, asset, source_record, generated),
-                    indent=2))
+                    indent=2), encoding="utf-8")
             except Exception:
                 shutil.rmtree(directory, ignore_errors=True)
                 raise
@@ -491,7 +490,7 @@ class PropsJobManager:
             job = PropsJob(uuid.uuid4().hex, directory)
             if not job.source_glb.is_file() or not job.settings_path.is_file():
                 raise RuntimeError(f"{name} is missing its source.glb or settings.json")
-            settings = normalise_settings(json.loads(job.settings_path.read_text()))
+            settings = normalise_settings(json.loads(job.settings_path.read_text(encoding="utf-8")))
             if prop not in prop_names(job.split_dir):
                 raise RuntimeError(f"{name} has no prop called {prop!r}")
             step = _number("degrees", degrees)
@@ -568,7 +567,7 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
 
         if job.only:
             swap_in_turn(job)
-            job.settings_path.write_text(json.dumps(job.settings, indent=2))
+            job.settings_path.write_text(json.dumps(job.settings, indent=2), encoding="utf-8")
         run = describe_run(job.directory)
         job.status = "done"
         usage_api.count_done("prop")
@@ -625,7 +624,7 @@ def swap_in_turn(job: PropsJob) -> None:
             target.replace(source)
         raise
     if record is not None:
-        (live_finished / "finish_props.json").write_text(json.dumps(record, indent=2))
+        (live_finished / "finish_props.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
 
 
 def turned_record(job: PropsJob) -> dict[str, Any] | None:
@@ -669,11 +668,11 @@ def _run_step(job: PropsJob, label: str, command: list[str], feed) -> bool:
         _cancelled(job)
         return False
     job.process = subprocess.Popen(
-        command, cwd=str(REPO), env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        command, cwd=str(REPO), env=processes.child_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
         **processes.group_popen_kwargs(),
     )
-    job.directory.joinpath("pid").write_text(processes.pid_record(job.process.pid))
+    job.directory.joinpath("pid").write_text(processes.pid_record(job.process.pid), encoding="utf-8")
     assert job.process.stdout is not None
     for raw in job.process.stdout:
         line = raw.rstrip("\n")

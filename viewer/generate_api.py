@@ -309,7 +309,7 @@ def _job_env() -> dict[str, str]:
     value in this server's environment (e.g. SPARSE_CONV_BACKEND=none exported earlier)
     would otherwise be inherited and silently break the run.
     """
-    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    env = processes.child_env()
     for key in BACKEND_ENV_KEYS:
         env.pop(key, None)
     return env
@@ -441,7 +441,7 @@ def mlx_attention_status(vendor: Path | None = None, dispatch: Path | None = Non
     vendor = vendor or TRELLIS_VENDOR
     dispatch = dispatch or MLX_DISPATCH_FILE
     try:
-        patched = dispatch.is_file() and MLX_DISPATCH_MARKER in dispatch.read_text()
+        patched = dispatch.is_file() and MLX_DISPATCH_MARKER in dispatch.read_text(encoding="utf-8")
     except OSError:
         patched = False
     package = any((vendor / ".venv" / "lib").glob("python*/site-packages/mlx"))
@@ -640,8 +640,8 @@ def run_trellis_input_advisor(image_path: Path) -> dict[str, Any]:
             env=_job_env(),
             check=True,
             capture_output=True,
-            text=True,
             timeout=TINYCLIP_TIMEOUT_SECONDS,
+            **processes.TEXT_PIPE,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("TinyCLIP input check timed out") from exc
@@ -964,7 +964,7 @@ def image_border_opaque_fraction(path: Path) -> float | None:
 
 def _read_seconds(path: Path) -> dict[str, float]:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         seconds = data.get("seconds", data.get("stages", {}))
         return {str(k): float(v) for k, v in seconds.items() if v is not None}
     except (OSError, ValueError, TypeError, AttributeError):
@@ -985,7 +985,7 @@ def _update_baseline(job: Job) -> None:
     data = {"schema_version": 1, "seconds": seconds,
             "source": "learned from completed Generate jobs on this machine"}
     LEARNED_BASELINE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LEARNED_BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    LEARNED_BASELINE_PATH.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _slugify(value: str) -> str:
@@ -1201,7 +1201,7 @@ def _process_rss_gb(pid: int) -> float:
     try:
         kb = subprocess.run(
             ["ps", "-o", "rss=", "-p", str(pid)],
-            capture_output=True, text=True, timeout=5, check=False,  # best-effort probe
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,  # best-effort probe
         ).stdout.strip()
         return round(int(kb) / (1024 ** 2), 2) if kb.isdigit() else 0.0
     except (OSError, ValueError, subprocess.TimeoutExpired):
@@ -1284,7 +1284,7 @@ def _write_pid_file(directory: Path, pid: int) -> None:
     dying (memory-only Job/JobManager state does not) -- see _reconcile_orphaned_jobs,
     which reads this file back on the next server startup to find and clean up jobs
     whose tracker died mid-run."""
-    _pid_file_path(directory).write_text(processes.pid_record(pid))
+    _pid_file_path(directory).write_text(processes.pid_record(pid), encoding="utf-8")
 
 
 def _remove_pid_file(directory: Path) -> None:
@@ -1393,7 +1393,7 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
             continue    # a folder that happens to be called pid (a prop, say), not a job's
         directory = pid_file.parent
         try:
-            pid, owner = processes.parse_pid_record(pid_file.read_text())
+            pid, owner = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pid_file.unlink(missing_ok=True)
             continue
@@ -2079,7 +2079,7 @@ def pixal3d_front_back_ready(models: Path = PIXAL3D_MV_MODELS) -> tuple[bool, st
     if not listing.is_file():
         return False, ("Front + back needs Pixal3D's multi-view weights (5.9 GB). Get them from "
                        "Setup & Status, or run python scripts/bootstrap_pixal3d.py --multiview.")
-    required = [entry["name"] for entry in json.loads(listing.read_text()).get("files", [])
+    required = [entry["name"] for entry in json.loads(listing.read_text(encoding="utf-8")).get("files", [])
                 if entry.get("required", True)]
     missing = [name for name in required if not (models / name).is_file()]
     if missing:
@@ -3059,7 +3059,7 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "recipes"]:
             # what we know about prompting each goal; the CLI and MCP read the same file
             try:
-                self._send_json(200, json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text()))
+                self._send_json(200, json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text(encoding="utf-8")))
             except (OSError, ValueError) as exc:
                 self._send_json(500, {"error": f"prompt recipes unreadable: {exc}"})
             return

@@ -71,7 +71,7 @@ def _step_times(history: list[dict[str, Any]]) -> dict[str, tuple[str, float]]:
 
 def _prop_wording() -> str | None:
     try:
-        return json.loads(RECIPES.read_text())["goals"]["prop"]["wording"] or None
+        return json.loads(RECIPES.read_text(encoding="utf-8"))["goals"]["prop"]["wording"] or None
     except (OSError, ValueError, KeyError):
         return None
 
@@ -82,7 +82,7 @@ def _prompted_as_prop(picture: Path, wording: str | None) -> bool:
     if not wording:
         return False
     try:
-        record = json.loads(picture.with_suffix(".provenance.json").read_text())
+        record = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     return wording in str(record.get("prompt", ""))
@@ -93,7 +93,7 @@ def _picture_prompt(picture: Path | None) -> str | None:
     if picture is None:
         return None
     try:
-        text = json.loads(picture.with_suffix(".provenance.json").read_text()).get("prompt")
+        text = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")).get("prompt")
     except (OSError, ValueError, AttributeError):
         return None
     return text if isinstance(text, str) and text.strip() else None
@@ -115,7 +115,7 @@ class _Hashes:
         self.output = output
         self.path = output / INDEX_NAME
         try:
-            self.index = json.loads(self.path.read_text())
+            self.index = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.index = {}
         self.changed = False
@@ -156,7 +156,7 @@ class _Hashes:
         if not self.changed:
             return
         try:
-            self.path.write_text(json.dumps(self.index, indent=0, sort_keys=True))
+            self.path.write_text(json.dumps(self.index, indent=0, sort_keys=True), encoding="utf-8")
         except OSError:
             pass  # a read-only output folder still gets a Library, just a slower one
 
@@ -208,7 +208,7 @@ def _rigs(output: Path) -> list[dict[str, Any]]:
         for rigged in sorted(run.glob("*_rigged.glb")):
             base = rigged.name.removesuffix("_rigged.glb")
             try:
-                record = json.loads(rigged.with_suffix(".provenance.json").read_text())
+                record = json.loads(rigged.with_suffix(".provenance.json").read_text(encoding="utf-8"))
                 input_sha = (record.get("input") or {}).get("sha256")
             except (OSError, ValueError, AttributeError):
                 input_sha = None
@@ -430,7 +430,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
 
 def _read_meta(output: Path) -> dict[str, Any]:
     try:
-        meta = json.loads((output / META_NAME).read_text())
+        meta = json.loads((output / META_NAME).read_text(encoding="utf-8"))
         return meta if isinstance(meta, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -446,7 +446,7 @@ def set_hidden(output: Path, asset_id: str, hidden: bool) -> None:
     ids = set(meta.get("hidden", []))
     ids.add(asset_id) if hidden else ids.discard(asset_id)
     meta["hidden"] = sorted(ids)
-    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+    (output / META_NAME).write_text(json.dumps(meta, indent=1), encoding="utf-8")
 
 
 def set_main(output: Path, asset_id: str, main: bool) -> None:
@@ -465,7 +465,7 @@ def set_main(output: Path, asset_id: str, main: bool) -> None:
     elif mains.get(family) == asset_id:
         del mains[family]
     meta["main"] = mains
-    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+    (output / META_NAME).write_text(json.dumps(meta, indent=1), encoding="utf-8")
 
 
 def _folder_bytes(path: Path) -> int:
@@ -522,7 +522,7 @@ def delete_version(output: Path, asset_id: str) -> dict[str, Any]:
             meta[key].pop(asset_id, None)
     if isinstance(meta.get("main"), dict):
         meta["main"] = {family: i for family, i in meta["main"].items() if i != asset_id}
-    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+    (output / META_NAME).write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return plan
 
 
@@ -545,7 +545,7 @@ def set_name(output: Path, asset_id: str, name: str) -> str:
     else:
         names.pop(asset_id, None)
     meta["names"] = names
-    (output / META_NAME).write_text(json.dumps(meta, indent=1))
+    (output / META_NAME).write_text(json.dumps(meta, indent=1), encoding="utf-8")
     return clean or next(a["name"] for a in list_assets(output) if a["id"] == asset_id)
 
 

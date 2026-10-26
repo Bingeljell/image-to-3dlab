@@ -588,7 +588,7 @@ class FinishJobManager:
                 # Written up front, not with the record at the end: a run that dies
                 # halfway is exactly the one worth resuming, and resuming it means
                 # knowing the settings the surviving intermediates were made with.
-                job.settings_path.write_text(json.dumps(job.settings, indent=2))
+                job.settings_path.write_text(json.dumps(job.settings, indent=2), encoding="utf-8")
             except Exception:
                 shutil.rmtree(directory, ignore_errors=True)
                 raise
@@ -611,11 +611,11 @@ class FinishJobManager:
             job = FinishJob(uuid.uuid4().hex, directory)
             if not job.settings_path.is_file():
                 raise RuntimeError(f"{name} predates resume support and has no settings.json")
-            for required in needed_inputs(job, json.loads(job.settings_path.read_text())):
+            for required in needed_inputs(job, json.loads(job.settings_path.read_text(encoding="utf-8"))):
                 if not required.is_file():
                     raise RuntimeError(f"{name} is missing {required.name}")
             job.settings = fit_to_machine(
-                normalise_settings(json.loads(job.settings_path.read_text())))
+                normalise_settings(json.loads(job.settings_path.read_text(encoding="utf-8"))))
             job.resume = True
             self.jobs[job.id] = job
             self.active = job.id
@@ -663,11 +663,11 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         job.process = subprocess.Popen(
             hero_command(job, job.settings) if hero else build_command(job, job.settings, resume=job.resume),
             cwd=str(REPO),
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            env=processes.child_env(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
             **processes.group_popen_kwargs(),
         )
-        job.directory.joinpath("pid").write_text(processes.pid_record(job.process.pid))
+        job.directory.joinpath("pid").write_text(processes.pid_record(job.process.pid), encoding="utf-8")
         assert job.process.stdout is not None
         for raw in job.process.stdout:
             line = raw.rstrip("\n")
@@ -835,7 +835,7 @@ def served_url(path: Path) -> str | None:
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 

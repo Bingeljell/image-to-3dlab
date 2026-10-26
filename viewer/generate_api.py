@@ -38,6 +38,7 @@ import fixspot_api
 import hf_api
 import image_api
 import model_info_api
+import notices_api
 import preview_api
 import request_utils
 import skins_api
@@ -2737,10 +2738,30 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "usage"]:
             self._usage_choice()
             return
+        if parts == ["api", "notices", "read"]:
+            # {ids: [...]}: the bell's notices the person has now seen
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            except ValueError:
+                body = {}
+            ids = body.get("ids") if isinstance(body, dict) else None
+            notices_api.mark_read(ids if isinstance(ids, list) else [])
+            self._send_json(200, self._notices())
+            return
         if len(parts) == 4 and parts[:2] == ["api", "image"] and parts[3] == "cancel":
             self._cancel_image_job(parts[2])
             return
         self.send_error(HTTPStatus.NOT_FOUND)
+
+    def _notices(self) -> dict:
+        """The bell's notices: ours from the site, plus a newer release (notices_api)."""
+        import image_to_3dlab
+        try:
+            update = update_check()
+        except Exception:
+            update = None
+        return notices_api.notices(image_to_3dlab.__version__, update)
 
     def _create_back_job(self) -> None:
         """Draw the back of a picture already in output/ (front + back builds)."""
@@ -3139,6 +3160,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parts == ["api", "update-check"]:
             self._send_json(200, update_check())
+            return
+        if parts == ["api", "notices"]:
+            self._send_json(200, self._notices())
             return
         if parts == ["api", "usage"]:
             usage_api.send_soon()   # asked once per page load; at most one message a day goes out

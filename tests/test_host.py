@@ -650,6 +650,41 @@ def test_find_uv_is_none_when_there_is_none(tmp_path):
     assert host.find_uv(which=lambda name: None, home=tmp_path, family="linux") is None
 
 
+def test_find_uv_asks_mise_before_the_home_bin(tmp_path):
+    local = tmp_path / ".local" / "bin" / "uv"
+    local.parent.mkdir(parents=True)
+    local.write_text("")
+    local.chmod(0o755)
+    asked = []
+
+    def mise(argv):
+        asked.append(argv)
+        return "/mise/uv\n"
+
+    assert host.find_uv(which=lambda name: None, home=tmp_path, family="linux",
+                        mise=mise) == "/mise/uv"
+    assert asked == [["which", "uv"]]
+
+
+def test_mise_python_returns_the_executable():
+    def mise(argv):
+        assert argv == ["which", "python3.11"]
+        return "/mise/python3.11\n"
+
+    assert host.mise_python("3.11", mise=mise) == Path("/mise/python3.11")
+
+
+def test_mise_python_refuses_a_missing_interpreter():
+    with pytest.raises(FileNotFoundError):
+        host.mise_python("3.14", mise=lambda argv: None)
+
+
+def test_venv_argv_uses_the_interpreter_path(tmp_path):
+    python = Path("/mise/python3.11")
+    assert host.venv_argv("uv", tmp_path / ".venv", python) == [
+        "uv", "venv", str(tmp_path / ".venv"), "--python", str(python)]
+
+
 def test_no_caller_asks_path_for_uv_directly():
     """Every bootstrap and the viewer go through host.find_uv, so none misses ~/.local/bin again."""
     repo = Path(__file__).resolve().parents[1]

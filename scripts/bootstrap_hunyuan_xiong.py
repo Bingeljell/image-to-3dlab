@@ -33,9 +33,9 @@ def venv_python(root: Path) -> Path:
     return root / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
 
 
-def plan(repo: Path, uv: str) -> list[tuple[list[str], Path]]:
+def plan(repo: Path, uv: str, pythons: dict[str, Path]) -> list[tuple[list[str], Path]]:
     """(command, working directory) for every step still needed, in order."""
-    steps = [([uv, "sync"], repo / "hunyuan_mlx" / half)
+    steps = [([uv, "sync", "--python", str(pythons[half])], repo / "hunyuan_mlx" / half)
              for half in HALVES if not venv_python(repo / "hunyuan_mlx" / half).exists()]
     # Explicitly the default route: without --model this fetches all three shape
     # checkpoints, 23 GB where the default route needs 5.
@@ -45,7 +45,7 @@ def plan(repo: Path, uv: str) -> list[tuple[list[str], Path]]:
 
 
 def announcement(steps: list[tuple[list[str], Path]]) -> str:
-    builds = [f"hunyuan_mlx/{cwd.name}" for cmd, cwd in steps if cmd[1:] == ["sync"]]
+    builds = [f"hunyuan_mlx/{cwd.name}" for cmd, cwd in steps if cmd[1] == "sync"]
     lines = ["Hunyuan3D-MLX (Xiong, full pipeline), default route (shape 2.0 + PBR paint)"]
     if builds:
         lines.append(f"  build   uv sync in {', '.join(builds)}")
@@ -61,7 +61,8 @@ def main() -> None:
     uv = host.find_uv()
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
-    steps = plan(REPO, uv)
+    pythons = {"shape": host.mise_python("3.12"), "paint": host.mise_python("3.11")}
+    steps = plan(REPO, uv, pythons)
     print(announcement(steps), flush=True)
     if not args.yes and input("Go ahead? [y/N] ").strip().lower() not in {"y", "yes"}:
         raise SystemExit("Nothing done.")

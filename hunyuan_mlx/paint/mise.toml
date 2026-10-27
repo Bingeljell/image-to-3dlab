@@ -1,0 +1,5 @@
+[tools]
+python = "3.11"
+
+[env]
+UV_PYTHON = { value = "{% if tools.python is map %}{{ tools.python.path }}{% else %}{{ tools.python[0].path }}{% endif %}", tools = true }

@@ -35,6 +35,17 @@ def test_stray_transparent_pixel_is_not_a_matte():
     assert is_matted(_rgba(alpha)) is False
 
 
+def test_birefnet_lite_is_registered_and_no_session_is_built(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("new_session downloads weights")
+
+    monkeypatch.setattr("rembg.new_session", boom)
+    from rembg.sessions import sessions_class
+    from image_to_3dlab.matte import LITE_MODEL
+
+    assert LITE_MODEL in [cls.name() for cls in sessions_class]
+
+
 # --- choosing and running the remover ------------------------------------------------------
 
 

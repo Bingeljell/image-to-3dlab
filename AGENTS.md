@@ -62,13 +62,15 @@ Follow **[Keep a Changelog](https://keepachangelog.com)** in `CHANGELOG.md`.
 ## Development
 
 ```bash
-python -m pip install -r requirements-dev.txt
+mise install
+uv sync
 PYTHONPATH=. pytest -q
 ruff check .
 python pipeline.py --help
 ```
 
-- Target Python 3.10/3.11 (not 3.14 — SF3D's native deps don't fit yet).
+- The lab runs on Python 3.14. Stable Fast 3D keeps its own Python 3.11 environment
+  (`vendor/stable-fast-3d/.venv`) because its native dependencies do not build on 3.14.
 - Backends that load real models are exercised manually; keep them out of the unit suite.
 - Prefer running via a manifest (`--run-manifest manifests/...json`) so runs stay traceable.
 

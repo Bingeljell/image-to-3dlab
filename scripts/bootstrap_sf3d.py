@@ -2,8 +2,8 @@
 """Install Stable Fast 3D: its code and compiled extensions, then its gated weights.
 
 Two halves, the same way the viewer tracks every backend. The **code** is Stability's
-repository in `vendor/stable-fast-3d`, installed into this interpreter together with its
-two compiled extensions, a texture baker and a UV unwrapper:
+repository in `vendor/stable-fast-3d`, installed into its own virtualenv together with
+its two compiled extensions, a texture baker and a UV unwrapper:
 
 - **Apple Silicon only:** the baker is built with Metal. It needs Homebrew's `libomp`.
   NVIDIA is not supported: SF3D pins packages (an old huggingface-hub and rembg) that
@@ -36,12 +36,21 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import host
+from image_to_3dlab import host  # noqa: E402, RUF100
 
 VENDOR = REPO / "vendor" / "stable-fast-3d"
 UPSTREAM = "https://github.com/Stability-AI/stable-fast-3d.git"
 # Upstream's head since January 2025, and the code every SF3D run here has used.
 COMMIT = "ff21fc491b4dc5314bf6734c7c0dabd86b5f5bb2"
+
+# Python version for the SF3D virtualenv. 3.14 is the target once the native extensions
+# (texture baker + UV unwrapper) build there; otherwise we stay on 3.11 with today's pins.
+SF3D_PYTHON = "3.11"
+
+
+def install_interpreter() -> Path:
+    """The Python inside the SF3D vendor virtualenv."""
+    return host.venv_python(VENDOR)
 
 # (repo, files, approximate gigabytes). DINOv2 is here because SF3D's image tokenizer
 # downloads it on first use otherwise, which is exactly the surprise AGENTS.md forbids.
@@ -86,7 +95,7 @@ def announcement(code: bool = True, weights: bool = True) -> str:
              f"  route:   {route(target()) or 'none for this machine'}"]
     if code:
         lines.append("  code:    Stability-AI/stable-fast-3d -> vendor/stable-fast-3d/, "
-                     "plus its pinned Python packages into this interpreter")
+                     "plus its pinned Python packages into vendor/stable-fast-3d/.venv")
     if weights:
         lines.append(f"  weights: {total_gb():.1f} GB total -> Hugging Face cache")
         for repo, _, size in WEIGHTS:
@@ -97,21 +106,25 @@ def announcement(code: bool = True, weights: bool = True) -> str:
 
 
 def has_pip() -> bool:
-    return subprocess.run([sys.executable, "-m", "pip", "--version"], capture_output=True,
-                          check=False).returncode == 0
+    python = install_interpreter()
+    if not python.is_file():
+        return False
+    return subprocess.run([str(python), "-m", "pip", "--version"],
+                          capture_output=True, check=False).returncode == 0
 
 
 def pip_install_command() -> list[str]:
-    """How to install packages into this interpreter.
+    """How to install packages into the SF3D virtualenv.
 
     The one-line installer builds the environment with uv, and uv environments have no
     pip, so uv does the installing when it is there.
     """
     uv = host.find_uv()
+    python = str(install_interpreter())
     if uv and not has_pip():
-        return [uv, "pip", "install", "--python", sys.executable]
+        return [uv, "pip", "install", "--python", python]
     if has_pip():
-        return [sys.executable, "-m", "pip", "install"]
+        return [python, "-m", "pip", "install"]
     raise SystemExit("Neither pip nor uv is available to install SF3D's packages. "
                      "Install uv (https://docs.astral.sh/uv/) and run this again.")
 
@@ -133,10 +146,19 @@ def install_code(key: str) -> None:
         VENDOR.mkdir(parents=True, exist_ok=True)
         for command in fetch_commands():
             subprocess.run(command, check=True)
-    print("Installing SF3D's packages and building its extensions...", flush=True)
-    # --no-build-isolation so the extensions compile against the torch already installed
-    # here, not a fresh one pip would fetch into a throwaway build environment.
+    print("Creating the SF3D virtualenv...", flush=True)
+    uv = host.find_uv()
+    if uv is None:
+        raise SystemExit("uv is required to create the SF3D virtualenv. "
+                         "Install uv (https://docs.astral.sh/uv/) and run this again.")
+    subprocess.run(host.venv_argv(uv, VENDOR / ".venv", host.mise_python(SF3D_PYTHON)),
+                   check=True)
     install = pip_install_command()
+    print("Installing PyTorch (MPS)...", flush=True)
+    subprocess.run([*install, "torch", "torchvision"], check=True)
+    print("Installing SF3D's packages and building its extensions...", flush=True)
+    # --no-build-isolation so the extensions compile against the torch just installed
+    # in the venv, not a fresh one pip would fetch into a throwaway build environment.
     subprocess.run([*install, "setuptools", "wheel"], check=True)
     subprocess.run([*install, "--no-build-isolation", "-r", "requirements.txt"],
                    cwd=VENDOR, env=build_env(dict(os.environ)), check=True)

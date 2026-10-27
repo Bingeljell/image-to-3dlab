@@ -333,7 +333,7 @@ def install_code(route: str, torch_tag: str | None) -> None:
     print(f"BRIA guardrail: {'applied' if changed else 'already present'}", flush=True)
     python_version = "3.12" if route == "pinned" else SOURCE_PYTHON
     if not venv_python().is_file():
-        run([uv, "venv", str(VENDOR / ".venv"), "--python", python_version])
+        run(host.venv_argv(uv, VENDOR / ".venv", host.mise_python(python_version)))
     if route == "source":
         for name, url, ref, recursive in SOURCE_EXTENSIONS:
             clone(url, EXTENSIONS / name, ref, recursive)

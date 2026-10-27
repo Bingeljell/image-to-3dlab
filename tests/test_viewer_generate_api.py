@@ -1202,16 +1202,15 @@ def test_a_route_with_no_need_is_never_asked_about_the_card(monkeypatch):
 # --- Stable Fast 3D: one route, two installs that must not be confused ---------------------
 
 def test_sf3d_runs_in_its_own_venv_on_amd_and_in_this_interpreter_on_a_mac():
-    """The Apple route installs SF3D into the interpreter the viewer runs in. The AMD route
-    gives it a venv, because its pins break the shared environment -- so the two installs
-    are in different places and a spec pointing at one is wrong on the other."""
+    """Both platforms now isolate SF3D in its own venv. The Mac and AMD specs share the
+    same vendor folder (they cannot both exist on one machine), but each names the venv
+    interpreter rather than the viewer's interpreter."""
     amd = api.sf3d_spec(api.AMD)
     apple = api.sf3d_spec(api.APPLE)
     assert amd.interpreter == api.SF3D_ROCM_PYTHON
+    assert apple.interpreter == api.SF3D_PYTHON
     assert ".venv" in str(amd.interpreter)
-    assert apple.interpreter != amd.interpreter
-    # Not "no .venv in the path": the suite itself often runs from one.
-    assert apple.interpreter == Path(sys.executable)
+    assert ".venv" in str(apple.interpreter)
     # One id, so the studio's saved setting still names the same route either way.
     assert amd.id == apple.id == "sf3d"
     assert amd.wrapper == apple.wrapper, "only the interpreter differs"
@@ -1228,13 +1227,14 @@ def test_sf3d_readiness_proves_the_right_install_for_each_machine(monkeypatch):
     monkeypatch.setattr(api, "SF3D_ROCM_MARKER", absent / ".i2l-build-complete")
     monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", absent / ".venv" / "bin" / "python")
     monkeypatch.setattr(api, "SF3D_REPO_DEFAULT", absent)
+    monkeypatch.setattr(api, "SF3D_PYTHON", absent / ".venv" / "bin" / "python")
 
     amd = api._sf3d_readiness(api.AMD)
     apple = api._sf3d_readiness(api.APPLE)
     assert amd["ready"] is False and apple["ready"] is False
     # Each hint names its own installer, so "not installed" is actionable.
     assert "bootstrap_sf3d_rocm.py" in amd["build"]["hint"]
-    assert "bootstrap_macos.sh" in apple["build"]["hint"]
+    assert "bootstrap_sf3d.py" in apple["build"]["hint"]
     assert "bootstrap_sf3d_rocm.py" not in apple["build"]["hint"]
 
     # And when it is installed, AMD proves it from its venv rather than from the checkout

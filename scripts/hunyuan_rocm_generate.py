@@ -230,7 +230,9 @@ def configure_environment(vendor_root: Path, chunk: int = 0,
     is a far worse outcome than a few percent of speed.
     """
     environ = os.environ if environ is None else environ
-    environ["HY3DGEN_MODELS"] = str(vendor_root / bootstrap.MODELS.name)
+    # the installed route follows the chosen models folder; any other checkout keeps its own
+    models = bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
+    environ["HY3DGEN_MODELS"] = str(models)
     if chunk:
         environ[CHUNK_ENV] = str(chunk)
     return environ

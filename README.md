@@ -204,7 +204,15 @@ your assets. Mac and Linux; Windows is not tested yet.
 ## Setting up a backend
 
 Go to **Generate**, pick a backend from the dropdown. Each one has its own **Setup**
-status telling you exactly what's missing:
+status telling you exactly what's missing.
+
+**Short on disk space?** Models run to tens of GB. Before downloading, set **Models folder**
+on the Setup & Status page to a folder on any drive (or start with
+`ASSETFURNACE_MODELS=/path/to/folder ./lab`), then restart the studio. Models you already
+have stay where they are. The Mac-only Hunyuan3D-MLX route still keeps its weights in
+`hunyuan_mlx/`.
+
+The backends:
 
 - **Hunyuan3D-MLX (Xiong, full pipeline)**: the code is already there (tracked in this
   repo at `hunyuan_mlx/`). Run once per machine:

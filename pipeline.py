@@ -15,6 +15,10 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 # a wrong guess produces kernels the hardware cannot run. Set it yourself if you need it.
 os.environ.setdefault("PYTORCH_HIP_ALLOC_CONF", "max_split_size_mb:128")
 
+from image_to_3dlab import models_home
+
+models_home.apply()   # a models folder chosen in Setup moves HF_HOME; before anything reads it
+
 from image_to_3dlab.cli import main
 
 if __name__ == "__main__":

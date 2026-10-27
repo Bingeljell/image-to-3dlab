@@ -392,6 +392,7 @@ async function renderBackends(catalog) {
   const blender = readOnly ? null : await blenderCard();
   const gltfpack = readOnly ? null : await gltfpackCard();
   const hf = readOnly ? null : await hfCard();
+  const folder = readOnly ? null : await modelsFolderCard();
   if (token !== state.renderToken) return;
   const host = s('setup-backends');
   host.after(s('setup-run')); // park it outside the cards before they are rebuilt
@@ -406,6 +407,7 @@ async function renderBackends(catalog) {
   // a missing Blender goes first: Finish can't run without it, and at the bottom nobody reached it
   const blenderMissing = blender && blender.dataset.found !== '1';
   if (blenderMissing) host.appendChild(blender);
+  if (folder) host.appendChild(folder);   // before the downloads it decides the place of
   if (hf) host.appendChild(hf);
   const list = readOnly ? catalog.views[state.tab] : hereBackends(catalog);
   for (const backend of list) host.appendChild(backendCard(backend, { readOnly }));
@@ -516,6 +518,57 @@ async function hfCard() {
     form.append(input, button);
     card.append(form, note);
   }
+  return card;
+}
+
+/* Where models go. Weights run to tens of GB, and a small system drive fills up: pick a
+ * folder on any drive before downloading. Models already downloaded stay where they are. */
+async function modelsFolderCard() {
+  const card = document.createElement('div');
+  card.dataset.backend = 'models-folder';
+  let st = null;
+  try {
+    const response = await fetch('/api/models-folder');
+    if (response.ok) st = await response.json();
+  } catch { /* an older studio: no card */ }
+  if (!st) return null;
+  const where = (path) => path || st.default;
+  card.className = 'setup-card ready';
+  card.innerHTML = `
+    <div class="setup-card-head">
+      <span class="setup-dot ok">●</span>
+      <div class="setup-card-title">
+        <strong>Models folder</strong>
+        <div class="setup-card-state" data-where></div>
+      </div>
+    </div>
+    <p class="setup-card-trade">Models are big. To keep them on another drive, pick a folder before you
+      download. Models you already have stay where they are: move them yourself, or download them again.</p>
+    <div class="setup-hf-form"><input type="text" placeholder="/Volumes/Models or D:\\Models (empty: the usual places)">
+      <button>Save</button></div>
+    <p class="setup-card-trade" data-note></p>`;
+  card.querySelector('[data-where]').textContent = `Downloads go to ${where(st.in_use)}`;
+  const input = card.querySelector('input');
+  input.value = st.saved || '';
+  const note = card.querySelector('[data-note]');
+  const restart = (path) => { note.textContent = `Restart the studio (stop it, then ./lab) to use ${where(path)}.`; };
+  if (st.restart_needed) restart(st.saved);
+  card.querySelector('button').onclick = async (event) => {
+    event.target.disabled = true;
+    try {
+      const response = await fetch('/api/models-folder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: input.value }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      if (result.restart_needed) restart(result.saved);
+      else note.textContent = 'Saved. Nothing changes.';
+    } catch (error) {
+      note.textContent = error.message;
+    }
+    event.target.disabled = false;
+  };
   return card;
 }
 

@@ -55,13 +55,13 @@ sys.path.insert(0, str(REPO / "scripts"))
 import bootstrap_hunyuan_cuda as cuda
 import patch_hunyuan_rocm as hunyuan_patch
 
-from image_to_3dlab import host, matte
+from image_to_3dlab import host, matte, models_home
 
 VENDOR = REPO / "vendor" / "hunyuan-rocm"
 CHECKOUT = VENDOR / "Hunyuan3D-2.1"
 # Where upstream's shape loader looks before it downloads (its HY3DGEN_MODELS). Pointed
 # inside vendor/ so 8 GB of shape weights land next to the code, not in a hidden cache.
-MODELS = VENDOR / "models"
+MODELS = models_home.vendor_models("hunyuan-rocm")
 # Written last, so a build that died halfway never looks installed.
 BUILT_MARKER = VENDOR / ".i2l-build-complete"
 

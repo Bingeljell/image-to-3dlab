@@ -64,10 +64,12 @@ def matte_model() -> str:
 
 
 def _model_size(model: str) -> str:
+    # Match bootstrap_matte.py's MB convention (1e6) so the same file reads the same size
+    # everywhere it is mentioned.
     if model == LITE_MODEL:
-        return f"{LITE_BYTES / 1024 ** 2:.0f} MB"
+        return f"{LITE_BYTES / 1e6:.0f} MB"
     if model == FALLBACK_MODEL:
-        return f"{FALLBACK_BYTES / 1024 ** 2:.0f} MB"
+        return f"{FALLBACK_BYTES / 1e6:.0f} MB"
     return "unknown size"
 
 

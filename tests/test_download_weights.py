@@ -180,3 +180,20 @@ def test_main_downloads_on_interactive_yes(monkeypatch):
     assert dw.main() == 0
     assert ("shape", dw.DEFAULT_MODEL) in calls
     assert "paint" in calls
+
+
+def test_main_refuses_on_eof_without_yes(monkeypatch, capsys):
+    """Non-interactive pipes have nobody to ask; --yes is required."""
+    calls = []
+    monkeypatch.setattr(dw, "download_shape", lambda m: calls.append(("shape", m)))
+    monkeypatch.setattr(dw, "download_paint", lambda: calls.append("paint"))
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT)])
+    def eof():
+        raise EOFError()
+
+    monkeypatch.setattr("builtins.input", eof)
+
+    assert dw.main() != 0
+    assert calls == []
+    out = capsys.readouterr().out
+    assert "Refusing to download without --yes" in out

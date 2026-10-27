@@ -52,13 +52,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import host, matte  # noqa: E402, RUF100
+from image_to_3dlab import host, matte, models_home  # noqa: E402, RUF100
 
 VENDOR = REPO / "vendor" / "hunyuan-cuda"
 CHECKOUT = VENDOR / "Hunyuan3D-2.1"
 # Where upstream's shape loader looks before it downloads (its HY3DGEN_MODELS). Pointed
 # inside vendor/ so 8 GB of shape weights land next to the code, not in a hidden cache.
-MODELS = VENDOR / "models"
+MODELS = models_home.vendor_models("hunyuan-cuda")
 # Written last, so a build that died halfway never looks installed.
 BUILT_MARKER = VENDOR / ".i2l-build-complete"
 UPSTREAM = "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git"

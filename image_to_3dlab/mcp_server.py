@@ -50,6 +50,7 @@ STUDIO_ONLY = {
     "api/blender/install": "installs an app; the Setup page asks first",
     "api/gltfpack/install": "installs a tool; the Setup page asks first",
     "api/hf/sign-in": "takes the user's Hugging Face token; only they should paste it",
+    "api/models-folder": "where models go on the person's disk is their call; agents see it in status",
     "api/notices/read": "marking news read is the person's own click in the studio; agents see it in status",
     "api/setup/run": "first-run setup is a guided page for a person",
     "api/setup/*/rebuild": "rebuilds a backend from source; Setup page only",
@@ -484,7 +485,16 @@ def status(studio: Studio) -> dict[str, Any]:
         "needs_setup": catalog.get("needs_onboarding") or None,
         "usage_counts": usage_question(studio),
         "news": news_for_agent(studio),
+        "models_folder": models_folder(studio),
     }
+
+
+def models_folder(studio: Studio) -> str | None:
+    """Where downloads go when the person chose a folder in Setup; None means the usual places."""
+    try:
+        return studio.get("api/models-folder").get("in_use")
+    except Exception:
+        return None
 
 
 def news_for_agent(studio: Studio) -> dict[str, Any] | None:

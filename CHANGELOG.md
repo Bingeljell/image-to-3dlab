@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Models folder: on Setup & Status, pick a folder on any drive for downloaded models, handy when the
+  system drive is small. Restart the studio to use it; models you already have stay where they are.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added

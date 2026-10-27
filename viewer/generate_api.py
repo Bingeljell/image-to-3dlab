@@ -172,7 +172,7 @@ from rig_api import (
 from update_api import check as update_check
 from welcome_api import payload as welcome_payload
 
-from image_to_3dlab import processes
+from image_to_3dlab import models_home, processes
 from image_to_3dlab.blender import find_blender
 from image_to_3dlab.blender import missing_help as blender_missing_help
 from image_to_3dlab.gpu_memory import gpu_busy_note
@@ -237,11 +237,14 @@ TINYCLIP_TIMEOUT_SECONDS = 300
 HUNYUAN_WRAPPER = REPO / "scripts" / "hunyuan_mlx_generate.py"
 HUNYUAN_PYTHON = REPO / "vendor" / "hunyuan-mlx" / ".venv" / "bin" / "python"
 PIXAL3D_ROOT = REPO / "vendor" / "pixal3d-cpp"
+# The models folder this run uses; a new choice in Setup waits for the next start.
+MODELS_STARTED_WITH = models_home.apply()
+MODELS_SETTING_REPO = REPO   # where output/.models-folder is kept; tests point it at a temp folder
 PIXAL3D_CLI = executable(PIXAL3D_ROOT / "build", "trellis-cli")
-PIXAL3D_MODELS = PIXAL3D_ROOT / "models" / "pixal3d-sv"
+PIXAL3D_MODELS = models_home.vendor_models("pixal3d-cpp") / "pixal3d-sv"
 PIXAL3D_WRAPPER = REPO / "scripts" / "pixal3d_generate.py"
 # Front + back: the multi-view set (scripts/bootstrap_pixal3d.py --multiview).
-PIXAL3D_MV_MODELS = PIXAL3D_ROOT / "models" / "pixal3d-q8_0-v1"
+PIXAL3D_MV_MODELS = models_home.vendor_models("pixal3d-cpp") / "pixal3d-q8_0-v1"
 
 # Routes that cut their own picture out with our remover (image_to_3dlab/matte.py), so the
 # server need not (requires_alpha=False). (backend id, host or None for any) -> the file
@@ -2612,6 +2615,16 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "blender", "install"]:
             self._start_blender_install()
             return
+        if parts == ["api", "models-folder"]:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+                models_home.save(str(payload.get("path") or ""), MODELS_SETTING_REPO)
+            except (ValueError, json.JSONDecodeError, AttributeError) as exc:
+                self._send_json(422, {"error": str(exc) or "send {\"path\": \"/full/path\"}"})
+                return
+            self._send_json(200, models_home.describe(MODELS_STARTED_WITH, MODELS_SETTING_REPO))
+            return
         if parts == ["api", "gltfpack", "install"]:
             self._start_gltfpack_install()
             return
@@ -3091,6 +3104,9 @@ class Handler(SimpleHTTPRequestHandler):
         parts = self._path_parts()
         if parts[:2] == ["api", "skins"]:
             self._skins_get(parts[2:])
+            return
+        if parts == ["api", "models-folder"]:
+            self._send_json(200, models_home.describe(MODELS_STARTED_WITH, MODELS_SETTING_REPO))
             return
         if parts == ["api", "hf", "status"]:
             self._send_json(200, hf_api.status())

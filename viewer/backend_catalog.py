@@ -34,9 +34,11 @@ if str(REPO) not in sys.path:
 
 from image_to_3dlab import host as _host
 from image_to_3dlab import matte as _matte
+from image_to_3dlab import models_home as _models_home
 from image_to_3dlab import upscale as _upscale
 from image_to_3dlab.host import AMD, APPLE, NVIDIA
 
+_models_home.apply()   # a chosen models folder moves HF_HOME, so before reading it
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
 #: TRELLIS.2's weights can come from a local directory instead of the Hugging Face cache,
@@ -461,7 +463,7 @@ CATALOG: tuple[Backend, ...] = (
             # second set pointed at the parent directory would count everything twice.
             WeightSet("Pixal3D single-view Q8_0, with BiRefNet matting",
                       "raven38/pixal3d-sv-q8_0-v1", int(8.4 * GB),
-                      REPO / "vendor" / "pixal3d-cpp" / "models" / "pixal3d-sv",
+                      _models_home.vendor_models("pixal3d-cpp") / "pixal3d-sv",
                       note="Includes the BiRefNet matting model (ilintar/trellis2-gguf), "
                            "used to cut out a subject when the image has no alpha."),
             # Installed with Pixal3D since 0.3.5: without it the cut-out falls back to
@@ -534,7 +536,7 @@ CATALOG: tuple[Backend, ...] = (
         ),
         weights=(
             WeightSet("Hunyuan3D-2.1 shape + VAE", "tencent/Hunyuan3D-2.1", int(8.03 * GB),
-                      REPO / "vendor" / "hunyuan-cuda" / "models" / "tencent" / "Hunyuan3D-2.1"),
+                      _models_home.vendor_models("hunyuan-cuda") / "tencent" / "Hunyuan3D-2.1"),
             WeightSet("Hunyuan3D-2.1 PBR paint", "tencent/Hunyuan3D-2.1", int(6.89 * GB),
                       HF_HUB_DIR / "models--tencent--Hunyuan3D-2.1"),
             WeightSet("DINOv2-giant image encoder", "facebook/dinov2-giant", int(4.55 * GB),
@@ -576,7 +578,7 @@ CATALOG: tuple[Backend, ...] = (
         ),
         weights=(
             WeightSet("Hunyuan3D-2.1 shape + VAE", "tencent/Hunyuan3D-2.1", int(8.03 * GB),
-                      REPO / "vendor" / "hunyuan-rocm" / "models" / "tencent" / "Hunyuan3D-2.1"),
+                      _models_home.vendor_models("hunyuan-rocm") / "tencent" / "Hunyuan3D-2.1"),
             WeightSet("Hunyuan3D-2.1 PBR paint", "tencent/Hunyuan3D-2.1", int(6.89 * GB),
                       HF_HUB_DIR / "models--tencent--Hunyuan3D-2.1"),
             WeightSet("DINOv2-giant image encoder", "facebook/dinov2-giant", int(4.55 * GB),
@@ -867,7 +869,7 @@ CATALOG: tuple[Backend, ...] = (
         setup_minutes=10,
         weights=(
             WeightSet("Pixal3D multi-view flows (Q8_0)", "raven38/pixal3d-q8_0-v1", 5_856_899_828,
-                      REPO / "vendor" / "pixal3d-cpp" / "models" / "pixal3d-q8_0-v1",
+                      _models_home.vendor_models("pixal3d-cpp") / "pixal3d-q8_0-v1",
                       note="Only the four multi-view flows are fetched; the encoder and "
                            "decoders are linked from the single-view set.",
                       # The flows alone: the linked files are the single-view set's bytes.

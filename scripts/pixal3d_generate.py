@@ -45,13 +45,14 @@ import numpy as np
 from image_to_3dlab.glb_turn import turn_cameras, turn_glb
 from image_to_3dlab.host import executable
 from image_to_3dlab.matte import cut_out, fallback_note, is_matted, matte_model
+from image_to_3dlab.models_home import vendor_models
 from image_to_3dlab.provenance import LICENSES, sha256_file
 
 PIXAL3D_ROOT = REPO / "vendor" / "pixal3d-cpp"
 CLI = executable(PIXAL3D_ROOT / "build", "trellis-cli")
-MODELS = PIXAL3D_ROOT / "models" / "pixal3d-sv"
+MODELS = vendor_models("pixal3d-cpp") / "pixal3d-sv"
 # Front + back: the multi-view set (scripts/bootstrap_pixal3d.py --multiview).
-MV_MODELS = PIXAL3D_ROOT / "models" / "pixal3d-q8_0-v1"
+MV_MODELS = vendor_models("pixal3d-cpp") / "pixal3d-q8_0-v1"
 
 # The gauge camera the single-view path is designed around: 20 degrees, as radians.
 DEFAULT_FOV = 0.3490658503988659

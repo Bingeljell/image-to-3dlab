@@ -57,11 +57,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import host, matte
+from image_to_3dlab import host, matte, models_home
 
 VENDOR = REPO / "vendor" / "pixal3d-cpp"
 BUILD = VENDOR / "build"
-MODELS = VENDOR / "models" / "pixal3d-sv"
+MODELS = models_home.vendor_models("pixal3d-cpp") / "pixal3d-sv"
 UPSTREAM = "https://github.com/raven38/pixal3d.cpp.git"
 WEIGHTS_REPO = "raven38/pixal3d-sv-q8_0-v1"
 MATTE_REPO = "ilintar/trellis2-gguf"
@@ -108,7 +108,7 @@ BUILD_LABELS = {"metal-source": "Metal", "cuda-source": "CUDA", "hip-source": "H
 # Front + back: the multi-view set. Its encoder and decoders are byte-identical to the
 # single-view set's (upstream says so in pixal3d-models.json, and the hashes agree), so
 # only the flows and the manifest are fetched. The folder name is upstream's model set.
-MV_MODELS = VENDOR / "models" / "pixal3d-q8_0-v1"
+MV_MODELS = models_home.vendor_models("pixal3d-cpp") / "pixal3d-q8_0-v1"
 MV_REPO = "raven38/pixal3d-q8_0-v1"
 MV_REVISION = "1c4f4bdddb5fef1dc5efa512d4b88e899b10bd91"
 MV_DOWNLOAD = ("pixal3d_ss_flow_mv.gguf", "pixal3d_shape_flow_512_mv.gguf",

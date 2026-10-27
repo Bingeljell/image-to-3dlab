@@ -244,6 +244,24 @@ def test_an_uploaded_picture_is_kept_in_output_so_its_back_can_be_drawn(tmp_path
     assert sent.startswith("images/uploads/") and (tmp_path / sent).read_bytes() == b"\x89PNG-bytes"
 
 
+def test_a_front_only_upload_is_kept_too_and_the_model_is_named_after_it(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="mine", engine="pixal3d", steps=["model"], upload=("My Orc.PNG", b"\x89PNG-bytes"))
+    runner.submit(chain, background=False)
+    kept = chain.made["picture"]
+    assert kept == f"images/uploads/my-orc__{chain.id[:8]}.png"
+    assert (tmp_path / kept).read_bytes() == b"\x89PNG-bytes"
+    model_post = [b for m, p, b in jobs.calls if p == "/api/generate"][0]
+    assert f'filename="my-orc__{chain.id[:8]}.png"'.encode() in model_post   # the model's folder starts with it
+
+
+def test_an_uploaded_model_is_not_kept_as_a_picture(tmp_path):
+    runner, _ = _runner(tmp_path)
+    chain = aa.Chain(title="mine", steps=["rigged"], upload=("mine.glb", b"GLB!"))
+    runner.submit(chain, background=False)
+    assert "picture" not in chain.made and not (tmp_path / "images" / "uploads").exists()
+
+
 def test_the_back_only_goes_to_pixal3d(tmp_path):
     runner, jobs = _runner(tmp_path)
     chain = aa.Chain(title="x", prompt="x", engine="trellis", steps=["picture", "back", "model"])

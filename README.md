@@ -1,4 +1,3 @@
-<!-- DRAFT for 0.4.0 (Claude's draft, the user edits before the launch push). Hero image: swap in the reveal GIF. -->
 <h1 align="center">AssetFurnace</h1>
 
 <p align="center"><sub>by Bingeljell</sub></p>
@@ -8,6 +7,14 @@ One sentence in, a rigged, animated game character out. On your own Apple Silico
 NVIDIA PC, with the licence of every asset written down.</p>
 
 <p align="center">
+  <a href="https://github.com/Bingeljell/image-to-3dlab/releases/latest"><img src="https://img.shields.io/github/v/release/Bingeljell/image-to-3dlab?label=release&color=ff6a13" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Apache-2.0"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/stargazers"><img src="https://img.shields.io/github/stars/Bingeljell/image-to-3dlab?style=flat" alt="GitHub stars"></a>
+  <a href="https://discord.gg/EuY9cQTRUt"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join the Discord"></a>
+  <img src="https://img.shields.io/badge/runs%20on-Mac%20%C2%B7%20NVIDIA%20%C2%B7%20AMD-444" alt="Runs on Mac, NVIDIA and AMD">
+</p>
+
+<p align="center">
   <a href="https://assetfurnace.com"><b>assetfurnace.com</b></a> ·
   <a href="https://assetfurnace.com/blog/how-to-use-assetfurnace"><b>Step-by-step guide</b></a> ·
   <a href="https://discord.gg/EuY9cQTRUt"><b>Join the Discord</b></a> ·
@@ -15,10 +22,38 @@ NVIDIA PC, with the licence of every asset written down.</p>
   <a href="https://github.com/Bingeljell/image-to-3dlab/discussions">Discussions</a>
 </p>
 
-<p align="center"><sub>Formerly <i>Image to 3D Lab</i>. Same repo, new name.</sub></p>
+<p align="center">
+  <img src="docs/images/hero-sentence-to-moving-character.webp" width="432"
+       alt="A sentence is typed, then AssetFurnace makes the picture, the 3D model, the skeleton and the moves: an anime martial artist kicking and dancing">
+</p>
+
+## Try it
+
+```bash
+curl -fsSL https://assetfurnace.com/install.sh | bash
+```
+
+1. Run that (Mac or Linux; [Windows below](#install)). The studio opens in your browser.
+2. In **Setup & Status**, pick a 3D engine. It says the size and licence, and asks before downloading.
+3. Press **+ Create**, type a sentence, press **Make it**.
 
 <p align="center"><b>No big GPU?</b> Make your own 3D characters in the cloud, 20¢ a pop:
-<a href="https://assetfurnace.com/cloud"><b>AssetFurnace Cloud</b></a>. The app stays free and open source.</p>
+<a href="https://assetfurnace.com/cloud"><b>AssetFurnace Cloud</b></a>. <b>Founder price</b> for the first 100 sign-ups:
+$1 to reserve, locked for 6 months. The app stays free and open source.</p>
+
+## News
+
+- **2026-10-26 · 0.5.3** A News button in the studio, and a safer studio when it is reachable from a network.
+- **2026-10-25 · 0.5.2** `.\lab` on Windows; anonymous usage counts (turn off in About).
+- **2026-10-22 · 0.5.0** Fix a spot (a brush for holes and bumps), Hero face, and Skins: new paint on the same model.
+- **2026-10-18 · 0.4.6** Cleaner game models from Pixal3D, and Report a bug.
+- **2026-10-08 · 0.4.0** Rigged, animated characters: one sentence to a moving GLB.
+
+[Everything that changed](CHANGELOG.md)
+
+<p align="center"><sub>Formerly <i>Image to 3D Lab</i>. Same repo, new name.</sub></p>
+
+## What it does
 
 ![Three source images above the textured 3D models generated from them: a photoreal warrior bust, a stylised garden gnome, and a multi-object shoe-house diorama](docs/images/one-image-in-textured-model-out.jpg)
 
@@ -32,7 +67,7 @@ Apple Silicon deserves more love in the 3D and Image generation community. So th
 
 - **Rigged, moving characters.** Describe a humanoid or drop its picture; get back a
   textured model with a skeleton and moves picked from 21 presets (walk, run, jump, dance, kicks and more), as a GLB
-  for Godot, Unity, Unreal, Blender or three.js. New in 0.4.0.
+  for Godot, Unity, Unreal, Blender or three.js.
 - **The studio.** Your Library, one 3D viewer and a Steps panel. **Create** runs every
   step for you, and you can stop after any of them. Close the tab and the run carries on.
 - **Low poly, high quality.** Pixel Match puts your picture's real pixels back on the
@@ -151,6 +186,9 @@ TRELLIS.2 often needs a separate repaint.
 TRELLIS.2 and Hunyuan3D are built for NVIDIA upstream. On a Mac this lab runs their Apple
 Silicon ports; on Linux + NVIDIA it runs Microsoft's and Tencent's own code.
 
+<details>
+<summary><b>AMD cards (Linux + ROCm)</b></summary>
+
 On Linux with an **AMD** card, Pixal3D is the 3D route. It is C++/GGML, and ggml builds for
 HIP, so there is no NVIDIA-only extension anywhere in it. There is no prebuilt, so the
 first setup compiles it (10-20 minutes) — that is all it needs ROCm for
@@ -164,6 +202,8 @@ Proved on two machines: an **RX 7900 XTX** (gfx1100, discrete, ROCm 7.2.4, 24 GB
 124 GB shared RAM). RDNA3 and newer is the safe assumption; older cards may work but are
 untested, and setup reads your card's gfx target and refuses rather than guessing if it
 cannot find one.
+
+</details>
 
 <p align="center">
   <img src="docs/images/turntable-pixal3d-warrior.webp" width="360"
@@ -204,7 +244,18 @@ your assets. Mac and Linux; Windows is not tested yet.
 ## Setting up a backend
 
 Go to **Generate**, pick a backend from the dropdown. Each one has its own **Setup**
-status telling you exactly what's missing:
+status telling you exactly what's missing.
+
+**Short on disk space?** Models run to tens of GB. Before downloading, set **Models folder**
+on the Setup & Status page to a folder on any drive (or start with
+`ASSETFURNACE_MODELS=/path/to/folder ./lab`), then restart the studio. Models you already
+have stay where they are. The Mac-only Hunyuan3D-MLX route still keeps its weights in
+`hunyuan_mlx/`.
+
+<details>
+<summary><b>Setup steps for each backend</b></summary>
+
+The backends:
 
 - **Hunyuan3D-MLX (Xiong, full pipeline)**: the code is already there (tracked in this
   repo at `hunyuan_mlx/`). Run once per machine:
@@ -260,11 +311,16 @@ status telling you exactly what's missing:
 - **Hunyuan3D-MLX (dgrauet shape + Xiong paint)**: no automated setup yet; expect to read
   `scripts/hunyuan_mlx_generate.py` to set it up by hand.
 
+</details>
+
 Then drop a **pre-masked PNG** (transparent background), pick your settings, hit
 **Generate**. Progress streams live; the GLB lands in `output/`. You can also **Compare**
 two models side by side in the same viewer.
 
 ## CLI
+
+<details>
+<summary><b>Command-line examples for each engine</b></summary>
 
 Same engines without the browser.
 
@@ -298,6 +354,8 @@ vendor/trellis-space-mac/.venv/bin/python scripts/trellis_space_generate.py inpu
   `vendor/trellis-cuda/.venv/bin/python scripts/trellis_cuda_generate.py input.png output/out.glb`
   (same settings; `--check` and `--from-latents` work the same way). It also writes
   `<out>.provenance.json`.
+
+</details>
 
 ### Reproducible runs
 
@@ -440,7 +498,7 @@ the exact message. Untick the box there to stop and forget the id, or set `I3D_N
 (or `DO_NOT_TRACK=1`). An agent using AssetFurnace asks you once and can pass on your
 yes, but only you can turn sharing on or off. Full details: [privacy policy](https://assetfurnace.com/privacy#usage-counts).
 
-## News
+## The studio's News button
 
 The studio's **News** button shows short notes from us: a new version, AssetFurnace Cloud, a known
 problem and its fix. It looks at [assetfurnace.com/notices.json](https://assetfurnace.com/notices.json)

@@ -7,15 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Models folder: on Setup & Status, pick a folder on any drive for downloaded models, handy when the
+  system drive is small. Restart the studio to use it; models you already have stay where they are.
+- Finish says whether Pixel Match ran: "on (front)", "on (front + back)", "off" or "skipped" with the reason,
+  when the step finishes and in the Library.
+
 ### Changed
 - Backend setup scripts now create their virtualenvs with the Python interpreter pinned by
   `mise`, so `uv` no longer downloads a second Python.
 - Development environment uses mise + uv with Python 3.14; root `requirements.txt`,
   `requirements-dev.txt` and `requirements.lock` are removed. Stable Fast 3D keeps its own
   Python 3.11 environment because its native dependencies do not build on Python 3.14.
+- Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
+- The usage-counts notice is now a small card in the corner instead of a big block of text.
 
 ### Fixed
 - **A run that dies before its first step says Stopped.** It used to say "Stopped at undefined". When the step is known, the library names it.
+- The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
+  uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
 
 ## [0.5.3] - 2026-10-26
 

@@ -75,7 +75,9 @@ def configure_environment(vendor_root: Path,
                           environ: dict[str, str] | None = None) -> dict[str, str]:
     """Point upstream's shape loader at the weights the bootstrap fetched. Before import."""
     environ = os.environ if environ is None else environ
-    environ["HY3DGEN_MODELS"] = str(vendor_root / bootstrap.MODELS.name)
+    # the installed route follows the chosen models folder; any other checkout keeps its own
+    models = bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
+    environ["HY3DGEN_MODELS"] = str(models)
     environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     return environ
 

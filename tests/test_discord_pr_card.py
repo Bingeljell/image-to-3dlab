@@ -80,3 +80,8 @@ def test_the_workflow_runs_only_when_a_pr_is_merged():
     for quiet in ("opened", "reopened", "ready_for_review"):
         assert quiet not in triggers
     assert "github.event.pull_request.merged == true" in workflow
+
+
+def test_only_a_pr_labelled_announce_gets_a_card():
+    workflow = (REPO / ".github" / "workflows" / "discord-pr.yml").read_text()
+    assert "contains(github.event.pull_request.labels.*.name, 'announce')" in workflow

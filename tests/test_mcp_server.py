@@ -693,3 +693,18 @@ def test_an_agent_passes_on_a_yes_and_can_never_switch_sharing():
     assert http.posts == [] and "About page" in looked["to_change"]
     ms.usage_counts(studio, user_said_yes=True)
     assert http.posts == [("api/usage", {"noticed": True})]     # never {"share": ...}
+
+
+def test_status_says_where_models_go_and_survives_an_older_studio():
+    class Answers:
+        def __init__(self, answer):
+            self.answer = answer
+
+        def get(self, path):
+            if isinstance(self.answer, Exception):
+                raise self.answer
+            return self.answer
+
+    assert ms.models_folder(Answers({"in_use": "/Volumes/Big/models"})) == "/Volumes/Big/models"
+    assert ms.models_folder(Answers({"in_use": None})) is None
+    assert ms.models_folder(Answers(RuntimeError("404: no such route"))) is None

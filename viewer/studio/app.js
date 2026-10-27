@@ -93,13 +93,15 @@ function renderLibrary() {
 
 function summaries(asset) {
   const faces = fileName(asset.finished).match(/_(\d+k)\.glb$/)?.[1];
-  return {
+  const out = {
     picture: asset.picture ? 'Done' : 'No picture kept (model uploaded or older run)',
     model: asset.model ? engineOf(asset.model) : asset.finished ? 'Made outside the app' : '',
     finished: asset.kind === 'prop set' ? `${asset.props.length} props cut out, each with detail levels` : faces ? `${faces.replace('k', ',000')} triangles` : /_full\.glb$/.test(fileName(asset.finished)) ? 'Full detail · every triangle, for renders' : /_hero\.glb$/.test(fileName(asset.finished)) ? 'Hero · sharper face, built on its own' : 'Done',
     rigged: 'Auto-rig',
     animated: asset.clips.map((c) => c.name.replace(/_/g, ' ')).join(', '),
   };
+  if (asset.pixel_match && asset.kind !== 'prop set') out.finished += ` · Pixel Match: ${asset.pixel_match}`;
+  return out;
 }
 
 function renderSteps(asset) {

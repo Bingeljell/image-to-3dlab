@@ -1,8 +1,8 @@
 name: Discord release card
 
+# Posted by hand, not on every release: most releases are not news.
+#   gh workflow run discord-release.yml -f tag=v0.5.4
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -15,14 +15,14 @@ permissions:
 jobs:
   post:
     # Engine builds (pixal3d-nvidia-*) are pre-releases for the installer, not news.
-    if: ${{ !startsWith(github.event.release.tag_name || inputs.tag, 'pixal3d-') }}
+    if: ${{ !startsWith(inputs.tag, 'pixal3d-') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Get the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TAG: ${{ inputs.tag }}
         run: gh api "repos/${{ github.repository }}/releases/tags/$TAG" > release.json
       - name: Post to Discord
         env:

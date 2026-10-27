@@ -37,6 +37,10 @@ curl -fsSL https://assetfurnace.com/install.sh | bash
 2. In **Setup & Status**, pick a 3D engine. It says the size and licence, and asks before downloading.
 3. Press **+ Create**, type a sentence, press **Make it**.
 
+<p align="center"><b>No big GPU?</b> Make your own 3D characters in the cloud, 20¢ a pop:
+<a href="https://assetfurnace.com/cloud"><b>AssetFurnace Cloud</b></a>. <b>Founder price</b> for the first 100 sign-ups:
+$1 to reserve, locked for 6 months. The app stays free and open source.</p>
+
 ## News
 
 - **2026-10-26 · 0.5.3** A News button in the studio, and a safer studio when it is reachable from a network.
@@ -48,9 +52,6 @@ curl -fsSL https://assetfurnace.com/install.sh | bash
 [Everything that changed](CHANGELOG.md)
 
 <p align="center"><sub>Formerly <i>Image to 3D Lab</i>. Same repo, new name.</sub></p>
-
-<p align="center"><b>No big GPU?</b> Make your own 3D characters in the cloud, 20¢ a pop:
-<a href="https://assetfurnace.com/cloud"><b>AssetFurnace Cloud</b></a>. The app stays free and open source.</p>
 
 ## What it does
 

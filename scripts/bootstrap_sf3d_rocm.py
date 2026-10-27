@@ -219,7 +219,7 @@ def install_code(route: str) -> None:
     venv = venv_python().parents[1]
     if not venv_python().is_file():
         shutil.rmtree(venv, ignore_errors=True)
-        run([uv, "venv", str(venv), "--python", PYTHON_VERSION])
+        run(host.venv_argv(uv, venv, host.mise_python(PYTHON_VERSION)))
     env = install_env()
     torch, *rest = pip_commands(route, uv, venv_python())
     run(torch, env=env, cwd=str(CHECKOUT))

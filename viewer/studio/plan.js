@@ -41,6 +41,17 @@ export function planFor(have, want, { finishUpload = false, frontBack = false } 
   return steps;
 }
 
+/** The step a failed or cancelled run should show, when the plan includes it. */
+export function stoppedStep(current, step, steps) {
+  return Array.isArray(steps) && steps.includes(step) ? step : current ?? null;
+}
+
+/** Library line for a failed run. A run that dies before any step just says Stopped. */
+export function stoppedLine(step) {
+  const label = STEP_LABELS[step];
+  return label ? `Stopped at ${label}` : 'Stopped';
+}
+
 /** Cut a plan after a step the user clicked, or keep it whole. */
 export function stopAfter(steps, last) {
   const i = steps.indexOf(last);

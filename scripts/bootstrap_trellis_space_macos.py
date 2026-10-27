@@ -175,7 +175,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
-    parser.add_argument("--python", default="python3.11")
+    parser.add_argument("--python", default=str(host.mise_python("3.11")))
     parser.add_argument("--skip-install", action="store_true")
     args = parser.parse_args()
     bootstrap(args.root.resolve(), skip_install=args.skip_install, python=args.python)

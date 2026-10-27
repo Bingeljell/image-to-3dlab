@@ -88,16 +88,22 @@ if ! command -v git >/dev/null 2>&1; then
   fi
 fi
 
-if ! command -v uv >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/uv" ]; then
-  say "uv (Astral's Python installer, ~40 MB) is needed to set up Python 3.11."
-  confirm "Install uv from astral.sh?"
+if ! command -v mise >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/mise" ]; then
+  say "mise (a version manager) is needed to pin Python and uv."
+  confirm "Install mise from mise.jdx.dev?"
   if [ "$DRY" = 1 ]; then
-    say "would run: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    say "would run: curl -sSL https://mise.run | sh"
   else
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -sSL https://mise.run | sh
   fi
 fi
-UV="$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")"
+MISE="$(command -v mise 2>/dev/null || echo "$HOME/.local/bin/mise")"
+# Make sure a just-installed mise is on PATH for exec and sub-shells.
+LOCAL_BIN="$HOME/.local/bin"
+case ":$PATH:" in
+  *":$LOCAL_BIN:"*) ;;
+  *) PATH="$LOCAL_BIN:$PATH" ;;
+esac
 
 # --- 3. Code: clone, or update an existing install ---------------------------------------
 if [ -d "$DIR/.git" ]; then
@@ -141,30 +147,28 @@ else
 fi
 
 # --- 4. Python ----------------------------------------------------------------------------
-say "Setting up Python 3.11 and the viewer's packages (a few hundred MB, mostly PyTorch)"
-run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
+say "Setting up the lab's Python packages (a few hundred MB, mostly PyTorch)"
+run "$MISE" -C "$DIR" install
 PY="$DIR/.venv/bin/python"
 
-# The lock pins every package to versions tested together; requirements.txt only bounds
-# them, so installing from it gave each install whatever PyPI had that day.
-REQS="$DIR/requirements.lock"
-[ -f "$REQS" ] || REQS="$DIR/requirements.txt"
-
-# PyPI's Linux PyTorch is a CUDA build, and the lock carries about 6 GB of NVIDIA wheels
+# PyPI's Linux PyTorch is a CUDA build, and the uv.lock carries about 6 GB of NVIDIA wheels
 # with it. On an AMD card none of that can load, and the box is left with a torch that
-# reports no device. So the lock is installed with that family taken out and the ROCm build
-# is put in its place. image_to_3dlab.host picks the ROCm build that matches the installed
-# runtime (tested in tests/test_host.py); the CUDA and Apple paths keep the plain install.
-if [ "$GPU" = amd ] && [ -f "$REQS" ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
-  # Inside the venv: it belongs to this install, and git already ignores it there.
-  ROCM_LOCK="$DIR/.venv/requirements.rocm.lock"
-  # From inside $DIR: `-m` finds the package in the current folder, and under
-  # `curl | bash` that folder is wherever the user happened to be.
-  (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$REQS") >"$ROCM_LOCK"
-  REQS="$ROCM_LOCK"
+# reports no device. So the AMD path exports the lock, strips that family out, installs the
+# remainder with uv pip, then swaps in the ROCm build. image_to_3dlab.host picks the ROCm
+# build that matches the installed runtime (tested in tests/test_host.py); the CUDA and
+# Apple paths keep the plain uv sync.
+if [ "$GPU" = amd ] && [ "$DRY" != 1 ]; then
+  ROCM_FILE="$DIR/.venv/requirements.rocm.txt"
+  run "$MISE" -C "$DIR" exec -- uv venv --allow-existing "$DIR/.venv"
+  run "$MISE" -C "$DIR" exec -- uv export --frozen --no-dev --output-file "$ROCM_FILE"
+  if [ -x "$PY" ]; then
+    (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
+    mv "$ROCM_FILE.tmp" "$ROCM_FILE"
+  fi
+  run "$MISE" -C "$DIR" exec -- uv pip install --python "$PY" -r "$ROCM_FILE"
+else
+  run "$MISE" -C "$DIR" exec -- uv sync --frozen --no-dev
 fi
-
-run "$UV" pip install --quiet --python "$PY" -r "$REQS"
 
 # After the requirements, so it wins over the PyPI wheel: --reinstall-package is what makes
 # uv swap the build rather than consider the requirement satisfied.
@@ -173,14 +177,14 @@ if [ "$GPU" = amd ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
   if ! (cd "$DIR" && "$PY" -m image_to_3dlab.host torch-has-rocm); then
     if [ -n "$ROCM_INDEX" ]; then
       say "Installing PyTorch with ROCm from $ROCM_INDEX"
-      run "$UV" pip install --quiet --python "$PY" --reinstall-package torch \
+      run "$MISE" -C "$DIR" exec -- uv pip install --python "$PY" --reinstall-package torch \
         --reinstall-package torchvision --index-url "$ROCM_INDEX" torch torchvision
     else
-      # The lock went in without torch, so without this there would be no PyTorch at all.
+      # The export went in without torch, so without this there would be no PyTorch at all.
       say "Your ROCm is older than PyTorch's ROCm builds (they need ROCm 6.2 or newer)."
       say "Installing the CPU build of PyTorch for now. Install a newer ROCm, then run this"
       say "again to get the GPU build."
-      run "$UV" pip install --quiet --python "$PY" \
+      run "$MISE" -C "$DIR" exec -- uv pip install --python "$PY" \
         --index-url https://download.pytorch.org/whl/cpu torch torchvision
     fi
   fi

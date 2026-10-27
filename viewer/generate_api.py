@@ -179,6 +179,7 @@ from image_to_3dlab.gpu_memory import gpu_busy_note
 from image_to_3dlab.host import (
     executable,  # image_api put the repo on sys.path
     find_uv,
+    venv_python,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -279,6 +280,7 @@ HUNYUAN_XIONG_SHAPE_MODELS = {
 }
 
 SF3D_REPO_DEFAULT = REPO / "vendor" / "stable-fast-3d"
+SF3D_PYTHON = venv_python(SF3D_REPO_DEFAULT)
 
 # Backend-selection vars the generator must own. A stale value inherited from the server's
 # environment silently selects the wrong backend (the conv_none crash); the subprocess env
@@ -887,9 +889,8 @@ def image_has_transparent_alpha(path: Path) -> bool:
     except ImportError as exc:
         raise RuntimeError(
             "Pillow is not installed in the interpreter running viewer/serve.py, so the "
-            "alpha-transparency check cannot run. Install it (`pip install Pillow`, or "
-            "`pip install -r requirements.txt`) into that same interpreter and restart "
-            "the server."
+            "alpha-transparency check cannot run. Install it (`pip install Pillow`) into "
+            "that same interpreter and restart the server."
         ) from exc
     try:
         with Image.open(path) as image:
@@ -1656,10 +1657,11 @@ def _sf3d_weights() -> list[dict[str, Any]]:
 def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
     """Is SF3D usable here. The two installs are not interchangeable.
 
-    On a Mac the proof is the checkout, because SF3D is installed into this interpreter.
-    On AMD it is the venv and its build marker: the checkout alone would also be true on a
-    Mac, and a shared source file says nothing about whether anything was compiled for the
-    card -- which for this route is exactly the thing that goes wrong silently.
+    On a Mac the proof is the venv Python plus the checkout, because SF3D is installed into
+    its own isolated environment. On AMD it is the venv and its build marker: the checkout
+    alone would also be true on a Mac, and a shared source file says nothing about whether
+    anything was compiled for the card -- which for this route is exactly the thing that
+    goes wrong silently.
     """
     if (host or host_platform()) == AMD:
         present = SF3D_ROCM_MARKER.is_file() and SF3D_ROCM_PYTHON.is_file()
@@ -1682,14 +1684,15 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
             "weights": weights, "missing_weights": missing,
             "ready": present and not missing, "warning": None,
         }
-    present = (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
+    present = SF3D_PYTHON.is_file() and (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
     return {
         "schema_version": 1,
         "build": {
             "present": present,
+            "interpreter": str(SF3D_PYTHON),
             "hint": None if present else (
-                f"SF3D checkout not found at {SF3D_REPO_DEFAULT} — "
-                "run scripts/bootstrap_macos.sh first."
+                "Stable Fast 3D is not installed. Run python scripts/bootstrap_sf3d.py "
+                "(Mac, ~4.9 GB of weights)."
             ),
         },
         "weights": {},
@@ -2357,14 +2360,11 @@ def _hunyuan_rocm_readiness() -> dict[str, Any]:
 
 
 def sf3d_spec(host: str | None = None) -> BackendSpec:
-    """SF3D for this machine: this interpreter on a Mac, its own venv on AMD.
+    """SF3D for this machine: its own venv on both Mac and AMD.
 
-    The Apple route installs SF3D into the interpreter the viewer runs in, so both halves
-    share one. That was why SF3D could not be on Linux at all: its pins (numpy 1.26,
-    transformers 4.42, an old huggingface-hub) break the shared environment. The AMD route
-    gives it a venv of its own instead, so nothing it pins can reach the viewer -- which
-    means the interpreter is not the same one, and a spec pointing at `sys.executable`
-    would look for SF3D in a place it was never installed.
+    SF3D's pins (numpy 1.26, transformers 4.42, an old huggingface-hub) break the shared
+    environment, so it gets a dedicated venv on every platform. The Mac and AMD venvs live
+    in different vendor folders, and a spec pointing at one is wrong on the other.
 
     One id, two interpreters, the way TRELLIS.2 does it.
     """
@@ -2379,7 +2379,7 @@ def sf3d_spec(host: str | None = None) -> BackendSpec:
         )
     return BackendSpec(
         id="sf3d", label="Stable Fast 3D",
-        interpreter=Path(sys.executable), wrapper=REPO / "pipeline.py",
+        interpreter=SF3D_PYTHON, wrapper=REPO / "pipeline.py",
         default_settings=SF3D_DEFAULT_SETTINGS, stages=SF3D_STAGES,
         stage_labels=SF3D_STAGE_LABELS, requires_alpha=False,
         validate_settings=_sf3d_validate_settings, build_args=_sf3d_build_args,

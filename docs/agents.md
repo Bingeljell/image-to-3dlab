@@ -15,7 +15,7 @@ No AssetFurnace yet? Ask your agent: *"Install AssetFurnace from assetfurnace.co
 to yourself."* These are the steps it should follow (agents: run them as written):
 
 1. `curl -fsSL https://assetfurnace.com/install.sh | bash -s -- --dry-run` and tell the user what
-   it will do. It installs the code, Python 3.11 and its packages (roughly 1-2 GB), and **no model weights**.
+   it will do. It installs the code, mise, Python 3.14 and its packages (roughly 1-2 GB), and **no model weights**.
 2. After the user says yes: `curl -fsSL https://assetfurnace.com/install.sh | bash -s -- --yes --no-start`
 3. Connect, using the matching line below (for Claude Code:
    `claude mcp add assetfurnace -- ~/image-to-3dlab/lab mcp`).

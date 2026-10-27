@@ -108,9 +108,9 @@ irm https://assetfurnace.com/install.ps1 | iex
 ```
 
 The installer is short, so [read it](install.sh) before you run it
-([Windows version](install.ps1)). It checks your machine, installs the code and
-Python 3.11, then starts the studio and opens it in your browser (on Windows it prints the
-start command instead). On a RunPod pod it prints the pod's link; over plain SSH it prints
+([Windows version](install.ps1)). It checks your machine, installs the code and its tools (mise provides the
+pinned Pythons and uv), then starts the studio and opens it in your browser (on Windows it
+prints the start command instead). On a RunPod pod it prints the pod's link; over plain SSH it prints
 the tunnel command. It downloads **no model weights**: you choose those in
 **Setup & Status**, which states each size and licence and asks first.
 
@@ -247,8 +247,8 @@ status telling you exactly what's missing:
   paint stage's rasterizer for your card, so it needs the CUDA 12 toolkit (`nvcc`). Paint
   needs about 21 GB of GPU memory, so a 24 GB card or bigger. The Hunyuan weights are not
   licensed in the EU, the UK or South Korea. Windows is not supported yet.
-- **TRELLIS.2 on a Mac**: click **Run setup** (bootstraps the Metal port, ~1h, needs `uv`,
-  Python 3.11 and Xcode command-line tools), or run it manually:
+- **TRELLIS.2 on a Mac**: click **Run setup** (bootstraps the Metal port, ~1h, needs `mise`,
+  which provides uv and Python 3.11, plus Xcode command-line tools), or run it manually:
   `python scripts/bootstrap_trellis_space_macos.py`. First run downloads the ~14 GB
   TRELLIS.2-4B weights automatically. **Before that:** its DINOv3 image encoder is gated.
   Request access at
@@ -456,10 +456,14 @@ here. Model weights keep their own licences, listed above.
 ## Development
 
 ```bash
-python -m pip install -r requirements-dev.txt
-PYTHONPATH=. pytest -q        # backends that load real models stay manual
+mise install
+uv sync                         # installs the lab with Python 3.14
+PYTHONPATH=. pytest -q          # backends that load real models stay manual
 ruff check .
 ```
+
+Stable Fast 3D keeps its own Python 3.11 environment because its native dependencies do
+not build on Python 3.14.
 
 Conventions: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), test-first.
 

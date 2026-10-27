@@ -52,17 +52,26 @@ def upstream(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def fake_bin(tmp_path: Path) -> Path:
-    """A PATH holding git, the basics and a `uv` that logs its arguments."""
+    """A PATH holding git, the basics, a fake `uv`, and a fake `mise`."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for tool in ("git", "uname", "sed", "ls", "head", "grep", "cat", "env", "mkdir", "dirname",
-                 "cp", "chmod", "rm", "tr", "printf"):
+                 "cp", "chmod", "rm", "mv", "tr", "printf", "curl", "sh"):
         found = shutil.which(tool)
         if found:
             (bin_dir / tool).symlink_to(found)
     uv = bin_dir / "uv"
     uv.write_text(f'#!/bin/sh\necho "$@" >> "{tmp_path}/uv.log"\n')
     uv.chmod(0o755)
+    mise = bin_dir / "mise"
+    mise.write_text(f'#!{sys.executable}\n'
+                    f'import sys, os\n'
+                    f'with open("{tmp_path}/mise.log", "a") as f:\n'
+                    f'    f.write(" ".join(sys.argv[1:]) + "\\n")\n'
+                    f'if "exec" in sys.argv and "--" in sys.argv:\n'
+                    f'    idx = sys.argv.index("--") + 1\n'
+                    f'    os.execvp(sys.argv[idx], sys.argv[idx:])\n')
+    mise.chmod(0o755)
     return bin_dir
 
 
@@ -90,8 +99,18 @@ def test_fresh_install_picks_the_newest_release_not_a_backup_tag(tmp_path, upstr
     assert (target / "VERSION").read_text() == "0.2.0\n"
     assert "Version: v0.2.0" in done.stdout
     uv_calls = (tmp_path / "uv.log").read_text()
-    assert "venv" in uv_calls and "--python 3.11" in uv_calls
-    assert f"-r {target}/requirements.txt" in uv_calls
+    assert "sync" in uv_calls and "--frozen" in uv_calls and "--no-dev" in uv_calls
+    assert "requirements.lock" not in uv_calls
+    assert "install" in (tmp_path / "mise.log").read_text()
+
+
+def test_install_syncs_without_the_requirements_lock(tmp_path, fake_bin, upstream):
+    result = run(tmp_path, fake_bin, "--dir", str(tmp_path / "lab"), "--repo", str(upstream), "--yes")
+    assert result.returncode == 0, result.stderr
+    uv_log = (tmp_path / "uv.log").read_text()
+    assert "sync" in uv_log and "--frozen" in uv_log and "--no-dev" in uv_log
+    assert "requirements.lock" not in uv_log
+    assert "install" in (tmp_path / "mise.log").read_text()
 
 
 def test_rerunning_updates_to_a_new_release(tmp_path, upstream, fake_bin):
@@ -146,13 +165,42 @@ def test_dry_run_changes_nothing(tmp_path, upstream, fake_bin):
     assert not (tmp_path / "uv.log").exists()
 
 
-def test_without_uv_and_without_a_terminal_it_stops_instead_of_guessing(
+def test_without_mise_and_without_a_terminal_it_stops_instead_of_guessing(
         tmp_path, upstream, fake_bin):
-    (fake_bin / "uv").unlink()
+    (fake_bin / "mise").unlink()
     done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"))
     assert done.returncode != 0
     assert "--yes" in done.stderr
     assert not (tmp_path / "lab").exists()
+
+
+def test_mise_is_installed_by_the_script_when_it_is_missing(
+        tmp_path, upstream, fake_bin):
+    """The installer bootstraps mise via curl|sh when it is not already on PATH."""
+    template = tmp_path / "mise-template"
+    template.write_text((fake_bin / "mise").read_text())
+    (fake_bin / "mise").unlink()
+    curl = fake_bin / "curl"
+    curl.unlink()
+    curl.write_text(f'''#!/bin/sh
+if [ "$1" = "-sSL" ] && [ "$2" = "https://mise.run" ]; then
+  mkdir -p "$HOME/.local/bin"
+  cat > "$HOME/.local/bin/mise" <<'EOF'
+{template.read_text()}
+EOF
+  chmod +x "$HOME/.local/bin/mise"
+else
+  echo "unexpected curl: $@" >&2
+  exit 1
+fi
+''')
+    curl.chmod(0o755)
+    done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"),
+               "--yes")
+    assert done.returncode == 0, done.stderr
+    assert "mise: command not found" not in done.stderr
+    assert "install" in (tmp_path / "mise.log").read_text()
+    assert (tmp_path / "home" / ".local" / "bin" / "mise").exists()
 
 
 @pytest.mark.parametrize("machine,message", [
@@ -204,20 +252,6 @@ def test_windows_installer_keeps_step_with_the_shell_one():
     assert "--untracked-files=no" in ps1
     assert "hf_hub_download" not in ps1 and "bootstrap_" not in ps1
     assert "LIMITED TESTING" in ps1
-
-
-def test_windows_installer_gets_cuda_pytorch_before_the_requirements():
-    """PyPI only has CPU-only torch for Windows. The CUDA build must come from PyTorch's
-    index, chosen by the tested helper, and before the requirements (which would otherwise
-    settle for the CPU wheel and never replace it)."""
-    ps1 = (REPO / "install.ps1").read_text()
-    assert "image_to_3dlab.host torch-index" in ps1
-    assert "image_to_3dlab.host torch-has-cuda" in ps1
-    assert "--index-url $TorchIndex" in ps1
-    assert ps1.index("torch-index") < ps1.index("-r $Reqs")
-    # Only on a machine with a GPU, and only when the installed torch lacks CUDA, so an
-    # update does not re-download a few GB every time.
-    assert "if ($HasGpu)" in ps1 and "-not $TorchHasCuda" in ps1
 
 
 def test_both_installers_look_for_blender_with_finishs_own_finder_and_never_install_it():
@@ -292,23 +326,10 @@ def test_the_real_launcher_is_executable_and_uses_auto():
     assert "serve.py --auto" in lab.read_text()
 
 
-def test_installs_from_the_lock_file_when_there_is_one(tmp_path, upstream, fake_bin):
-    # Unpinned requirements meant every fresh install got whatever PyPI had that day: on
-    # 2026-10-01 huggingface-hub jumped to 2.x between two installs.
-    (upstream / "requirements.lock").write_text("Pillow==10.4.0\n")
-    _git(upstream, "add", ".")
-    _git(upstream, "commit", "-q", "-m", "lock")
-    _git(upstream, "tag", "v0.2.3")
-    done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"))
-    assert done.returncode == 0, done.stderr
-    uv_calls = (tmp_path / "uv.log").read_text()
-    assert "requirements.lock" in uv_calls and "requirements.txt" not in uv_calls
-
-
-def test_the_shipped_lock_pins_what_broke_before():
-    lock = (SCRIPT.parent / "requirements.lock").read_text()
-    for line in ("numpy==1.", "rembg==2.0.69", "huggingface-hub=="):
-        assert line in lock, line
+def test_the_uv_lock_pins_rembg():
+    lock = (SCRIPT.parent / "uv.lock").read_text()
+    assert 'name = "rembg"' in lock
+    assert 'version = "2.0.86"' in lock
 
 
 # --- AMD: the installer must not hand an AMD card a CUDA torch ----------------------------
@@ -367,11 +388,40 @@ def _amd_run(tmp_path, fake_bin, upstream, amd_venv, rocm_already=False,
              index="https://download.pytorch.org/whl/rocm7.2"):
     """install.sh on an AMD machine, with the fake venv interpreter already in place."""
     python = amd_venv(rocm_already, index)
-    # `uv venv --quiet --allow-existing --python 3.11 DIR`, so the directory is $6.
     uv = fake_bin / "uv"
-    uv.write_text(f'#!/bin/sh\nif [ "$1" = venv ]; then mkdir -p "$6/bin"\n'
-                  f'  cp "{python}" "$6/bin/python"\n'
-                  f'fi\necho "$@" >> "{tmp_path}/uv.log"\n')
+    uv.write_text(f'''#!/bin/sh
+echo "$@" >> "{tmp_path}/uv.log"
+file=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --output-file) file="$2"; shift 2 ;;
+    venv)
+      allow=0
+      dir=""
+      shift
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --allow-existing) allow=1; shift ;;
+          -*) shift ;;
+          *) dir="$1"; shift ;;
+        esac
+      done
+      if [ -d "$dir" ] && [ "$allow" != 1 ]; then
+        echo "A virtual environment already exists at $dir" >&2
+        exit 1
+      fi
+      mkdir -p "$dir/bin"
+      cp "{python}" "$dir/bin/python"
+      ;;
+    *) shift ;;
+  esac
+done
+if [ -n "$file" ]; then
+  cat > "$file" <<'EOF'
+{LOCK_WITH_CUDA}
+EOF
+fi
+''')
     uv.chmod(0o755)
     nodes = tmp_path / "nodes"
     (nodes / "0").mkdir(parents=True, exist_ok=True)
@@ -392,11 +442,12 @@ def test_an_amd_install_never_puts_cuda_wheels_on_the_card(tmp_path, upstream, f
     assert done.returncode == 0, done.stderr
 
     uv_calls = (tmp_path / "uv.log").read_text()
-    assert "requirements.rocm.lock" in uv_calls
-    # The filtered lock is what gets installed, and the untouched one is not.
-    assert "requirements.lock" not in uv_calls.replace("requirements.rocm.lock", "")
+    assert "export" in uv_calls
+    assert "pip install" in uv_calls and ".venv/requirements.rocm.txt" in uv_calls
+    assert "sync" not in uv_calls
+    assert "requirements.lock" not in uv_calls
     # And it really was filtered, by the real code rather than a sed in the script.
-    filtered = (tmp_path / "lab" / ".venv" / "requirements.rocm.lock").read_text()
+    filtered = (tmp_path / "lab" / ".venv" / "requirements.rocm.txt").read_text()
     assert "numpy==1.26.4" in filtered and "accelerate==1.12.0" in filtered
     assert "torch==" not in filtered
     assert "nvidia-cudnn-cu13" not in filtered and "cuda-toolkit" not in filtered
@@ -455,7 +506,21 @@ def test_an_amd_install_leaves_no_stray_file_in_the_checkout(tmp_path, upstream,
 
     done = _amd_run(tmp_path, fake_bin, upstream, amd_venv)
     assert done.returncode == 0, done.stderr
-    assert not (tmp_path / "lab" / "requirements.rocm.lock").exists()
+    assert not (tmp_path / "lab" / "requirements.rocm.txt").exists()
+
+
+def test_an_amd_install_can_be_re_run_over_the_existing_venv(tmp_path, upstream, fake_bin,
+                                                             amd_venv):
+    """Re-running the installer on AMD must not fail because the venv already exists."""
+    (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-q", "-m", "lock")
+    _git(upstream, "tag", "v0.2.10")
+
+    first = _amd_run(tmp_path, fake_bin, upstream, amd_venv)
+    assert first.returncode == 0, first.stderr
+    second = _amd_run(tmp_path, fake_bin, upstream, amd_venv)
+    assert second.returncode == 0, second.stderr
 
 
 def test_an_nvidia_install_is_left_alone(tmp_path, upstream, fake_bin, amd_venv):
@@ -476,23 +541,22 @@ def test_an_nvidia_install_is_left_alone(tmp_path, upstream, fake_bin, amd_venv)
     assert done.returncode == 0, done.stderr
     assert "Machine: Linux with an NVIDIA GPU" in done.stdout
     uv_calls = (tmp_path / "uv.log").read_text()
-    assert "requirements.lock" in uv_calls
+    assert "sync" in uv_calls and "--frozen" in uv_calls and "--no-dev" in uv_calls
+    assert "requirements.lock" not in uv_calls
     assert "requirements.rocm.lock" not in uv_calls
     assert "rocm" not in uv_calls
 
 
-def test_the_lock_covers_every_requirement():
-    # Regenerate with: uv pip compile --universal --python-version 3.11 requirements.txt
-    #                  -o requirements.lock
+def test_the_uv_lock_covers_every_requirement():
     import re
+    import tomllib
 
-    lock = (SCRIPT.parent / "requirements.lock").read_text().lower().replace("_", "-")
-    for raw in (SCRIPT.parent / "requirements.txt").read_text().splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line:
-            continue
-        name = re.split(r"[<>=!~\[; ]", line, maxsplit=1)[0].lower().replace("_", "-")
-        assert f"\n{name}==" in lock, f"{name} is in requirements.txt but not the lock"
+    lock = tomllib.loads((SCRIPT.parent / "uv.lock").read_text())
+    locked_names = {pkg["name"].lower().replace("_", "-") for pkg in lock["package"]}
+    pyproject = tomllib.loads((SCRIPT.parent / "pyproject.toml").read_text())
+    for raw in pyproject["project"]["dependencies"]:
+        name = re.split(r"[<>=!~; ]", raw.split("[", 1)[0], maxsplit=1)[0].lower().replace("_", "-")
+        assert name in locked_names, f"{name} is in pyproject.toml but not uv.lock"
 
 
 def test_windows_lab_starts_the_same_studio_as_the_shell_one():

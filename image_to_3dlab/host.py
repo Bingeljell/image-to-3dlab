@@ -39,20 +39,65 @@ def os_family(sys_platform: str | None = None) -> str:
     return OTHER
 
 
+def _ask_mise(argv: list[str], which: Callable = shutil.which,
+              run: Callable = subprocess.run) -> str | None:
+    """stdout of `mise <argv>`, or None when mise is missing, fails, or says nothing."""
+    tool = which("mise")
+    if not tool:
+        return None
+    try:
+        result = run([tool, *argv], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout or None
+
+
 def find_uv(which: Callable | None = None, home: Path | None = None,
-            family: str | None = None) -> str | None:
+            family: str | None = None,
+            mise: Callable[[list[str]], str | None] | None = None) -> str | None:
     """The uv to run, or None when there is none.
 
-    PATH first, then ~/.local/bin, where install.sh and install.ps1 put it. A shell that has
-    not picked that folder up yet (a non-login shell, a fresh WSL one) would otherwise say
-    "uv is required" with uv sitting right there (#168).
+    PATH first, then `mise which uv`, then ~/.local/bin, where install.sh and install.ps1
+    put it. A shell that has not activated mise, or has not picked that folder up yet
+    (a non-login shell, a fresh WSL one), would otherwise say "uv is required" with uv
+    sitting right there (#168).
     """
-    found = (which or shutil.which)("uv")
+    locate = which or shutil.which
+    found = locate("uv")
     if found:
         return found
+    # Same lookup as PATH. If it sees no binaries, mise is absent and we do not spawn it.
+    if mise is None:
+        via_mise = _ask_mise(["which", "uv"], locate)
+    else:
+        via_mise = mise(["which", "uv"])
+    via_mise = (via_mise or "").strip()
+    if via_mise:
+        return via_mise
     name = "uv.exe" if (family or os_family()) == "windows" else "uv"
     local = (home or Path.home()) / ".local" / "bin" / name
     return str(local) if local.is_file() and os.access(local, os.X_OK) else None
+
+
+def mise_python(version: str, *,
+                mise: Callable[[list[str]], str | None] | None = None) -> Path:
+    """Path of `python<version>` from `mise which`, for `3.11`, `3.12` or `3.14`.
+
+    Nothing back means that interpreter is not installed. Callers must not pass the bare
+    version to uv, or uv downloads a second Python.
+    """
+    found = (mise or _ask_mise)(["which", f"python{version}"])
+    path = (found or "").strip()
+    if not path:
+        raise FileNotFoundError(f"mise has no python{version}")
+    return Path(path)
+
+
+def venv_argv(uv: str, dest: Path, python: Path) -> list[str]:
+    """The `uv venv` command that creates `dest` with the given interpreter path."""
+    return [uv, "venv", str(dest), "--python", str(python)]
 
 
 #: The first macOS that loads Metal 4 GPU code (shaders built with -std=metal4.0, #154).

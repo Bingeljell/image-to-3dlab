@@ -1,5 +1,5 @@
 # Lint settings. Without this file, every ruff upgrade brought its own default rules
-# and the error count grew with no change to our code. requirements-dev.txt pins the
+# and the error count grew with no change to our code. The dev dependency group pins the
 # version for the same reason.
 
 target-version = "py310"

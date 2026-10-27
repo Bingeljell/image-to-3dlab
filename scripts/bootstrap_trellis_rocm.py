@@ -582,7 +582,7 @@ def install_code(version: tuple[int, int], route: str = "source") -> None:
     print(f"BRIA guardrail: {'applied' if changed else 'already present'}", flush=True)
 
     if not venv_python().is_file():
-        run([uv, "venv", str(VENDOR / ".venv"), "--python", SOURCE_PYTHON])
+        run(host.venv_argv(uv, VENDOR / ".venv", host.mise_python(SOURCE_PYTHON)))
     env = install_env(gfx)
     # Torch first, and proved, because everything after this point is compiled against it.
     torch = install_torch(uv, version, env, prefer=proved)

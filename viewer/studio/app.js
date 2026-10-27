@@ -7,7 +7,7 @@ import { readyEngines, readableLog, copyDetails } from './jobs.js';
 import { stepBody, wireStep } from './steps.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
-import { STEP_LABELS } from './plan.js';
+import { STEP_LABELS, stoppedLine, stoppedStep } from './plan.js';
 import { mountSkins } from './skins.js';
 
 const $ = (id) => document.getElementById(id);
@@ -461,7 +461,7 @@ function makingRow() {
   const n = making.plan.steps.length, done = making.done.length;
   const pips = making.plan.steps.map((s) => `<i class="${making.done.includes(s) ? 'done' : s === making.current && !making.cancelled ? (making.failed ? 'stop' : 'run') : ''}"></i>`).join('');
   const thumb = making.made.picture ? `<img src="${url(making.made.picture)}" alt="">` : `<img class="mark glow" src="${LOGO}" alt="">`;
-  const status = making.cancelled ? 'Cancelled' : making.failed ? `Stopped at ${STEP_LABELS[making.current]}` : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
+  const status = making.cancelled ? 'Cancelled' : making.failed ? stoppedLine(making.current) : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
   return `<li><button class="asset making" data-making aria-current="${viewingMaking}">
     <span class="thumb">${thumb}</span>
     <span style="min-width:0"><span class="nm">${escape(making.title)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(status)}</span></span>
@@ -544,8 +544,14 @@ async function startChain(plan, attach = null) {
       if (viewingMaking) drawProgress();
     },
     done: (step, made, seconds) => { making.done.push(step); making.made = made; making.seconds = seconds || {}; renderLibrary(); if (viewingMaking) showMaking(); },
-    cancelled: () => { Object.assign(making, { failed: true, cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '', fullLog: '' }); renderLibrary(); if (viewingMaking) showMaking(); },
-    fail: (step, why, log) => { Object.assign(making, { failed: true, why, log: readableLog(log, 12), fullLog: log }); renderLibrary(); if (viewingMaking) showMaking(); },
+    cancelled: (step) => {
+      Object.assign(making, { current: stoppedStep(making.current, step, making.plan.steps), failed: true, cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '', fullLog: '' });
+      renderLibrary(); if (viewingMaking) showMaking();
+    },
+    fail: (step, why, log) => {
+      Object.assign(making, { current: stoppedStep(making.current, step, making.plan.steps), failed: true, why, log: readableLog(log, 12), fullLog: log });
+      renderLibrary(); if (viewingMaking) showMaking();
+    },
     finish: (mine) => {
       making.finished = true;
       making.result = assets.find(mine) ?? null;

@@ -204,7 +204,7 @@ def install_packages(root: Path = VENDOR, runner=run, index: str | None = None,
     index = this_machines_index() if index is None else index
     if venv_needs_rebuild(root):
         shutil.rmtree(root / ".venv", ignore_errors=True)
-        runner([uv, "venv", str(root / ".venv"), "--python", PYTHON_VERSION])
+        runner(host.venv_argv(uv, root / ".venv", host.mise_python(PYTHON_VERSION)))
     torch, *rest = pip_commands(uv, venv_python(root), root, index)
     runner(torch)
     if index and "rocm" in index:
@@ -239,7 +239,7 @@ def install_weights(root: Path = VENDOR) -> None:
         from huggingface_hub import hf_hub_download, snapshot_download
     except ImportError as missing:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from missing
     for checkpoint in CHECKPOINTS:
         print(f"\nFetching {checkpoint.path} ({checkpoint.bytes / 1e9:.2f} GB)...", flush=True)

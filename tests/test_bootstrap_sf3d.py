@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import sys
+from pathlib import Path
 
 import backend_catalog
 import bootstrap_sf3d as boot
@@ -72,25 +74,41 @@ def test_the_viewer_can_run_it():
     assert command[1].endswith("bootstrap_sf3d.py") and "--yes" in command
 
 
+def test_mac_sf3d_installs_into_its_own_venv(monkeypatch):
+    monkeypatch.setattr(boot, "install_interpreter",
+                        lambda: Path("/vendor/stable-fast-3d/.venv/bin/python"))
+    monkeypatch.setattr(boot.host, "find_uv", lambda: "/mise/uv")
+    command = boot.pip_install_command()
+    assert command[command.index("--python") + 1] == "/vendor/stable-fast-3d/.venv/bin/python"
+    assert sys.executable not in command
+
+
 def test_packages_go_in_with_uv_when_the_environment_has_no_pip(monkeypatch):
     """The one-line installer builds the environment with uv, which ships no pip. On the
     second NVIDIA pod `python -m pip` failed with 'No module named pip'."""
     monkeypatch.setattr(boot.host, "find_uv", lambda: "/usr/bin/uv")
     monkeypatch.setattr(boot, "has_pip", lambda: False)
+    monkeypatch.setattr(boot, "install_interpreter",
+                        lambda: Path("/vendor/stable-fast-3d/.venv/bin/python"))
     command = boot.pip_install_command()
     assert command[:3] == ["/usr/bin/uv", "pip", "install"]
-    assert "--python" in command and boot.sys.executable in command
+    assert "--python" in command and str(boot.install_interpreter()) in command
+    assert sys.executable not in command
 
 
 def test_pip_is_used_when_there_is_no_uv(monkeypatch):
     monkeypatch.setattr(boot.host, "find_uv", lambda: None)
     monkeypatch.setattr(boot, "has_pip", lambda: True)
-    assert boot.pip_install_command() == [boot.sys.executable, "-m", "pip", "install"]
+    monkeypatch.setattr(boot, "install_interpreter",
+                        lambda: Path("/vendor/stable-fast-3d/.venv/bin/python"))
+    assert boot.pip_install_command() == [str(boot.install_interpreter()), "-m", "pip", "install"]
 
 
 def test_neither_uv_nor_pip_says_how_to_fix_it(monkeypatch):
     monkeypatch.setattr(boot.host, "find_uv", lambda: None)
     monkeypatch.setattr(boot, "has_pip", lambda: False)
+    monkeypatch.setattr(boot, "install_interpreter",
+                        lambda: Path("/vendor/stable-fast-3d/.venv/bin/python"))
     with pytest.raises(SystemExit, match="uv"):
         boot.pip_install_command()
 
@@ -100,14 +118,24 @@ def test_build_tools_go_in_before_the_extensions(monkeypatch, tmp_path):
     environment has no setuptools or wheel."""
     (tmp_path / ".git").mkdir()
     monkeypatch.setattr(boot, "VENDOR", tmp_path)
+    monkeypatch.setattr(boot, "install_interpreter",
+                        lambda: tmp_path / ".venv" / "bin" / "python")
     monkeypatch.setattr(boot, "pip_install_command", lambda: ["pip", "install"])
+    monkeypatch.setattr(boot.host, "find_uv", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(boot.host, "mise_python",
+                        lambda version, **kw: Path(f"/mise/python{version}"))
+    monkeypatch.setattr(boot.host, "venv_argv",
+                        lambda uv, dest, python: [uv, "venv", str(dest), "--python", str(python)])
     monkeypatch.setattr(boot.Path, "exists", lambda self: True)  # libomp
     calls = []
     monkeypatch.setattr(boot.subprocess, "run", lambda cmd, **kw: calls.append((cmd, kw)))
     boot.install_code("macos-arm64")
-    assert calls[0][0] == ["pip", "install", "setuptools", "wheel"]
-    assert calls[1][0][-2:] == ["-r", "requirements.txt"]
-    assert calls[1][1]["env"]["USE_METAL"] == "1" and calls[1][1]["env"]["USE_CUDA"] == "0"
+    assert calls[0][0] == ["/usr/bin/uv", "venv", str(tmp_path / ".venv"),
+                           "--python", "/mise/python3.11"]
+    assert calls[1][0] == ["pip", "install", "torch", "torchvision"]
+    assert calls[2][0] == ["pip", "install", "setuptools", "wheel"]
+    assert calls[3][0][-2:] == ["-r", "requirements.txt"]
+    assert calls[3][1]["env"]["USE_METAL"] == "1" and calls[3][1]["env"]["USE_CUDA"] == "0"
 
 
 def test_nvidia_is_not_offered():

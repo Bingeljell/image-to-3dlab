@@ -324,7 +324,7 @@ def install_code(route: str) -> None:
     fetch_checkout()
     if venv_needs_rebuild(VENDOR / ".venv"):
         shutil.rmtree(VENDOR / ".venv", ignore_errors=True)
-        run([uv, "venv", str(VENDOR / ".venv"), "--python", PYTHON_VERSION])
+        run(host.venv_argv(uv, VENDOR / ".venv", host.mise_python(PYTHON_VERSION)))
     requirements = requirement_args()
     env = install_env()
     for command in pip_commands(route, uv, venv_python(), requirements):

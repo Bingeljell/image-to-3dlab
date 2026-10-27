@@ -127,7 +127,7 @@ def install_vision() -> None:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     repo, filename, size = VISION
     print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)
@@ -359,7 +359,7 @@ def install_weights() -> None:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     for repo, filename, size in WEIGHTS:
         print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)

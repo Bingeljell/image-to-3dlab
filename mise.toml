@@ -1,0 +1,11 @@
+[tools]
+python = ["3.14", "3.12", "3.11"]
+uv = "latest"
+
+[settings]
+python.uv_venv_auto = "source"
+
+[env]
+# One Python is a map (`tools.python.path`). Several are a list (`tools.python[0]`).
+# mise still renders this line inside shape and paint, so it has to handle both.
+UV_PYTHON = { value = "{% if tools.python is map %}{{ tools.python.path }}{% else %}{{ tools.python[0].path }}{% endif %}", tools = true }

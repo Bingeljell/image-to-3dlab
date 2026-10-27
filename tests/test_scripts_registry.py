@@ -26,10 +26,6 @@ REGISTRY = SCRIPTS / "README.md"
 #: Files with no docstring to read, so their line is written by hand and only
 #: checked for presence.
 NON_PYTHON = {
-    "bootstrap_macos.sh": (
-        "Create the project virtualenv and install the SF3D backend and its native "
-        "dependencies (needs Python 3.10/3.11 and Homebrew's libomp)."
-    ),
     "bootstrap_trellis_macos.sh": (
         "Clone and install the `shivampkumar/trellis-mac` port, with the Metal "
         "acceleration backends when Xcode's Metal compiler is present and a slower CPU "

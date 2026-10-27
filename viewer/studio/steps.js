@@ -108,10 +108,11 @@ function finishDetail() {
       <option value="40000">40,000 triangles · more detail</option>
       <option value="high">High · 50,000 triangles, cleaner faces from the side (best for realistic people)</option>
       <option value="hero">Hero face · 32,000 triangles and a sharper head built on its own (takes longer)</option>
-      <option value="full">Full detail · every triangle, for renders (not games)</option>
+      <option value="full">Full detail · the raw model as it is, plus Pixel Match (for renders, not games)</option>
       <option value="custom">Custom… (unexpected results)</option></select></label>
-    <p class="hint" data-full hidden>Keeps the 3D model's own mesh (often near a million triangles) and paints it with
-      Pixel Match: the sharpest look, in under a minute. Too heavy for a game; rig and animate a lighter version.</p>
+    <p class="hint" data-full hidden>Pixel Match on the raw model: keeps the 3D model's own mesh, untouched (often
+      near a million triangles), and paints your picture's pixels on. The sharpest look, in under a minute. Too heavy
+      for a game; rig and animate a lighter version.</p>
     <p class="hint" data-hero hidden>For characters whose face matters. The body is finished as usual, then the head
       is built again from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes.
       Needs a model made from a picture, plus Auto-rig and the Hero face upscaler (67 MB), both in Setup.</p>

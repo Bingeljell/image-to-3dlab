@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Finish says whether Pixel Match ran: "on (front)", "on (front + back)", "off" or "skipped" with the reason,
   when the step finishes and in the Library.
 
+### Changed
+- Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added

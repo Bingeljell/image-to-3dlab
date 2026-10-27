@@ -95,3 +95,10 @@ def test_github_suffix_stripped(tmp_path, monkeypatch):
     monkeypatch.setenv("DISCORD_RELEASE_WEBHOOK", "https://discord.com/api/webhooks/1/abc/github")
     assert card.main([str(path)]) == 0
     assert sent["hook"] == "https://discord.com/api/webhooks/1/abc"
+
+
+def test_a_release_is_posted_only_by_hand():
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "discord-release.yml").read_text()
+    triggers = workflow.split("on:")[1].split("permissions:")[0]
+    assert "workflow_dispatch:" in triggers
+    assert "release:" not in triggers

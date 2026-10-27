@@ -258,8 +258,8 @@ def main(argv: list[str] | None = None) -> int:
     }
     backend = "sf3d" if args.fast else "trellis2" if args.trellis else "hunyuan-comfyui"
     policy = manifest_data.get("license_policy", {}) if manifest_data else {}
-    model_identity = _resolve_model_identity(args)
     try:
+        model_identity = _resolve_model_identity(args)
         profile = validate_run_policy(
             backend,
             intent["use_case"],

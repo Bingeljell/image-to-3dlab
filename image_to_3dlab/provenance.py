@@ -250,16 +250,20 @@ def finalize_output(
     destination = destination_dir / f"{stem}{generated.suffix.lower()}"
     generated.replace(destination)
 
-    license_record: dict[str, Any] = {
-        "name": profile.license_name,
-        "url": profile.license_url,
-        "conditions": list(profile.conditions),
-    }
-    if not verified:
-        license_record["verified"] = False
-        license_record["conditions"] = license_record["conditions"] + [
-            "Verify this model's licence yourself; this run used an identity not in the reviewed profile."
-        ]
+    if verified:
+        license_record: dict[str, Any] = {
+            "name": profile.license_name,
+            "url": profile.license_url,
+            "conditions": list(profile.conditions),
+        }
+    else:
+        license_record = {
+            "name": "Unverified — user-declared model",
+            "verified": False,
+            "conditions": [
+                "Verify this model's licence yourself; this run used an identity not in the reviewed profile."
+            ],
+        }
 
     model_record: dict[str, Any] = {"backend": backend, "parameters": parameters}
     if model_identity is not None:

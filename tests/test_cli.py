@@ -3,7 +3,11 @@ from argparse import Namespace
 
 import pytest
 
-from image_to_3dlab.cli import _extract_workflow_model_identity, _resolve_model_identity
+from image_to_3dlab.cli import (
+    _extract_workflow_model_identity,
+    _resolve_model_identity,
+    main,
+)
 
 
 def test_extract_workflow_identity_finds_checkpoint_loader(tmp_path):
@@ -81,3 +85,10 @@ def test_resolve_model_identity_for_quality_without_workflow_is_none():
         fast=False, trellis=False, quality=True, workflow=None, model="unused"
     )
     assert _resolve_model_identity(args) is None
+
+
+def test_main_with_missing_quality_workflow_returns_2_without_raising():
+    result = main(
+        ["--quality", "input.png", "--workflow", "does-not-exist-workflow.json"]
+    )
+    assert result == 2

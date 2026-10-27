@@ -162,5 +162,9 @@ def test_finalize_output_marks_unknown_identity_unverified(tmp_path):
     record = json.loads(sidecar.read_text())
     assert record["model"]["identity"] == "someone/unknown-repo"
     assert record["output"]["classification"] == "unverified"
+    assert record["license"]["name"] == "Unverified — user-declared model"
     assert record["license"]["verified"] is False
-    assert any("verify" in c.lower() for c in record["license"]["conditions"])
+    assert "url" not in record["license"]
+    assert record["license"]["conditions"] == [
+        "Verify this model's licence yourself; this run used an identity not in the reviewed profile."
+    ]

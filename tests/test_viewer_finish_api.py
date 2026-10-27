@@ -768,3 +768,65 @@ def test_done_is_said_only_after_the_done_event_names_the_file(tmp_path, monkeyp
     finish_api.run_job(job, finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out"))
     assert seen and "done" not in seen
     assert job.status == "done" and job.events[-1]["phase"] == "done"
+
+
+def _views(tmp_path: Path, files: list[str]) -> Path:
+    views = tmp_path / "views"
+    views.mkdir()
+    (views / "transforms.json").write_text(json.dumps({"frames": [{"file_path": f} for f in files]}))
+    return views
+
+
+def test_pixel_match_says_front_or_front_and_back_from_the_saved_views(tmp_path):
+    two = _views(tmp_path, ["view_000.png", "view_180.png"])
+    assert finish.pixel_match_result(True, two, {}) == "on (front + back)"
+    one = tmp_path / "one"
+    one.mkdir()
+    (one / "transforms.json").write_text(json.dumps({"frames": [{"file_path": "input.png"}]}))
+    assert finish.pixel_match_result(True, one, {}) == "on (front)"
+
+
+def test_pixel_match_that_did_not_run_says_why(tmp_path):
+    views = _views(tmp_path, ["view_000.png"])
+    assert finish.pixel_match_result(False, views, {"skip_photo": True}) == "off"
+    assert finish.pixel_match_result(False, tmp_path / "nowhere", {}).startswith("skipped: no saved camera")
+    assert finish.pixel_match_result(False, views, {}) == "skipped"
+
+
+def test_both_kinds_of_run_are_recognised_by_their_real_log_lines():
+    assert finish.PHOTO_RAN.search("[photo] 2 view(s); 16% of the texture from the photo")
+    assert finish.PHOTO_RAN.search("[hero      5s] body: Finish 32000 + Pixel Match ...")
+    assert not finish.PHOTO_RAN.search("Starting: found the source camera, so Pixel Match will keep the photo's pixels")
+    assert not finish.PHOTO_RAN.search("[hero      5s] body: Finish 32000 ...")
+
+
+def test_a_finished_run_says_and_keeps_whether_pixel_match_ran(tmp_path, monkeypatch):
+    import finish_api
+
+    job = finish_api.FinishJob("1" * 32, tmp_path / "out" / "fox__finish__20261027-010101")
+    job.views_dir.mkdir(parents=True)
+    (job.views_dir / "transforms.json").write_text(json.dumps({"frames": [{}, {}]}))
+
+    class Worker:
+        pid = 1
+        returncode = 0
+        stdout = iter(["[photo] 2 view(s); 16% of the texture from the photo\n", "baking\n"])
+
+        def __init__(self, *args, **kwargs):
+            job.result_glb.parent.mkdir(parents=True, exist_ok=True)
+            job.result_glb.write_bytes(b"glb")
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
+    finish_api.run_job(job, finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out"))
+    done = job.events[-1]
+    assert done["phase"] == "done" and done["pixel_match"] == "on (front + back)"
+    assert done["message"].endswith("· Pixel Match: on (front + back)")
+    saved = json.loads((job.directory / finish_api.PIXEL_MATCH_NAME).read_text())
+    assert saved == {"pixel_match": "on (front + back)"}

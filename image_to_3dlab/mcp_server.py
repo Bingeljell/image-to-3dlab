@@ -1017,8 +1017,8 @@ def build_server(studio: Studio | None = None):
         finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), "high" (50k,
             cleaner faces from the side; best for realistic humans), "hero" (32k body plus a sharper head
             built again from a close crop; characters whose face matters, takes much longer), a count from
-        1000 to 200000, or "full" (keeps every triangle, often ~1M: the sharpest look, for renders and
-        stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
+        1000 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
+        triangles; the sharpest look, for renders and stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,

@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Models folder: on Setup & Status, pick a folder on any drive for downloaded models, handy when the
   system drive is small. Restart the studio to use it; models you already have stay where they are.
+- Finish says whether Pixel Match ran: "on (front)", "on (front + back)", "off" or "skipped" with the reason,
+  when the step finishes and in the Library.
+
+### Changed
+- Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
+- The usage-counts notice is now a small card in the corner instead of a big block of text.
+
+### Fixed
+- The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
+  uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
 
 ## [0.5.3] - 2026-10-26
 

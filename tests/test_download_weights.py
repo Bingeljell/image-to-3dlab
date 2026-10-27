@@ -142,3 +142,41 @@ def test_every_file_the_paint_script_opens_is_downloaded():
 def test_no_paint_weight_lives_outside_the_downloaded_folder():
     script = (PAINT / "scripts" / "run_paint_pbr.py").read_text()
     assert "hunyuan3d-paint-v2-0" not in script
+
+
+def test_main_refuses_to_download_without_yes(monkeypatch, capsys):
+    """A silent multi-gigabyte fetch is the failure mode; default answer is No."""
+    calls = []
+    monkeypatch.setattr(dw, "download_shape", lambda m: calls.append(("shape", m)))
+    monkeypatch.setattr(dw, "download_paint", lambda: calls.append("paint"))
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT)])
+    monkeypatch.setattr("builtins.input", lambda: "")
+
+    assert dw.main() != 0
+    assert calls == []
+    out = capsys.readouterr().out
+    assert "13.3 GB" in out
+    assert "EU" in out and "South Korea" in out
+
+
+def test_main_downloads_when_given_yes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dw, "download_shape", lambda m: calls.append(("shape", m)))
+    monkeypatch.setattr(dw, "download_paint", lambda: calls.append("paint"))
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--yes"])
+
+    assert dw.main() == 0
+    assert ("shape", dw.DEFAULT_MODEL) in calls
+    assert "paint" in calls
+
+
+def test_main_downloads_on_interactive_yes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dw, "download_shape", lambda m: calls.append(("shape", m)))
+    monkeypatch.setattr(dw, "download_paint", lambda: calls.append("paint"))
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT)])
+    monkeypatch.setattr("builtins.input", lambda: "yes")
+
+    assert dw.main() == 0
+    assert ("shape", dw.DEFAULT_MODEL) in calls
+    assert "paint" in calls

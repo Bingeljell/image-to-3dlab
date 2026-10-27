@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
 
 ### Fixed
+- Weight downloads now require an explicit choice: `hunyuan_mlx/download_weights.py` needs `--yes` or an
+  interactive `y`/`yes`; `image_to_3dlab/matte.new_session` and `matte.cut_out` default to
+  `allow_download=False` and raise fetch instructions instead of silently downloading rembg weights;
+  `hunyuan_mlx/paint/scripts/convert_realesrgan.py` needs `--fetch` to download its default `.pth`.
 - The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
   uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
 

@@ -168,7 +168,19 @@ def build_parser() -> argparse.ArgumentParser:
              f"{APPROX_GB['2.1'] + APPROX_GB['2.0-turbo']:.0f} GB you probably do not need",
     )
     parser.add_argument("--skip-paint", action="store_true")
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="download without prompting (for non-interactive use). "
+             "Defaulting to yes is not allowed.",
+    )
     return parser
+
+
+def confirm(models: list[str], *, paint: bool) -> bool:
+    """Ask the user to confirm the download; returns True only on an affirmative answer."""
+    print("Proceed? [y/N]", flush=True)
+    answer = input().strip().lower()
+    return answer in ("y", "yes")
 
 
 def main() -> int:
@@ -179,6 +191,10 @@ def main() -> int:
     # Nobody chose that, and the extra two models go unused by the default route.
     models = sorted(SHAPE_HF_SOURCES) if args.all else [args.model]
     announce(models, paint=not args.skip_paint)
+
+    if not args.yes and not confirm(models, paint=not args.skip_paint):
+        print("Download cancelled.", flush=True)
+        return 1
 
     for model in models:
         download_shape(model)

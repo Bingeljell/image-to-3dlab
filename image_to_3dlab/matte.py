@@ -43,6 +43,9 @@ LITE_URL = ("https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
 LITE_BYTES = 224_005_088
 LITE_MD5 = "4fab47adc4ff364be1713e97b7e66334"  # rembg's own known hash for this file
 
+# rembg's u2net.onnx, rounded to the nearest MB for error messages.
+FALLBACK_BYTES = 176_099_093
+
 
 def model_home():
     """Where rembg keeps its models (its own U2NET_HOME convention)."""
@@ -58,6 +61,26 @@ def model_file(name: str):
 def matte_model() -> str:
     """The best remover this machine has: lite once installed, else u2net."""
     return LITE_MODEL if model_file(LITE_MODEL).is_file() else FALLBACK_MODEL
+
+
+def _model_size(model: str) -> str:
+    if model == LITE_MODEL:
+        return f"{LITE_BYTES / 1024 ** 2:.0f} MB"
+    if model == FALLBACK_MODEL:
+        return f"{FALLBACK_BYTES / 1024 ** 2:.0f} MB"
+    return "unknown size"
+
+
+def _ensure_model(model: str, allow_download: bool) -> None:
+    """Raise a helpful RuntimeError if the model file is missing and downloads are disabled."""
+    if allow_download or model_file(model).is_file():
+        return
+    size = _model_size(model)
+    raise RuntimeError(
+        f"{model} weights are not installed ({size}). "
+        "Fetch them with scripts/bootstrap_matte.py or via Setup & Status, "
+        "or pass allow_download=True to download automatically."
+    )
 
 
 def fallback_note(model: str) -> str | None:
@@ -103,22 +126,24 @@ def clean_edges(rgba, solid: int = 250, reach: int = 4):
     return out
 
 
-def new_session(model: str | None = None):
+def new_session(model: str | None = None, *, allow_download: bool = False):
     # Newer rembg keeps models in ~/.rembg/models unless told otherwise, so a backend's own
     # venv missed BiRefNet-lite here and fetched u2net. One folder for every rembg.
     os.environ.setdefault("U2NET_HOME", str(model_home()))
     import rembg
 
-    return rembg.new_session(model or matte_model())
+    model = model or matte_model()
+    _ensure_model(model, allow_download)
+    return rembg.new_session(model)
 
 
-def cut_out(image, session=None):
+def cut_out(image, session=None, *, allow_download: bool = False):
     """Remove the background from a PIL image; returns (RGBA image, model name used)."""
     import numpy as np
     import rembg
     from PIL import Image
 
     model = matte_model() if session is None else getattr(session, "model_name", "custom")
-    session = session or new_session(model)
+    session = session or new_session(model, allow_download=allow_download)
     cut = rembg.remove(image.convert("RGB"), session=session).convert("RGBA")
     return Image.fromarray(clean_edges(np.asarray(cut))), model

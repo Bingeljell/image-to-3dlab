@@ -28,6 +28,8 @@ RELEASE_URL = (
     "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/"
     "RealESRGAN_x4plus.pth"
 )
+# Official release size, rounded to the nearest MB for error messages.
+RELEASE_MB = 64
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "weights" / "realesrgan" / "rrdbnet.npz"
 
 
@@ -55,12 +57,24 @@ def main() -> int:
                          help="local RealESRGAN_x4plus.pth; downloaded from the official "
                          "release if omitted")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--fetch", action="store_true",
+        help="download the default RealESRGAN_x4plus.pth if it is not present",
+    )
     args = parser.parse_args()
 
     pth_path = args.pth
     if pth_path is None:
         pth_path = args.out.parent / "RealESRGAN_x4plus.pth"
         if not pth_path.is_file():
+            if not args.fetch:
+                print(
+                    f"RealESRGAN_x4plus.pth is missing. Fetch it from {RELEASE_URL} "
+                    f"({RELEASE_MB} MB) and pass --pth PATH, or pass --fetch to download "
+                    "it automatically.",
+                    flush=True,
+                )
+                return 1
             download(pth_path)
 
     convert(pth_path, args.out)

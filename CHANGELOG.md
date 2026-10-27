@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
+  uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added

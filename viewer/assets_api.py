@@ -40,6 +40,7 @@ NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate", "skins"}
 TAKE_SUFFIX = re.compile(r"_[b-z]$")
 STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
+UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}   # pictures Create keeps in images/uploads/
 META_NAME = ".assets-meta.json"   # the user's own choices about assets, e.g. hidden ones
 ASSET_ID = re.compile(r"^[0-9a-f]{12}$")
 RECIPES = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "prompt_recipes.json"
@@ -101,7 +102,10 @@ def _picture_prompt(picture: Path | None) -> str | None:
 
 def friendly_name(stem: str) -> str:
     """'a-chunky-knight__20261005-205524-cutout__pixal3d__...' -> 'a chunky knight'."""
-    words = stem.split("__")[0].removesuffix("-cutout").replace("-", " ").replace("_", " ").strip()
+    parts = stem.split("__")
+    if len(parts) > 1 and re.fullmatch(r"[0-9a-f]{8}", parts[0]):
+        parts = parts[1:]   # older uploads were kept as '<run id>__<name>'
+    words = parts[0].removesuffix("-cutout").replace("-", " ").replace("_", " ").strip()
     words = re.sub(r"\s+\d+k$", "", words)  # '... 40k' is a face count, not a name
     if len(words) > 40:
         words = words[:39].rstrip() + "…"
@@ -166,7 +170,13 @@ def _dirs(path: Path):
 
 
 def _pictures(output: Path) -> list[dict[str, Any]]:
+    # Uploads first: when an upload is a copy of a drawn picture, the drawn one wins the hash match.
+    uploads = output / "images" / "uploads"
     found = []
+    for file in sorted(uploads.iterdir()) if uploads.is_dir() else ():
+        if (file.is_file() and file.suffix.lower() in UPLOAD_SUFFIXES
+                and not file.stem.endswith(("__back", "__back_reference"))):
+            found.append({"stem": file.stem, "file": file})
     for run in _dirs(output / "images"):
         png = run / f"{run.name}.png"
         if png.is_file():

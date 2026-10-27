@@ -275,6 +275,26 @@ def test_an_asset_carries_its_back_picture_when_there_is_one(output):
     assert "a wooden barrel back" not in assets   # the back is not an asset of its own
 
 
+def test_an_uploaded_picture_belongs_to_its_model_with_its_back(output):
+    up = output / "images" / "uploads"
+    _write(up / "my-orc__1a2b3c4d.png", b"uploaded", 7000)
+    _write(up / "my-orc__1a2b3c4d__back.png", b"back", 7010)
+    _write(up / "my-orc__1a2b3c4d__back_reference.png", b"ref", 7010)
+    gen = "my-orc__1a2b3c4d__pixal3d__20261027-120000"
+    _write(output / "commercial_conditional" / gen / f"{gen}.glb", b"ORC MODEL", 7100)
+    assets = _by_name(aa.list_assets(output))
+    orc = assets["my orc"]
+    assert orc["picture"] == "images/uploads/my-orc__1a2b3c4d.png"
+    assert orc["back"] == "images/uploads/my-orc__1a2b3c4d__back.png"
+    assert orc["model"] == f"commercial_conditional/{gen}/{gen}.glb"
+    assert not any("back" in name for name in assets)   # neither back file is an asset of its own
+
+
+def test_an_older_upload_is_named_after_its_file_not_its_run_id():
+    assert aa.friendly_name("06a6ce8e__warrior__pixal3d__20261022-085116") == "warrior"
+    assert aa.friendly_name("my-orc__1a2b3c4d") == "my orc"
+
+
 def test_an_asset_carries_each_steps_time_from_the_history(output):
     from viewer import activity_api
     for step, made, seconds in (("picture", f"images/{IMG}/{IMG}.png", 251.4),

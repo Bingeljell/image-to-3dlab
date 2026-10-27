@@ -295,6 +295,13 @@ def test_an_older_upload_is_named_after_its_file_not_its_run_id():
     assert aa.friendly_name("my-orc__1a2b3c4d") == "my orc"
 
 
+def test_an_asset_carries_whether_pixel_match_ran_when_finish_said_so(output):
+    _write(output / "finish" / FIN / "pixel-match.json", '{"pixel_match": "on (front)"}', 3000)
+    assets = _by_name(aa.list_assets(output))
+    assert assets["a chunky knight"]["pixel_match"] == "on (front)"
+    assert assets["orc"]["pixel_match"] is None   # never finished, or finished before it was recorded
+
+
 def test_an_asset_carries_each_steps_time_from_the_history(output):
     from viewer import activity_api
     for step, made, seconds in (("picture", f"images/{IMG}/{IMG}.png", 251.4),

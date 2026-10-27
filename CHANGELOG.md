@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
   uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
 
+### Added
+- Finish says whether Pixel Match ran: "on (front)", "on (front + back)", "off" or "skipped" with the reason,
+  when the step finishes and in the Library.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added

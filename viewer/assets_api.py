@@ -205,8 +205,12 @@ def _finishes(output: Path) -> list[dict[str, Any]]:
         results = sorted(run.glob("*.glb"))
         if results:
             source, image = run / "input" / "source.glb", run / "input" / "source.png"
+            try:
+                pixel_match = json.loads((run / "pixel-match.json").read_text(encoding="utf-8"))["pixel_match"]
+            except (OSError, ValueError, KeyError, TypeError):
+                pixel_match = None   # finished before Finish recorded it
             found.append({"stem": run.name, "file": results[0], "source": source if source.is_file() else None,
-                          "image": image if image.is_file() else None})
+                          "image": image if image.is_file() else None, "pixel_match": pixel_match})
     return found
 
 
@@ -403,6 +407,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
                 f"{picture['file'].stem}__back.png")).is_file() else None,
             "model": rel(model["file"]) if model else None,
             "finished": rel(fin["file"]) if fin else None,
+            "pixel_match": fin["pixel_match"] if fin else None,
             "rigged": rel(rig["file"]) if rig else None,
             **(hashes.rig_facts(rig["file"]) if rig else {"fits_moves": None, "facing": None}),
             "clips": [{"name": c["name"], "file": rel(c["file"])} for c in clips],

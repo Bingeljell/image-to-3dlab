@@ -237,12 +237,10 @@ export async function usageNotice(openAboutPage) {
   const card = document.createElement('aside');
   card.className = 'usage-notice';
   card.setAttribute('role', 'status');
-  card.innerHTML = `<p><b>Anonymous usage counts</b></p>
-    <p>Once a day AssetFurnace tells us it is in use, and how many pictures, models and other jobs were made. Never your prompts, pictures or models.
-      We need a sense of how many people use the app, for what and how. It helps us pick which features and fixes come first, and lets us brag a little about the community's love.</p>
+  card.innerHTML = `<p><b>Anonymous usage counts</b> once a day: how many pictures and models were made. Never your prompts, pictures or models.</p>
     <div class="row"><button class="primary" data-ok>Got it</button>
-      <button class="ghost" data-about>Turn off in About</button>
-      <a class="ghost" href="${escape(state.policy)}" target="_blank" rel="noopener">What we collect</a></div>`;
+      <button class="ghost" data-about>Turn off</button>
+      <a class="ghost" href="${escape(state.policy)}" target="_blank" rel="noopener">Details</a></div>`;
   const done = () => {
     card.remove();
     fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noticed: true }) }).catch(() => {});

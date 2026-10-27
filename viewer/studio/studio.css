@@ -387,7 +387,9 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .step.skins textarea { width: 100%; resize: vertical; background: var(--raise); color: var(--bone); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; }
 
 /* First-start notice for usage counts: a card in the corner, so the studio's layout never moves. */
-.usage-notice { position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: min(420px, calc(100vw - 32px));
-  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; box-shadow: 0 8px 28px rgba(0,0,0,.45); }
-.usage-notice p { margin: 0 0 8px; }
-.usage-notice .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.usage-notice { position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: min(300px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  font-size: 12px; line-height: 1.4; }
+.usage-notice p { margin: 0; }
+.usage-notice .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.usage-notice .row > * { font-size: 12px; padding: 3px 9px; }

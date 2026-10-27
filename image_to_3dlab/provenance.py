@@ -20,6 +20,7 @@ class LicenseProfile:
     license_name: str
     license_url: str
     conditions: tuple[str, ...]
+    models: tuple[str, ...]
 
 
 # Qwen confirmed on 2026-09-21 that outputs are not part of the licensed Materials, so the
@@ -49,6 +50,7 @@ LICENSES = {
             "Commercial registration required.",
             "Enterprise license required at or above the applicable annual-revenue threshold.",
         ),
+        models=("stabilityai/stable-fast-3d",),
     ),
     "hunyuan-comfyui": LicenseProfile(
         classification="territory-restricted",
@@ -59,6 +61,7 @@ LICENSES = {
             "Use and outputs are not licensed in the EU, UK, or South Korea.",
             "Additional distribution, attribution, and commercial conditions apply.",
         ),
+        models=("tencent/Hunyuan3D-2.1",),
     ),
     "trellis2": LicenseProfile(
         classification="commercial-conditional",
@@ -70,6 +73,7 @@ LICENSES = {
             "The DINOv3 image encoder is governed by the separate DINOv3 License.",
             "BRIA RMBG-2.0 is disabled and must not be loaded in commercial runs.",
         ),
+        models=("microsoft/TRELLIS.2-4B",),
     ),
     # Same two licences as TRELLIS.2, so the same class: an MIT model with a DINOv3 encoder.
     "pixal3d": LicenseProfile(
@@ -81,6 +85,7 @@ LICENSES = {
             "Pixal3D code and flow weights are MIT licensed.",
             "The bundled DINOv3 image encoder is governed by the separate DINOv3 License.",
         ),
+        models=("raven38/pixal3d-sv-q8_0-v1",),
     ),
     "qwen-image-2.1": LicenseProfile(
         # Qwen confirmed the outputs are the user's, and the model runs on their own machine;
@@ -93,6 +98,7 @@ LICENSES = {
             QWEN_OUTPUT_RIGHTS,
             "Attribution: say 'Built with Qwen'.",
         ),
+        models=("Qwen/Qwen-Image-2.1",),
     ),
 }
 
@@ -112,6 +118,8 @@ def validate_run_policy(
     use_case: str,
     distribution: str,
     allow_conditional: bool,
+    model_identity: str | None = None,
+    allow_unverified: bool = False,
 ) -> LicenseProfile:
     if use_case not in {"showcase", "game"}:
         raise ValueError("use_case must be 'showcase' or 'game'")
@@ -144,6 +152,16 @@ def validate_run_policy(
     ):
         raise ValueError(
             "Hunyuan outputs are not cleared for worldwide game distribution"
+        )
+    if (
+        model_identity is not None
+        and model_identity not in profile.models
+        and not allow_unverified
+    ):
+        raise ValueError(
+            f"model identity {model_identity!r} is not in the reviewed licence profile for "
+            f"{backend}; declare it in a run manifest with license_policy.allow_unverified: true "
+            f"if you have verified the licence yourself"
         )
     return profile
 
@@ -219,13 +237,33 @@ def finalize_output(
     parameters: dict[str, Any],
     source_manifest: Path | None,
     backend_repo: Path | None = None,
+    model_identity: str | None = None,
 ) -> tuple[Path, Path]:
     run_id = uuid.uuid4().hex[:12]
+    verified = (
+        model_identity is None or model_identity in profile.models
+    )
+    classification = profile.classification if verified else "unverified"
     destination_dir = output_root.resolve() / profile.folder
     destination_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{image.stem}__{backend}__{profile.classification}__{run_id}"
+    stem = f"{image.stem}__{backend}__{classification}__{run_id}"
     destination = destination_dir / f"{stem}{generated.suffix.lower()}"
     generated.replace(destination)
+
+    license_record: dict[str, Any] = {
+        "name": profile.license_name,
+        "url": profile.license_url,
+        "conditions": list(profile.conditions),
+    }
+    if not verified:
+        license_record["verified"] = False
+        license_record["conditions"] = license_record["conditions"] + [
+            "Verify this model's licence yourself; this run used an identity not in the reviewed profile."
+        ]
+
+    model_record: dict[str, Any] = {"backend": backend, "parameters": parameters}
+    if model_identity is not None:
+        model_record["identity"] = model_identity
 
     record = {
         "schema_version": 1,
@@ -240,14 +278,10 @@ def finalize_output(
         "output": {
             "path": str(destination),
             "sha256": sha256_file(destination),
-            "classification": profile.classification,
+            "classification": classification,
         },
-        "model": {"backend": backend, "parameters": parameters},
-        "license": {
-            "name": profile.license_name,
-            "url": profile.license_url,
-            "conditions": list(profile.conditions),
-        },
+        "model": model_record,
+        "license": license_record,
         "components": (
             [
                 {

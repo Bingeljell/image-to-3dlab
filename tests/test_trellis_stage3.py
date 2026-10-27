@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -13,6 +16,148 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "trellis_stage3.py"
 SPEC = importlib.util.spec_from_file_location("trellis_stage3", SCRIPT)
 stage3 = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(stage3)
+
+
+def _opaque_rgba_png(path: Path, size: int = 4) -> None:
+    from PIL import Image
+
+    Image.new("RGBA", (size, size), (128, 64, 32, 255)).save(path)
+
+
+def _write_latents(path: Path) -> None:
+    torch.save(
+        {
+            "shape_slat_feats": torch.zeros((7, 32)),
+            "coords": torch.zeros((7, 4), dtype=torch.int32),
+            "res": 1024,
+            "pipeline_type": "1024_cascade",
+            "images": ["source.png"],
+        },
+        path,
+    )
+
+
+class _FakeSparseTensor:
+    def __init__(self, feats, coords):
+        self.feats = feats
+        self.coords = coords
+
+
+class _FakeSlat:
+    feats = torch.zeros((1, 1))
+    coords = torch.zeros((1, 4), dtype=torch.int32)
+
+
+class _FakeVoxel:
+    feats = torch.zeros((1, 6))
+    coords = torch.tensor([[0, 0, 0, 0]])
+
+
+class _FakePipeline:
+    recorded: dict = {}
+
+    @classmethod
+    def from_pretrained(cls, model_id, **kwargs):
+        cls.recorded = {"model_id": model_id, "kwargs": dict(kwargs)}
+        return cls()
+
+    def to(self, device):
+        return self
+
+    def preprocess_image(self, image):
+        return image.convert("RGB") if image.mode == "RGBA" else image
+
+    def get_cond(self, images, resolution):
+        return "cond"
+
+    @property
+    def models(self):
+        return {"tex_slat_flow_model_1024": "tex_model"}
+
+    def sample_tex_slat(self, cond, model, shape_slat, params):
+        return _FakeSlat()
+
+    def decode_shape_slat(self, slat, res):
+        return ([], "subs")
+
+    def decode_tex_slat(self, slat, subs):
+        return [_FakeVoxel()]
+
+
+class _FakeMatte:
+    def __init__(self, is_matted: bool = False):
+        self.is_matted_return = is_matted
+        self.cut_calls: list = []
+
+    def is_matted(self, image):
+        return self.is_matted_return
+
+    def cut_out(self, image, session=None):
+        from PIL import Image
+
+        self.cut_calls.append(image)
+        return (Image.new("RGBA", image.size, (128, 64, 32, 255)), "u2net")
+
+
+def _install_fake_trellis(monkeypatch):
+    fake_trellis2 = types.ModuleType("trellis2")
+    fake_trellis2.modules = types.ModuleType("trellis2.modules")
+    fake_trellis2.modules.sparse = types.ModuleType("trellis2.modules.sparse")
+    fake_trellis2.modules.sparse.SparseTensor = _FakeSparseTensor
+    fake_trellis2.pipelines = types.ModuleType("trellis2.pipelines")
+    fake_trellis2.pipelines.trellis2_image_to_3d = types.ModuleType(
+        "trellis2.pipelines.trellis2_image_to_3d"
+    )
+    fake_trellis2.pipelines.trellis2_image_to_3d.Trellis2ImageTo3DPipeline = _FakePipeline
+
+    monkeypatch.setitem(sys.modules, "trellis2", fake_trellis2)
+    monkeypatch.setitem(sys.modules, "trellis2.modules", fake_trellis2.modules)
+    monkeypatch.setitem(sys.modules, "trellis2.modules.sparse", fake_trellis2.modules.sparse)
+    monkeypatch.setitem(sys.modules, "trellis2.pipelines", fake_trellis2.pipelines)
+    monkeypatch.setitem(
+        sys.modules,
+        "trellis2.pipelines.trellis2_image_to_3d",
+        fake_trellis2.pipelines.trellis2_image_to_3d,
+    )
+
+
+def _run_main(monkeypatch, tmp_path: Path, *, preprocessed: bool = False, transparent: bool = False):
+    _FakePipeline.recorded = {}
+    _install_fake_trellis(monkeypatch)
+    fake_matte = _FakeMatte(is_matted=transparent)
+    monkeypatch.setattr(stage3, "matte", fake_matte, raising=False)
+
+    latent_path = tmp_path / "latents.pt"
+    _write_latents(latent_path)
+    geom_path = tmp_path / "decode.pt"
+    geom_path.write_bytes(b"dummy")
+    image_path = tmp_path / "source.png"
+    _opaque_rgba_png(image_path)
+    output_path = tmp_path / "material.pt"
+    vendor_root = tmp_path / "vendor"
+    vendor_root.mkdir()
+    (vendor_root / "TRELLIS.2").mkdir()
+
+    argv = [
+        "trellis_stage3.py",
+        str(latent_path),
+        str(output_path),
+        "--image",
+        str(image_path),
+        "--texture-seed",
+        "123",
+        "--geometry-decode",
+        str(geom_path),
+        "--sample-only",
+        "--vendor-root",
+        str(vendor_root),
+    ]
+    if preprocessed:
+        argv.append("--preprocessed-image")
+    monkeypatch.setattr(sys, "argv", argv)
+
+    stage3.main()
+    return _FakePipeline.recorded, fake_matte
 
 
 def _bundle():
@@ -124,4 +269,30 @@ def test_runner_can_target_the_clean_space_port_and_stop_after_sampling():
     assert '"--sample-only"' in source
     assert '"--preprocessed-image"' in source
     assert "material decode intentionally skipped" in source
-    assert "load_rembg=not has_transparent_alpha" in source
+    assert "load_rembg=False" in source
+
+
+def test_opaque_image_loads_pipeline_without_rembg_and_cuts_out(tmp_path, monkeypatch):
+    recorded, fake_matte = _run_main(monkeypatch, tmp_path)
+    assert recorded["kwargs"]["load_rembg"] is False
+    assert len(fake_matte.cut_calls) == 1
+    assert fake_matte.cut_calls[0].mode == "RGB"
+    assert fake_matte.cut_calls[0].size == (4, 4)
+    metadata = json.loads((tmp_path / "material.json").read_text())
+    assert metadata["experiment"]["matted_with"] == "u2net"
+
+
+def test_preprocessed_image_skips_matting_and_loads_pipeline_without_rembg(tmp_path, monkeypatch):
+    recorded, fake_matte = _run_main(monkeypatch, tmp_path, preprocessed=True)
+    assert recorded["kwargs"]["load_rembg"] is False
+    assert len(fake_matte.cut_calls) == 0
+    metadata = json.loads((tmp_path / "material.json").read_text())
+    assert metadata["experiment"]["matted_with"] is None
+
+
+def test_transparent_image_skips_matting_and_loads_pipeline_without_rembg(tmp_path, monkeypatch):
+    recorded, fake_matte = _run_main(monkeypatch, tmp_path, transparent=True)
+    assert recorded["kwargs"]["load_rembg"] is False
+    assert len(fake_matte.cut_calls) == 0
+    metadata = json.loads((tmp_path / "material.json").read_text())
+    assert metadata["experiment"]["matted_with"] is None

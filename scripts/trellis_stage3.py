@@ -29,7 +29,11 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-mac"
+
+from image_to_3dlab import matte
 
 REQUIRED_LATENT_KEYS = {
     "shape_slat_feats",
@@ -198,6 +202,7 @@ def main() -> int:
         raise SystemExit(f"missing conditioning image: {image_path}")
 
     params = sampler_params(args)
+    matted_with = None
     experiment = {
         "shape_seed": bundle.get("seed"),
         "texture_seed": args.texture_seed,
@@ -208,6 +213,7 @@ def main() -> int:
         "geometry_decode": repo_relative(geometry_path),
         "image": repo_relative(image_path),
         "preprocessed_image": args.preprocessed_image,
+        "matted_with": matted_with,
         "output": repo_relative(args.output),
         "vendor_root": str(vendor),
         "sparse_attention_backend": args.sparse_attn_backend,
@@ -231,23 +237,26 @@ def main() -> int:
 
     started = time.time()
     raw_image = Image.open(image_path)
-    has_transparent_alpha = (
-        raw_image.mode == "RGBA" and raw_image.getextrema()[3][0] < 255
-    )
+    if args.preprocessed_image:
+        image_input = raw_image.convert("RGB")
+    else:
+        if matte.is_matted(raw_image):
+            image_input = raw_image
+        else:
+            # The upstream remover is BRIA RMBG-2.0 (non-commercial), which this repo
+            # never loads. Cut the subject out with our own MIT-licensed remover first.
+            image_input, matted_with = matte.cut_out(raw_image.convert("RGB"))
+            experiment["matted_with"] = matted_with
     print("Loading TRELLIS.2 pipeline...", flush=True)
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(
         "microsoft/TRELLIS.2-4B",
-        load_rembg=not has_transparent_alpha and not args.preprocessed_image,
+        load_rembg=False,
     )
     pipeline.to(torch.device("mps"))
     load_seconds = time.time() - started
     print(f"Pipeline loaded in {load_seconds:.1f}s", flush=True)
 
-    image = (
-        raw_image.convert("RGB")
-        if args.preprocessed_image
-        else pipeline.preprocess_image(raw_image)
-    )
+    image = image_input if args.preprocessed_image else pipeline.preprocess_image(image_input)
     cond_started = time.time()
     # pipeline.run always wraps even a single image before get_cond; the extractor
     # deliberately accepts a list of PIL images, not one PIL object.

@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   post:
-    # only a merge gets a card; a PR closed without merging stays quiet
-    if: github.event.pull_request.merged == true
+    # only a merged PR labelled `announce` gets a card; the rest stay quiet
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'announce')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

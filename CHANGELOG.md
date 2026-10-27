@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The usage-counts notice is now a small card in the corner instead of a big block of text.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added

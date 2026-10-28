@@ -97,6 +97,20 @@ export function stepFile(asset, stepId) {
   return { model: asset.model, finished: asset.finished, rigged: asset.rigged }[stepId] || null;
 }
 
+/** Whether Fix a spot can work on what the viewer shows: the finished model, either as the
+ *  latest one or, once the character is rigged, through View on the Finished step. */
+export function canFixShown(asset, { step = null, pictures = false } = {}) {
+  if (!asset?.finished || pictures) return false;
+  return step === 'finished' || (!step && displayModel(asset) === asset.finished);
+}
+
+/** What to tell someone who clicks to fix a spot where it cannot work. */
+export function fixBlockedNote(asset) {
+  return asset?.finished
+    ? 'Fix a spot works on the finished model. Click View on the Finished step to open it.'
+    : 'Fix a spot works on a finished model. Finish this one first.';
+}
+
 /** Whether a done step offers "View": it made its own GLB and that is not the one the viewer
  *  already shows. This is how the raw 3D model (Pixal3D, TRELLIS, ...) stays one click away
  *  after Finish, Rig and Animate have moved past it. */

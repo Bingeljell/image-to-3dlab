@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Fix a spot works on rigged characters: click View on the Finished step and brush away. Before, the brush
+  only said "open the finished model", with no way to do it.
+- Hero face no longer stops when its head clean-up fails (seen on Windows): the head takes the classic
+  clean-up instead and the run carries on.
+- Hero face shows why it cannot run on a model (no saved picture, or not made with Pixal3D) instead of
+  vanishing, and choosing a Detail level no longer hides the "Finish as a Hero" button.
 - Direct Xiong generation (`scripts/hunyuan_mlx_xiong_generate.py`) now writes a `.provenance.json`
   licence sidecar beside the GLB, recording the MIT in-repo port and the Tencent weights licence with
   its EU/UK/Korea territory restriction.

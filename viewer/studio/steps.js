@@ -56,7 +56,7 @@ export function stepBody(stepId, asset, ctx) {
       : '<p class="hint">No picture on disk for this model, so Pixel Match is skipped: Finish cleans up the mesh and re-bakes its own texture.</p>';
     const skipped = !asset.finished && asset.rigged
       ? '<p class="hint">Skipped so far. Finishing now makes a new finished model; rig it again to use it.</p>' : '';
-    const controls = `${skipped}${finishDetail()}${photo}
+    const controls = `${skipped}${finishDetail(asset)}${photo}
       <details class="adv"><summary>Advanced</summary>
         ${asset.picture ? '<label class="check"><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label><label class="check"><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label>' : ''}
         <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
@@ -90,30 +90,43 @@ function redoBox(title, note, body) {
 
 // Detail: three tested triangle counts, or a custom one (the server takes 1,000 to 200,000). Tested on
 // five very different models: 10k and 20k stay clean, 40k adds rough patches on some, 5k breaks.
-/** A clear way to make a Hero face for a character that can have one: made from a picture with
- *  Pixal3D (Hero works from the model's saved camera). Shown even once the character is finished. */
+/** Why Hero face cannot run on this model, or null when it can. Hero rebuilds the head from the
+ *  picture through the model's saved Pixal3D camera, so it needs both. */
+export function heroBlocked(asset) {
+  if (!asset.picture) return 'Hero face needs the picture this model was made from, and none is saved with it.';
+  if (!/__pixal3d__/.test(asset.model || '')) return 'Hero face works on models made with Pixal3D. Make the 3D model again with Pixal3D (Advanced: 3D model).';
+  return null;
+}
+
+/** A clear way to make a Hero face for a character: shown even once the character is finished,
+ *  and greyed out with the reason when this model cannot have one, so it never just vanishes. */
 export function heroCard(asset) {
   // a built model is 'model' until it is rigged ('character'); props and prop sheets never get one
-  if (!['model', 'character'].includes(asset.kind) || !asset.picture || !asset.model || !/__pixal3d__/.test(asset.model)) return '';
+  if (!['model', 'character'].includes(asset.kind) || !asset.model) return '';
   if (/_hero\.glb$/.test(asset.finished || '')) return '';
+  const blocked = heroBlocked(asset);
+  if (blocked) {
+    return `<div class="hero-card off"><p><b>Hero face</b> · not available for this model. ${esc(blocked)}</p></div>`;
+  }
   return `<div class="hero-card"><p><b>Hero face</b> · builds the head again from a close, sharper crop of your picture and
       joins it on: real eyelids instead of goggle eyes. Takes longer than a normal Finish. ${asset.finished ? 'Makes a new version; the current one is kept.' : ''}</p>
       <button class="primary" data-run="finished" data-hero>${asset.finished ? 'Make a Hero version' : 'Finish as a Hero'}</button></div>`;
 }
 
-function finishDetail() {
+function finishDetail(asset) {
+  const heroOff = heroBlocked(asset);
   return `<label class="field">Detail<select data-k="faces">
       <option value="10000">10,000 triangles · light</option>
       <option value="20000" selected>20,000 triangles · game-ready</option>
       <option value="40000">40,000 triangles · more detail</option>
       <option value="high">High · 50,000 triangles, cleaner faces from the side (best for realistic people)</option>
-      <option value="hero">Hero face · 32,000 triangles and a sharper head built on its own (takes longer)</option>
+      <option value="hero"${heroOff ? ' disabled' : ''}>Hero face · 32,000 triangles and a sharper head built on its own (takes longer)${heroOff ? ' · not for this model' : ''}</option>
       <option value="full">Full detail · the raw model as it is, plus Pixel Match (for renders, not games)</option>
       <option value="custom">Custom… (unexpected results)</option></select></label>
     <p class="hint" data-full hidden>Pixel Match on the raw model: keeps the 3D model's own mesh, untouched (often
       near a million triangles), and paints your picture's pixels on. The sharpest look, in under a minute. Too heavy
       for a game; rig and animate a lighter version.</p>
-    <p class="hint" data-hero hidden>For characters whose face matters. The body is finished as usual, then the head
+    <p class="hint" data-hero-hint hidden>For characters whose face matters. The body is finished as usual, then the head
       is built again from a close, upscaled crop of your picture and joined on: real eyelids instead of goggle eyes.
       Needs a model made from a picture, plus Auto-rig and the Hero face upscaler (67 MB), both in Setup.</p>
     <div data-custom hidden>
@@ -147,7 +160,7 @@ export function wireStep(card, stepId, asset, ctx) {
   if (faces) faces.onchange = () => {
     card.querySelector('[data-custom]').hidden = faces.value !== 'custom';
     card.querySelector('[data-full]').hidden = faces.value !== 'full';
-    card.querySelector('[data-hero]').hidden = faces.value !== 'hero';
+    card.querySelector('[data-hero-hint]').hidden = faces.value !== 'hero';
   };
   if (engine) engine.onchange = () => { card.querySelector('[data-k="licence"]').textContent = ctx.engines.find((e) => e.id === engine.value)?.license || ''; };
 

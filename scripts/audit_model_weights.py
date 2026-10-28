@@ -89,12 +89,16 @@ def directory_size(path: Path) -> int:
     return total
 
 
-def conversion_proven(ckpt: Path, converted: Path) -> bool:
+MAX_SAFETENSORS_HEADER = 100 * 1024 * 1024
+
+
+def conversion_proven(converted: Path) -> bool:
     """True when `converted` exists, is non-empty, and parses as safetensors.
 
     Verification is header-only: we read the 8-byte little-endian header length,
-    then the JSON header, and confirm it declares at least one tensor. Tensor
-    data is never deserialized, so this is cheap even for multi-gigabyte files.
+    then the JSON header, and confirm it declares at least one tensor with valid
+    metadata. Tensor data is never deserialized, so this is cheap even for
+    multi-gigabyte files.
     """
     try:
         size = converted.stat().st_size
@@ -102,21 +106,35 @@ def conversion_proven(ckpt: Path, converted: Path) -> bool:
         return False
     if size < 8:
         return False
-    with converted.open("rb") as handle:
-        raw_len = handle.read(8)
-        if len(raw_len) != 8:
-            return False
-        header_len = int.from_bytes(raw_len, "little")
-        if header_len <= 0 or header_len > size - 8:
-            return False
-        header = handle.read(header_len)
-        if len(header) != header_len:
-            return False
+    try:
+        with converted.open("rb") as handle:
+            raw_len = handle.read(8)
+            if len(raw_len) != 8:
+                return False
+            header_len = int.from_bytes(raw_len, "little")
+            if header_len <= 0 or header_len > size - 8 or header_len > MAX_SAFETENSORS_HEADER:
+                return False
+            header = handle.read(header_len)
+            if len(header) != header_len:
+                return False
+    except OSError:
+        return False
     try:
         parsed = json.loads(header)
     except json.JSONDecodeError:
         return False
-    return isinstance(parsed, dict) and len(parsed) >= 1
+    if not isinstance(parsed, dict) or not parsed:
+        return False
+    for entry in parsed.values():
+        offsets = entry.get("data_offsets") if isinstance(entry, dict) else None
+        if (
+            not isinstance(offsets, list)
+            or len(offsets) != 2
+            or not all(isinstance(v, int) for v in offsets)
+            or offsets[0] > offsets[1]
+        ):
+            return False
+    return True
 
 
 def find_superseded_checkpoints(roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
@@ -129,7 +147,7 @@ def find_superseded_checkpoints(roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
             converted = ckpt.with_suffix(".safetensors")
             if not converted.is_file() or ckpt.is_symlink():
                 continue
-            if conversion_proven(ckpt, converted):
+            if conversion_proven(converted):
                 found.append(Candidate(
                     "ckpt", ckpt, directory_size(ckpt),
                     f"converted already: {converted.name} ({human_bytes(directory_size(converted))})",

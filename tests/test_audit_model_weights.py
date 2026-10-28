@@ -98,6 +98,44 @@ def test_a_checkpoint_beside_a_truncated_conversion_is_not_reclaimable(tmp_path)
     assert "conversion unproven" in found[0].reason
 
 
+def test_a_checkpoint_beside_an_overlong_header_is_not_reclaimable(tmp_path):
+    _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    # Header length claims 200 MB, far above the 100 MB cap, but the file is tiny.
+    (tmp_path / "m/model.fp16.safetensors").write_bytes(
+        (200 * 1024 * 1024).to_bytes(8, "little") + b"{}"
+    )
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert [c.path.name for c in found] == ["model.fp16.ckpt"]
+    assert found[0].deletable is False
+    assert "conversion unproven" in found[0].reason
+
+
+def test_a_checkpoint_beside_a_dict_without_tensor_offsets_is_not_reclaimable(tmp_path):
+    _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    # Valid JSON dict, but its values are not safetensors tensor metadata.
+    header = b'{"t":{"not":"tensor"}}'
+    (tmp_path / "m/model.fp16.safetensors").write_bytes(
+        len(header).to_bytes(8, "little") + header
+    )
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert [c.path.name for c in found] == ["model.fp16.ckpt"]
+    assert found[0].deletable is False
+    assert "conversion unproven" in found[0].reason
+
+
+def test_a_checkpoint_beside_inverted_offsets_is_not_reclaimable(tmp_path):
+    _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    # data_offsets start is greater than end.
+    header = b'{"t":{"dtype":"F32","shape":[1],"data_offsets":[8,0]}}'
+    (tmp_path / "m/model.fp16.safetensors").write_bytes(
+        len(header).to_bytes(8, "little") + header
+    )
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert [c.path.name for c in found] == ["model.fp16.ckpt"]
+    assert found[0].deletable is False
+    assert "conversion unproven" in found[0].reason
+
+
 def test_symlinks_are_counted_once(tmp_path):
     # The HF cache keeps one copy in blobs/ and links to it from snapshots/; following
     # both doubles every figure the report prints.
@@ -168,8 +206,9 @@ def test_unreferenced_entries_are_never_deletable(tmp_path):
 
 def test_a_dry_run_deletes_nothing(tmp_path, capsys):
     ckpt = _weights(tmp_path, "m/model.fp16.ckpt", 2048)
-    _weights(tmp_path, "m/model.fp16.safetensors", 2048)
+    _valid_safetensors(tmp_path / "m/model.fp16.safetensors")
     found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert found and found[0].deletable is True
 
     audit.report(found, apply=False)
     assert ckpt.is_file(), "a dry run removed a file"

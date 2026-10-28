@@ -138,3 +138,47 @@ def test_hero_stops_before_any_work_on_a_build_that_cannot_save_its_clean_up(mon
     assert hero_route.main() == 2
     assert "Rebuild for Pixal3D" in capsys.readouterr().err
     assert not (tmp_path / "run").exists()                # nothing started
+
+
+def _fake_finish(calls):
+    def finish(run, model, picture, views, out, faces, dump, classic=False):
+        calls.append((model.name, out.name, classic))
+        out.write_text("finished")
+    return finish
+
+
+def test_a_head_clean_up_that_crashes_takes_the_classic_finish(monkeypatch, tmp_path):
+    run = hero_route.Run(tmp_path)
+    monkeypatch.setattr(run, "run", lambda command, **_: False)   # post-replay exits 1, as on Windows
+    calls = []
+    monkeypatch.setattr(hero_route, "finish", _fake_finish(calls))
+    raw, clean, head = tmp_path / "head_raw.glb", tmp_path / "head_clean.glb", tmp_path / "head.glb"
+    hero_route.finish_head(run, raw, tmp_path / "crop.png", clean, head, 16000)
+    assert calls == [("head_raw.glb", "head.glb", True)]           # once, classic, straight from the raw head
+    assert head.read_text() == "finished" and clean.exists()       # a rerun skips both steps
+    assert any("classic" in note for note in run.unsure)
+
+
+def test_a_head_clean_up_that_works_is_pixel_matched_as_it_is(monkeypatch, tmp_path):
+    run = hero_route.Run(tmp_path)
+    monkeypatch.setattr(hero_route, "head_cleanup", lambda run, raw, out, faces: out.write_text("clean") or True)
+    calls = []
+    monkeypatch.setattr(hero_route, "finish", _fake_finish(calls))
+    hero_route.finish_head(run, tmp_path / "head_raw.glb", tmp_path / "crop.png",
+                           tmp_path / "head_clean.glb", tmp_path / "head.glb", 16000)
+    assert calls == [("head_clean.glb", "head.glb", False)]
+
+
+def test_finish_asks_for_the_route_it_was_given(monkeypatch, tmp_path):
+    import json
+
+    run = hero_route.Run(tmp_path)
+    commands = []
+    monkeypatch.setattr(run, "run", lambda command, **_: commands.append([str(c) for c in command]) or True)
+    out = tmp_path / "head.glb"
+    out.with_suffix(".retopo-repaint.json").write_text(json.dumps({}))
+    for classic in (True, False):
+        hero_route.finish(run, tmp_path / "raw.glb", tmp_path / "p.png", tmp_path / "v", out, 16000, None, classic)
+    classic_cmd, kept_cmd = commands
+    assert "--keep-mesh" not in classic_cmd and "--native-dump" not in classic_cmd
+    assert "--keep-mesh" in kept_cmd

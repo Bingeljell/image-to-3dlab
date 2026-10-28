@@ -183,10 +183,13 @@ def body_problem(body: Path | None, views: Path | None, dump: Path | None) -> st
     return None
 
 
-def finish(run: Run, model: Path, picture: Path, views: Path, out: Path, faces: int, dump: Path | None) -> None:
+def finish(run: Run, model: Path, picture: Path, views: Path, out: Path, faces: int, dump: Path | None,
+           classic: bool = False) -> None:
+    """Finish MODEL: Pixal3D's own clean-up from DUMP, the classic retopology when `classic`,
+    or else keep its mesh as it is and only Pixel Match it."""
     command = [PYTHON, "-u", FINISH, model, picture, out, "--steps-dir", out.with_suffix(".steps"),
                "--views", views, "--faces", str(faces), *FINISH_FLAGS]
-    command += ["--native-dump", dump] if dump else ["--keep-mesh"]
+    command += ["--native-dump", dump] if dump else [] if classic else ["--keep-mesh"]
     run.run(command)
     record = json.loads(out.with_suffix(".retopo-repaint.json").read_text())
     route = (record.get("retopology") or {}).get("route")
@@ -195,15 +198,36 @@ def finish(run: Run, model: Path, picture: Path, views: Path, out: Path, faces: 
                  "objected; see run.log): hair and thin parts can shatter")
 
 
-def head_cleanup(run: Run, raw: Path, out: Path, faces: int) -> None:
-    """Pixal3D's own clean-up at FACES. Its mirror check is a coin-flip on a front-facing,
-    near-symmetric head (0.2% vs 0.3% on the elf) and would drop to the classic route, which
-    shatters hair; a head crop is always front-facing, so convert directly and say so."""
+def head_cleanup(run: Run, raw: Path, out: Path, faces: int) -> bool:
+    """Pixal3D's own clean-up at FACES; False when post-replay fails. Its mirror check is a
+    coin-flip on a front-facing, near-symmetric head (0.2% vs 0.3% on the elf) and would drop
+    to the classic route, which shatters hair; a head crop is always front-facing, so convert
+    directly and say so."""
     from image_to_3dlab import pixal3d_native as native
 
     replay = out.with_name(out.stem + ".replay.glb")
-    run.run(native.replay_command(raw.with_suffix(native.DUMP_SUFFIX), replay, faces, 2048))
+    if not run.run(native.replay_command(raw.with_suffix(native.DUMP_SUFFIX), replay, faces, 2048),
+                   required=False):
+        return False
     out.write_bytes(native.convert_replay_glb(replay.read_bytes()))
+    return True
+
+
+def finish_head(run: Run, raw: Path, picture: Path, clean: Path, head: Path, faces: int) -> None:
+    """The head, cleaned up and Pixel Matched into HEAD. When Pixal3D's own clean-up fails
+    (seen on Windows), the classic Finish does both in one go instead of failing the run;
+    CLEAN then holds that finished head, so a rerun skips the step."""
+    views = raw.with_suffix(".svviews")
+    if run.step(f"head: clean-up {faces}", clean):
+        if head_cleanup(run, raw, clean, faces):
+            run.flag("head clean-up skips Finish's mirror check (front-facing crop); glance at the check sheet")
+        else:
+            run.flag("Pixal3D's own clean-up failed on the head (see run.log); it took the classic "
+                     "clean-up instead: hair and thin parts can shatter")
+            finish(run, raw, picture, views, head, faces, None, classic=True)
+            shutil.copy(head, clean)
+    if run.step("head: Pixel Match", head):
+        finish(run, clean, picture, views, head, faces, None)
 
 
 def main() -> int:
@@ -327,13 +351,8 @@ def main() -> int:
     head_raw = out / "head_raw.glb"
     if run.step("head: Pixal3D on the crop", head_raw):
         run.run([PYTHON, "-u", GENERATE, head_picture, head_raw, "--seed", str(args.seed)])
-    head_clean = out / "head_clean.glb"
-    if run.step(f"head: clean-up {args.head_faces}", head_clean):
-        head_cleanup(run, head_raw, head_clean, args.head_faces)
-        run.flag("head clean-up skips Finish's mirror check (front-facing crop); glance at the check sheet")
     head = out / "head.glb"
-    if run.step("head: Pixel Match", head):
-        finish(run, head_clean, head_picture, head_raw.with_suffix(".svviews"), head, args.head_faces, None)
+    finish_head(run, head_raw, head_picture, out / "head_clean.glb", head, args.head_faces)
 
     head_baked = out / "head_baked.glb"
     if run.step("head: bake normal map from the raw head", head_baked):

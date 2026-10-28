@@ -348,7 +348,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     const fixing = tools.querySelector('[data-act="fix"]').getAttribute('aria-pressed') === 'true';
     if (!fixing || !view?.root || !downAt || session.busy) return;
     if (Math.hypot(event.clientX - downAt[0], event.clientY - downAt[1]) > 4) return;   // that was an orbit
-    if (!fixSession?.canFix()) { overlayNote('Fix a spot works on a finished model. Open the finished version first.'); return; }
+    if (!fixSession?.canFix()) { overlayNote(fixSession?.blockedNote?.() ?? 'Fix a spot works on a finished model.'); return; }
     if (session.preview && session.showing === 'before') { overlayNote('Switch to "after" to mark more spots.'); return; }
     const hit = pick(event);
     if (!hit) { overlayNote('Missed the model: click right on it.'); return; }

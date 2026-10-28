@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
+- Runs with a non-default model (e.g. a custom `--sf3d-repo` or a ComfyUI workflow loading a foreign
+  checkpoint) must now declare it in a run manifest with `license_policy.allow_unverified: true`; the
+  provenance sidecar records such models as unverified instead of labelling them with the backend's
+  default licence.
 
 ### Fixed
 - Direct Xiong generation (`scripts/hunyuan_mlx_xiong_generate.py`) now writes a `.provenance.json`

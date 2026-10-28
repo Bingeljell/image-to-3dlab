@@ -39,9 +39,25 @@ def _weights(root: Path, name: str, size: int) -> Path:
     return path
 
 
+def _valid_safetensors(path: Path) -> Path:
+    """Write a minimal valid single-tensor safetensors file.
+
+    This builds the same bytes ``safetensors.torch.save_file`` would emit for a
+    one-element float32 tensor, without pulling in the library.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = b'{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+    data = b"\x00\x00\x00\x00"
+    with path.open("wb") as handle:
+        handle.write(len(header).to_bytes(8, "little"))
+        handle.write(header)
+        handle.write(data)
+    return path
+
+
 def test_a_checkpoint_beside_its_conversion_is_reclaimable(tmp_path):
     _weights(tmp_path, "m/model.fp16.ckpt", 2048)
-    _weights(tmp_path, "m/model.fp16.safetensors", 2048)
+    _valid_safetensors(tmp_path / "m/model.fp16.safetensors")
     found = audit.find_superseded_checkpoints(roots=(tmp_path,))
     assert [c.path.name for c in found] == ["model.fp16.ckpt"]
     assert found[0].deletable is True
@@ -50,6 +66,36 @@ def test_a_checkpoint_beside_its_conversion_is_reclaimable(tmp_path):
 def test_a_checkpoint_with_no_conversion_is_left_alone(tmp_path):
     _weights(tmp_path, "m/model.fp16.ckpt", 2048)
     assert audit.find_superseded_checkpoints(roots=(tmp_path,)) == []
+
+
+def test_a_checkpoint_beside_a_zero_byte_conversion_is_not_reclaimable(tmp_path):
+    _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    _weights(tmp_path, "m/model.fp16.safetensors", 0)
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert [c.path.name for c in found] == ["model.fp16.ckpt"]
+    assert found[0].deletable is False
+    assert "conversion unproven" in found[0].reason
+
+
+def test_a_checkpoint_beside_garbage_conversion_is_not_reclaimable(tmp_path):
+    _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    (tmp_path / "m/model.fp16.safetensors").write_bytes(b"not a safetensors file")
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert [c.path.name for c in found] == ["model.fp16.ckpt"]
+    assert found[0].deletable is False
+    assert "conversion unproven" in found[0].reason
+
+
+def test_a_checkpoint_beside_a_truncated_conversion_is_not_reclaimable(tmp_path):
+    _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    # Header length claims 1000 bytes, but the file ends right after that claim.
+    (tmp_path / "m/model.fp16.safetensors").write_bytes(
+        (1000).to_bytes(8, "little") + b"partial header"
+    )
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    assert [c.path.name for c in found] == ["model.fp16.ckpt"]
+    assert found[0].deletable is False
+    assert "conversion unproven" in found[0].reason
 
 
 def test_symlinks_are_counted_once(tmp_path):
@@ -132,9 +178,9 @@ def test_a_dry_run_deletes_nothing(tmp_path, capsys):
 
 def test_apply_deletes_only_the_deletable(tmp_path):
     ckpt = _weights(tmp_path, "m/model.fp16.ckpt", 2048)
-    keep = _weights(tmp_path, "m/model.fp16.safetensors", 2048)
+    keep = _valid_safetensors(tmp_path / "m/model.fp16.safetensors")
     found = audit.find_superseded_checkpoints(roots=(tmp_path,))
-    found.append(audit.Candidate("unreferenced", keep, 2048, "review only", deletable=False))
+    found.append(audit.Candidate("unreferenced", keep, keep.stat().st_size, "review only", deletable=False))
 
     audit.report(found, apply=True)
     assert not ckpt.exists()

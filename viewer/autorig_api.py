@@ -439,6 +439,12 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         job.emit({"phase": "error", "message": str(exc)})
     finally:
         stop.set()
+        if job.process is not None and job.process.poll() is None:
+            try:
+                processes.terminate_group(job.process.pid)
+                job.process.wait(timeout=30)
+            except Exception as cleanup_exc:
+                job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

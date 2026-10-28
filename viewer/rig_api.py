@@ -196,6 +196,12 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
         job.emit({"phase": "error", "message": str(exc)})
     finally:
         job.directory.joinpath("pid").unlink(missing_ok=True)
+        if job.process is not None and job.process.poll() is None:
+            try:
+                processes.terminate_group(job.process.pid)
+                job.process.wait(timeout=30)
+            except Exception as cleanup_exc:
+                job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

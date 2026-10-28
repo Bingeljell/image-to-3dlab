@@ -1005,18 +1005,51 @@ def test_a_plan_s_files_and_settings_travel_to_the_server():
 
 
 @needs_node
-def test_hero_card_shows_for_pixal3d_characters_and_models_only():
+def test_hero_card_shows_for_characters_and_models_and_says_why_when_it_cannot_run():
     out = _run("steps.js", """
       const base = { picture: 'images/e/e.png', model: 'e__pixal3d__1/e.glb', finished: null };
+      const off = (a) => { const html = m.heroCard(a); return html.includes('hero-card off') && !html.includes('data-run') ? html : false; };
       console.log(JSON.stringify({
         model: m.heroCard({ ...base, kind: 'model' }).includes('Finish as a Hero'),
         finishedChar: m.heroCard({ ...base, kind: 'character', finished: 'finish/x/e_20k.glb' }).includes('Make a Hero version'),
         alreadyHero: m.heroCard({ ...base, kind: 'character', finished: 'finish/x/e_hero.glb' }),
         prop: m.heroCard({ ...base, kind: 'prop' }), sheet: m.heroCard({ ...base, kind: 'prop set' }),
-        trellis: m.heroCard({ ...base, kind: 'model', model: 'e__trellis__1/e.glb' }),
-        noPicture: m.heroCard({ ...base, kind: 'model', picture: null }) }));""")
-    assert out == {"model": True, "finishedChar": True, "alreadyHero": "", "prop": "", "sheet": "",
-                   "trellis": "", "noPicture": ""}
+        notBuilt: m.heroCard({ ...base, kind: 'model', model: null }),
+        trellis: off({ ...base, kind: 'model', model: 'e__trellis__1/e.glb' }),
+        noPicture: off({ ...base, kind: 'model', picture: null }) }));""")
+    assert {k: v for k, v in out.items() if k not in ("trellis", "noPicture")} == {
+        "model": True, "finishedChar": True, "alreadyHero": "", "prop": "", "sheet": "", "notBuilt": ""}
+    assert "Pixal3D" in out["trellis"]          # greyed out with the reason, never just gone
+    assert "picture" in out["noPicture"]
+
+
+@needs_node
+def test_finish_detail_offers_hero_only_where_it_can_run_and_its_hint_follows_the_choice():
+    out = _run("steps.js", """
+      const ctx = { blenderReady: true, engines: [], presets: [] };
+      const a = { kind: 'character', picture: 'i/k.png', model: 'm/k__pixal3d__1/k.glb', finished: null, clips: [] };
+      const option = (html) => html.match(/<option value="hero"[^>]*>/)[0];
+      const html = m.stepBody('finished', a, ctx);
+      console.log(JSON.stringify({
+        ok: option(html), trellis: option(m.stepBody('finished', { ...a, model: 'm/k__trellis__1/k.glb' }, ctx)),
+        // the Detail menu shows and hides its own hint, never the Hero card's button above it
+        heroButtons: (html.match(/data-hero[ >]/g) || []).length, hints: (html.match(/data-hero-hint/g) || []).length }));""")
+    assert "disabled" not in out["ok"] and "disabled" in out["trellis"]
+    assert out["heroButtons"] == 1 and out["hints"] == 1
+
+
+@needs_node
+def test_fix_a_spot_works_on_the_finished_model_even_once_rigged():
+    out = _run("library.js", f"""
+      const k = {json.dumps(KNIGHT)}, unrigged = {{ ...k, rigged: null, clips: [] }}, raw = {{ ...k, finished: null, rigged: null }};
+      console.log(JSON.stringify({{
+        riggedLatest: m.canFixShown(k), riggedViaView: m.canFixShown(k, {{ step: 'finished' }}),
+        rawStep: m.canFixShown(k, {{ step: 'model' }}), pictures: m.canFixShown(unrigged, {{ pictures: true }}),
+        unrigged: m.canFixShown(unrigged), notFinished: m.canFixShown(raw, {{ step: 'finished' }}),
+        noteRigged: m.fixBlockedNote(k), noteRaw: m.fixBlockedNote(raw) }}));""")
+    assert out["riggedViaView"] and out["unrigged"]
+    assert not any(out[k] for k in ("riggedLatest", "rawStep", "pictures", "notFinished"))
+    assert "View on the Finished step" in out["noteRigged"] and "Finish this one first" in out["noteRaw"]
 
 
 @needs_node

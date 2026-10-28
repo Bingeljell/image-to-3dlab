@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
 
 ### Fixed
+- Direct Xiong generation (`scripts/hunyuan_mlx_xiong_generate.py`) now writes a `.provenance.json`
+  licence sidecar beside the GLB, recording the MIT in-repo port and the Tencent weights licence with
+  its EU/UK/Korea territory restriction.
 - Weight downloads now require an explicit choice: `hunyuan_mlx/download_weights.py` needs `--yes` or an
   interactive `y`/`yes`; `image_to_3dlab/matte.new_session` and `matte.cut_out` default to
   `allow_download=False` and raise fetch instructions instead of silently downloading rembg weights;

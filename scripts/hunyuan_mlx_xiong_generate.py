@@ -31,6 +31,12 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+# Make the repo's own `image_to_3dlab` package importable when this script is run
+# directly from the shape venv.
+sys.path.insert(0, str(REPO))
+
+from image_to_3dlab.provenance import sha256_file
+
 SHAPE_ROOT = REPO / "hunyuan_mlx" / "shape"
 SHAPE_MODELS = {
     "2.1": SHAPE_ROOT / "weights" / "Hunyuan3D-2.1" / "hunyuan3d-dit-v2-1",
@@ -40,6 +46,18 @@ SHAPE_MODELS = {
 PAINT_ROOT = REPO / "hunyuan_mlx" / "paint"
 PAINT_PYTHON = PAINT_ROOT / ".venv" / "bin" / "python"
 PAINT_SCRIPT = PAINT_ROOT / "scripts" / "run_paint_pbr.py"
+
+# Licence facts for the provenance sidecar. The in-repo port is MIT; the underlying
+# Hunyuan3D-2/2.1 weights (shape and the MLX-ready paint conversion) carry the Tencent
+# community licence with its EU/UK/Korea territory restriction.
+# See hunyuan_mlx/LICENSE and docs/hunyuan-mlx-recipes.md.
+TENCENT_LICENSE_NAME = "Tencent Hunyuan 3D 2.1 Community License"
+TENCENT_LICENSE_URL = "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1/blob/main/LICENSE"
+TENCENT_CONDITIONS = (
+    "Use and outputs are not licensed in the EU, UK, or South Korea.",
+    "Additional distribution, attribution, and commercial conditions apply.",
+)
+MIT_LICENSE_URL = "hunyuan_mlx/LICENSE"
 
 sys.path.insert(0, str(SHAPE_ROOT))
 
@@ -143,6 +161,61 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
     print(f"paint stage done ({time.time() - t0:.0f}s) -> {output}", flush=True)
 
 
+def write_provenance(output: Path, image: Path, manifest: dict) -> Path:
+    """Write the `.provenance.json` licence sidecar beside the generated GLB."""
+    sidecar = output.with_suffix(".provenance.json")
+    record = {
+        "schema_version": 1,
+        "backend": "hunyuan-mlx-xiong",
+        "input": {
+            "path": str(image),
+            "sha256": sha256_file(image),
+            "source": "user-provided",
+        },
+        "output": {
+            "path": str(output),
+            "sha256": sha256_file(output),
+            "classification": "territory-restricted",
+        },
+        "model": {
+            "backend": "hunyuan-mlx-xiong",
+            "parameters": manifest.get("parameters", {}),
+        },
+        "license": {
+            "name": TENCENT_LICENSE_NAME,
+            "url": TENCENT_LICENSE_URL,
+            "conditions": list(TENCENT_CONDITIONS),
+        },
+        "components": [
+            {
+                "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
+                "purpose": "MLX generation code tracked in this repository",
+                "license": "MIT",
+                "license_url": MIT_LICENSE_URL,
+                "commercial_status": "commercial-clear",
+            },
+            {
+                "component": "Tencent Hunyuan3D-2/2.1 shape weights",
+                "purpose": "shape-stage diffusion model",
+                "license": TENCENT_LICENSE_NAME,
+                "license_url": TENCENT_LICENSE_URL,
+                "commercial_status": "territory-restricted",
+                "conditions": list(TENCENT_CONDITIONS),
+            },
+            {
+                "component": "Tencent Hunyuan3D-2/2.1 paint weights (MLX-ready conversion)",
+                "purpose": "paint-stage texture generation model",
+                "license": TENCENT_LICENSE_NAME,
+                "license_url": TENCENT_LICENSE_URL,
+                "commercial_status": "territory-restricted",
+                "conditions": list(TENCENT_CONDITIONS),
+            },
+        ],
+    }
+    sidecar.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    return sidecar
+
+
 def main() -> None:
     args = parse_args()
     t0 = time.time()
@@ -210,7 +283,9 @@ def main() -> None:
     }
     manifest_path = args.output.with_name(f"{args.output.stem}.json")
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    provenance_path = write_provenance(args.output, args.image, manifest)
     print(f"Manifest: {manifest_path}", flush=True)
+    print(f"Provenance: {provenance_path}", flush=True)
     print(f"Total: {total:.1f}s", flush=True)
 
 

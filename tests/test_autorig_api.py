@@ -158,6 +158,61 @@ def test_progress_estimate_never_claims_done():
     assert aa.estimated_pct(500, 70) == 95
 
 
+def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
+    """If the worker process is alive when an exception fires, it must be stopped and reaped
+    before the active slot is freed."""
+    result = tmp_path / "out.glb"
+    command = [sys.executable, "-c", "print('working')"]
+    job = aa.AnimateJob("2" * 32, "rig", tmp_path, result, [(command, tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+
+    calls = []
+
+    class RaisingStdout:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise OSError("broken pipe")
+
+    class Worker:
+        pid = 4242
+        returncode = 0
+        stdout = RaisingStdout()
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout, manager.active))
+            return 0
+
+        def poll(self):
+            return None
+
+    def fake_terminate_group(pid):
+        calls.append(("terminate_group", pid, manager.active))
+
+    original_write_text = Path.write_text
+
+    def fake_write_text(self, *args, **kwargs):
+        if self.name == "pid":
+            raise OSError("No space left on device")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(aa.subprocess, "Popen", Worker)
+    monkeypatch.setattr(aa.processes, "terminate_group", fake_terminate_group)
+    monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+    aa.run_job(job, manager)
+
+    assert job.status == "error"
+    assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
+    assert manager.active is None
+
+
 def test_source_record_prefers_a_sidecar_that_names_a_licence(tmp_path):
     glb = _glb(tmp_path / "m.glb")
     (tmp_path / "m.json").write_text(json.dumps({"seed": 1}))

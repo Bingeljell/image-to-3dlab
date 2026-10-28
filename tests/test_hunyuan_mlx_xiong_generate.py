@@ -48,12 +48,38 @@ def test_write_provenance_creates_sidecar_with_expected_licences(tmp_path):
     assert record["input"]["sha256"] == sha256_file(image)
     assert record["output"]["sha256"] == sha256_file(output)
     assert record["model"]["parameters"]["model"] == "2.0"
-    assert record["license"]["name"] == "Tencent Hunyuan 3D 2.1 Community License"
-    assert any("EU" in condition for condition in record["license"]["conditions"])
-    names = [c["component"] for c in record["components"]]
-    assert "Tencent Hunyuan3D-2/2.1 shape weights" in names
-    assert "Tencent Hunyuan3D-2/2.1 paint weights (MLX-ready conversion)" in names
-    assert "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)" in names
+    assert record["license"] == {
+        "name": xiong.TENCENT_LICENSE_NAME,
+        "url": xiong.TENCENT_LICENSE_URL,
+        "conditions": list(xiong.TENCENT_CONDITIONS),
+    }
+
+    mit_component = {
+        "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
+        "purpose": "MLX generation code tracked in this repository",
+        "license": "MIT",
+        "license_url": xiong.MIT_LICENSE_PATH,
+        "commercial_status": "commercial-clear",
+    }
+    tencent_component = {
+        "license": xiong.TENCENT_LICENSE_NAME,
+        "license_url": xiong.TENCENT_LICENSE_URL,
+        "commercial_status": "territory-restricted",
+        "conditions": list(xiong.TENCENT_CONDITIONS),
+    }
+    assert record["components"] == [
+        mit_component,
+        {
+            "component": "Tencent Hunyuan3D-2/2.1 shape weights",
+            "purpose": "shape-stage diffusion model",
+            **tencent_component,
+        },
+        {
+            "component": "Tencent Hunyuan3D-2/2.1 paint weights (MLX-ready conversion)",
+            "purpose": "paint-stage texture generation model",
+            **tencent_component,
+        },
+    ]
 
 
 def test_main_writes_manifest_and_provenance(tmp_path, monkeypatch):

@@ -57,7 +57,7 @@ TENCENT_CONDITIONS = (
     "Use and outputs are not licensed in the EU, UK, or South Korea.",
     "Additional distribution, attribution, and commercial conditions apply.",
 )
-MIT_LICENSE_URL = "hunyuan_mlx/LICENSE"
+MIT_LICENSE_PATH = "hunyuan_mlx/LICENSE"
 
 sys.path.insert(0, str(SHAPE_ROOT))
 
@@ -191,7 +191,7 @@ def write_provenance(output: Path, image: Path, manifest: dict) -> Path:
                 "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
                 "purpose": "MLX generation code tracked in this repository",
                 "license": "MIT",
-                "license_url": MIT_LICENSE_URL,
+                "license_url": MIT_LICENSE_PATH,
                 "commercial_status": "commercial-clear",
             },
             {

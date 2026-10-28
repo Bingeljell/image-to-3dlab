@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Spawn named joint markers on a mesh in Blender, and read their placed positions back.
 
+Run (live): python scripts/blender_joint_markers.py spawn --help
+
 The rigging plan calls for the user to place joints by hand in Blender while the agent,
 which cannot see the viewport, reads the results back over the MCP socket. Markers are
 pre-placed at anatomically plausible positions rather than parked at the origin: 23

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Put assets side by side in the RUNNING Blender, lit, textured and ready to look at.
 
+Run (live): python scripts/blender_stage.py A.glb B.glb --labels "old" "new"
+
     python scripts/blender_stage.py A.glb B.glb --labels "old" "new"
 
 **Why this exists.** The render helpers in this repo wipe the scene and swap in their own

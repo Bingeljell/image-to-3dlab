@@ -1,6 +1,6 @@
 """Bake an ambient-occlusion map from an asset's own geometry, headless.
 
-Run: Blender -b -P scripts/blender_bake_ao.py -- <asset.glb> <ao_out.png> [samples] [size] [distance_frac]
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_bake_ao.py -- asset.glb ao_out.png [samples] [size] [distance_frac]
 
 Unlike the normal and roughness maps in ``surface_detail.py``, this is *measured*, not
 invented: it asks where the geometry actually shadows itself. On a coiled subject that

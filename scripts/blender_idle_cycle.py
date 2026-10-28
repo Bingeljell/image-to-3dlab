@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Author a looping idle for the rigged fox — breathing, ear flicks, a lazy tail.
 
+Run (live): python scripts/blender_idle_cycle.py --help
+
 An idle is not a slow gait. Nothing cycles through contact phases; the feet stay planted
 and every motion hangs off one slow **breath**. This is the animation a character screen
 shows by default, so it has to survive being watched for a long time, which means:

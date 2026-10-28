@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Author a natural walk, trot or scamper on any Rigify basic-quadruped rig.
 
+Run (headless): blender --background rigged.blend --python-exit-code 1 --python scripts/blender_quadruped_walk.py -- --gait walk --frames 32 --out walked.blend
+
     blender --background rigged.blend --python scripts/blender_quadruped_walk.py -- \
         --gait walk --frames 32 --out walked.blend
 

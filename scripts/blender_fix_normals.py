@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Recalculate outward-facing normals on a generated mesh and re-export it.
 
+Run (live): python scripts/blender_fix_normals.py model.glb fixed.glb
+
 Generated meshes come out substantially inside-out: measured by inward-facing area,
 60% on one Nikita run and 23% on another. Blender's ray-cast heuristic (Edit Mode >
 Mesh > Normals > Recalculate Outside, Shift+N) fixes most of it -- 60% -> 19% and

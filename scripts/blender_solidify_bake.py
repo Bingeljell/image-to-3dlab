@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Voxel-remesh a mesh into a closed surface and bake its albedo back on.
 
+Run (live): python scripts/blender_solidify_bake.py model.glb closed.glb
+
 SUPERSEDED (2026-08-06). This was written to fix a "confetti mesh" of tens of thousands
 of disconnected shards. That diagnosis was a measurement error: `merge_vertices` does
 not merge across UV seams, so the component count was really a count of UV islands.

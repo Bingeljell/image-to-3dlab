@@ -1,4 +1,6 @@
-"""Voxel-proxy weight transfer used by the headless rig rebind worker."""
+"""Voxel-proxy weight transfer used by the headless rig rebind worker.
+
+Run (internal): not run on its own; blender_rebind.py, blender_bind_rig.py and blender_quadruped_pipeline.py import it"""
 
 from __future__ import annotations
 

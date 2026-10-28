@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Prepare an open Blender metarig scene and export its browser rig sidecar.
 
+Run (headless): blender --background source.blend --python-exit-code 1 --python scripts/blender_export_rig_binding.py -- source.glb prepared.blend prepared.rig.json rigify.basic-quadruped.blender-5.2.v1
+
 Run through Blender, opening the source scene before this script:
 
     blender --background source.blend --python scripts/blender_export_rig_binding.py -- \

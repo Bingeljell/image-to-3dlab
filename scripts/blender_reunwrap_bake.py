@@ -1,5 +1,7 @@
 """Re-unwrap a generated mesh into coherent UV islands and re-bake its texture, headless.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_reunwrap_bake.py -- IN.glb OUT.glb [size]
+
 Run with:
     blender --background --python scripts/blender_reunwrap_bake.py -- IN.glb OUT.glb [size]
 

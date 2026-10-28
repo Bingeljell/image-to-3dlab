@@ -9,6 +9,12 @@ Each summary below is the script's own first line. `tests/test_scripts_registry.
 fails if a script is missing from this file or if a summary has drifted from the
 docstring, so a new script is not finished until it is listed here.
 
+**Blender helpers (`blender_*.py`, `hero_blender.py`) are meant for agents as much as people.** Each
+docstring has a `Run (live|headless|internal): ...` line: *live* drives the user's open Blender through the
+BlenderMCP add-on on port 9876, *headless* starts its own background Blender, *internal* is part of another
+helper. An agent connected to AssetFurnace's MCP (`./lab mcp`) gets the same list from its `blender_helpers`
+tool; a test fails if a helper has no Run line.
+
 Most tools print their real documentation with `--help`; the docstring at the top of
 each file explains *why* it exists, which is usually the part you need.
 
@@ -16,19 +22,11 @@ each file explains *why* it exists, which is usually the part you need.
 
 Run a backend end to end, or re-run part of one without paying for the whole thing again.
 
-For the staged **fitted metarig → proxy weights → reference pose → tunable gait →
-standing transition** workflow, start with [the quadruped pipeline guide](../docs/quadruped-pipeline.md).
-It includes commands, parameter definitions, failure checks, and an LLM-assisted
-tuning checklist. Manual fitting and visual weight/deformation review remain required.
-
 For **prop sheets** (many props from one image in one run, then split and finished into
 game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 
 | Script | What it does |
 |---|---|
-| `blender_quadruped_pipeline.py` | Bind, capture and animate fitted Rigify quadrupeds with tunable profiles and audit reports. |
-| `quadruped_gait.py` | Gait curves for the Rigify basic quadruped metarig, as pure functions. |
-| `blender_quadruped_walk.py` | Author a natural walk, trot or scamper on any Rigify basic-quadruped rig. |
 | `bootstrap_macos.sh` | Create the project virtualenv and install the SF3D backend and its native dependencies (needs Python 3.10/3.11 and Homebrew's libomp). |
 | `bootstrap_trellis_macos.sh` | Clone and install the `shivampkumar/trellis-mac` port, with the Metal acceleration backends when Xcode's Metal compiler is present and a slower CPU bake fallback when it is not. |
 | `bootstrap_trellis_space_macos.py` | Bootstrap TRELLIS.2 on macOS from Microsoft's pinned Space source. |
@@ -142,7 +140,7 @@ Numbers and renders to decide whether a change helped. Read `docs/` before trust
 
 ## Blender: look at it
 
-These talk to a running Blender over the `execute_code` socket on port 9876 unless they say headless.
+Most of these drive the user's open Blender (BlenderMCP add-on, port 9876); each script's `Run` line says which.
 
 | Script | What it does |
 |---|---|
@@ -183,8 +181,16 @@ Heavier edits that need Blender's own operators rather than trimesh.
 
 The `*_pose.py` files are pure curve maths with no `bpy`, which is why they have tests.
 
+For the staged **fitted metarig → proxy weights → reference pose → tunable gait →
+standing transition** workflow, start with [the quadruped pipeline guide](../docs/quadruped-pipeline.md).
+It includes commands, parameter definitions, failure checks, and an LLM-assisted
+tuning checklist. Manual fitting and visual weight/deformation review remain required.
+
 | Script | What it does |
 |---|---|
+| `blender_quadruped_pipeline.py` | Bind, capture and animate fitted Rigify quadrupeds with tunable profiles and audit reports. |
+| `quadruped_gait.py` | Gait curves for the Rigify basic quadruped metarig, as pure functions. |
+| `blender_quadruped_walk.py` | Author a natural walk, trot or scamper on any Rigify basic-quadruped rig. |
 | `blender_joint_markers.py` | Spawn named joint markers on a mesh in Blender, and read their placed positions back. |
 | `blender_build_rig.py` | Build a quadruped armature from placed joint markers and bind the mesh to it. |
 | `blender_voxel_weights.py` | Weight a generated mesh via a watertight voxel proxy, then transfer the result back. |

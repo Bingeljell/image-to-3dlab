@@ -1,6 +1,7 @@
 """Delete every face never seen from outside the mesh, headless.
 
-Run: Blender -b -P scripts/blender_visibility_cull.py -- <in.glb> <out.glb> [views] [res]
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_visibility_cull.py -- in.glb out.glb [views] [resolution]
+
 
 Renders the mesh from `views` directions spread over a sphere. Instead of colour, each
 pixel encodes the index of the nearest face, so reading the image back tells us exactly

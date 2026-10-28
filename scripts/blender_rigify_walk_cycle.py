@@ -1,5 +1,7 @@
 """Author a trot cycle on the Rigify-generated 'rig' armature in the live Blender scene.
 
+Run (live): python scripts/blender_rigify_walk_cycle.py --help
+
 Bpy layer only -- the actual pose math lives in rigify_walk_pose.py so it stays testable.
 Assumes IK_FK is already set to 1.0 on the leg parent bones (front_thigh_parent.L/R,
 thigh_parent.L/R); this script does not touch that switch, since flipping it mid-session

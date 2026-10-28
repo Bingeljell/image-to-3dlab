@@ -1,5 +1,7 @@
 """Give a generated mesh's zero-thickness sheets real thickness, headless.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_solidify.py -- IN.glb OUT.glb [thickness]
+
 Run with:
     blender --background --python scripts/blender_solidify.py -- IN.glb OUT.glb [thickness]
 

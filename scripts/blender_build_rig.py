@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Build a quadruped armature from placed joint markers and bind the mesh to it.
 
+Run (live): python scripts/blender_build_rig.py --help
+
 Reads the `JOINT_*` empties left by `blender_joint_markers.py`, constructs a bone
 hierarchy, and binds with Blender's automatic (bone heat) weighting.
 

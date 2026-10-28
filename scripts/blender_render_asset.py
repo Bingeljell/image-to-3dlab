@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Import a GLB into the local Blender MCP scene and render cardinal previews."""
+"""Import a GLB into the local Blender MCP scene and render cardinal previews.
+
+Run (live): python scripts/blender_render_asset.py model.glb renders/"""
 
 from __future__ import annotations
 

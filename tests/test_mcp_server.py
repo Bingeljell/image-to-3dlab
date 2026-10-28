@@ -145,7 +145,7 @@ def test_the_server_registers_every_tool():
     server = ms.build_server(ms.Studio("http://127.0.0.1:8777", http=FakeHttp(), start=lambda: None))
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
-                     "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend",
+                     "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend", "blender_helpers",
                      "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
                      "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
                      "usage_counts"}
@@ -708,3 +708,21 @@ def test_status_says_where_models_go_and_survives_an_older_studio():
     assert ms.models_folder(Answers({"in_use": "/Volumes/Big/models"})) == "/Volumes/Big/models"
     assert ms.models_folder(Answers({"in_use": None})) is None
     assert ms.models_folder(Answers(RuntimeError("404: no such route"))) is None
+
+
+def test_blender_helpers_lists_every_blender_script_with_how_to_run_it():
+    got = ms.blender_helpers()
+    on_disk = {p.name for p in (ms.REPO / "scripts").glob("*.py") if ms.is_blender_helper(p.name)}
+    assert {h["script"] for h in got["helpers"]} == on_disk
+    for h in got["helpers"]:
+        assert h["mode"] in ms.BLENDER_HOW, f"{h['script']}: add a 'Run (live|headless|internal): ...' line to its docstring"
+        assert h["run"] and h["does"] and h["group"]
+        if h["mode"] != "internal":
+            assert h["script"] in h["run"], f"{h['script']}: its Run line should name the script"
+    assert set(got["how"]) >= set(ms.BLENDER_HOW)
+
+
+def test_run_line_reads_the_mode_and_command():
+    assert ms.run_line("Does a thing.\n\nRun (headless): blender -b -P x.py -- a b\n\nWhy.") == ("headless", "blender -b -P x.py -- a b")
+    assert ms.run_line("Does a thing.") is None
+    assert not ms.is_blender_helper("bootstrap_blender.py")     # an installer, not a helper

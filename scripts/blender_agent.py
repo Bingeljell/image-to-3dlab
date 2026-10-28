@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Let a local LLM stage a scene in the running Blender, by calling a small set of tools.
 
+Run (live): python scripts/blender_agent.py --asset model.glb --task "stage and light this so the face reads"
+
 Why a tool schema instead of letting the model write bpy directly: the published
 measurement (VIGA / BlenderBench, arXiv 2601.11109) is that small open models writing raw
 bpy hallucinate operators, mis-spell parameters and emit non-executable loops, and that the

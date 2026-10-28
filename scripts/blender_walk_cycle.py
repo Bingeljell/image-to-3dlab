@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Author a looping quadruped gait cycle on the rigged fox in the live Blender scene.
 
+Run (live): python scripts/blender_walk_cycle.py --help
+
 Two gaits, and they differ in *phase*, not merely in speed:
 
 * **trot** (the default) — a two-beat **diagonal** gait. Front-left and back-right

@@ -1,5 +1,7 @@
 """Split a multi-prop GLB into one upright, named object per prop, headless.
 
+Run (headless): blender --background --python-exit-code 1 --factory-startup --python scripts/blender_split_props.py -- --help
+
     blender -b --factory-startup --python-exit-code 1 -P scripts/blender_split_props.py -- \\
         IN.glb OUT_DIR [--names barrel crate ...] [--turn chest=90 ...]
 

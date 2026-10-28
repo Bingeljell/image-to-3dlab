@@ -238,6 +238,7 @@ Everything still runs on your machine.
    installed elsewhere.
 3. Start a new agent session and ask: *"Make me a Pixar-style gator warrior and show me."*
 
+It can also run the repo's [Blender helpers](#blender-helpers-for-your-agent) for you.
 Your agent never downloads model weights without your yes, and can't delete or rename
 your assets. Mac and Linux; Windows is not tested yet.
 
@@ -413,18 +414,6 @@ much smaller web-ready file. The prompt that works and what was measured are in
 [`docs/prop-sheets.md`](docs/prop-sheets.md). Built and contributed by
 [@AdrielSantana](https://github.com/AdrielSantana).
 
-## Blender animation recipes
-
-The reusable Blender tooling lives in `scripts/blender_*.py`: import, inspect,
-stage, bake, render, rig and rebind helpers that work on any mesh this pipeline
-produces. **[`scripts/README.md`](scripts/README.md) indexes every tool in the
-repository**, grouped by what you are trying to do, and is kept honest by a test
-that reads each script's own docstring.
-
-Ready-made rigs and animations are not included. The
-[quadruped pipeline](docs/quadruped-pipeline.md) walks through rigging a four-legged
-character with these tools.
-
 ## Requirements
 
 | Thing | Why |
@@ -504,6 +493,16 @@ The studio's **News** button shows short notes from us: a new version, AssetFurn
 problem and its fix. It looks at [assetfurnace.com/notices.json](https://assetfurnace.com/notices.json)
 at most once a day, sending nothing about you, and never pops up over your work. Turn it off with
 `I3D_NO_NOTICES=1`. Agents see unread news in the MCP's `status`.
+
+## Blender helpers for your agent
+
+About 40 Blender scripts come with the repo: stage and render a model, fix normals, bake,
+remesh, split props, rig and animate. They are written for agents to run. Connect the MCP
+([Use it from your agent](#use-it-from-your-agent)) and your agent finds them with its
+`blender_helpers` tool. Each says whether it works in your open Blender (needs the
+[BlenderMCP](https://github.com/ahujasid/blender-mcp) add-on) or in a background Blender
+of its own. Full list: [`scripts/README.md`](scripts/README.md). Rigging a four-legged
+creature step by step: [quadruped pipeline](docs/quadruped-pipeline.md).
 
 ## License
 

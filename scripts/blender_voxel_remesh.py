@@ -1,5 +1,7 @@
 """Rebuild one closed skin from the decode, using Blender's voxel remesh. Headless.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_voxel_remesh.py -- in.glb out.glb 0.004
+
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python scripts/blender_voxel_remesh.py -- in.glb out.glb 0.004
 

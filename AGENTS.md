@@ -16,6 +16,11 @@ route) behind one CLI, with license provenance as a first-class concern.
    it is worth finding, so list it in `scripts/README.md`; `tests/test_scripts_registry.py`
    fails if you do not.
 
+3. **Agents: connect AssetFurnace's MCP first** (`claude mcp add assetfurnace -- <this repo>/lab mcp`,
+   other clients in `docs/agents.md`). It drives the studio the way users do, and its `blender_helpers`
+   tool lists the Blender scripts with how to run each one: *live* ones change the user's open Blender
+   (ask first), *headless* ones start their own. A new `blender_*.py` needs a
+   `Run (live|headless|internal): ...` line in its docstring; a test enforces it.
 
 ## Layout
 

@@ -1,5 +1,7 @@
 """Author a slam-attack clip on a rigged quadruped in the live Blender scene.
 
+Run (live): python scripts/blender_attack_cycle.py --help
+
 All the animation maths lives in `attack_pose.py` so it can be imported and tested; this
 file is only the `bpy` layer that inserts the keys. That split is deliberate -- the walk
 cycle keeps its curves inside a template string, which means nothing about its timing can

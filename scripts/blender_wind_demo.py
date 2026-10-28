@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Animate labelled foliage with shader-style wind and render it to MP4.
 
+Run (live): python scripts/blender_wind_demo.py model.glb labelled.glb wind.mp4
+
 Foliage in a game is almost never rigged or simulated. It is moved by a vertex shader:
 a small program that nudges each point every frame by a wave, scaled by how floppy that
 point is. Trunk rigid, leaf tips loose. No bones, no solver, effectively free.

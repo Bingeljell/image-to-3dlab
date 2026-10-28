@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Generate a Rigify rig and bind a mesh to it through a watertight voxel proxy, headless.
 
+Run (headless): blender --background in.blend --python-exit-code 1 --python scripts/blender_bind_rig.py -- --out out.blend
+
 Bone heat weighting solves a diffusion problem across the mesh *surface*, so it needs a
 manifold surface to solve on. A generated decode is never that — this repo's moss fox
 carries 230,377 boundary edges across 290,821 faces — and binding it directly yields

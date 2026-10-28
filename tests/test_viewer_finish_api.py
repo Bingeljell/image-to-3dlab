@@ -830,3 +830,53 @@ def test_a_finished_run_says_and_keeps_whether_pixel_match_ran(tmp_path, monkeyp
     assert done["message"].endswith("· Pixel Match: on (front + back)")
     saved = json.loads((job.directory / finish_api.PIXEL_MATCH_NAME).read_text())
     assert saved == {"pixel_match": "on (front + back)"}
+
+
+def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
+    """If the pid-record write fails after Popen, the child must be stopped and reaped
+    before the active slot is freed; otherwise the worker keeps running and a second
+    Finish can start."""
+    import finish_api
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+
+    calls = []
+
+    class Worker:
+        pid = 4242
+        returncode = 0
+        stdout = iter([])
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout, manager.active))
+            return 0
+
+        def poll(self):
+            return None  # still alive until terminated
+
+    def fake_terminate_group(pid):
+        calls.append(("terminate_group", pid, manager.active))
+
+    original_write_text = Path.write_text
+
+    def fake_write_text(self, *args, **kwargs):
+        if self.name == "pid":
+            raise OSError("No space left on device")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    monkeypatch.setattr(finish_api.subprocess, "Popen", Worker)
+    monkeypatch.setattr(finish_api.processes, "terminate_group", fake_terminate_group)
+    monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+    finish_api.run_job(job, manager)
+
+    assert job.status == "error"
+    assert any(event.get("phase") == "error" for event in job.events)
+    assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
+    assert manager.active is None

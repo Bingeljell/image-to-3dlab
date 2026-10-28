@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hunyuan_mlx/paint/scripts/convert_realesrgan.py` needs `--fetch` to download its default `.pth`.
 - The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
   uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
+- Model-load errors in the studio are shown as plain text, not as HTML markup.
+- Provenance records the actual model identity for every generated file and refuses to write a record when
+  the model's licence cannot be verified.
+- The direct Space stage-3 route never loads the BRIA background-removal model.
+- `scripts/audit_model_weights.py` proves a safetensors conversion is readable before it deletes the source
+  checkpoint during cleanup.
+- The Hunyuan v2-1 converter honours its input and output paths and stops instead of silently retrying an
+  unsafe pickle load.
+- Finish, Rig, Auto-rig and Props workers are terminated and reaped if their job errors after the worker
+  process has started, so the active slot is not released while expensive work keeps running.
 
 ## [0.5.3] - 2026-10-26
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import pickle
 from pathlib import Path
 
 DEFAULT_CKPT = "weights/Hunyuan3D-2.1/hunyuan3d-dit-v2-1/model.fp16.ckpt"
@@ -21,7 +22,7 @@ def _load_checkpoint(ckpt_path: Path, *, allow_pickle: bool = False):
 
     try:
         return torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    except Exception as exc:
+    except pickle.UnpicklingError as exc:
         if not allow_pickle:
             raise RuntimeError(
                 f"Failed to load {ckpt_path} with weights_only=True. "
@@ -69,9 +70,9 @@ def convert_checkpoint(
 ) -> int:
     """Convert ``ckpt_path`` to a flat fp16 safetensors file at ``out_path``.
 
-    Loads with ``weights_only=True``. If that fails, raises ``RuntimeError`` unless
-    ``allow_pickle`` is true, in which case it retries once with the unsafe pickle
-    loader and prints a warning.
+    Loads with ``weights_only=True``. If that fails with an unsafe/unsupported pickle,
+    raises ``RuntimeError`` unless ``allow_pickle`` is true, in which case it retries
+    once with the unsafe pickle loader and prints a warning.
     """
     import safetensors.torch
 

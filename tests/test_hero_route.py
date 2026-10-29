@@ -182,3 +182,22 @@ def test_finish_asks_for_the_route_it_was_given(monkeypatch, tmp_path):
     classic_cmd, kept_cmd = commands
     assert "--keep-mesh" not in classic_cmd and "--native-dump" not in classic_cmd
     assert "--keep-mesh" in kept_cmd
+
+
+def test_the_measuring_rig_gets_free_ports_like_the_rig_tab(monkeypatch, tmp_path):
+    # Hero rigs the body to find the head; on a Windows machine that reserves SkinTokens'
+    # fixed ports (#193) that rig failed the whole run.
+    import sys
+
+    sys.path.insert(0, str(hero_route.REPO / "viewer"))
+    import autorig_api
+
+    seen = tmp_path / "ports.txt"
+    script = (f"import os; open({str(seen)!r}, 'w').write("
+              "os.environ['SKINTOKENS_PORT'] + ' ' + os.environ['SKINTOKENS_BPY_PORT'])")
+    monkeypatch.setattr(autorig_api, "rig_commands",
+                        lambda body, rig: [([sys.executable, "-c", script], tmp_path)])
+    monkeypatch.setattr(autorig_api, "ensure_port_patch", lambda root=None: None)
+    hero_route.measure_rig(hero_route.Run(tmp_path), tmp_path / "body.glb", tmp_path / "rig.glb")
+    port, bpy_port = seen.read_text().split()
+    assert port != bpy_port

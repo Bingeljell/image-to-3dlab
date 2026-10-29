@@ -257,3 +257,46 @@ def test_the_shipped_preset_moves_are_all_in_the_repo():
     shipped = aa.presets()
     assert len(shipped) >= 42, len(shipped)  # 21 moves, takes A and B
     assert {"idle", "walk", "run", "dance"} <= {p["id"] for p in shipped}
+
+
+def test_free_ports_are_two_different_ports_that_bind():
+    import socket
+    ports = aa.free_ports(2)
+    assert len(set(ports)) == 2
+    for port in ports:
+        with socket.socket() as probe:
+            probe.bind(("0.0.0.0", port))  # where SkinTokens' Blender server binds
+
+
+def test_a_rig_job_hands_skintokens_free_ports_not_fixed_ones(tmp_path):
+    # Windows can reserve SkinTokens' fixed ports for Hyper-V/WSL (#193): every run picks
+    # its own, through the variables the patched spec.py reads.
+    job = _fake_job(tmp_path, "import os; open(r'{out}', 'w').write("
+                              "os.environ['SKINTOKENS_PORT'] + ' ' + os.environ['SKINTOKENS_BPY_PORT'])")
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    port, bpy_port = (int(p) for p in job.result.read_text().split())
+    assert port != bpy_port
+
+
+def test_an_older_install_gets_the_port_edit_before_it_rigs(tmp_path, monkeypatch):
+    spec = tmp_path / "src" / "server" / "spec.py"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("import os\nPORT = 59875\nBPY_PORT = 59876\n")
+    monkeypatch.setattr(aa, "port_edits", lambda: [e for e in _portable().EDITS
+                                                   if "PORT" in e.old])
+    assert aa.ensure_port_patch(tmp_path) is None
+    assert 'os.environ.get("SKINTOKENS_BPY_PORT"' in spec.read_text()
+    assert aa.ensure_port_patch(tmp_path) is None  # already there: nothing to do
+
+
+def test_a_tree_the_port_edit_no_longer_fits_still_rigs(tmp_path):
+    # Upstream moved on: the rig keeps upstream's ports (today's behaviour) and says why.
+    (tmp_path / "src" / "server").mkdir(parents=True)
+    (tmp_path / "src" / "server" / "spec.py").write_text("PORT = 1234\n")
+    assert "port" in aa.ensure_port_patch(tmp_path).lower()
+
+
+def _portable():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import patch_skintokens_portable
+    return patch_skintokens_portable

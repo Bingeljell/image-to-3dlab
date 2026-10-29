@@ -18,7 +18,9 @@ Three rules, in descending order of how sure they are:
 
 1. ``ckpt`` — a ``.ckpt`` sitting beside a ``.safetensors`` of the same stem. The
    checkpoint was the download; the safetensors is the converted result the loader
-   actually opens. Provable from the filesystem, so safe to delete.
+   actually opens. We verify the safetensors header declares at least one tensor
+   before proposing deletion, so an empty or interrupted conversion never costs the
+   original checkpoint.
 2. ``cached`` — a Hugging Face cache entry whose files are also present as real (non
    symlinked) files under a local weights directory. The cache copy is then a second
    physical copy, not the one in use. Matched on file name and exact size.
@@ -30,6 +32,7 @@ Three rules, in descending order of how sure they are:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -86,18 +89,74 @@ def directory_size(path: Path) -> int:
     return total
 
 
+MAX_SAFETENSORS_HEADER = 100 * 1024 * 1024
+
+
+def conversion_proven(converted: Path) -> bool:
+    """True when `converted` exists, is non-empty, and parses as safetensors.
+
+    Verification is header-only: we read the 8-byte little-endian header length,
+    then the JSON header, and confirm it declares at least one tensor with valid
+    metadata. Tensor data is never deserialized, so this is cheap even for
+    multi-gigabyte files.
+    """
+    try:
+        size = converted.stat().st_size
+    except OSError:
+        return False
+    if size < 8:
+        return False
+    try:
+        with converted.open("rb") as handle:
+            raw_len = handle.read(8)
+            if len(raw_len) != 8:
+                return False
+            header_len = int.from_bytes(raw_len, "little")
+            if header_len <= 0 or header_len > size - 8 or header_len > MAX_SAFETENSORS_HEADER:
+                return False
+            header = handle.read(header_len)
+            if len(header) != header_len:
+                return False
+    except OSError:
+        return False
+    try:
+        parsed = json.loads(header)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(parsed, dict) or not parsed:
+        return False
+    for entry in parsed.values():
+        offsets = entry.get("data_offsets") if isinstance(entry, dict) else None
+        if (
+            not isinstance(offsets, list)
+            or len(offsets) != 2
+            or not all(isinstance(v, int) for v in offsets)
+            or offsets[0] > offsets[1]
+        ):
+            return False
+    return True
+
+
 def find_superseded_checkpoints(roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
-    """A `.ckpt` whose converted `.safetensors` sits beside it is dead weight."""
+    """A `.ckpt` whose converted `.safetensors` sits beside it and proves valid is dead weight."""
     found: list[Candidate] = []
     for root in roots:
         if not root.is_dir():
             continue
         for ckpt in root.rglob("*.ckpt"):
             converted = ckpt.with_suffix(".safetensors")
-            if converted.is_file() and not ckpt.is_symlink():
+            if not converted.is_file() or ckpt.is_symlink():
+                continue
+            if conversion_proven(converted):
                 found.append(Candidate(
                     "ckpt", ckpt, directory_size(ckpt),
                     f"converted already: {converted.name} ({human_bytes(directory_size(converted))})",
+                ))
+            else:
+                found.append(Candidate(
+                    "ckpt", ckpt, directory_size(ckpt),
+                    f"kept: conversion unproven ({converted.name})",
+                    deletable=False,
                 ))
     return found
 

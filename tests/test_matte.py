@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from image_to_3dlab.matte import is_matted
@@ -89,5 +90,81 @@ def test_every_rembg_looks_in_the_same_model_folder(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "rembg", fake)
     monkeypatch.delenv("U2NET_HOME", raising=False)
     monkeypatch.setattr(mt, "model_home", lambda: tmp_path)
-    mt.new_session("u2net")
+    (tmp_path / "u2net.onnx").write_bytes(b"x")
+    mt.new_session("u2net", allow_download=False)
     assert seen["home"] == str(tmp_path)
+
+
+def _fake_rembg(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    import numpy as np
+    from PIL import Image
+
+    def fake_remove(image, session=None):
+        out = image.convert("RGBA")
+        a = np.zeros((image.height, image.width), dtype=np.uint8)
+        a[8:24, 8:24] = 255
+        out.putalpha(Image.fromarray(a))
+        return out
+
+    fake_session = types.SimpleNamespace(model_name="birefnet-general-lite")
+    fake = types.SimpleNamespace(
+        new_session=lambda name: fake_session,
+        remove=fake_remove,
+    )
+    monkeypatch.setitem(sys.modules, "rembg", fake)
+    monkeypatch.setattr(mt, "model_home", lambda: tmp_path)
+
+
+def test_cut_out_refuses_to_download_without_consent(tmp_path, monkeypatch):
+    _fake_rembg(monkeypatch, tmp_path)
+    image = Image.new("RGB", (32, 32), (200, 120, 60))
+
+    with pytest.raises(RuntimeError) as exc:
+        mt.cut_out(image)
+
+    message = str(exc.value)
+    assert "u2net" in message
+    assert "MB" in message
+    assert "bootstrap_matte.py" in message or "Setup & Status" in message
+
+
+def test_new_session_refuses_to_download_without_consent(tmp_path, monkeypatch):
+    _fake_rembg(monkeypatch, tmp_path)
+
+    with pytest.raises(RuntimeError) as exc:
+        mt.new_session(allow_download=False)
+
+    assert "u2net" in str(exc.value)
+
+
+def test_cut_out_downloads_when_allowed(tmp_path, monkeypatch):
+    _fake_rembg(monkeypatch, tmp_path)
+    (tmp_path / "birefnet-general-lite.onnx").write_bytes(b"x")
+    image = Image.new("RGB", (32, 32), (200, 120, 60))
+
+    cut, model = mt.cut_out(image, allow_download=True)
+
+    assert cut.mode == "RGBA"
+    assert model == "birefnet-general-lite"
+
+
+def test_new_session_downloads_when_allowed(tmp_path, monkeypatch):
+    _fake_rembg(monkeypatch, tmp_path)
+
+    session = mt.new_session(allow_download=True)
+
+    assert session.model_name == "birefnet-general-lite"
+
+
+def test_cut_out_with_existing_weight_needs_no_permission(tmp_path, monkeypatch):
+    _fake_rembg(monkeypatch, tmp_path)
+    (tmp_path / "birefnet-general-lite.onnx").write_bytes(b"x")
+    image = Image.new("RGB", (32, 32), (200, 120, 60))
+
+    cut, model = mt.cut_out(image)
+
+    assert model == "birefnet-general-lite"
+    assert cut.mode == "RGBA"

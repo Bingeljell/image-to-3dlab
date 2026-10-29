@@ -89,3 +89,49 @@ def test_runner_records_a_pid_for_server_restart_reconciliation():
 
     assert 'joinpath("pid").write_text' in source
     assert 'joinpath("pid").unlink(missing_ok=True)' in source
+
+
+def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
+    """If the pid-record write fails after Popen, the child must be stopped and reaped
+    before the active slot is freed."""
+    job = rig_api.RigJob("2" * 32, tmp_path / "out" / "creature__rebind__20261027-020202")
+    manager = rig_api.RigJobManager(tmp_path / "out")
+    manager.active = job.id
+
+    calls = []
+
+    class Worker:
+        pid = 4242
+        returncode = 0
+        stdout = iter([])
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout, manager.active))
+            return 0
+
+        def poll(self):
+            return None
+
+    def fake_terminate_group(pid):
+        calls.append(("terminate_group", pid, manager.active))
+
+    original_write_text = Path.write_text
+
+    def fake_write_text(self, *args, **kwargs):
+        if self.name == "pid":
+            raise OSError("No space left on device")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path("/bin/blender"))
+    monkeypatch.setattr(rig_api.subprocess, "Popen", Worker)
+    monkeypatch.setattr(rig_api.processes, "terminate_group", fake_terminate_group)
+    monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+    rig_api.run_job(job, manager)
+
+    assert job.status == "error"
+    assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
+    assert manager.active is None

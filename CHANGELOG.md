@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
+- Runs with a non-default model (e.g. a custom `--sf3d-repo` or a ComfyUI workflow loading a foreign
+  checkpoint) must now declare it in a run manifest with `license_policy.allow_unverified: true`; the
+  provenance sidecar records such models as unverified instead of labelling them with the backend's
+  default licence.
 
 ### Fixed
 - Front + back: the back picture now keeps to what the front shows, the same parts and the same outline,
@@ -26,8 +30,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clean-up instead and the run carries on.
 - Hero face shows why it cannot run on a model (no saved picture, or not made with Pixal3D) instead of
   vanishing, and choosing a Detail level no longer hides the "Finish as a Hero" button.
+- Direct Xiong generation (`scripts/hunyuan_mlx_xiong_generate.py`) now writes a `.provenance.json`
+  licence sidecar beside the GLB, recording the MIT in-repo port and the Tencent weights licence with
+  its EU/UK/Korea territory restriction.
+- Weight downloads now require an explicit choice: `hunyuan_mlx/download_weights.py` needs `--yes` or an
+  interactive `y`/`yes`; `image_to_3dlab/matte.new_session` and `matte.cut_out` default to
+  `allow_download=False` and raise fetch instructions instead of silently downloading rembg weights;
+  `hunyuan_mlx/paint/scripts/convert_realesrgan.py` needs `--fetch` to download its default `.pth`.
 - The Library keeps the picture you uploaded, on front-only runs too, so "Redo from picture" works. Pictures
   uploaded before this fix, and their back views, now show up as well, named after the file instead of a run code.
+- Model-load errors in the studio are shown as plain text, not as HTML markup.
+- Provenance records the actual model identity for every generated file and refuses to write a record when
+  the model's licence cannot be verified.
+- The direct Space stage-3 route never loads the BRIA background-removal model.
+- `scripts/audit_model_weights.py` proves a safetensors conversion is readable before it deletes the source
+  checkpoint during cleanup.
+- The Hunyuan v2-1 converter honours its input and output paths and stops instead of silently retrying an
+  unsafe pickle load.
+- Finish, Rig, Auto-rig and Props workers are terminated and reaped if their job errors after the worker
+  process has started, so the active slot is not released while expensive work keeps running.
 
 ## [0.5.3] - 2026-10-26
 

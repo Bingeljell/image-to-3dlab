@@ -40,7 +40,8 @@ def plan(repo: Path, uv: str) -> list[tuple[list[str], Path]]:
     # Explicitly the default route: without --model this fetches all three shape
     # checkpoints, 23 GB where the default route needs 5.
     steps.append(([str(venv_python(repo / "hunyuan_mlx" / "shape")),
-                   str(repo / "hunyuan_mlx" / "download_weights.py"), "--model", "2.0"], repo))
+                   str(repo / "hunyuan_mlx" / "download_weights.py"), "--model", "2.0",
+                   "--yes"], repo))  # this script already asked
     return steps
 
 

@@ -588,6 +588,12 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
         if job.only:
             shutil.rmtree(job.staging, ignore_errors=True)
         job.directory.joinpath("pid").unlink(missing_ok=True)
+        if job.process is not None and job.process.poll() is None:
+            try:
+                processes.terminate_group(job.process.pid)
+                job.process.wait(timeout=30)
+            except Exception as cleanup_exc:
+                job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

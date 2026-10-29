@@ -688,6 +688,52 @@ def test_a_running_step_records_this_server_as_its_owner(tmp_path):
     assert seen[0] == (job.process.pid, os.getpid())
 
 
+def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
+    """If the pid-record write fails after Popen, the child must be stopped and reaped
+    before the active slot is freed."""
+    job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {"names": "barrel"})
+    manager = props.PropsJobManager(tmp_path)
+    manager.active = job.id
+
+    calls = []
+
+    class Worker:
+        pid = 4242
+        returncode = 0
+        stdout = iter([])
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout, manager.active))
+            return 0
+
+        def poll(self):
+            return None
+
+    def fake_terminate_group(pid):
+        calls.append(("terminate_group", pid, manager.active))
+
+    original_write_text = Path.write_text
+
+    def fake_write_text(self, *args, **kwargs):
+        if self.name == "pid":
+            raise OSError("No space left on device")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(props, "blender_executable", lambda: Path("/bin/blender"))
+    monkeypatch.setattr(props.subprocess, "Popen", Worker)
+    monkeypatch.setattr(props.processes, "terminate_group", fake_terminate_group)
+    monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+    props.run_job(job, manager)
+
+    assert job.status == "error"
+    assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
+    assert manager.active is None
+
+
 def test_a_job_cancelled_while_queued_never_runs(tmp_path, monkeypatch):
     job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {})
     job.cancel_requested = True

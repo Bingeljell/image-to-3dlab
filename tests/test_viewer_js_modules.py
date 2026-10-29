@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -341,6 +342,86 @@ def test_the_finished_marks_are_the_studios_own():
 
     assert (out["done"], out["error"], out["cancelled"]) == ("✓", "!", "■")
     assert out["activity"][0].split(" ")[0] == out["done"]
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_model_load_error_is_rendered_as_text_not_markup():
+    """H1: a crafted GLB error message must not be parsed as HTML in the studio overlay."""
+    module_url = (REPO / "viewer" / "studio" / "viewer.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    stub_viewport = (
+        "export function createModelViewport(opts) { "
+        "globalThis.__capturedOnError = opts.onError; "
+        "return { dispose() {} }; "
+        "}\n"
+        "export function disposeModelViewport() {}"
+    )
+    stub_viewport_url = "data:text/javascript," + quote(stub_viewport, safe="")
+    program = f"""
+      import {{ register }} from 'node:module';
+      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{
+        if (s === 'three') return {{ url: {json.dumps(three_url)}, shortCircuit: true }};
+        if (s === '../components/model-viewport.js' && c.parentURL === {json.dumps(module_url)}) {{
+          return {{ url: {json.dumps(stub_viewport_url)}, shortCircuit: true }};
+        }}
+        return n(s, c);
+      }}`));
+
+      const make = () => {{
+        const node = {{
+          nodeType: 1, className: '', dataset: {{}}, hidden: false, style: {{}}, children: [],
+          _html: '', _text: '', _listeners: {{}},
+          get innerHTML() {{ return node._html; }},
+          set innerHTML(value) {{ node._html = value; node.children = []; node._text = ''; }},
+          get textContent() {{ return node._text || node.children.map((c) => c.textContent).join(''); }},
+          set textContent(value) {{ node._text = String(value); node.children = []; node._html = ''; }},
+          classList: {{
+            add: (c) => {{ node.className += (node.className ? ' ' : '') + c; }},
+            toggle: () => {{}},
+            contains: (c) => node.className.split(/\\s+/).includes(c),
+          }},
+          appendChild: (child) => {{ node.children.push(child); return child; }},
+          querySelector: () => make(),
+          querySelectorAll: () => [],
+          addEventListener: (type, fn) => {{ (node._listeners[type] = node._listeners[type] || []).push(fn); }},
+          setAttribute: (k, v) => {{ node[k] = String(v); }},
+          getAttribute: (k) => node[k] ?? null,
+          remove: () => {{}},
+          closest: () => null,
+        }};
+        return node;
+      }};
+
+      globalThis.document = {{ createElement: make }};
+      globalThis.window = globalThis;
+      globalThis.addEventListener = () => {{}};
+      globalThis.removeEventListener = () => {{}};
+      globalThis.ResizeObserver = class {{ observe() {{}} disconnect() {{}} }};
+      globalThis.requestAnimationFrame = () => 0;
+      globalThis.devicePixelRatio = 1;
+
+      const {{ createStudioViewer }} = await import({json.dumps(module_url)});
+      const stage = make();
+      const viewer = createStudioViewer({{ stage, logoUrl: 'logo.svg' }});
+      viewer.load('test.glb');
+      const payload = '<img src=x onerror=alert(1)>';
+      globalThis.__capturedOnError({{ message: payload }});
+
+      const overlay = stage.children.find((n) => n.className === 'sv-overlay');
+      console.log(JSON.stringify({{
+        textContains: overlay.textContent.includes(payload),
+        htmlContains: overlay.innerHTML.includes(payload),
+        textContent: overlay.textContent,
+      }}));
+    """
+    result = subprocess.run(
+        [NODE, "--input-type=module", "--eval", program],
+        check=True, capture_output=True, text=True,
+    )
+    out = json.loads(result.stdout)
+
+    assert out["textContains"] is True
+    assert out["htmlContains"] is False
 
 
 def viewer_scripts() -> list[Path]:

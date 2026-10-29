@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -95,10 +96,11 @@ class Run:
             self.unsure_file.write_text(json.dumps(self.notes, indent=2), encoding="utf-8")
         self.say(f"UNSURE: {text}")
 
-    def run(self, command: list, cwd: Path | None = None, tries: int = 1, required: bool = True) -> bool:
+    def run(self, command: list, cwd: Path | None = None, tries: int = 1, required: bool = True,
+            env: dict | None = None) -> bool:
         for attempt in range(1, tries + 1):
             self.say("$ " + " ".join(str(c) for c in command))
-            process = subprocess.Popen([str(c) for c in command], cwd=cwd, stdout=subprocess.PIPE,
+            process = subprocess.Popen([str(c) for c in command], cwd=cwd, env=env, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
             tail: deque[str] = deque(maxlen=FAIL_TAIL_LINES)
             for line in process.stdout:
@@ -136,6 +138,20 @@ def stage(run: Run, name: str, message: str) -> None:
     """Announce a stage on stdout for the studio, and in the log."""
     print(f"{STAGE_MARKER}::{name}::{message}", flush=True)
     run.log.write(f"{STAGE_MARKER}::{name}::{message}\n")
+
+
+def measure_rig(run: Run, body: Path, rig: Path) -> None:
+    """A throwaway rig of the body, to find the head: the Rig tab's commands and free ports."""
+    import autorig_api
+
+    note = autorig_api.ensure_port_patch()
+    if note:
+        run.say(note)
+    env = {**os.environ, **autorig_api.rig_ports()}
+    # The rigger's own Blender server sometimes answers its first request badly
+    # (BadStatusLine on the long-haired woman); a second go is cheap next to a lost run.
+    for command, cwd in autorig_api.rig_commands(body, rig):
+        run.run(command, cwd=cwd, tries=2, env=env)
 
 
 def missing_parts(parts: dict[str, Path]) -> list[str]:
@@ -317,12 +333,7 @@ def main() -> int:
     stage(run, "measure", "Finding the head")
     rig = out / "measure_rig.glb"
     if run.step("measure: throwaway rig", rig):
-        import autorig_api
-
-        # The rigger's own Blender server sometimes answers its first request badly
-        # (BadStatusLine on the long-haired woman); a second go is cheap next to a lost run.
-        for command, cwd in autorig_api.rig_commands(body, rig):
-            run.run(command, cwd=cwd, tries=2)
+        measure_rig(run, body, rig)
 
     # 3. crop
     stage(run, "crop", "Cropping and upscaling the head")

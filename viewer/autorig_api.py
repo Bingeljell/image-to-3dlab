@@ -217,6 +217,12 @@ def free_ports(count: int = 2) -> list[int]:
             probe.close()
 
 
+def rig_ports() -> dict[str, str]:
+    """The environment that hands SkinTokens two free ports (read by the patched spec.py)."""
+    port, bpy_port = free_ports(2)
+    return {"SKINTOKENS_PORT": str(port), "SKINTOKENS_BPY_PORT": str(bpy_port)}
+
+
 def port_edits() -> list:
     """The SkinTokens patch's edits that let the ports come from the environment."""
     if str(REPO / "scripts") not in sys.path:
@@ -434,10 +440,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                   "message": "Starting the auto-rig" if job.kind == "rig" else "Starting"})
         threading.Thread(target=_tick, args=(job, stop), daemon=True).start()
         code = 0
-        ports = {}
-        if job.kind == "rig":
-            port, bpy_port = free_ports(2)
-            ports = {"SKINTOKENS_PORT": str(port), "SKINTOKENS_BPY_PORT": str(bpy_port)}
+        ports = rig_ports() if job.kind == "rig" else {}
         for command, cwd in job.commands:
             if job.kind == "rig" and Path(cwd) == SKINTOKENS:
                 note = ensure_port_patch(SKINTOKENS)

@@ -1,9 +1,9 @@
 """Give a generated mesh's zero-thickness sheets real thickness, headless.
 
-Run (headless): blender --background --python-exit-code 1 --python scripts/blender_solidify.py -- IN.glb OUT.glb [thickness]
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_solidify.py -- IN.glb OUT.glb [fraction]
 
 Run with:
-    blender --background --python scripts/blender_solidify.py -- IN.glb OUT.glb [thickness]
+    blender --background --python scripts/blender_solidify.py -- IN.glb OUT.glb [fraction]
 
 TRELLIS renders fine detail -- fur, armour plates, carved relief, woven coils -- as
 surfaces with no back face. They are invisible from behind, so backface culling makes

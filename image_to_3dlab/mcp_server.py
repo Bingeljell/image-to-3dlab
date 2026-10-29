@@ -26,7 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from image_to_3dlab import __version__
+from image_to_3dlab import __version__, host
 from image_to_3dlab.agent_plan import compose_prompt, plan_for, refusal, stop_after
 
 REPO = Path(__file__).resolve().parents[1]
@@ -422,8 +422,9 @@ def options() -> dict[str, Any]:
 
 
 BLENDER_HOW = {
-    "live": "Drives the user's OPEN Blender, which needs the BlenderMCP add-on serving on 127.0.0.1:9876. It changes "
-            "what is in that scene: ask the user before running one on a scene they are working in.",
+    "live": "Drives the user's OPEN Blender, which needs the BlenderMCP add-on serving on 127.0.0.1:9876. Most of "
+            "these CLEAR the scene they run in first (everything in it is deleted): ask the user before running one, "
+            "and run it in a new, empty scene, never one they are working in.",
     "headless": "Starts its own background Blender (needs `blender` on PATH, or the full path to Blender). Leaves the "
                 "user's open Blender alone.",
     "internal": "Part of another helper. Don't run it on its own.",
@@ -458,7 +459,7 @@ def blender_helpers(repo: Path = REPO) -> dict[str, Any]:
         helpers.append({"script": m.group(1), "does": m.group(2), "group": group, "mode": mode, "run": command,
                         "path": str(path)})
     return {
-        "how": {**BLENDER_HOW, "every_script": f"Run from {repo} with its own Python ({repo / '.venv/bin/python'}). "
+        "how": {**BLENDER_HOW, "every_script": f"Run from {repo} with its own Python ({host.venv_python(repo)}). "
                 "The top of each script says why it exists and its limits; --help lists its options."},
         "helpers": helpers,
     }

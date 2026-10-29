@@ -722,6 +722,30 @@ def test_blender_helpers_lists_every_blender_script_with_how_to_run_it():
     assert set(got["how"]) >= set(ms.BLENDER_HOW)
 
 
+def test_every_run_line_gives_the_options_its_script_requires():
+    # An agent runs the line as written: blender_agent.py's left out --out-dir, so it stopped on an argparse error.
+    import ast
+
+    for h in ms.blender_helpers()["helpers"]:
+        if h["mode"] == "internal" or h["run"].endswith("--help"):
+            continue   # a --help line sends the agent to the full list first, which is fine
+        tree = ast.parse((ms.REPO / "scripts" / h["script"]).read_text(encoding="utf-8"))
+        if any(getattr(n.func, "attr", "") == "add_subparsers" for n in ast.walk(tree) if isinstance(n, ast.Call)):
+            continue   # sub-commands each need their own options; the line shows one and points to the rest
+        for call in ast.walk(tree):
+            if not (isinstance(call, ast.Call) and getattr(call.func, "attr", "") == "add_argument"):
+                continue
+            required = any(k.arg == "required" and getattr(k.value, "value", False) is True for k in call.keywords)
+            flags = [a.value for a in call.args if isinstance(a, ast.Constant) and str(a.value).startswith("--")]
+            if required and flags:
+                assert any(f in h["run"] for f in flags), f"{h['script']}: its Run line leaves out {flags[0]}"
+
+
+def test_live_helpers_warn_that_they_clear_the_open_scene():
+    # Most live helpers delete everything in the scene they run in; "changes the scene" undersold that.
+    assert "CLEAR" in ms.BLENDER_HOW["live"] and "empty scene" in ms.BLENDER_HOW["live"]
+
+
 def test_run_line_reads_the_mode_and_command():
     assert ms.run_line("Does a thing.\n\nRun (headless): blender -b -P x.py -- a b\n\nWhy.") == ("headless", "blender -b -P x.py -- a b")
     assert ms.run_line("Does a thing.") is None

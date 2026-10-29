@@ -497,7 +497,7 @@ at most once a day, sending nothing about you, and never pops up over your work.
 ## Blender helpers for your agent
 
 About 40 Blender scripts come with the repo: stage and render a model, fix normals, bake,
-remesh, split props, rig and animate. They are written for agents to run. Connect the MCP
+remesh, split props, rig and animate, and your agent can run them. Connect the MCP
 ([Use it from your agent](#use-it-from-your-agent)) and your agent finds them with its
 `blender_helpers` tool. Each says whether it works in your open Blender (needs the
 [BlenderMCP](https://github.com/ahujasid/blender-mcp) add-on) or in a background Blender

@@ -106,6 +106,12 @@ EDITS: tuple[Edit, ...] = (
     Edit("src/server/spec.py", "    device='cuda',\n", f"    device={DEVICE},\n"),
     Edit("src/server/spec.py", '_attn_implementation="flash_attention_2"',
          f"_attn_implementation={ATTN}"),
+    # Fixed ports can sit inside a range Windows reserves for Hyper-V/WSL (#193), and then
+    # the Blender server cannot bind. The rig job passes free ones; unset keeps upstream's.
+    Edit("src/server/spec.py", "PORT = 59875\n",
+         'PORT = int(os.environ.get("SKINTOKENS_PORT", "59875"))\n'),
+    Edit("src/server/spec.py", "BPY_PORT = 59876\n",
+         'BPY_PORT = int(os.environ.get("SKINTOKENS_BPY_PORT", "59876"))\n'),
 )
 
 

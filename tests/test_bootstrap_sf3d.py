@@ -12,9 +12,24 @@ import pytest
 def test_weight_total_matches_the_catalogue():
     """Including DINOv2, which SF3D otherwise downloads silently on its first run."""
     sf3d = next(b for b in backend_catalog.CATALOG if b.id == "sf3d")
-    assert sum(w.bytes_expected for w in sf3d.weights) == pytest.approx(
+    # The background remover is the shared one, installed by bootstrap_matte.
+    own = [w for w in sf3d.weights if w.label != REMOVER]
+    assert sum(w.bytes_expected for w in own) == pytest.approx(
         boot.total_gb() * backend_catalog.GB, rel=0.02)
-    assert {w.source for w in sf3d.weights} == {repo for repo, _, _ in boot.WEIGHTS}
+    assert {w.source for w in own} == {repo for repo, _, _ in boot.WEIGHTS}
+
+
+REMOVER = "BiRefNet-lite background remover"
+
+
+def test_setup_installs_and_announces_the_background_remover(tmp_path):
+    # SF3D cuts out its own pictures. Without the remover its first run failed, since
+    # nothing fetches one the user did not agree to.
+    fetched = []
+    boot.install_background_remover(tmp_path / "lite.onnx", download=fetched.append)
+    assert fetched == [tmp_path / "lite.onnx"]
+    assert "BiRefNet-lite" in boot.announcement()
+    assert REMOVER in {w.label for w in backend_catalog.BY_ID["sf3d"].weights}
 
 
 def test_announcement_names_backend_route_size_and_gating(monkeypatch):

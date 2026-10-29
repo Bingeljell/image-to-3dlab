@@ -126,9 +126,8 @@ def test_cut_out_refuses_to_download_without_consent(tmp_path, monkeypatch):
         mt.cut_out(image)
 
     message = str(exc.value)
-    assert "u2net" in message
-    assert "MB" in message
-    assert "bootstrap_matte.py" in message or "Setup & Status" in message
+    # Names what Setup installs, not the fallback: there is no "u2net" to find on Setup.
+    assert "BiRefNet-lite" in message and "Setup & Status" in message and "MB" in message
 
 
 def test_new_session_refuses_to_download_without_consent(tmp_path, monkeypatch):
@@ -137,7 +136,7 @@ def test_new_session_refuses_to_download_without_consent(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError) as exc:
         mt.new_session(allow_download=False)
 
-    assert "u2net" in str(exc.value)
+    assert "Setup & Status" in str(exc.value)
 
 
 def test_cut_out_downloads_when_allowed(tmp_path, monkeypatch):

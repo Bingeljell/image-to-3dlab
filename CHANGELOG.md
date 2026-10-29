@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Every 3D engine that cuts out pictures now installs the background remover with it, and lists it on
+  Setup & Status. If it is ever missing, the run says where to install it.
 - Front + back: the back picture now keeps to what the front shows, the same parts and the same outline,
   whatever the subject: a full character, a bust, a head or an object.
 - Fix a spot works on rigged characters: click View on the Finished step and brush away. Before, the brush

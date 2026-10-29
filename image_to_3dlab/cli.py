@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -128,6 +129,47 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _extract_workflow_model_identity(workflow_path: Path) -> str | None:
+    """Read a ComfyUI API-format workflow and return the checkpoint name(s) it loads.
+
+    The canonical Hunyuan3D-2.1 checkpoint is listed in the backend's licence profile;
+    anything else is treated as unverified unless the manifest explicitly allows it.
+    """
+    try:
+        workflow = json.loads(workflow_path.expanduser().read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read workflow {workflow_path}: {exc}") from exc
+    if not isinstance(workflow, dict):
+        raise ValueError(
+            "workflow JSON must be an API-format object, not a UI workflow array"
+        )
+    names = []
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type", "")
+        if isinstance(class_type, str) and "CheckpointLoader" in class_type:
+            ckpt_name = node.get("inputs", {}).get("ckpt_name")
+            if isinstance(ckpt_name, str):
+                names.append(ckpt_name)
+    if not names:
+        return None
+    return ", ".join(names)
+
+
+def _resolve_model_identity(args: argparse.Namespace) -> str | None:
+    """Return the actual model identity for the selected backend, if known."""
+    if args.fast:
+        return args.model
+    if args.trellis:
+        return "microsoft/TRELLIS.2-4B"
+    if args.quality:
+        if args.workflow is None:
+            return None
+        return _extract_workflow_model_identity(args.workflow)
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     source_manifest = None
@@ -217,11 +259,14 @@ def main(argv: list[str] | None = None) -> int:
     backend = "sf3d" if args.fast else "trellis2" if args.trellis else "hunyuan-comfyui"
     policy = manifest_data.get("license_policy", {}) if manifest_data else {}
     try:
+        model_identity = _resolve_model_identity(args)
         profile = validate_run_policy(
             backend,
             intent["use_case"],
             intent["distribution"],
             policy.get("allow_conditional", True),
+            model_identity=model_identity,
+            allow_unverified=policy.get("allow_unverified", False),
         )
     except ValueError as exc:
         print(f"error: license policy: {exc}", file=sys.stderr)
@@ -337,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         backend_repo=(
             args.sf3d_repo if args.fast else args.trellis_repo if args.trellis else None
         ),
+        model_identity=model_identity,
     )
     print(result)
     print(sidecar)

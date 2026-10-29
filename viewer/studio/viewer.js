@@ -372,9 +372,14 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     noteTimer = setTimeout(() => note.remove(), 2400);
   }
 
-  function setOverlay(html) {
-    overlay.innerHTML = html;
-    overlay.hidden = !html;
+  function setOverlay(content) {
+    if (content && content.nodeType === 1) {
+      overlay.innerHTML = '';
+      overlay.appendChild(content);
+    } else {
+      overlay.innerHTML = content;
+    }
+    overlay.hidden = !content;
   }
 
   function dispose() {
@@ -446,7 +451,17 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
       },
       onError: (error) => {
         if (token !== loadToken) return;
-        setOverlay(`<div class="ph"><img src="${logoUrl}" alt=""><span>This model didn't load: ${String(error?.message || error).slice(0, 140)}</span></div>`);
+        const message = String(error?.message || error).slice(0, 140);
+        const placeholder = document.createElement('div');
+        placeholder.className = 'ph';
+        const img = document.createElement('img');
+        img.src = logoUrl;
+        img.alt = '';
+        placeholder.appendChild(img);
+        const line = document.createElement('span');
+        line.textContent = `This model didn't load: ${message}`;
+        placeholder.appendChild(line);
+        setOverlay(placeholder);
       },
     });
     view = created;

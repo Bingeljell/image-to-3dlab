@@ -23,7 +23,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import host
+from image_to_3dlab import host, matte
 
 HALVES = ("shape", "paint")
 WEIGHTS_GB = 13.7  # Hunyuan3D-2 shape (5.0) + Xiong's paint-large (8.7), the catalogue's figures
@@ -40,7 +40,8 @@ def plan(repo: Path, uv: str) -> list[tuple[list[str], Path]]:
     # Explicitly the default route: without --model this fetches all three shape
     # checkpoints, 23 GB where the default route needs 5.
     steps.append(([str(venv_python(repo / "hunyuan_mlx" / "shape")),
-                   str(repo / "hunyuan_mlx" / "download_weights.py"), "--model", "2.0"], repo))
+                   str(repo / "hunyuan_mlx" / "download_weights.py"), "--model", "2.0",
+                   "--yes"], repo))  # this script already asked
     return steps
 
 
@@ -50,6 +51,8 @@ def announcement(steps: list[tuple[list[str], Path]]) -> str:
     if builds:
         lines.append(f"  build   uv sync in {', '.join(builds)}")
     lines.append(f"  fetch   about {WEIGHTS_GB} GB of weights from Hugging Face (skips what is there)")
+    lines.append(f"  and     BiRefNet-lite background remover, {matte.LITE_BYTES / 1e6:.0f} MB "
+                 f"-> {matte.model_file(matte.LITE_MODEL)}")
     lines.append("  licence Tencent Hunyuan Community License: not licensed in the EU, UK or South Korea")
     return "\n".join(lines)
 
@@ -68,6 +71,17 @@ def main() -> None:
     for command, cwd in steps:
         print(f"$ {' '.join(command)}  (in {cwd})", flush=True)
         subprocess.run(command, cwd=cwd, check=True)
+    install_background_remover()
+
+
+def install_background_remover(target: Path | None = None, download=None) -> None:
+    """The studio cuts out every picture for this route. It never fetches a remover the
+    user did not agree to, so without this the first run failed."""
+    if str(REPO / "scripts") not in sys.path:
+        sys.path.insert(0, str(REPO / "scripts"))
+    from bootstrap_matte import install_if_missing
+
+    install_if_missing(target, download)
 
 
 if __name__ == "__main__":

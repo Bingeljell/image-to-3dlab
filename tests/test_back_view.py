@@ -22,6 +22,20 @@ def test_the_back_prompt_keeps_pose_size_and_position():
         assert phrase in prompt
 
 
+def test_the_back_prompt_names_no_body_parts():
+    # Naming a part summons it, even on a subject that has no such part.
+    words = set(re.findall(r"[a-z']+", back_view.BACK_PROMPT.lower()))
+    assert not words & {"head", "body", "neck", "shoulders", "clothing", "arms", "legs", "ears"}
+
+
+def test_the_back_prompt_holds_the_front_outline():
+    # Pixal3D builds whatever the back adds, so the back keeps the front's outline.
+    prompt = back_view.BACK_PROMPT.lower()
+    for phrase in ("ends exactly where the reference ends", "same width at every height",
+                   "same height and the same size"):
+        assert phrase in prompt
+
+
 def test_the_reference_is_the_cut_out_on_plain_grey():
     rgba = np.zeros((4, 4, 4), dtype=np.uint8)
     rgba[:2, :, :3] = (200, 10, 10)

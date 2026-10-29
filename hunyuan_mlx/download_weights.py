@@ -168,7 +168,38 @@ def build_parser() -> argparse.ArgumentParser:
              f"{APPROX_GB['2.1'] + APPROX_GB['2.0-turbo']:.0f} GB you probably do not need",
     )
     parser.add_argument("--skip-paint", action="store_true")
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="download without prompting (for non-interactive use). "
+             "Defaulting to yes is not allowed.",
+    )
     return parser
+
+
+def confirm(models: list[str], *, paint: bool) -> bool:
+    """Ask the user to confirm the download; returns True only on an affirmative answer.
+
+    The prompt is self-contained: it names the backend, the route, and the approximate
+    total size before asking, so a non-interactive run cannot proceed past it silently.
+    """
+    lines = [f"  {m:<10} {APPROX_GB.get(m, 0):>5.1f} GB  ({SHAPE_HF_SOURCES[m][0]})"
+             for m in models]
+    total = sum(APPROX_GB.get(m, 0) for m in models)
+    if paint:
+        lines.append(f"  {'paint':<10} {APPROX_GB['paint']:>5.1f} GB  ({PAINT_HF_REPO})")
+        total += APPROX_GB["paint"]
+    print("About to download Hunyuan3D weights from Hugging Face:", flush=True)
+    print("\n".join(lines), flush=True)
+    print(f"  {'total':<10} {total:>5.1f} GB (approximate)\n", flush=True)
+    print("These are Tencent Hunyuan Community License weights, not licensed for use in "
+          "the EU, the UK or South Korea.", flush=True)
+    print("Proceed? [y/N]", flush=True)
+    try:
+        answer = input().strip().lower()
+    except EOFError:
+        print("Refusing to download without --yes when there is nobody to ask.", flush=True)
+        return False
+    return answer in ("y", "yes")
 
 
 def main() -> int:
@@ -178,11 +209,17 @@ def main() -> int:
     # calls it "~13 GB", while all three shape checkpoints plus paint come to ~24 GB.
     # Nobody chose that, and the extra two models go unused by the default route.
     models = sorted(SHAPE_HF_SOURCES) if args.all else [args.model]
-    announce(models, paint=not args.skip_paint)
+    paint = not args.skip_paint
+
+    if args.yes:
+        announce(models, paint=paint)
+    elif not confirm(models, paint=paint):
+        print("Download cancelled.", flush=True)
+        return 1
 
     for model in models:
         download_shape(model)
-    if not args.skip_paint:
+    if paint:
         download_paint()
     return 0
 

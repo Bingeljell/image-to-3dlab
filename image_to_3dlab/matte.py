@@ -43,7 +43,6 @@ LITE_URL = ("https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
 LITE_BYTES = 224_005_088
 LITE_MD5 = "4fab47adc4ff364be1713e97b7e66334"  # rembg's own known hash for this file
 
-
 def model_home():
     """Where rembg keeps its models (its own U2NET_HOME convention)."""
     from pathlib import Path
@@ -58,6 +57,18 @@ def model_file(name: str):
 def matte_model() -> str:
     """The best remover this machine has: lite once installed, else u2net."""
     return LITE_MODEL if model_file(LITE_MODEL).is_file() else FALLBACK_MODEL
+
+
+def _ensure_model(model: str, allow_download: bool) -> None:
+    """Raise a helpful RuntimeError if the model file is missing and downloads are disabled."""
+    if allow_download or model_file(model).is_file():
+        return
+    # Whichever model was missing, the fix is the one Setup installs.
+    raise RuntimeError(
+        "The background remover is not installed. Install \"Background remover "
+        f"(BiRefNet-lite)\" on Setup & Status ({LITE_BYTES / 1e6:.0f} MB), "
+        "or run scripts/bootstrap_matte.py."
+    )
 
 
 def fallback_note(model: str) -> str | None:
@@ -103,22 +114,24 @@ def clean_edges(rgba, solid: int = 250, reach: int = 4):
     return out
 
 
-def new_session(model: str | None = None):
+def new_session(model: str | None = None, *, allow_download: bool = False):
     # Newer rembg keeps models in ~/.rembg/models unless told otherwise, so a backend's own
     # venv missed BiRefNet-lite here and fetched u2net. One folder for every rembg.
     os.environ.setdefault("U2NET_HOME", str(model_home()))
     import rembg
 
-    return rembg.new_session(model or matte_model())
+    model = model or matte_model()
+    _ensure_model(model, allow_download)
+    return rembg.new_session(model)
 
 
-def cut_out(image, session=None):
+def cut_out(image, session=None, *, allow_download: bool = False):
     """Remove the background from a PIL image; returns (RGBA image, model name used)."""
     import numpy as np
     import rembg
     from PIL import Image
 
     model = matte_model() if session is None else getattr(session, "model_name", "custom")
-    session = session or new_session(model)
+    session = session or new_session(model, allow_download=allow_download)
     cut = rembg.remove(image.convert("RGB"), session=session).convert("RGBA")
     return Image.fromarray(clean_edges(np.asarray(cut))), model

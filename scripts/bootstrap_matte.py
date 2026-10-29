@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None, ask=input) -> int:
         print(f"BiRefNet-lite is installed: {target}")
         return 0
     if args.check:
-        print("BiRefNet-lite is not installed; runs use u2net")
+        print("BiRefNet-lite is not installed")
         return 1
 
     print(announcement(), flush=True)

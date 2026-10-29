@@ -36,7 +36,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab import host
+from image_to_3dlab import host, matte
 
 VENDOR = REPO / "vendor" / "stable-fast-3d"
 UPSTREAM = "https://github.com/Stability-AI/stable-fast-3d.git"
@@ -92,6 +92,8 @@ def announcement(code: bool = True, weights: bool = True) -> str:
         for repo, _, size in WEIGHTS:
             lines.append(f"             {size:>5.2f} GB  {repo}")
         lines.append("           stabilityai/stable-fast-3d is gated (see licence below)")
+        lines.append(f"  and:     BiRefNet-lite background remover, "
+                     f"{matte.LITE_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LITE_MODEL)}")
     lines += ["", "  licence: " + LICENCE, ""]
     return "\n".join(lines)
 
@@ -156,6 +158,17 @@ def install_weights() -> None:
             snapshot_download(repo, allow_patterns=files)
         except GatedRepoError as exc:
             raise GatedAccess(repo) from exc
+    install_background_remover()
+
+
+def install_background_remover(target: Path | None = None, download=None) -> None:
+    """The cut-out sf3d_backend.py runs on every upload without alpha. The studio never
+    fetches a remover the user did not agree to, so without this the first run failed."""
+    if str(REPO / "scripts") not in sys.path:
+        sys.path.insert(0, str(REPO / "scripts"))
+    from bootstrap_matte import install_if_missing
+
+    install_if_missing(target, download)
 
 
 def main(argv: list[str] | None = None) -> int:

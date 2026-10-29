@@ -77,7 +77,9 @@ class OrchestrationTest(unittest.TestCase):
                 raise paint_error
             output.write_bytes(b"fake glb")
 
-        argv = ["xiong_generate.py", "/fake/ref.png", str(tmp / "chest.glb"),
+        image = tmp / "ref.png"
+        image.write_bytes(b"\x89PNG\r\n\x1a\n")
+        argv = ["xiong_generate.py", str(image), str(tmp / "chest.glb"),
                 "--seed", "42"]
         with mock.patch.dict(sys.modules, stubs), \
                 mock.patch.object(sys, "argv", argv), \
@@ -108,7 +110,9 @@ class OrchestrationTest(unittest.TestCase):
     def test_paint_failure_propagates_without_success_manifest(self):
         with tempfile.TemporaryDirectory() as td_s:
             td = Path(td_s)
-            argv = ["xiong_generate.py", "/fake/ref.png", str(td / "chest.glb"), "--seed", "42"]
+            image = td / "ref.png"
+            image.write_bytes(b"\x89PNG\r\n\x1a\n")
+            argv = ["xiong_generate.py", str(image), str(td / "chest.glb"), "--seed", "42"]
             with mock.patch.dict(sys.modules, _make_mlx_stubs()), \
                     mock.patch.object(sys, "argv", argv):
                 mod = load_script()

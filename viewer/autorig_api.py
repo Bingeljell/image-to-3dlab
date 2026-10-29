@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -201,6 +202,53 @@ def animation_record(rig: dict[str, Any] | None, preset: dict[str, Any],
 
 
 # ----------------------------------------------------------------------------- jobs
+
+
+def free_ports(count: int = 2) -> list[int]:
+    """Ports the system hands out right now, all different. A fixed port can sit inside a
+    range Windows keeps for Hyper-V/WSL (#193); one the system just handed out never does."""
+    probes = [socket.socket() for _ in range(count)]
+    try:
+        for probe in probes:
+            probe.bind(("127.0.0.1", 0))
+        return [probe.getsockname()[1] for probe in probes]
+    finally:
+        for probe in probes:
+            probe.close()
+
+
+def rig_ports() -> dict[str, str]:
+    """The environment that hands SkinTokens two free ports (read by the patched spec.py)."""
+    port, bpy_port = free_ports(2)
+    return {"SKINTOKENS_PORT": str(port), "SKINTOKENS_BPY_PORT": str(bpy_port)}
+
+
+def port_edits() -> list:
+    """The SkinTokens patch's edits that let the ports come from the environment."""
+    if str(REPO / "scripts") not in sys.path:
+        sys.path.insert(0, str(REPO / "scripts"))
+    import patch_skintokens_portable as portable
+    return [edit for edit in portable.EDITS if "SKINTOKENS_" in edit.new]
+
+
+def ensure_port_patch(root: Path = SKINTOKENS) -> str | None:
+    """Give an install made before the port edit that edit, or say why not (None = fine).
+
+    Installs only get the patch when SkinTokens is set up, so older ones need it here. If
+    it no longer fits, SkinTokens keeps its fixed ports, which is how it ran before."""
+    try:
+        import patch_skintokens_portable as portable
+        edits = port_edits()
+        spec = root / edits[0].path
+        text = spec.read_text(encoding="utf-8")
+        new = text
+        for edit in edits:
+            new, _ = portable.apply_edit(new, edit)
+        if new != text:
+            spec.write_text(new, encoding="utf-8")
+        return None
+    except Exception as exc:
+        return f"note: SkinTokens keeps its fixed ports ({exc})"
 
 
 def rig_commands(source: Path, result: Path) -> list[tuple[list[str], Path]]:
@@ -392,10 +440,15 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                   "message": "Starting the auto-rig" if job.kind == "rig" else "Starting"})
         threading.Thread(target=_tick, args=(job, stop), daemon=True).start()
         code = 0
+        ports = rig_ports() if job.kind == "rig" else {}
         for command, cwd in job.commands:
+            if job.kind == "rig" and Path(cwd) == SKINTOKENS:
+                note = ensure_port_patch(SKINTOKENS)
+                if note:
+                    job.append_log(note)
             job.process = subprocess.Popen(
                 command, cwd=str(cwd),
-                env=processes.child_env(HF_HUB_OFFLINE="1"),
+                env=processes.child_env(HF_HUB_OFFLINE="1", **ports),
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
                 **processes.group_popen_kwargs(),
             )
@@ -439,6 +492,12 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         job.emit({"phase": "error", "message": str(exc)})
     finally:
         stop.set()
+        if job.process is not None and job.process.poll() is None:
+            try:
+                processes.terminate_group(job.process.pid)
+                job.process.wait(timeout=30)
+            except Exception as cleanup_exc:
+                job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

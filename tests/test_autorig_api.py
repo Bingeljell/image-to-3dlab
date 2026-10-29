@@ -158,6 +158,61 @@ def test_progress_estimate_never_claims_done():
     assert aa.estimated_pct(500, 70) == 95
 
 
+def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
+    """If the worker process is alive when an exception fires, it must be stopped and reaped
+    before the active slot is freed."""
+    result = tmp_path / "out.glb"
+    command = [sys.executable, "-c", "print('working')"]
+    job = aa.AnimateJob("2" * 32, "rig", tmp_path, result, [(command, tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+
+    calls = []
+
+    class RaisingStdout:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise OSError("broken pipe")
+
+    class Worker:
+        pid = 4242
+        returncode = 0
+        stdout = RaisingStdout()
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout, manager.active))
+            return 0
+
+        def poll(self):
+            return None
+
+    def fake_terminate_group(pid):
+        calls.append(("terminate_group", pid, manager.active))
+
+    original_write_text = Path.write_text
+
+    def fake_write_text(self, *args, **kwargs):
+        if self.name == "pid":
+            raise OSError("No space left on device")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(aa.subprocess, "Popen", Worker)
+    monkeypatch.setattr(aa.processes, "terminate_group", fake_terminate_group)
+    monkeypatch.setattr(Path, "write_text", fake_write_text)
+
+    aa.run_job(job, manager)
+
+    assert job.status == "error"
+    assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
+    assert manager.active is None
+
+
 def test_source_record_prefers_a_sidecar_that_names_a_licence(tmp_path):
     glb = _glb(tmp_path / "m.glb")
     (tmp_path / "m.json").write_text(json.dumps({"seed": 1}))
@@ -202,3 +257,46 @@ def test_the_shipped_preset_moves_are_all_in_the_repo():
     shipped = aa.presets()
     assert len(shipped) >= 42, len(shipped)  # 21 moves, takes A and B
     assert {"idle", "walk", "run", "dance"} <= {p["id"] for p in shipped}
+
+
+def test_free_ports_are_two_different_ports_that_bind():
+    import socket
+    ports = aa.free_ports(2)
+    assert len(set(ports)) == 2
+    for port in ports:
+        with socket.socket() as probe:
+            probe.bind(("0.0.0.0", port))  # where SkinTokens' Blender server binds
+
+
+def test_a_rig_job_hands_skintokens_free_ports_not_fixed_ones(tmp_path):
+    # Windows can reserve SkinTokens' fixed ports for Hyper-V/WSL (#193): every run picks
+    # its own, through the variables the patched spec.py reads.
+    job = _fake_job(tmp_path, "import os; open(r'{out}', 'w').write("
+                              "os.environ['SKINTOKENS_PORT'] + ' ' + os.environ['SKINTOKENS_BPY_PORT'])")
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    port, bpy_port = (int(p) for p in job.result.read_text().split())
+    assert port != bpy_port
+
+
+def test_an_older_install_gets_the_port_edit_before_it_rigs(tmp_path, monkeypatch):
+    spec = tmp_path / "src" / "server" / "spec.py"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("import os\nPORT = 59875\nBPY_PORT = 59876\n")
+    monkeypatch.setattr(aa, "port_edits", lambda: [e for e in _portable().EDITS
+                                                   if "PORT" in e.old])
+    assert aa.ensure_port_patch(tmp_path) is None
+    assert 'os.environ.get("SKINTOKENS_BPY_PORT"' in spec.read_text()
+    assert aa.ensure_port_patch(tmp_path) is None  # already there: nothing to do
+
+
+def test_a_tree_the_port_edit_no_longer_fits_still_rigs(tmp_path):
+    # Upstream moved on: the rig keeps upstream's ports (today's behaviour) and says why.
+    (tmp_path / "src" / "server").mkdir(parents=True)
+    (tmp_path / "src" / "server" / "spec.py").write_text("PORT = 1234\n")
+    assert "port" in aa.ensure_port_patch(tmp_path).lower()
+
+
+def _portable():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import patch_skintokens_portable
+    return patch_skintokens_portable

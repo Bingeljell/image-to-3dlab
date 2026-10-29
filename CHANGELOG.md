@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Every 3D engine that cuts out pictures now installs the background remover with it, and lists it on
+  Setup & Status. If it is ever missing, the run says where to install it.
 - Rig picks free network ports for the auto-rigger on every run, so it starts on machines where
   its usual ports are taken or reserved (Windows with Hyper-V or WSL, for one).
 - Front + back: the back picture now keeps to what the front shows, the same parts and the same outline,

@@ -505,6 +505,9 @@ CATALOG: tuple[Backend, ...] = (
             WeightSet("Hunyuan3D-2.1 paint (PBR), MLX port",
                       "zimengxiong/hunyuan3d-mlx-paint-large", int(8.7 * GB),
                       REPO / "hunyuan_mlx" / "paint" / "weights"),
+            WeightSet("BiRefNet-lite background remover", _matte.LITE_URL, _matte.LITE_BYTES,
+                      _matte.model_file(_matte.LITE_MODEL),
+                      note="Cuts the subject out before generation. Shared with the other routes."),
         ),
     ),
     Backend(
@@ -673,6 +676,9 @@ CATALOG: tuple[Backend, ...] = (
                       HF_HUB_DIR / "models--facebook--dinov2-large",
                       note="SF3D reads the picture with it. Without this entry it was "
                            "fetched unannounced on the first run."),
+            WeightSet("BiRefNet-lite background remover", _matte.LITE_URL, _matte.LITE_BYTES,
+                      _matte.model_file(_matte.LITE_MODEL),
+                      note="Cuts the subject out before generation. Shared with the other routes."),
         ),
     ),
     Backend(
@@ -796,7 +802,8 @@ CATALOG: tuple[Backend, ...] = (
         kind="tool",
         best_for=("Cuts the subject out before every generator, keeping the thin and "
                   "light-coloured parts the built-in u2net loses."),
-        tradeoff="Optional. Without it, runs fall back to u2net.",
+        tradeoff=("Comes with every 3D engine that needs it. Install it here if a run "
+                  "says it is missing."),
         license_name="MIT",
         license_url="https://github.com/ZhengPeng7/BiRefNet",
         install="scripts/bootstrap_matte.py",
@@ -805,7 +812,7 @@ CATALOG: tuple[Backend, ...] = (
         weights=(
             WeightSet("BiRefNet-lite", _matte.LITE_URL, _matte.LITE_BYTES,
                       _matte.model_file(_matte.LITE_MODEL),
-                      note="One file, used by Pixal3D, TRELLIS and SF3D alike."),
+                      note="One file, shared by every 3D engine."),
         ),
     ),
     Backend(

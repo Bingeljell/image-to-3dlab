@@ -43,10 +43,6 @@ LITE_URL = ("https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
 LITE_BYTES = 224_005_088
 LITE_MD5 = "4fab47adc4ff364be1713e97b7e66334"  # rembg's own known hash for this file
 
-# rembg's u2net.onnx, rounded to the nearest MB for error messages.
-FALLBACK_BYTES = 176_099_093
-
-
 def model_home():
     """Where rembg keeps its models (its own U2NET_HOME convention)."""
     from pathlib import Path
@@ -63,25 +59,15 @@ def matte_model() -> str:
     return LITE_MODEL if model_file(LITE_MODEL).is_file() else FALLBACK_MODEL
 
 
-def _model_size(model: str) -> str:
-    # Match bootstrap_matte.py's MB convention (1e6) so the same file reads the same size
-    # everywhere it is mentioned.
-    if model == LITE_MODEL:
-        return f"{LITE_BYTES / 1e6:.0f} MB"
-    if model == FALLBACK_MODEL:
-        return f"{FALLBACK_BYTES / 1e6:.0f} MB"
-    return "unknown size"
-
-
 def _ensure_model(model: str, allow_download: bool) -> None:
     """Raise a helpful RuntimeError if the model file is missing and downloads are disabled."""
     if allow_download or model_file(model).is_file():
         return
-    size = _model_size(model)
+    # Whichever model was missing, the fix is the one Setup installs.
     raise RuntimeError(
-        f"{model} weights are not installed ({size}). "
-        "Fetch them with scripts/bootstrap_matte.py or via Setup & Status, "
-        "or pass allow_download=True to download automatically."
+        "The background remover is not installed. Install \"Background remover "
+        f"(BiRefNet-lite)\" on Setup & Status ({LITE_BYTES / 1e6:.0f} MB), "
+        "or run scripts/bootstrap_matte.py."
     )
 
 

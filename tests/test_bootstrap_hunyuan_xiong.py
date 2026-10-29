@@ -49,3 +49,16 @@ def test_the_downloader_is_not_asked_twice(tmp_path):
     # prompt has nobody to answer it inside the studio and would refuse.
     fetch = bx.plan(_repo(tmp_path, "shape", "paint"), "uv")[-1][0]
     assert "--yes" in fetch
+
+
+def test_setup_installs_and_announces_the_background_remover(tmp_path):
+    # The studio cuts out pictures for this route. Without the remover the first run
+    # failed, since nothing fetches one the user did not agree to.
+    import backend_catalog
+
+    fetched = []
+    bx.install_background_remover(tmp_path / "lite.onnx", download=fetched.append)
+    assert fetched == [tmp_path / "lite.onnx"]
+    assert "BiRefNet-lite" in bx.announcement(bx.plan(_repo(tmp_path), "uv"))
+    labels = {w.label for w in backend_catalog.BY_ID["hunyuan_xiong"].weights}
+    assert "BiRefNet-lite background remover" in labels

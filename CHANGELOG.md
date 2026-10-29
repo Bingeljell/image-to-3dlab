@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Rig picks free network ports for the auto-rigger on every run, so it starts on machines where
+  its usual ports are taken or reserved (Windows with Hyper-V or WSL, for one).
 - Front + back: the back picture now keeps to what the front shows, the same parts and the same outline,
   whatever the subject: a full character, a bust, a head or an object.
 - Fix a spot works on rigged characters: click View on the Finished step and brush away. Before, the brush

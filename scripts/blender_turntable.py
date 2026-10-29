@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Render a seamlessly looping 360-degree turntable of a GLB via the Blender MCP scene.
 
+Run (live): python scripts/blender_turntable.py model.glb turntable.mp4
+
 Renders a PNG sequence (the model spinning under fixed lights) and muxes it into an
 MP4 with ffmpeg. The loop is seamless because the last frame stops one step short of
 a full turn, so frame N wraps onto frame 0 without a duplicate.

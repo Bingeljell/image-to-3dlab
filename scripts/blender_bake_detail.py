@@ -1,5 +1,7 @@
 """Bake the original's surface detail onto a finished mesh: normal map + metallic-roughness.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_bake_detail.py -- SOURCE.glb TARGET.glb OUT.glb [size] [fade.png]
+
 Run with:
     blender --background --python-exit-code 1 --python scripts/blender_bake_detail.py -- \
         SOURCE.glb TARGET.glb OUT.glb [size] [fade.png]

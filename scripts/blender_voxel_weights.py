@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Weight a generated mesh via a watertight voxel proxy, then transfer the result back.
 
+Run (live): python scripts/blender_voxel_weights.py --help
+
 Bone heat weighting diffuses influence across the mesh *surface*, which is what keeps a
 leg bone from grabbing an ear that happens to be nearby in straight-line space. It needs
 a clean manifold surface to solve on. TRELLIS output is not that: the 101k moss fox has

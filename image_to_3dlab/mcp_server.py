@@ -26,7 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from image_to_3dlab import __version__
+from image_to_3dlab import __version__, host
 from image_to_3dlab.agent_plan import compose_prompt, plan_for, refusal, stop_after
 
 REPO = Path(__file__).resolve().parents[1]
@@ -418,6 +418,50 @@ def options() -> dict[str, Any]:
         "advanced": ADVANCED,
         "how": "Pass any of these as advanced, e.g. continue_asset(asset_id, up_to='finished', again=True, "
                "advanced={'nudge': False}). Change one at a time and preview before and after.",
+    }
+
+
+BLENDER_HOW = {
+    "live": "Drives the user's OPEN Blender, which needs the BlenderMCP add-on serving on 127.0.0.1:9876. Most of "
+            "these CLEAR the scene they run in first (everything in it is deleted): ask the user before running one, "
+            "and run it in a new, empty scene, never one they are working in.",
+    "headless": "Starts its own background Blender (needs `blender` on PATH, or the full path to Blender). Leaves the "
+                "user's open Blender alone.",
+    "internal": "Part of another helper. Don't run it on its own.",
+}
+RUN_LINE = re.compile(r"^Run \((live|headless|internal)\): (.+)$", re.MULTILINE)
+
+
+def run_line(doc: str) -> tuple[str, str] | None:
+    """A Blender helper's `Run (mode): command` line, from its docstring."""
+    m = RUN_LINE.search(doc or "")
+    return (m.group(1), m.group(2).strip()) if m else None
+
+
+def is_blender_helper(name: str) -> bool:
+    return name.endswith(".py") and (name.startswith("blender_") or name == "hero_blender.py")
+
+
+def blender_helpers(repo: Path = REPO) -> dict[str, Any]:
+    """The Blender helper scripts, read from scripts/README.md (what each does, under which heading) and each
+    script's own `Run (...)` line (how to start it)."""
+    import ast
+
+    helpers, group = [], ""
+    for line in (repo / "scripts" / "README.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            group = line[3:].strip()
+        m = re.match(r"\| `([^`]+)` \| (.+?) \|$", line)
+        if not (m and is_blender_helper(m.group(1))):
+            continue
+        path = repo / "scripts" / m.group(1)
+        mode, command = run_line(ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))) or "") or ("", "")
+        helpers.append({"script": m.group(1), "does": m.group(2), "group": group, "mode": mode, "run": command,
+                        "path": str(path)})
+    return {
+        "how": {**BLENDER_HOW, "every_script": f"Run from {repo} with its own Python ({host.venv_python(repo)}). "
+                "The top of each script says why it exists and its limits; --help lists its options."},
+        "helpers": helpers,
     }
 
 
@@ -960,7 +1004,9 @@ studio's About page.
 For characters whose face matters, finish with finish_detail="hero": the head is built again from a close
 crop and joined on (takes longer). Fix a spot (fill a hole, smooth a bump, repaint a scuff) is hands-on: if a
 model has a spot to fix, open_in_studio and point the user to the brush in the 3D view. Step-by-step guide for
-the user: https://assetfurnace.com/blog/how-to-use-assetfurnace"""
+the user: https://assetfurnace.com/blog/how-to-use-assetfurnace
+For work in Blender itself (stage and render a model, bake, remesh, rig by hand), call blender_helpers: it
+lists the repo's Blender scripts and how to run each one."""
 
 
 def build_server(studio: Studio | None = None):
@@ -1146,6 +1192,14 @@ def build_server(studio: Studio | None = None):
         bones, moves and file size, plus the full path on this machine. stage: latest | model | finished |
         rigged (picture gives the path but no counts)."""
         return safe(lambda: model_info(studio, asset_id=asset_id, stage=stage))
+
+    @server.tool(name="blender_helpers", structured_output=False)
+    def tool_blender_helpers():
+        """Blender helper scripts in this repo, for you to run yourself when the user wants work done in Blender:
+        stage, light and render a model, fix normals, bake, remesh, split props, rig and animate. Each one says what
+        it does and how to run it: live (in the user's open Blender), headless (its own background Blender) or
+        internal (don't run it)."""
+        return blender_helpers()
 
     @server.tool(name="show_in_folder", structured_output=False)
     def tool_show_in_folder(asset_id: str, stage: str = "latest"):

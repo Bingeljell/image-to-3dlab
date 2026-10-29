@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Join a grafted head and body into one object, or render a check sheet, in a background Blender.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/hero_blender.py -- join head_and_body.glb joined.glb
+
     <bpy python> scripts/hero_blender.py join grafted.glb joined.glb
     <bpy python> scripts/hero_blender.py check model.glb out_dir [--head-share 0.13]
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Bake TRELLIS' discarded high-poly detail into a normal map for the low-poly mesh.
 
+Run (live): python scripts/blender_bake_normals.py low.glb high.ply normal_out.png
+
 TRELLIS generates ~6.2 million triangles and the Mac port decimates to at most 200,000
 before texture baking. That discarded 98% is real surface detail we already paid for.
 A **normal map** captures it: the lighting engine then renders bumps that do not exist in

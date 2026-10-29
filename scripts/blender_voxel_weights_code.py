@@ -1,5 +1,7 @@
 """The Blender-side program for `blender_voxel_weights.py`.
 
+Run (internal): not run on its own; blender_voxel_weights.py sends it to Blender
+
 Kept in its own module so the (long) generated source is not buried inside an f-string
 in the CLI, which makes both halves hard to read and hard to lint.
 """

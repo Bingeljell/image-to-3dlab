@@ -1,5 +1,7 @@
 """Quad-retopologise a generated mesh and transfer its texture onto the clean topology.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_retopo_bake.py -- IN.glb OUT.glb [faces] [size]
+
 Run with:
     blender --background --python scripts/blender_retopo_bake.py -- IN.glb OUT.glb [faces] [size]
 

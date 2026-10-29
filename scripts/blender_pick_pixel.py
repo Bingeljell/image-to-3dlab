@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Raycast one render pixel into the asset currently staged in live Blender.
 
+Run (live): python scripts/blender_pick_pixel.py 455 410 --view profile_yneg
+
 This is the bridge between a visible feature and ``feature_mask.py``. Render an asset with
 ``blender_render_asset.py``, note a feature's pixel, then run for example:
 

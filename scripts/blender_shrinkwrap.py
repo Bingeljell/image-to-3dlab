@@ -1,5 +1,7 @@
 """Pull a clean remeshed surface back onto the original decode. Headless.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_shrinkwrap.py -- remeshed.glb decode.glb out.glb
+
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python scripts/blender_shrinkwrap.py -- remeshed.glb decode.glb out.glb
 

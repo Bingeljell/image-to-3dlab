@@ -2,6 +2,8 @@
 """Render a full frame sequence of a named Action at the locked dungeon-stage
 camera angle (docs/design/bake-spec.md section 10 in the worklings repo).
 
+Run (live): python scripts/blender_stage_bake.py --help
+
 Reusable across characters: every `.blend` built to the section-6 rig contract
 already carries `CAM_TARGET` (the turntable empty) and an ortho camera parented
 to it named `QuickCam2` (or `Camera`), so this script only ever swaps which

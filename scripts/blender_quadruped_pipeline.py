@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Bind, capture and animate fitted Rigify quadrupeds with tunable profiles and audit reports.
 
+Run (headless): blender --background fitted.blend --python-exit-code 1 --python scripts/blender_quadruped_pipeline.py -- bind --mesh Creature --metarig metarig --out bound.blend (all steps: docs/quadruped-pipeline.md)
+
 Run inside Blender, preferably in a background process on a saved input blend.
 See docs/quadruped-pipeline.md for the staged workflow and visual-review gates.
 No automatic skeleton fitting, mesh repair, or promise of perfect skinning.

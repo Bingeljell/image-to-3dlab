@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Agents can find and run the repo's Blender helpers: a new `blender_helpers` MCP tool lists each one, what it does and how to run it.
 - Models folder: on Setup & Status, pick a folder on any drive for downloaded models, handy when the
   system drive is small. Restart the studio to use it; models you already have stay where they are.
 - Finish says whether Pixel Match ran: "on (front)", "on (front + back)", "off" or "skipped" with the reason,

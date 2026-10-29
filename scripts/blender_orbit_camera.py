@@ -4,6 +4,8 @@ twin of Worklings' `OrbitCamera` Swift struct (Sources/Worklings/
 DungeonStageCameraTool.swift), so a dungeon-stage shot can be framed and
 re-framed in Blender without hand-writing a new camera-math script each time.
 
+Run (live): python scripts/blender_orbit_camera.py --help
+
 Talks to a running Blender over the execute_code RPC (see blender_pick_pixel.py
 for the wire format).
 

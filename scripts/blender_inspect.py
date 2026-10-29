@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Inspect a Blender scene or an unopened .blend file's contents.
 
+Run (live): python scripts/blender_inspect.py --help
+
 Talks to a running Blender over the execute_code RPC (see blender_pick_pixel.py
 for the wire format), same as every other blender_*.py helper in this repo.
 Written because a 2026-08-28 session (blocking out the Worklings dungeon room

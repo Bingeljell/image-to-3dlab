@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Split a generated mesh into per-region material slots, each with its own texture.
 
+Run (live): python scripts/blender_split_regions.py model.glb out_dir/
+
 **2048 is the cap per *material*, not per model.** The whole fox currently shares one
 2048 atlas, so at 101k faces every triangle gets ~41 texels and the head — where detail
 matters most — receives a small share of a fixed budget. Giving the head, body and tail

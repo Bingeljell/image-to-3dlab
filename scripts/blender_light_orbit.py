@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Render a GLB under an orbiting key light, holding the camera still.
 
+Run (live): python scripts/blender_light_orbit.py model.glb frames/f_
+
 A normal map is invisible in a static render — it changes how a surface *responds* to
 light, not what colour it is. Orbiting the camera does not reveal it either, because the
 lighting relative to the surface never changes. **Only moving the light does.**

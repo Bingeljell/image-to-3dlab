@@ -1,5 +1,7 @@
 """Render a camera sweep past a line-up of assets, headless.
 
+Run (headless): blender --background --python-exit-code 1 --python scripts/blender_lineup_sweep.py -- FRAMEDIR/f_ asset.glb[:Label] ...
+
 Run with:
     blender --background --python scripts/blender_lineup_sweep.py -- FRAMEDIR/f_ asset.glb[:Label] ...
     ffmpeg -framerate 30 -i FRAMEDIR/f_%04d.png -c:v libx264 -pix_fmt yuv420p out.mp4

@@ -102,3 +102,11 @@ new engines, moves and prompt wording reach agents on their own. Two tests keep 
 `tests/test_agent_plan.py` checks the agent's step rules against the studio's `plan.js`, and
 `tests/test_mcp_server.py` fails when the studio gains an action that agents can't reach and
 that isn't listed as studio-only.
+
+## Blender helpers
+
+Beyond the studio, the repo has about 40 Blender scripts (stage, render, bake, remesh, rig,
+animate). Ask your agent to call `blender_helpers`: it lists each one, what it does and how to
+run it. *Live* helpers work in your open Blender and need the
+[BlenderMCP](https://github.com/ahujasid/blender-mcp) add-on running (port 9876); they change
+that scene, so your agent should ask first. *Headless* ones start their own background Blender.

@@ -3,6 +3,8 @@
 live Blender scene, cleaned up and positioned -- reusable instead of
 hand-writing a fresh append/cleanup script per character per session.
 
+Run (live): python scripts/blender_import_character.py --help
+
 Talks to a running Blender over the execute_code RPC (see blender_pick_pixel.py
 for the wire format). Built during the 2026-08-28 Worklings dungeon-room
 blockout session, where appending the Tempest Ram and Forest Flicker each

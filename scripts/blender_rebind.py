@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Apply browser fit-joint corrections to an opened prepared Blender scene.
 
+Run (headless): blender --background prepared.blend --python-exit-code 1 --python scripts/blender_rebind.py -- source.glb corrected.rig.json result.glb result.blend result.rig.json report.json
+
     blender --background prepared.blend --python scripts/blender_rebind.py -- \
         source.glb corrected.rig.json result.glb result.blend result.rig.json report.json
 

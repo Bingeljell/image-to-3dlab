@@ -592,6 +592,45 @@ def test_a_picture_still_drawing_is_not_shown():
         ms.skin_picture(studio, skin_id=SKIN["id"])
 
 
+def _picture_state(picture: str) -> dict:
+    return {**SKIN, "tries": {"front": [{"number": 1, "instruction": "x", "seed": 1,
+                                         "picture": picture}], "back": []}}
+
+
+def _studio_for(state: dict) -> ms.Studio:
+    return ms.Studio("http://127.0.0.1:8777", http=SkinHttp(state), start=lambda: None)
+
+
+def test_skin_picture_reads_a_file_inside_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    picture = tmp_path / "output" / "skins" / "front-1.png"
+    picture.parent.mkdir(parents=True)
+    picture.write_bytes(b"png")
+    body, info = ms.skin_picture(_studio_for(_picture_state("skins/front-1.png")), skin_id=SKIN["id"])
+    assert body == b"png"
+    assert info["side"] == "front" and info["number"] == 1
+
+
+def test_skin_picture_refuses_a_path_outside_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    (tmp_path / "output").mkdir()
+    secret = tmp_path / "id_rsa"
+    secret.write_bytes(b"secret")
+    reads = []
+    real_read = Path.read_bytes
+
+    def spy(self, *args, **kwargs):
+        reads.append(Path(self))
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", spy)
+    outside = ("../id_rsa", str(secret), "../../.ssh/id_rsa")
+    for picture in outside:
+        with pytest.raises(ms.StudioError, match="output"):
+            ms.skin_picture(_studio_for(_picture_state(picture)), skin_id=SKIN["id"])
+    assert reads == []
+
+
 def test_cancel_reaches_the_running_build_only():
     idle = ms.Studio("http://127.0.0.1:8777", http=SkinHttp(SKIN), start=lambda: None)
     assert ms.cancel_skin(idle, skin_id=SKIN["id"])["cancelled"] is False

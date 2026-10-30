@@ -1026,13 +1026,22 @@ def skin_status(studio: Studio, *, skin_id: str, wait_seconds: int = 0,
     return skin_summary(state)
 
 
+def _inside_output(relative: str) -> Path:
+    """A path under output/, or an error. The same parent check the studio uses."""
+    output = (REPO / "output").resolve()
+    path = (output / relative).resolve()
+    if output not in path.parents:
+        raise StudioError(f"not a file in output/: {relative}")
+    return path
+
+
 def skin_picture(studio: Studio, *, skin_id: str, side: str = "front", number: int | None = None) -> tuple[bytes, dict[str, Any]]:
     state = studio.get(f"api/skins/{skin_id}")
     tries = state["tries"].get(side) or []
     chosen = next((t for t in tries if t["number"] == number), None) if number else (tries[-1] if tries else None)
     if chosen is None:
         raise StudioError(f"There is no {side} picture for this skin yet.")
-    path = REPO / "output" / chosen["picture"]
+    path = _inside_output(chosen["picture"])
     if not path.is_file():
         raise StudioError(f"The {side} picture is still being drawn: call skin_status(wait_seconds=50).")
     original = state["base"].get(side)

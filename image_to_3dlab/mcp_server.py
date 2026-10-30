@@ -144,7 +144,8 @@ class Studio:
         log.parent.mkdir(parents=True, exist_ok=True)
         port = self.base.rsplit(":", 1)[-1]
         with log.open("ab") as out:
-            subprocess.Popen([sys.executable, str(REPO / "viewer" / "serve.py"), "--no-browser", "--port", port],
+            subprocess.Popen([sys.executable, str(REPO / "viewer" / "serve.py"),
+                              "--auto", "--no-browser", "--port", port],
                              cwd=REPO, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                              start_new_session=True)
 

@@ -1206,3 +1206,16 @@ def test_back_versions_show_the_one_in_use_and_offer_use_and_delete_on_the_kept_
         html.includes('data-file="images/a/a__back_prev_1.png"'),
         m.versionsList({ ...payload, versions: [] }, url).includes('No other versions kept')]));""")
     assert out == [True, "", True, True, 1, 1, True, True]   # the one in use has no Use or Delete
+
+
+@needs_node
+def test_the_brush_picture_fits_the_big_view_whole_and_never_past_its_own_size():
+    """Painting happens over the big view now (2026-10-30: people reached for it, not the panel)."""
+    out = _run("brush.js", """console.log(JSON.stringify([
+      m.fitSize({ w: 1024, h: 1024 }, { w: 900, h: 600 }),     // tall room limit: the height
+      m.fitSize({ w: 1024, h: 512 }, { w: 400, h: 900 }),      // narrow room: the width
+      m.fitSize({ w: 300, h: 200 }, { w: 2000, h: 2000 })]));""")  # small picture: its own size
+    assert out == [{"w": 600, "h": 600}, {"w": 400, "h": 200}, {"w": 300, "h": 200}]
+    hint = _run("steps.js", """console.log(JSON.stringify(m.backBrush({ picture: 'a.png', back: 'a__back.png' },
+      { pictureEngines: [{ id: 'flux', installed: true }] }).includes('Paint on the picture in the big view')));""")
+    assert hint is True

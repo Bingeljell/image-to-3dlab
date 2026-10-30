@@ -18,11 +18,32 @@ export function brushForm(picture, instruction, mask, seed, engine = '') {
   return form;
 }
 
+/** The size to show a `natural` picture at so all of it fits in `room`, never past its own size. */
+export function fitSize(natural, room) {
+  const scale = Math.min(room.w / natural.w, room.h / natural.h, 1);
+  return { w: Math.max(1, Math.round(natural.w * scale)), h: Math.max(1, Math.round(natural.h * scale)) };
+}
+
+/** A layer over the big view to paint in (people reach for the big picture, not the side panel). */
+export function brushStage(stage) {
+  closeBrushStage(stage);
+  const layer = document.createElement('div');
+  layer.className = 'brushstage';
+  layer.innerHTML = '<p class="brushstage-hint">Paint over the part to change</p>';
+  stage.appendChild(layer);
+  return layer;
+}
+
+export function closeBrushStage(stage) {
+  stage?.querySelectorAll('.brushstage').forEach((layer) => layer.remove());
+}
+
 /**
  * A paintable copy of the picture at `imageUrl`, put inside `box`. Returns `painted()` (any
  * stroke yet), `clear()`, and `maskBlob()` (a PNG, white where painted, at the picture's size).
+ * `fit`: fill `box` (the big view) and follow its size, instead of a side-panel width.
  */
-export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40, 0.5)' } = {}) {
+export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40, 0.5)', fit = false } = {}) {
   const shown = document.createElement('canvas');
   shown.className = 'brushcanvas';
   shown.style.touchAction = 'none';
@@ -38,10 +59,19 @@ export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40,
     g.drawImage(image, 0, 0, shown.width, shown.height);
     g.drawImage(strokes, 0, 0, shown.width, shown.height);
   };
+  const place = () => {
+    const natural = { w: image.naturalWidth, h: image.naturalHeight };
+    if (fit) {
+      ({ w: shown.width, h: shown.height } = fitSize(natural, { w: box.clientWidth - 32, h: box.clientHeight - 72 }));
+    } else {
+      width = Math.min(box.clientWidth || 320, 420);
+      shown.width = width;
+      shown.height = Math.round(width * natural.h / natural.w);
+    }
+  };
   image.onload = () => {
-    width = Math.min(box.clientWidth || 320, 420);
-    shown.width = width;
-    shown.height = Math.round(width * image.naturalHeight / image.naturalWidth);
+    place();
+    if (fit && typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { place(); redraw(); }).observe(box);
     for (const c of [mask, strokes]) { c.width = image.naturalWidth; c.height = image.naturalHeight; }
     const m = mask.getContext('2d');
     m.fillStyle = '#000';

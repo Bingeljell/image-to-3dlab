@@ -5,6 +5,7 @@ import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFi
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails } from './jobs.js';
 import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
+import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
 import { STEP_LABELS } from './plan.js';
@@ -106,6 +107,7 @@ function summaries(asset) {
 }
 
 function renderSteps(asset) {
+  closeBrushStage($('stage'));   // a brush layer belongs to the panel being replaced
   $('sideKind').textContent = { 'prop set': 'Prop set', prop: 'Prop', character: 'Character', model: '3D model', picture: 'Picture' }[asset.kind] || '';
   const total = stepCount(asset), sum = summaries(asset);
   $('steps').innerHTML = STEPS.map((step, i) => {
@@ -270,6 +272,7 @@ const ctx = {
   get frontBack() { return frontBack; },
   get pictureEngines() { return pictureEngines; },
   url: (relative) => url(relative),
+  stage: () => $('stage'),
   asset: () => current,
   // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
   // up, and the server runs one big job at a time whoever starts it

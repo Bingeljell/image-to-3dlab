@@ -4,7 +4,7 @@
 import { followJob, plainError, statusUrlFor, jobEnd, copyDetails } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
-import { mountBrush, brushForm } from './brush.js';
+import { mountBrush, brushForm, brushStage, closeBrushStage } from './brush.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -115,7 +115,7 @@ export function backBrush(asset, ctx) {
     <p class="hint">Paint over the part to change, then say what goes there. Only the painted part is drawn again;
       the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.
       Say what should be there, not the change: "a leather strap from the shoulder to the belt", not "make the strap longer".</p>
-    <div data-brush-canvas></div>
+    <div data-brush-canvas><p class="hint"><b>Paint on the picture in the big view.</b></p></div>
     <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
       <button type="button" class="ghost" data-brush-clear>Clear</button></div>
     <label class="field">What goes there<textarea data-brush-text rows="2" maxlength="500" placeholder="A dark red leather satchel on a thin brown strap"></textarea></label>
@@ -130,11 +130,18 @@ export function wireBrush(card, asset, ctx) {
   if (!box) return;
   let brush = null;
   // built fresh each time: Back after a failed run restores this box as HTML, canvas and all
+  // painted on a layer over the big view; closing the box takes the layer (and its paint) away
   const mount = () => {
-    if (!box.open || brush) return;
-    const holder = box.querySelector('[data-brush-canvas]');
-    holder.innerHTML = '';
-    brush = mountBrush(holder, `${ctx.url(asset.back)}?v=${Date.now()}`);
+    const stage = ctx.stage?.();
+    if (!box.open) { closeBrushStage(stage); brush = null; return; }
+    if (brush) return;
+    const picture = `${ctx.url(asset.back)}?v=${Date.now()}`;
+    if (stage) brush = mountBrush(brushStage(stage), picture, { fit: true });
+    else {
+      const holder = box.querySelector('[data-brush-canvas]');
+      holder.innerHTML = '';
+      brush = mountBrush(holder, picture);
+    }
   };
   box.addEventListener('toggle', mount);
   mount();
@@ -147,6 +154,7 @@ export function wireBrush(card, asset, ctx) {
     if (!brush?.painted()) return fail('Paint over the part to change first.');
     if (!words) return fail('Say what goes in the painted part.');
     const mask = await brush.maskBlob();
+    closeBrushStage(ctx.stage?.());   // the run takes over the panel; its result shows when done
     const engine = box.querySelector('[data-brushengine]')?.value || '';
     await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed(), engine)) }), ctx, 'picture');
   };

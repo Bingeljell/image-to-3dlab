@@ -401,4 +401,7 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .versions li > span { display: grid; gap: 4px; min-width: 0; }
 .versions .vnote { font-size: 12px; overflow-wrap: anywhere; }
 .versions .current b { font-size: 11px; color: var(--ember); }
+.brushstage { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #0c0a09; }
+.brushstage .brushcanvas { margin: 0; box-shadow: 0 0 0 1px rgb(255 255 255 / .12); }
+.brushstage-hint { margin: 0; font-weight: 600; color: var(--ember); }
 .brushcanvas { display: block; max-width: 100%; margin: 8px 0; border-radius: 8px; cursor: crosshair; }

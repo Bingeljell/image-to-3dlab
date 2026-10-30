@@ -21,6 +21,7 @@ from pathlib import Path
 # Reuse the render environments from the still-preview helper so a turntable and a
 # preview of the same asset are lit identically.
 from blender_render_asset import ENVIRONMENTS
+from blender_scene import isolated_scene_prelude, restore_previous_scene
 
 
 def blender_code(
@@ -34,6 +35,8 @@ def blender_code(
     darken_backfaces: bool,
 ) -> str:
     settings = ENVIRONMENTS[env]
+    prelude = isolated_scene_prelude("IMG3D turntable")
+    restore = restore_previous_scene()
     return f'''
 import bpy
 import math
@@ -45,17 +48,7 @@ label = {label!r}
 frames = {frames}
 collection_name = "IMG3D_TT_" + label
 
-# Same clean-slate policy as the preview renderer: a long-lived Blender session may
-# still hold a previous asset, and every asset is grounded at the origin.
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-for prior in list(bpy.data.collections):
-    bpy.data.collections.remove(prior)
-try:
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
-except RuntimeError:
-    pass
-
+{prelude}
 collection = bpy.data.collections.new(collection_name)
 bpy.context.scene.collection.children.link(collection)
 
@@ -193,7 +186,7 @@ for index in range(frames):
     written.append(path)
 
 result = {{"frames": len(written), "size": size, "first": written[0], "last": written[-1]}}
-'''
+{restore}'''
 
 
 def send(host: str, port: int, code: str, timeout: float) -> str:

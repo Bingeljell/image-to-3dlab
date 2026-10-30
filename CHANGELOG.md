@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Live Blender helpers (turntable, wind demo, normal fix, solidify bake, and source comparison) no longer delete every object in the open file. Comparison renders in its own background Blender.
 - Every 3D engine that cuts out pictures now installs the background remover with it, and lists it on
   Setup & Status. If it is ever missing, the run says where to install it.
 - Rig picks free network ports for the auto-rigger on every run, so it starts on machines where

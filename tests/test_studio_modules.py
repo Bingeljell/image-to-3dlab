@@ -252,6 +252,17 @@ def test_a_live_log_stays_where_the_reader_left_it():
 
 
 @needs_node
+def test_the_hunyuan_recipes_path_is_a_link_on_the_setup_card():
+    out = _run("setup.js", """
+      console.log(JSON.stringify(m.linkRepoPaths(
+        'See docs/hunyuan-mlx-recipes.md. Other text stays.')));""")
+    assert out == (
+        'See <a href="/docs/hunyuan-mlx-recipes.md" target="_blank" rel="noopener">'
+        'docs/hunyuan-mlx-recipes.md</a>. Other text stays.'
+    )
+
+
+@needs_node
 def test_a_progress_card_stays_inside_the_viewer_when_moved_or_resized():
     out = _run("jobs.js", """
       const bounds = { w: 800, h: 600 };

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Walk (woman) shows in the move list with the other primary moves.
 - Baking stiffness onto a textured mesh keeps its picture and its UVs, and adds the stiffness colours.
 - Compressing a texture that still has transparency labels it `image/png`. JPEG cannot store that transparency, so the file was PNG bytes with a JPEG label.
 - `audit_model_weights.py --apply` keeps a checkpoint when the matching safetensors file does not hold the tensor bytes. A header that only describes them is not a finished conversion.

@@ -252,6 +252,15 @@ def test_speed_defaults_to_the_presets_own_and_can_be_overridden(tmp_path, motio
         aa.AnimateJobManager(tmp_path / "animate", motions).create_animation(rigged, "walk", 0, 5)
 
 
+def test_primary_moves_are_the_first_take():
+    """A second take ends in `_b`. Everything else, including Walk (woman), is the move itself."""
+    path = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "motions" / "presets.json"
+    shipped = json.loads(path.read_text())["presets"]
+    primary = [preset for preset in shipped if not str(preset["id"]).endswith("_b")]
+    assert "walk_woman" in {preset["id"] for preset in primary}
+    assert [preset["id"] for preset in primary if preset.get("take")] == []
+
+
 def test_the_shipped_preset_moves_are_all_in_the_repo():
     """The moves live in git: a fresh clone with an empty motions folder offers no moves."""
     shipped = aa.presets()

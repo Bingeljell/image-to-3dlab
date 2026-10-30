@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Front + back no longer needs Qwen-Image: any installed picture engine can draw the back.
   Qwen-Image's own setup now includes the small vision projector its skins and back views need.
+- A setup card names each download. The header and each file show the measured size when the bytes are here, and the advertised size when they are not. Two files from the same Qwen repo no longer look like one.
+- A setup card names each download. The header and each file show the measured size when the bytes are here, and the advertised size when they are not. Two files from the same Qwen repo no longer look like one.
 - The Hunyuan setup card links `docs/hunyuan-mlx-recipes.md` so the recipes open from the card.
 - Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
 - The usage-counts notice is now a small card in the corner instead of a big block of text.

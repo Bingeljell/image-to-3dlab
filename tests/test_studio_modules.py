@@ -1116,3 +1116,21 @@ def test_create_takes_each_picture_engines_own_size_and_steps():
         m.pictureDefaults(null), form.get('picture_engine'), m.planForm({{ steps: ['picture'] }}).get('picture_engine')]));""")
     assert out == [{"size": 1024, "steps": 4}, {"size": 1024, "steps": 8}, {"size": 768, "steps": 8},
                    {"size": 768, "steps": 8}, "qwen", None]
+
+
+@needs_node
+def test_create_offers_your_own_back_only_where_pixal3d_can_use_it():
+    out = _run("create.js", """
+      const fb = { ready: false, shape_ready: true };
+      const shown = (s, f = fb, steps = ['model', 'finished']) => m.backSlotShown(s, f, steps);
+      const form = m.planForm({ steps: ['model'], backFile: new File(['x'], 'b.png') });
+      console.log(JSON.stringify([
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }),
+        shown({ have: 'idea', want: 'prop', engine: 'pixal3d' }),
+        shown({ have: 'picture', want: 'prop', engine: 'trellis' }),
+        shown({ have: 'picture', want: 'set', engine: 'pixal3d' }),
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }, { shape_ready: false }),
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }, fb, ['picture']),
+        form.get('back_file')?.name ?? null, m.planForm({ steps: ['model'] }).get('back_file')]));""")
+    # no picture engine needed (ready: false): your back needs no drawing
+    assert out == [True, False, False, False, False, False, "b.png", None]

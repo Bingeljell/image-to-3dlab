@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bring your own back view: in Create, drop a back picture next to the front and Pixal3D builds
+  from both, with nothing drawn. Agents pass `back_image_path` to `create`.
 - FLUX.2 klein 4B as a picture engine, and the default when installed: Apache-2.0, so the pictures
   are yours for any use, and much faster than Qwen-Image. It also draws the back for front + back
   builds, with nothing extra to download. Qwen-Image stays as a choice in Create and for agents.

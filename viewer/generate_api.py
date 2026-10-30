@@ -499,9 +499,10 @@ def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
     card on the Setup page."""
     weights_ready, _ = (weights or pixal3d_front_back_ready)()
     drawer_ready = (drawer or back_drawer_ready)()
+    # shape_ready: enough for a back picture you upload yourself, which needs no drawing
     if weights_ready and drawer_ready:
-        return {"ready": True, "hint": None}
-    return {"ready": False,
+        return {"ready": True, "shape_ready": True, "hint": None}
+    return {"ready": False, "shape_ready": weights_ready,
             "hint": "It needs one more download: Setup & Status, Front + back, "
                     "or python scripts/bootstrap_front_back.py."}
 

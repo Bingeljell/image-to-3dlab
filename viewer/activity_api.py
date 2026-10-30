@@ -9,6 +9,7 @@ Every step that ends, however it ends, is appended to `output/.activity.jsonl`.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import threading
@@ -104,6 +105,7 @@ class Chain:
     move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread (the animate job checks them)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
+    back_upload: tuple[str, bytes] | None = None                     # the user's own back picture, for front + back
     client: str | None = None                                        # "agent" when the MCP server asked for it
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     status: str = "running"
@@ -187,10 +189,19 @@ class ChainRunner:
                 self._kept_upload(chain)   # kept from the start, so the Library shows it even on a front-only run
             except OSError:
                 pass                       # the run still has the bytes; only the Library loses the picture
+        if chain.back_upload and not chain.made.get("back"):
+            try:
+                self._kept_back(chain)
+            except (OSError, ValueError) as exc:
+                chain.status, chain.error = "error", f"The back picture could not be read: {exc}"
+                return
         for step in chain.steps:
             if chain.cancel_requested:
                 chain.status = "cancelled"
                 break
+            if step == "back" and chain.back_upload:
+                chain.done.append(step)   # you gave the back: nothing to draw
+                continue
             if step == "animated" and chain.note:
                 chain.status, chain.current = "done", None  # the rig does not fit the moves: a calm stop
                 break
@@ -295,6 +306,23 @@ class ChainRunner:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         chain.made["picture"] = relative
+        return relative
+
+    def _kept_back(self, chain: Chain) -> str:
+        """The user's back picture, saved beside the kept front as <front>__back.png: the name a
+        drawn back has, so the Library, the 3D step and Finish find it the same way. Always PNG,
+        because that is the name they look for."""
+        from PIL import Image
+
+        front = chain.made.get("picture")
+        if not front:
+            raise ValueError("there is no front picture to put it beside")
+        relative = str(Path(front).with_name(f"{Path(front).stem}__back.png").as_posix())
+        with Image.open(io.BytesIO(chain.back_upload[1])) as opened:
+            opened.load()
+            picture = opened.convert("RGBA") if "A" in opened.getbands() else opened.convert("RGB")
+        picture.save(self.output / relative, "PNG")
+        chain.made["back"] = relative
         return relative
 
     def _start(self, chain: Chain, step: str) -> tuple[str, dict[str, Any]]:
@@ -444,9 +472,20 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
     except ValueError as exc:
         raise ValueError(f"the plan is not readable: {exc}") from exc
     upload = form.get("file")
+    back = form.get("back_file")
+    back_upload = (back.get("filename") or "back", back["data"]) if back and back.get("filename") and back.get("data") else None
+    engine = text("engine")
+    if back_upload:
+        # Said now, before a picture or a model is made, not when the 3D step finds it unusable
+        if Path(back_upload[0]).suffix.lower() not in PICTURE_SUFFIXES:
+            raise ValueError("the back picture must be a PNG, JPG or WebP")
+        if not (upload and upload.get("filename") and Path(upload["filename"]).suffix.lower() in PICTURE_SUFFIXES):
+            raise ValueError("a back picture goes with a front picture: upload both")
+        if engine not in FRONT_BACK_ENGINES or "model" not in steps:
+            raise ValueError("a back picture is used by Pixal3D's 3D model step only: pick Pixal3D as the engine")
     return Chain(
         title=text("title") or "Untitled", steps=[str(s) for s in steps], want=text("want") or "character",
-        prompt=text("prompt"), engine=text("engine"), first_move=text("first_move"),
+        prompt=text("prompt"), engine=engine, first_move=text("first_move"),
         picture_engine=text("picture_engine"),
         picture_settings={k: picture[k] for k in ("width", "height", "steps", "seed") if k in picture}
         if isinstance(picture, dict) else {},
@@ -456,4 +495,5 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         move_settings={k: move[k] for k in MOVE_KEYS if k in move} if isinstance(move, dict) else {},
         made={k: str(v) for k, v in made.items() if k in ("picture", "back", "model", "finished", "rigged") and v},
         upload=(upload.get("filename") or "upload", upload["data"]) if upload and upload.get("filename") and upload.get("data") else None,
+        back_upload=back_upload,
     )

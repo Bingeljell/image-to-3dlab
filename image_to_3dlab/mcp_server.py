@@ -407,6 +407,7 @@ def options() -> dict[str, Any]:
             "want": "picture | prop | set | character (create only).",
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
+            "back_image_path": "create only: your own back view to go with image_path; Pixal3D builds from both.",
             "picture_engine": "create only: flux (FLUX.2 klein, Apache-2.0, fast; default when installed) | qwen "
                               "(Qwen-Image, Qwen Research License, follows long prompts more closely).",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
@@ -618,11 +619,13 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
            front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
            finish_upload: bool = False, finish_detail: str | int | None = None,
            pixel_match: bool = True, advanced: dict[str, Any] | None = None,
-           picture_engine: str | None = None) -> dict[str, Any]:
+           picture_engine: str | None = None, back_image_path: str | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
     have = "model" if model_path else "picture" if image_path else "idea"
     if model_path and image_path:
         raise StudioError("Give an image or a model, not both.")
+    if back_image_path and not image_path:
+        raise StudioError("back_image_path goes with image_path: give the front picture too.")
     why = refusal(have, want)
     if why:
         raise StudioError(why)
@@ -634,9 +637,20 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         raise StudioError(f"Engine {engine!r} isn't ready. Ready: {', '.join(e['id'] for e in engines) or 'none'}.")
     fb_ready = bool((catalog.get("front_back") or {}).get("ready"))
     front_back = fb_ready if front_and_back is None else front_and_back
+    if back_image_path:
+        # your own back: nothing to draw, so only Pixal3D's multi-view weights are needed
+        if not (catalog.get("front_back") or {}).get("shape_ready"):
+            raise StudioError("Front and back isn't installed. The studio's Setup page adds it.")
+        if engine and engine != "pixal3d":
+            raise StudioError("A back picture is used by Pixal3D only: leave engine out or pass engine='pixal3d'.")
+        if "pixal3d" not in {e["id"] for e in engines}:
+            raise StudioError("A back picture needs Pixal3D, which isn't ready. install_backend sets it up.")
+        engine, front_back = "pixal3d", False
     if front_back and not fb_ready:
         raise StudioError("Front and back isn't installed. The studio's Setup page adds it.")
     steps = stop_after(plan_for(have, want, finish_upload=finish_upload, front_back=front_back), stop_after_step)
+    if back_image_path and "model" not in steps:
+        raise StudioError("A back picture is only used to build the 3D model: don't stop before it.")
     if adv["rig_from"] == "model" and "rigged" in steps:
         steps = [s for s in steps if s != "finished"]   # rig the raw model, as the studio's "skips Finish"
     engine = engine or (engines[0]["id"] if engines else None)
@@ -681,7 +695,10 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     if move_settings and "animated" in steps:
         form["move_settings"] = json.dumps(move_settings)
     upload = _upload(image_path, (".png", ".jpg", ".jpeg", ".webp")) or _upload(model_path, (".glb",))
-    run = studio.post("api/chains", data=form, files={"file": upload} if upload else None)
+    files = {"file": upload} if upload else {}
+    if back_image_path:
+        files["back_file"] = _upload(back_image_path, (".png", ".jpg", ".jpeg", ".webp"))
+    run = studio.post("api/chains", data=form, files=files or None)
     return {"run_id": run["id"], "steps": steps, "engine": form.get("engine"), "move": form.get("first_move"),
             "prompt_sent": form.get("prompt"), "watch": "run_status with this run_id (wait_seconds up to 50)",
             "studio": studio.studio_link()}
@@ -1059,7 +1076,7 @@ def build_server(studio: Studio | None = None):
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
                   move: str | None = None, add_wording: bool = True, finish_upload: bool = False,
                   finish_detail: str | None = None, pixel_match: bool = True, advanced: dict | None = None,
-                  picture_engine: str | None = None):
+                  picture_engine: str | None = None, back_image_path: str | None = None):
         """Make something new, as the studio's Create does. Returns a run_id at once; the run takes minutes.
 
         want: "picture" | "prop" (one game-ready object) | "set" (a 3x3 sheet cut into nine props) |
@@ -1079,13 +1096,15 @@ def build_server(studio: Studio | None = None):
         picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast;
             the default when installed) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
             more closely). Back pictures prefer Flux whichever drew the front.
+        back_image_path: your own back view to go with image_path (same pose, size and framing, seen from
+            directly behind). Pixal3D then builds from both and nothing is drawn. Needs Front + back installed.
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
                                    front_and_back=front_and_back, move=move, add_wording=add_wording,
                                    finish_upload=finish_upload, finish_detail=finish_detail,
                                    pixel_match=pixel_match, advanced=advanced,
-                                   picture_engine=picture_engine))
+                                   picture_engine=picture_engine, back_image_path=back_image_path))
 
     @server.tool(name="continue_asset", structured_output=False)
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,

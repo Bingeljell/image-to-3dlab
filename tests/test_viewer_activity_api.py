@@ -396,3 +396,51 @@ def test_every_finish_detail_agents_can_ask_for_reaches_finish():
         form = {"title": {"value": "k"}, "steps": {"value": json.dumps(["finished"])},
                 "finish_settings": {"value": json.dumps(settings)}}
         assert aa.chain_from_form(form).finish_settings == settings, detail
+
+
+# --- Your own back picture (front + back upload, 2026-10-30) --------------------------------
+
+def _picture_bytes(fmt="PNG", mode="RGB"):
+    import io
+
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new(mode, (8, 8), (200, 40, 40)).save(buffer, fmt)
+    return buffer.getvalue()
+
+
+def test_your_own_back_is_kept_beside_the_front_and_sent_to_the_3d_step(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="orc", engine="pixal3d", steps=["back", "model"],
+                     upload=("orc.png", _picture_bytes()), back_upload=("orc back.jpg", _picture_bytes("JPEG")))
+    runner.submit(chain, background=False)
+    assert chain.status == "done"
+    front, back = chain.made["picture"], chain.made["back"]
+    # the name a drawn back has, so the Library and Finish find it the same way; PNG whatever was uploaded
+    assert back == front.removesuffix(".png") + "__back.png"
+    assert (tmp_path / back).read_bytes()[:4] == b"\x89PNG"
+    posts = [p for m, p, b in jobs.calls if m == "POST"]
+    assert posts == ["/api/generate"]                    # nothing drawn: no /api/image/back
+    generate = next(b for m, p, b in jobs.calls if p == "/api/generate")
+    assert b'name="back"; filename="' + Path(back).name.encode() in generate
+
+
+def test_a_back_that_is_not_a_picture_stops_before_anything_runs(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="orc", engine="pixal3d", steps=["model"],
+                     upload=("orc.png", _picture_bytes()), back_upload=("orc-back.png", b"not a picture"))
+    runner.submit(chain, background=False)
+    assert chain.status == "error" and "back picture could not be read" in chain.error
+    assert not [c for c in jobs.calls if c[0] == "POST"]
+
+
+@pytest.mark.parametrize("fields, files, error", [
+    ({"engine": "pixal3d", "steps": '["model"]'}, {"back_file": ("b.png", b"x")}, "upload both"),
+    ({"engine": "trellis", "steps": '["model"]'}, {"file": ("f.png", b"x"), "back_file": ("b.png", b"x")}, "Pixal3D"),
+    ({"engine": "pixal3d", "steps": '["model"]'}, {"file": ("f.png", b"x"), "back_file": ("b.gif", b"x")}, "PNG, JPG or WebP"),
+])
+def test_a_back_upload_that_cannot_be_used_is_refused_when_the_plan_arrives(fields, files, error):
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", **fields}, files)
+    with pytest.raises(ValueError, match=error):
+        aa.chain_from_form(parse_multipart(ctype, body))

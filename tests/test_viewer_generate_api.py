@@ -1908,10 +1908,13 @@ def test_front_back_readiness_without_the_folder_says_how_to_get_it(tmp_path):
 
 
 def test_front_back_is_ready_only_with_the_shape_weights_and_a_back_drawer():
-    assert api.front_back_status(lambda: (True, None), lambda: True) == {"ready": True, "hint": None}
+    assert api.front_back_status(lambda: (True, None), lambda: True) == {
+        "ready": True, "shape_ready": True, "hint": None}
     for weights, drawer in (((True, None), False), ((False, "x"), True), ((False, "x"), False)):
         status = api.front_back_status(lambda w=weights: w, lambda d=drawer: d)
         assert not status["ready"] and "Front + back" in status["hint"]
+        # an uploaded back needs only the shape weights, not a picture engine to draw it
+        assert status["shape_ready"] is weights[0]
 
 
 def test_flux_alone_can_draw_backs_but_qwen_needs_its_vision_projector(monkeypatch):

@@ -27,7 +27,7 @@ class Response:
         return self._body
 
 
-CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True},
+CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True, "shape_ready": True},
            "picture_engines": [{"id": "flux", "installed": True}, {"id": "qwen", "installed": False}], "backends": [
     {"id": "trellis", "kind": "3d", "rank": 3, "state": "ready", "license": {"name": "MIT"}},
     {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "license": {"name": "MIT"}},
@@ -761,3 +761,24 @@ def test_create_passes_an_installed_picture_engine_and_refuses_a_missing_one(stu
         ms.create(studio, want="picture", description="a fox", picture_engine="qwen")
     ms.create(studio, want="picture", description="a fox")
     assert "picture_engine" not in sent(studio)   # the studio's default: Flux when installed
+
+
+def test_create_sends_your_own_back_and_draws_none(studio, tmp_path):
+    front, back = tmp_path / "orc.png", tmp_path / "orc-back.png"
+    front.write_bytes(b"front"), back.write_bytes(b"back")
+    out = ms.create(studio, want="prop", image_path=str(front), back_image_path=str(back))
+    _, files = studio.http.posts[-1]
+    assert files["back_file"][0] == "orc-back.png" and files["back_file"][1] == b"back"
+    assert "back" not in out["steps"] and "model" in out["steps"] and out["engine"] == "pixal3d"
+
+
+@pytest.mark.parametrize("kwargs, error", [
+    ({"back_image_path": "x.png"}, "goes with image_path"),
+    ({"image_path": "FRONT", "back_image_path": "BACK", "engine": "trellis"}, "Pixal3D only"),
+])
+def test_a_back_picture_that_cannot_be_used_is_refused_up_front(studio, tmp_path, kwargs, error):
+    for name in ("FRONT", "BACK"):
+        (tmp_path / f"{name}.png").write_bytes(b"x")
+    kwargs = {k: str(tmp_path / f"{v}.png") if v in ("FRONT", "BACK") else v for k, v in kwargs.items()}
+    with pytest.raises(ms.StudioError, match=error):
+        ms.create(studio, want="prop", **kwargs)

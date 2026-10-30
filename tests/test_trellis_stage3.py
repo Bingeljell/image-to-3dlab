@@ -136,7 +136,9 @@ def _run_main(monkeypatch, tmp_path: Path, *, preprocessed: bool = False, transp
     output_path = tmp_path / "material.pt"
     vendor_root = tmp_path / "vendor"
     vendor_root.mkdir()
-    (vendor_root / "TRELLIS.2").mkdir()
+    pipeline = vendor_root / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    pipeline.parent.mkdir(parents=True)
+    pipeline.write_text("        new_pipeline.rembg_model = None\n")
     snap = tmp_path / "trellis-snapshot"
     snap.mkdir()
     (snap / "pipeline.json").write_text("{}\n")
@@ -173,6 +175,41 @@ def _bundle():
         "pipeline_type": "1024_cascade",
         "images": ["source.png"],
     }
+
+
+def test_stage3_refuses_an_unpatched_tree_before_the_pipeline(tmp_path, monkeypatch):
+    latents = tmp_path / "latents.pt"
+    latents.write_bytes(b"not read")
+    image = tmp_path / "source.png"
+    image.write_bytes(b"not used")
+    vendor = tmp_path / "vendor"
+    pipeline = vendor / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    pipeline.parent.mkdir(parents=True)
+    pipeline.write_text(
+        "        new_pipeline.rembg_model = getattr(rembg, "
+        "args['rembg_model']['name'])(**args['rembg_model']['args'])\n"
+    )
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    (snap / "pipeline.json").write_text("{}\n")
+    from image_to_3dlab import weight_gate
+
+    monkeypatch.setattr(weight_gate, "snapshot_dir", lambda *a, **k: snap)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    argv = [
+        "trellis_stage3.py",
+        str(latents),
+        str(tmp_path / "out.pt"),
+        "--image",
+        str(image),
+        "--texture-seed",
+        "1",
+        "--vendor-root",
+        str(vendor),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit, match="BRIA RMBG-2.0"):
+        stage3.main()
 
 
 def test_stage3_refuses_when_the_snapshot_is_absent(tmp_path, monkeypatch):

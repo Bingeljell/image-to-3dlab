@@ -1,6 +1,6 @@
 """Tests for the text-to-image bootstrap.
 
-The download is 13.4 GB, so what matters here is everything that happens *before* one
+The download is 14.2 GB, so what matters here is everything that happens *before* one
 byte moves: that the user is told what is coming, that nothing starts without a yes, and
 that a non-interactive run cannot silently spend someone's bandwidth.
 """
@@ -61,7 +61,7 @@ def test_announcement_names_backend_route_size_and_licence():
     text = boot.announcement()
     assert "Qwen-Image 2.1" in text
     assert "stable-diffusion.cpp" in text
-    assert "13.4 GB" in text
+    assert "14.2 GB" in text
     assert "Qwen Research License" in text
     assert "Built with Qwen" in text
 
@@ -75,7 +75,7 @@ def test_announcement_lists_every_file_with_its_size():
 
 def test_total_matches_the_catalogue_figure():
     """The Setup page and this script must not quote different numbers for one download."""
-    assert boot.total_gb() == pytest.approx(13.4, abs=0.05)
+    assert boot.total_gb() == pytest.approx(14.2, abs=0.05)
 
 
 def test_build_only_does_not_promise_weights(monkeypatch):

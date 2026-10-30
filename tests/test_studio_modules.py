@@ -1102,3 +1102,74 @@ def test_copy_details_copies_what_the_server_scrubbed_and_nothing_if_it_cannot()
     assert out["copied"] == ["~/x.log", "z"]          # the server's text, never the raw log
     assert out["url"] == "/api/bug-report" and out["size"] == 30000
     assert out["fallback"] == "A step failed"         # the server refuses an empty message
+
+
+@needs_node
+def test_create_takes_each_picture_engines_own_size_and_steps():
+    """Flux: 1024 and 4 steps for a 3D source, 8 when the picture is the end product. Qwen: 768/8."""
+    flux = {"id": "flux", "defaults": {"width": 1024, "steps": 4}, "picture_only_steps": 8}
+    qwen = {"id": "qwen", "defaults": {"width": 768, "steps": 8}, "picture_only_steps": None}
+    out = _run("create.js", f"""
+      const flux = {json.dumps(flux)}, qwen = {json.dumps(qwen)};
+      const form = m.planForm({{ steps: ['picture'], pictureEngine: 'qwen' }});
+      console.log(JSON.stringify([m.pictureDefaults(flux), m.pictureDefaults(flux, true), m.pictureDefaults(qwen, true),
+        m.pictureDefaults(null), form.get('picture_engine'), m.planForm({{ steps: ['picture'] }}).get('picture_engine')]));""")
+    assert out == [{"size": 1024, "steps": 4}, {"size": 1024, "steps": 8}, {"size": 768, "steps": 8},
+                   {"size": 768, "steps": 8}, "qwen", None]
+
+
+@needs_node
+def test_create_offers_your_own_back_only_where_pixal3d_can_use_it():
+    out = _run("create.js", """
+      const fb = { ready: false, shape_ready: true };
+      const shown = (s, f = fb, steps = ['model', 'finished']) => m.backSlotShown(s, f, steps);
+      const form = m.planForm({ steps: ['model'], backFile: new File(['x'], 'b.png') });
+      console.log(JSON.stringify([
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }),
+        shown({ have: 'idea', want: 'prop', engine: 'pixal3d' }),
+        shown({ have: 'picture', want: 'prop', engine: 'trellis' }),
+        shown({ have: 'picture', want: 'set', engine: 'pixal3d' }),
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }, { shape_ready: false }),
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }, fb, ['picture']),
+        form.get('back_file')?.name ?? null, m.planForm({ steps: ['model'] }).get('back_file')]));""")
+    # no picture engine needed (ready: false): your back needs no drawing
+    assert out == [True, False, False, False, False, False, "b.png", None]
+
+
+@needs_node
+def test_draw_the_back_again_shows_for_a_front_and_plans_a_one_step_back_run():
+    out = _run("steps.js", """
+      const ctx = { frontBack: { ready: true } };
+      const withBack = { picture: 'images/a/a.png', back: 'images/a/a__back.png', kind: 'character' };
+      const plan = m.chainPlan('back', withBack, { change: 'a red cloak' });
+      console.log(JSON.stringify({
+        again: m.backRedo(withBack, ctx).includes('Draw the back again'),
+        first: m.backRedo({ ...withBack, back: null }, ctx).includes('Draw a back picture'),
+        none: m.backRedo({ ...withBack, back: null }, { frontBack: { ready: false } }),
+        sheet: m.backRedo({ ...withBack, kind: 'prop set' }, ctx),
+        steps: plan.steps, made: plan.made, change: plan.backSettings.instruction, seeded: Number.isInteger(plan.backSettings.seed),
+        plain: 'instruction' in m.chainPlan('back', withBack, { change: '' }).backSettings }));""")
+    assert out == {"again": True, "first": True, "none": "", "sheet": "", "steps": ["back"],
+                   "made": {"picture": "images/a/a.png"}, "change": "a red cloak", "seeded": True, "plain": False}
+
+
+@needs_node
+def test_the_back_brush_shows_with_a_back_and_flux_and_maps_strokes_to_the_picture():
+    out = _run("steps.js", """
+      const flux = { pictureEngines: [{ id: 'flux', installed: true }] };
+      const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png' };
+      console.log(JSON.stringify([
+        m.backBrush(asset, flux).includes('Fix part of the back'),
+        m.backBrush({ ...asset, back: null }, flux),
+        m.backBrush(asset, { pictureEngines: [{ id: 'qwen', installed: true }] })]));""")
+    assert out == [True, "", ""]
+    point = _run("brush.js", "console.log(JSON.stringify(m.toPicture(100, 50, { w: 400, h: 400 }, { w: 1024, h: 1024 })));")
+    assert point == [256, 128]
+
+
+@needs_node
+def test_the_brush_form_is_what_the_server_reads():
+    out = _run("brush.js", """
+      const form = m.brushForm('images/a/a__back.png', 'a red satchel', new Blob(['x']), 7);
+      console.log(JSON.stringify([form.get('picture'), form.get('instruction'), form.get('seed'), form.get('mask').name]));""")
+    assert out == ["images/a/a__back.png", "a red satchel", "7", "mask.png"]

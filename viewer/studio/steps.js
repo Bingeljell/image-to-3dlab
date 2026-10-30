@@ -4,6 +4,7 @@
 import { followJob, plainError, statusUrlFor, jobEnd, copyDetails } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
+import { mountBrush, brushForm } from './brush.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -24,9 +25,10 @@ export async function postStart(url, body) {
 /** The body for the step the asset can take next. `ctx` has engines, presets, url(). */
 export function stepBody(stepId, asset, ctx) {
   if (stepId === 'picture') {
-    return asset.prompt
+    const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
+    return another + backRedo(asset, ctx) + backBrush(asset, ctx);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -84,6 +86,59 @@ export function stepBody(stepId, asset, ctx) {
 }
 
 /** A step that is already done, offered again: folded away, and its result is a new version. */
+/** "Draw the back again" (or a first back) under the Picture step, for a front Pixal3D can build
+ *  from both sides. Empty when there is nothing to draw from or nothing to draw with. */
+export function backRedo(asset, ctx) {
+  if (!asset.picture || asset.kind === 'prop set' || !(asset.back || ctx.frontBack?.ready)) return '';
+  const title = asset.back ? 'Draw the back again' : 'Draw a back picture';
+  return redoBox(title, `${asset.back ? 'A new try at the back, from the same front. The current back is kept beside it as an older copy. ' : ''}Make the 3D model again afterwards to build from it.`,
+    `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="The satchel strap is thinner and the coat has no patches on the back"></textarea></label>
+     <p class="hint">Say what you want to see, not what to remove: naming a thing tends to draw it.</p>
+     <button class="primary" data-run="back">${title}</button>`);
+}
+
+/** The back picture's brush: needs a back and FLUX.2 klein (the engine it was tested on). */
+export function backBrush(asset, ctx) {
+  if (!asset.back) return '';
+  if (!(ctx.pictureEngines || []).some((e) => e.id === 'flux' && e.installed)) return '';
+  return `<details class="adv redo" data-brush><summary>Fix part of the back</summary>
+    <p class="hint">Paint over the part to change, then say what goes there. Only the painted part is drawn again;
+      the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.</p>
+    <div data-brush-canvas></div>
+    <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
+      <button type="button" class="ghost" data-brush-clear>Clear</button></div>
+    <label class="field">What goes there<textarea data-brush-text rows="2" maxlength="500" placeholder="A dark red leather satchel on a thin brown strap"></textarea></label>
+    <p class="error" data-brush-error hidden></p>
+    <button class="primary" data-brush-run>Repaint the painted part</button></details>`;
+}
+
+/** Make the brush box work: the canvas is built when it is first opened (it needs a width). */
+export function wireBrush(card, asset, ctx) {
+  const box = card.querySelector('[data-brush]');
+  if (!box) return;
+  let brush = null;
+  // built fresh each time: Back after a failed run restores this box as HTML, canvas and all
+  const mount = () => {
+    if (!box.open || brush) return;
+    const holder = box.querySelector('[data-brush-canvas]');
+    holder.innerHTML = '';
+    brush = mountBrush(holder, `${ctx.url(asset.back)}?v=${Date.now()}`);
+  };
+  box.addEventListener('toggle', mount);
+  mount();
+  const error = box.querySelector('[data-brush-error]');
+  const fail = (message) => { error.textContent = message; error.hidden = false; };
+  box.querySelector('[data-brush-size]').oninput = (e) => brush?.setSize(e.target.value);
+  box.querySelector('[data-brush-clear]').onclick = () => brush?.clear();
+  box.querySelector('[data-brush-run]').onclick = async () => {
+    const words = box.querySelector('[data-brush-text]').value.trim();
+    if (!brush?.painted()) return fail('Paint over the part to change first.');
+    if (!words) return fail('Say what goes in the painted part.');
+    const mask = await brush.maskBlob();
+    await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed())) }), ctx, 'picture');
+  };
+}
+
 function redoBox(title, note, body) {
   return `<details class="adv redo"><summary>${title}</summary><p class="hint">${note}</p>${body}</details>`;
 }
@@ -172,10 +227,12 @@ export function wireStep(card, stepId, asset, ctx) {
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
+      change: k('change')?.value?.trim() || '',
     };
     if (button.dataset.hero !== undefined) settings.detail = finishDetailSettings('hero');
     card.dataset.lastPreset = settings.preset || '';
-    const plan = chainPlan(stepId, asset, settings);
+    // the Picture step also carries "Draw the back again": its button names the step it runs
+    const plan = chainPlan(button.dataset.run === 'back' ? 'back' : stepId, asset, settings);
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
@@ -194,6 +251,11 @@ export function chainPlan(stepId, asset, settings) {
   const made = Object.fromEntries(['picture', 'back', 'model', 'finished', 'rigged']
     .filter((k) => asset[k]).map((k) => [k, asset[k]]));
   const base = { description: asset.name || 'Asset', want: asset.kind === 'prop set' ? 'set' : asset.kind === 'prop' ? 'prop' : 'character' };
+  if (stepId === 'back') {
+    if (!asset.picture) return null;
+    return { ...base, steps: ['back'], made: { picture: asset.picture },
+      backSettings: { seed: freshSeed(), ...(settings.change ? { instruction: settings.change } : {}) } };
+  }
   if (stepId === 'model') {
     if (!asset.picture) return null;
     return { ...base, steps: ['model'], made: { picture: asset.picture, ...(asset.back ? { back: asset.back } : {}) },
@@ -270,7 +332,7 @@ async function runInCard(card, starter, ctx, stepId, note) {
   } catch (error) {
     ctx.onBusy?.(false);
     show(`<div class="job failed"><p class="job-msg">${esc(plainError(error.message))}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`);
-    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
+    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); };
     return;
   }
   const { kind, start } = started;
@@ -301,6 +363,6 @@ async function runInCard(card, starter, ctx, stepId, note) {
     : `<div class="job failed"><p class="job-msg">${esc(why)}</p>
     <details><summary class="hint">Show log</summary><pre class="log">${esc(tail.split('\n').slice(-30).join('\n'))}</pre></details>
     <div class="row end"><button class="ghost" data-copy>Copy details</button><button class="ghost" data-back>Back</button></div></div>`);
-  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
+  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); };
   body.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(why, tail));
 }

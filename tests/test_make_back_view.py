@@ -29,7 +29,7 @@ def test_the_back_is_drawn_at_768_in_8_steps_from_the_reference():
 def test_a_missing_vision_file_stops_and_says_how_to_get_it(monkeypatch, tmp_path, capsys):
     front = tmp_path / "front.png"
     Image.new("RGB", (8, 8)).save(front)
-    monkeypatch.setattr(mbv.image_api, "resolve_vision", lambda: None)
+    monkeypatch.setattr(mbv.image_api, "resolve_vision", lambda *a: None)
     monkeypatch.setattr(mbv.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(
         AssertionError("ran Qwen")))
     assert mbv.main([str(front), str(tmp_path / "back.png")]) == 1

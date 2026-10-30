@@ -160,14 +160,16 @@ New here? The [step-by-step guide](https://assetfurnace.com/blog/how-to-use-asse
 from one picture to a finished, animated game character.
 
 **No picture to start from?** Press **+ Create** in the studio and type a sentence: it makes
-the picture first, then carries on to 3D. It runs Qwen-Image 2.1 on your own machine.
+the picture first, then carries on to 3D. It runs FLUX.2 klein 4B on your own machine
+(Apache-2.0), or Qwen-Image 2.1 if you pick it.
 
 ![Three creatures generated from text prompts on a laptop, about four and a half minutes each](docs/images/prompt-to-source-image.jpg)
 
 What you ask for decides most of the result: see [picking a picture](docs/prompt-guide.md)
 (soft 3D-render look, A-pose, open hands).
 
-Built with Qwen. The pictures you make are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)).
+The pictures you make are yours, either way: FLUX.2 klein is Apache-2.0, and for Qwen-Image
+see [Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660) (Built with Qwen).
 
 Six backends, one studio. Sadly life is full of trade-offs, so pick the tradeoff you want (lol):
 

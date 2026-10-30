@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Hunyuan exports write a licence sidecar beside the mesh. A shape-only file does not claim paint, and two paint runs no longer share one output file.
 - `--model 2.1` refuses before downloading when the converter cannot import torch. The default 2.0 download does not need it.
 - The Hunyuan shape downloaders ask before they fetch, and a file that came up short is not treated as finished.
 - The AMD Hunyuan weight check looks in the models folder you chose. Turning the attention chunk off clears a leftover chunk setting.

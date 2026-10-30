@@ -1395,6 +1395,18 @@ def _terminate_active_job() -> None:
     finish_job = FINISH_JOBS.get(FINISH_JOBS.active) if FINISH_JOBS.active else None
     if finish_job is not None and finish_job.process is not None and finish_job.process.poll() is None:
         _killpg_if_alive(finish_job.process.pid)
+    picture = image_api.MANAGER.jobs.get(image_api.MANAGER.active) if image_api.MANAGER.active else None
+    if picture is not None and picture.process is not None and picture.process.poll() is None:
+        _killpg_if_alive(picture.process.pid)
+    animate_job = ANIMATE_JOBS.jobs.get(ANIMATE_JOBS.active) if ANIMATE_JOBS.active else None
+    if animate_job is not None and animate_job.process is not None and animate_job.process.poll() is None:
+        _killpg_if_alive(animate_job.process.pid)
+    skin_job = skins_api.BUILDS.jobs.get(skins_api.BUILDS.active) if skins_api.BUILDS.active else None
+    if skin_job is not None and skin_job.process is not None and skin_job.process.poll() is None:
+        _killpg_if_alive(skin_job.process.pid)
+    for download in DOWNLOADS.values():
+        if download.process is not None and download.process.poll() is None:
+            _killpg_if_alive(download.process.pid)
 
 
 def _animate_running() -> bool:

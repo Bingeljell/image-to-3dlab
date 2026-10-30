@@ -213,6 +213,34 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
     assert manager.active is None
 
 
+def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
+    from image_to_3dlab import processes
+
+    directory = tmp_path / "clip"
+    directory.mkdir()
+    result = directory / "out.glb"
+    result.write_bytes(b"glb")
+    script = (
+        "import time\n"
+        "from pathlib import Path\n"
+        "time.sleep(0.2)\n"
+        "print(Path('pid').read_text().strip())\n"
+    )
+    job = aa.AnimateJob(
+        "ab" * 16, "animate", directory, result,
+        [([sys.executable, "-c", script], directory)], 1.0, {"license": "test"},
+    )
+    manager = aa.AnimateJobManager(tmp_path, tmp_path / "motions")
+    manager.jobs[job.id] = job
+    manager.active = job.id
+
+    aa.run_job(job, manager)
+
+    assert job.status == "done", job.log_lines
+    assert job.log_lines[0] == processes.pid_record(job.process.pid)
+    assert not (directory / "pid").exists()
+
+
 def test_source_record_prefers_a_sidecar_that_names_a_licence(tmp_path):
     glb = _glb(tmp_path / "m.glb")
     (tmp_path / "m.json").write_text(json.dumps({"seed": 1}))

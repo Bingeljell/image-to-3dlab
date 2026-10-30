@@ -28,6 +28,8 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 SHAPE_ROOT = REPO / "vendor" / "hunyuan-mlx"  # dgrauet's port, Tencent-licensed, stays vendored
 PAINT_ROOT = REPO / "hunyuan_mlx" / "paint"   # Xiong's paint stage, MIT, tracked in-repo
 PAINT_PYTHON = PAINT_ROOT / ".venv" / "bin" / "python"
@@ -52,11 +54,24 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def local_shape_repo() -> str:
+    """The dgrauet shape snapshot on disk. Never the hub id."""
+    from image_to_3dlab.weight_gate import require_local
+
+    return require_local(
+        "dgrauet/hunyuan3d-2.1-mlx",
+        backend="Hunyuan3D-MLX",
+        route="dgrauet shape",
+        size="about 13 GB",
+    )
+
+
 def run_shape(image: Path, octree_resolution: int, seed: int, t0: float):
+    repo = local_shape_repo()
     from hy3dshape.pipeline_mlx import ShapePipeline
 
     print(f"loading shape pipeline... ({time.time() - t0:.0f}s)", flush=True)
-    shape_pipe = ShapePipeline.from_pretrained("dgrauet/hunyuan3d-2.1-mlx")
+    shape_pipe = ShapePipeline.from_pretrained(repo)
     print(f"shape pipeline ready ({time.time() - t0:.0f}s)", flush=True)
     mesh = shape_pipe(
         str(image), num_inference_steps=50, guidance_scale=7.5,

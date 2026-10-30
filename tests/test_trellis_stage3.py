@@ -137,6 +137,11 @@ def _run_main(monkeypatch, tmp_path: Path, *, preprocessed: bool = False, transp
     vendor_root = tmp_path / "vendor"
     vendor_root.mkdir()
     (vendor_root / "TRELLIS.2").mkdir()
+    snap = tmp_path / "trellis-snapshot"
+    snap.mkdir()
+    (snap / "pipeline.json").write_text("{}\n")
+    from image_to_3dlab import weight_gate
+    monkeypatch.setattr(weight_gate, "snapshot_dir", lambda *a, **k: snap)
 
     argv = [
         "trellis_stage3.py",
@@ -168,6 +173,19 @@ def _bundle():
         "pipeline_type": "1024_cascade",
         "images": ["source.png"],
     }
+
+
+def test_stage3_refuses_when_the_snapshot_is_absent(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
+    latents = tmp_path / "latents.pt"
+    latents.write_bytes(b"not read")
+    image = tmp_path / "source.png"
+    image.write_bytes(b"not used")
+    argv = ["trellis_stage3.py", str(latents), str(tmp_path / "out.pt"),
+            "--image", str(image), "--texture-seed", "1", "--vendor-root", str(tmp_path)]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit, match="about 16.5 GB"):
+        stage3.main()
 
 
 def test_valid_bundle_is_accepted():

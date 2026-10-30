@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from image_to_3dlab import sf3d_backend as sf3d
 from image_to_3dlab.sf3d_backend import pick_device
 
 
@@ -56,6 +57,17 @@ def test_real_matte_is_left_alone():
     calls = []
     cut_out(image, lambda *a, **k: calls.append(1), session=None)
     assert calls == []
+
+
+def test_a_hub_id_with_no_snapshot_is_refused_before_sf3d_loads(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
+    monkeypatch.setattr(sf3d, "_load_sf3d", lambda repo: pytest.fail("loaded the code"))
+    options = sf3d.SF3DOptions(repo=tmp_path, model="stabilityai/stable-fast-3d")
+    with pytest.raises(SystemExit, match="about 4.9 GB") as raised:
+        sf3d._run(tmp_path / "in.png", tmp_path / "out.glb", options, "cpu")
+    message = str(raised.value)
+    assert "Stable Fast 3D" in message
+    assert "Mac" in message or "AMD" in message
 
 
 def test_the_setup_hint_names_this_machines_installer():

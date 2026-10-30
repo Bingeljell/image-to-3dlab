@@ -602,6 +602,55 @@ def archive_name(path: Path, stamp: str) -> Path:
     return path.with_name(f"{path.stem}_prev_{stamp}{path.suffix}")
 
 
+def back_versions(back: Path) -> list[Path]:
+    """Every kept version of a back, newest first: the backs it replaced (`archive_name`)."""
+    prefix = f"{back.stem}_prev_"
+    kept = [f for f in back.parent.glob(f"{prefix}*{back.suffix}")
+            if re.fullmatch(r"[\d-]+", f.stem[len(prefix):])]
+    return sorted(kept, key=lambda f: f.stem, reverse=True)
+
+
+def version_note(picture: Path) -> str:
+    """How a picture was made, from its sidecar: what the brush or a redraw was asked for."""
+    try:
+        record = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if record.get("brush"):
+        return f"Brushed: {record['brush'].get('instruction') or ''}".strip()
+    asked = (record.get("reference") or {}).get("instruction")
+    return f"Drawn again: {asked}" if asked else "Drawn"
+
+
+def kept_version(back: Path, version: Path) -> Path:
+    """`version` if it is one of `back`'s kept versions, else ValueError."""
+    if version.resolve() not in {v.resolve() for v in back_versions(back)}:
+        raise ValueError("that is not a kept version of this back")
+    return version
+
+
+def use_back_version(back: Path, version: Path) -> Path:
+    """Make a kept version the back again; the one it replaces is kept in its place."""
+    kept_version(back, version)
+    stamp, n = time.strftime("%Y%m%d-%H%M%S"), 0
+    while archive_name(back, stamp).exists():   # two swaps in one second must not overwrite
+        n += 1
+        stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{n}"
+    kept = archive_name(back, stamp)
+    for old, new in ((back, kept), (version, back)):   # each picture with its record
+        old.rename(new)
+        if old.with_suffix(".provenance.json").exists():
+            old.with_suffix(".provenance.json").rename(new.with_suffix(".provenance.json"))
+    return kept
+
+
+def delete_back_version(back: Path, version: Path) -> None:
+    """Delete one kept version of a back and its record. The back in use cannot be deleted."""
+    kept_version(back, version)
+    version.unlink()
+    version.with_suffix(".provenance.json").unlink(missing_ok=True)
+
+
 def take_place(new: Path, final: Path, stamp: str | None = None) -> Path | None:
     """Move `new` (and its sidecar) to `final`, keeping any picture already there as an
     archive. Returns where the old one went, or None when there was none."""

@@ -4,7 +4,7 @@
 import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, canFixShown, fixBlockedNote, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails } from './jobs.js';
-import { stepBody, wireStep, wireBrush } from './steps.js';
+import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
 import { STEP_LABELS } from './plan.js';
@@ -123,6 +123,7 @@ function renderSteps(asset) {
   $('steps').querySelectorAll('.step').forEach((card) => {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
     wireBrush(card, asset, ctx);
+    wireVersions(card, asset, ctx);
     card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({ text: asset.prompt, want: asset.kind === 'prop' ? 'prop' : 'character' }));
   });
   $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {

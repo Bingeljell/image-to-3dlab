@@ -28,7 +28,7 @@ export function stepBody(stepId, asset, ctx) {
     const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
-    return another + backRedo(asset, ctx) + backBrush(asset, ctx);
+    return another + backRedo(asset, ctx) + backBrush(asset, ctx) + backVersions(asset);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -150,6 +150,60 @@ export function wireBrush(card, asset, ctx) {
     const engine = box.querySelector('[data-brushengine]')?.value || '';
     await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed(), engine)) }), ctx, 'picture');
   };
+}
+
+/** The back's kept versions: each redraw or brush keeps the one it replaced. Filled when opened. */
+export function backVersions(asset) {
+  if (!asset.back) return '';
+  return `<details class="adv redo" data-versions><summary>Back versions</summary>
+    <p class="hint">Every redraw or brush keeps the back it replaced. Use one again, or delete the ones you don't want.</p>
+    <div data-versions-list><p class="hint">Loading…</p></div><p class="error" data-versions-error hidden></p></details>`;
+}
+
+/** The list inside Back versions, from the server's /api/image/versions. `url` makes a file's link. */
+export function versionsList(payload, url, stamp = Date.now()) {
+  const shot = (v) => `<img src="${esc(url(v.file))}?v=${stamp}" alt="" loading="lazy">`;
+  const note = (v) => `<span class="vnote">${esc(v.note || 'Drawn')}</span>`;
+  const rows = [`<li class="current">${shot(payload.current)}<span>${note(payload.current)}<b>In use</b></span></li>`]
+    .concat((payload.versions || []).map((v) => `<li data-file="${esc(v.file)}">${shot(v)}<span>${note(v)}
+      <span class="row"><button type="button" class="ghost small" data-use>Use this one</button>
+      <button type="button" class="ghost small" data-delete>Delete</button></span></span></li>`));
+  return `<ul class="versions">${rows.join('')}</ul>${(payload.versions || []).length ? '' : '<p class="hint">No other versions kept.</p>'}`;
+}
+
+/** Make Back versions work: list on open, Use swaps it in, Delete asks first. */
+export function wireVersions(card, asset, ctx) {
+  const box = card.querySelector('[data-versions]');
+  if (!box) return;
+  const list = box.querySelector('[data-versions-list]'), error = box.querySelector('[data-versions-error]');
+  const fail = (message) => { error.textContent = message; error.hidden = false; };
+  const render = (payload) => { error.hidden = true; list.innerHTML = versionsList(payload, ctx.url); };
+  const load = async () => {
+    if (!box.open) return;
+    const response = await fetch(`/api/image/versions?back=${encodeURIComponent(asset.back)}`);
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) render(payload); else fail(payload.error || 'Could not list the versions.');
+  };
+  const change = async (action, file) => {
+    const response = await fetch(`/api/image/versions/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ back: asset.back, version: file }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return fail(payload.error || `Could not ${action} it.`);
+    if (action === 'use') await ctx.onDone?.('picture'); else render(payload);   // a new back: redraw the page
+  };
+  box.addEventListener('toggle', load);
+  list.addEventListener('click', (event) => {
+    const row = event.target.closest('li[data-file]');
+    if (!row) return;
+    if (event.target.matches('[data-use]')) change('use', row.dataset.file);
+    if (event.target.matches('[data-delete]')) {
+      event.target.closest('.row').innerHTML = `<span class="hint">Delete for good?</span>
+        <button type="button" class="ghost small" data-keep>Keep</button><button type="button" class="danger small" data-sure>Delete</button>`;
+    }
+    if (event.target.matches('[data-keep]')) load();
+    if (event.target.matches('[data-sure]')) { event.target.disabled = true; change('delete', row.dataset.file); }
+  });
+  load();
 }
 
 function redoBox(title, note, body) {
@@ -347,7 +401,7 @@ async function runInCard(card, starter, ctx, stepId, note) {
   } catch (error) {
     ctx.onBusy?.(false);
     show(`<div class="job failed"><p class="job-msg">${esc(plainError(error.message))}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`);
-    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); };
+    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); wireVersions(card, ctx.asset(), ctx); };
     return;
   }
   const { kind, start } = started;
@@ -378,6 +432,6 @@ async function runInCard(card, starter, ctx, stepId, note) {
     : `<div class="job failed"><p class="job-msg">${esc(why)}</p>
     <details><summary class="hint">Show log</summary><pre class="log">${esc(tail.split('\n').slice(-30).join('\n'))}</pre></details>
     <div class="row end"><button class="ghost" data-copy>Copy details</button><button class="ghost" data-back>Back</button></div></div>`);
-  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); };
+  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); wireVersions(card, ctx.asset(), ctx); };
   body.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(why, tail));
 }

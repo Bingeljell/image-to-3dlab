@@ -72,7 +72,7 @@ STUDIO_ONLY = {
 # Server actions the tools below call.
 USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report", "api/usage",
         "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel",
-        "api/image/brush"}
+        "api/image/brush", "api/image/versions/use", "api/image/versions/delete"}
 
 
 class StudioError(RuntimeError):
@@ -859,6 +859,21 @@ def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str,
                     "user the back (its file is `back` under output/). The old back is kept beside it."}
 
 
+def back_versions(studio: Studio, *, asset_id: str, use: str | None = None,
+                  delete: str | None = None) -> dict[str, Any]:
+    """The back in use and every kept one (each redraw or brush keeps the one it replaced); `use`
+    makes a kept one the back again, `delete` removes one. Both take a `file` from the list."""
+    asset = find_asset(studio, asset_id, studio.get("api/assets")["assets"])
+    if not asset.get("back"):
+        raise StudioError(f"{asset.get('name')} has no back picture.")
+    if use and delete:
+        raise StudioError("Pass use or delete, not both.")
+    if use or delete:
+        action = "use" if use else "delete"
+        return studio.post_json(f"api/image/versions/{action}", {"back": asset["back"], "version": use or delete})
+    return studio.get("api/image/versions", back=asset["back"])
+
+
 def picture_status(studio: Studio, *, job_id: str, wait_seconds: int = 0,
                    sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """A picture job (a brushed back): its status, waiting up to `wait_seconds` for it to end."""
@@ -1203,6 +1218,14 @@ def build_server(studio: Studio | None = None):
         picture_engine: "flux" or "qwen"; default the engine that drew the back."""
         return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change,
                                        picture_engine=picture_engine))
+
+    @server.tool(name="back_versions", structured_output=False)
+    def tool_back_versions(asset_id: str, use: str | None = None, delete: str | None = None):
+        """Every kept version of a character's back picture (each redraw or brush keeps the one it
+        replaced), newest first, with how each was made. use=<file> makes one the back again (the one in
+        use is kept); delete=<file> removes one for good, so ask the user first. The back in use cannot
+        be deleted. After use, make the 3D model again for the change to show."""
+        return safe(lambda: back_versions(studio, asset_id=asset_id, use=use, delete=delete))
 
     @server.tool(name="picture_status", structured_output=False)
     def tool_picture_status(job_id: str, wait_seconds: int = 30):

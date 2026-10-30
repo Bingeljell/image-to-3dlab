@@ -2020,3 +2020,72 @@ def test_a_brush_request_takes_only_a_back_picture_in_output(tmp_path):
         api.brush_request(_brush_form("images/orc/orc__back.png", mask=False), tmp_path)
     with pytest.raises(ValueError, match="say what goes"):
         api.brush_request(_brush_form("images/orc/orc__back.png", instruction=" "), tmp_path)
+
+
+# --- Kept versions of a back: use one again, or delete one (2026-10-30) ------------------------
+
+def _back_with_versions(tmp_path):
+    folder = tmp_path / "images" / "orc"
+    folder.mkdir(parents=True)
+    (folder / "orc.png").write_bytes(b"front")
+    for name, words in (("orc__back", "now"), ("orc__back_prev_20261030-200000", "first"),
+                        ("orc__back_prev_20261030-210000", "second")):
+        (folder / f"{name}.png").write_bytes(words.encode())
+        (folder / f"{name}.provenance.json").write_text(json.dumps({"brush": {"instruction": words}}))
+    (folder / "orc__back_brush_mask.png").write_bytes(b"not a version")
+    return folder
+
+
+def test_a_backs_kept_versions_are_listed_newest_first_with_how_they_were_made(tmp_path):
+    _back_with_versions(tmp_path)
+    got = api.back_versions_payload("images/orc/orc__back.png", tmp_path)
+    assert got["current"] == {"file": "images/orc/orc__back.png", "note": "Brushed: now"}
+    assert [v["file"] for v in got["versions"]] == ["images/orc/orc__back_prev_20261030-210000.png",
+                                                    "images/orc/orc__back_prev_20261030-200000.png"]
+    with pytest.raises(ValueError, match="back pictures"):
+        api.back_versions_payload("images/orc/orc.png", tmp_path)
+
+
+def test_using_a_kept_back_keeps_the_one_it_replaces_each_with_its_own_record(tmp_path):
+    folder = _back_with_versions(tmp_path)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    got = api.change_back_version("use", body, tmp_path)
+    assert (folder / "orc__back.png").read_bytes() == b"first"
+    assert "first" in (folder / "orc__back.provenance.json").read_text()
+    assert got["current"]["note"] == "Brushed: first"
+    replaced = [v for v in got["versions"] if v["note"] == "Brushed: now"]
+    assert len(replaced) == 1 and (tmp_path / replaced[0]["file"]).read_bytes() == b"now"
+    assert len(got["versions"]) == 2                                   # nothing lost, nothing doubled
+
+
+def test_using_kept_backs_twice_in_one_second_overwrites_nothing(tmp_path):
+    _back_with_versions(tmp_path)
+    for note in ("Brushed: first", "Brushed: second"):
+        listed = api.back_versions_payload("images/orc/orc__back.png", tmp_path)["versions"]
+        pick = next(v["file"] for v in listed if v["note"] == note)
+        api.change_back_version("use", {"back": "images/orc/orc__back.png", "version": pick}, tmp_path)
+    got = api.back_versions_payload("images/orc/orc__back.png", tmp_path)
+    notes = sorted([got["current"]["note"]] + [v["note"] for v in got["versions"]])
+    assert notes == ["Brushed: first", "Brushed: now", "Brushed: second"]
+
+
+def test_deleting_a_kept_back_removes_it_and_its_record_only(tmp_path):
+    folder = _back_with_versions(tmp_path)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    got = api.change_back_version("delete", body, tmp_path)
+    assert not (folder / "orc__back_prev_20261030-200000.png").exists()
+    assert not (folder / "orc__back_prev_20261030-200000.provenance.json").exists()
+    assert [v["note"] for v in got["versions"]] == ["Brushed: second"]
+    assert (folder / "orc__back.png").read_bytes() == b"now"
+
+
+@pytest.mark.parametrize("version", ["images/orc/orc__back.png", "images/orc/orc.png",
+                                     "images/orc/orc__back_brush_mask.png", "../../etc/passwd"])
+def test_only_a_kept_version_can_be_used_or_deleted(tmp_path, version):
+    """The back in use, the front, a working file or anything outside output/ is refused."""
+    folder = _back_with_versions(tmp_path)
+    before = sorted(p.name for p in folder.iterdir())
+    for action in ("use", "delete"):
+        with pytest.raises(ValueError):
+            api.change_back_version(action, {"back": "images/orc/orc__back.png", "version": version}, tmp_path)
+    assert sorted(p.name for p in folder.iterdir()) == before

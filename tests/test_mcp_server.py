@@ -149,7 +149,7 @@ def test_the_server_registers_every_tool():
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend", "blender_helpers",
                      "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
                      "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
-                     "usage_counts", "brush_back", "picture_status"}
+                     "usage_counts", "brush_back", "picture_status", "back_versions"}
 
 
 # --------------------------------------------------------------------------- create
@@ -820,6 +820,29 @@ def test_brush_back_sends_the_back_the_mask_and_what_goes_there(studio, tmp_path
     with pytest.raises(ms.StudioError, match="has no back picture"):
         ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x")
 
+
+
+def test_back_versions_lists_uses_and_deletes_a_kept_back(studio):
+    knight = {**KNIGHT, "back": "images/k/k__back.png"}
+    studio.http.assets = [knight]
+    original_get, original_post = studio.http.get, studio.http.post
+    studio.http.get = lambda url, params=None, timeout=None: (
+        Response(200, {"current": {"file": params["back"]}, "versions": []}) if "api/image/versions" in url
+        else original_get(url, params, timeout))
+    assert ms.back_versions(studio, asset_id=knight["id"])["current"]["file"] == "images/k/k__back.png"
+    studio.http.post = lambda url, files=None, json=None, timeout=None: (
+        studio.http.posts.append((url.split("8777/", 1)[1], json)) or Response(200, {"versions": []}))
+    ms.back_versions(studio, asset_id=knight["id"], use="images/k/k__back_prev_1.png")
+    ms.back_versions(studio, asset_id=knight["id"], delete="images/k/k__back_prev_2.png")
+    assert studio.http.posts[-2:] == [
+        ("api/image/versions/use", {"back": "images/k/k__back.png", "version": "images/k/k__back_prev_1.png"}),
+        ("api/image/versions/delete", {"back": "images/k/k__back.png", "version": "images/k/k__back_prev_2.png"})]
+    with pytest.raises(ms.StudioError, match="not both"):
+        ms.back_versions(studio, asset_id=knight["id"], use="a", delete="b")
+    studio.http.get, studio.http.post = original_get, original_post
+    studio.http.assets = [KNIGHT]
+    with pytest.raises(ms.StudioError, match="has no back picture"):
+        ms.back_versions(studio, asset_id=KNIGHT["id"])
 
 
 @pytest.mark.parametrize("job_id", ["../../skins", "abc", "A" * 32])

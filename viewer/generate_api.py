@@ -518,6 +518,35 @@ BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
 CHAIN_UPLOAD_LIMIT = 1024 * 1024 * 1024
 
 
+def _back_in_output(output_root: Path, relative: str) -> Path:
+    back = image_api.back_source(output_root, relative)
+    if not back.name.endswith("__back.png"):
+        raise ValueError("versions are kept for back pictures")
+    return back
+
+
+def back_versions_payload(relative: str, output_root: Path | None = None) -> dict[str, Any]:
+    """The back in use and every kept version of it, newest first, as output/-relative paths."""
+    root = output_root or OUTPUT_ROOT
+    back = _back_in_output(root, relative)
+    entry = lambda f: {"file": f.relative_to(root.resolve()).as_posix(), "note": image_api.version_note(f)}
+    return {"current": entry(back), "versions": [entry(f) for f in image_api.back_versions(back)]}
+
+
+def change_back_version(action: str, body: dict[str, Any], output_root: Path | None = None) -> dict[str, Any]:
+    """`use` a kept version of a back, or `delete` one. Returns the versions as they are now."""
+    root = output_root or OUTPUT_ROOT
+    back = _back_in_output(root, str(body.get("back") or ""))
+    version = image_api.back_source(root, str(body.get("version") or ""))
+    if action == "use":
+        image_api.use_back_version(back, version)
+    elif action == "delete":
+        image_api.delete_back_version(back, version)
+    else:
+        raise ValueError(f"unknown action: {action}")
+    return back_versions_payload(str(body.get("back")), root)
+
+
 def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = None):
     """(picture, stroke, instruction, seed) from a brush request, or ValueError saying what is wrong.
 
@@ -2779,6 +2808,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "image", "brush"]:
             self._create_brush_job()
             return
+        if len(parts) == 4 and parts[:3] == ["api", "image", "versions"] and parts[3] in {"use", "delete"}:
+            self._change_back_version(parts[3])
+            return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "name":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2936,6 +2968,24 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json(202, {"job_id": job.id, "settings": job.settings,
                               "events_url": f"/api/image/{job.id}/events",
                               "status_url": f"/api/image/{job.id}/status"})
+
+    def _change_back_version(self, action: str) -> None:
+        """Use or delete a kept version of a back (JSON: back, version)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+        except (ValueError, json.JSONDecodeError):
+            body = {}
+        # a picture run may be about to swap this very back in when it finishes
+        if _running(image_api.MANAGER):
+            self._send_json(409, {"error": "a picture is being made; wait for it to finish"})
+            return
+        try:
+            payload = change_back_version(action, body)
+        except (ValueError, OSError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        self._send_json(200, payload)
 
     def _create_image_job(self) -> None:
         """Start one text-to-image run. The prompt is the only required field."""
@@ -3370,6 +3420,14 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(data)
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        if parts == ["api", "image", "versions"]:
+            try:
+                payload = back_versions_payload(parse_qs(urlparse(self.path).query).get("back", [""])[0])
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            self._send_json(200, payload)
             return
         if parts == ["api", "image", "defaults"]:
             # The engine a picture would use now, at the top level as before; every engine below.

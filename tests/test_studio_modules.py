@@ -1189,3 +1189,20 @@ def test_the_brush_form_names_an_engine_only_when_one_was_chosen():
       const same = m.brushForm('b.png', 'x', new Blob(['x']), 1);
       console.log(JSON.stringify([chosen.get('engine'), same.get('engine')]));""")
     assert out == ["qwen", None]
+
+
+@needs_node
+def test_back_versions_show_the_one_in_use_and_offer_use_and_delete_on_the_kept_ones():
+    out = _run("steps.js", """
+      const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png' };
+      const url = (f) => '/output/' + f;
+      const payload = { current: { file: 'images/a/a__back.png', note: 'Brushed: a <strap>' },
+                        versions: [{ file: 'images/a/a__back_prev_1.png', note: 'Drawn' }] };
+      const html = m.versionsList(payload, url, 7);
+      console.log(JSON.stringify([
+        m.backVersions(asset).includes('Back versions'), m.backVersions({ ...asset, back: null }),
+        html.includes('/output/images/a/a__back.png?v=7'), html.includes('a &lt;strap&gt;'),
+        (html.match(/data-use/g) || []).length, (html.match(/data-delete/g) || []).length,
+        html.includes('data-file="images/a/a__back_prev_1.png"'),
+        m.versionsList({ ...payload, versions: [] }, url).includes('No other versions kept')]));""")
+    assert out == [True, "", True, True, 1, 1, True, True]   # the one in use has no Use or Delete

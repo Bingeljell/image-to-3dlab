@@ -102,9 +102,13 @@ def main() -> int:
     rgba[:, 2] = np.clip(phase * 255, 0, 255).astype(np.uint8)
     rgba[:, 3] = 255
 
-    baked = trimesh.Trimesh(
-        vertices=vertices, faces=target.faces, vertex_colors=rgba, process=False
-    )
+    # A fresh Trimesh of vertices and faces drops the image and the UVs.
+    # TextureVisuals writes COLOR_0 from this attribute and keeps the material.
+    baked = target.copy()
+    if baked.visual.kind == "texture":
+        baked.visual.vertex_attributes["color"] = rgba
+    else:
+        baked.visual.vertex_colors = rgba
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     baked.export(output)

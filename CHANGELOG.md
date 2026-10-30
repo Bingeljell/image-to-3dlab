@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- The progress card can be dragged and resized. Its log stays on the latest line, and a scroll up the log is kept.
 - Measuring a flat mesh no longer warns, and a colour pushed past the display range keeps its lightness without a conversion warning.
 - The setup docs match the tools. Weight downloads are asked for, BRIA stays unloaded, and a prop sheet's pictures are yours while the meshes carry the Pixal3D and DINOv3 licence.
 - The agent starts the studio the same way `./lab` does. On a RunPod pod that listens for the pod's web link and uses a key.

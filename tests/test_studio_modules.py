@@ -239,6 +239,38 @@ def test_a_cancelled_step_shows_no_log_and_a_failed_one_keeps_it():
 
 
 @needs_node
+def test_a_live_log_stays_where_the_reader_left_it():
+    out = _run("jobs.js", """
+      const bottom = { scrollTop: 300, clientHeight: 100, scrollHeight: 400 };
+      const reading = { scrollTop: 10, clientHeight: 100, scrollHeight: 400 };
+      console.log(JSON.stringify([
+        m.logScroll(null, 400),
+        m.logScroll(bottom, 500),
+        m.logScroll(reading, 500),
+      ]));""")
+    assert out == [400, 500, 10]
+
+
+@needs_node
+def test_a_progress_card_stays_inside_the_viewer_when_moved_or_resized():
+    out = _run("jobs.js", """
+      const bounds = { w: 800, h: 600 };
+      const box = { x: 100, y: 80, w: 400, h: 300 };
+      console.log(JSON.stringify([
+        m.moveBox(box, 50, -20, bounds),
+        m.moveBox(box, -500, 900, bounds),
+        m.resizeBox(box, -300, -200, bounds),
+        m.resizeBox({ x: 700, y: 500, w: 400, h: 300 }, 50, 50, bounds),
+      ]));""")
+    assert out == [
+        {"x": 150, "y": 60, "w": 400, "h": 300},
+        {"x": 0, "y": 300, "w": 400, "h": 300},
+        {"x": 100, "y": 80, "w": 280, "h": 220},
+        {"x": 350, "y": 250, "w": 450, "h": 350},
+    ]
+
+
+@needs_node
 def test_the_log_drops_the_picture_models_tokenizer_chatter():
     log = "\n".join([
         "<|im_start|>user",

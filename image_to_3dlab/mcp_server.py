@@ -841,22 +841,32 @@ def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
 
 
 def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str,
-               picture_engine: str | None = None) -> dict[str, Any]:
-    """The studio's "Fix part of the back": repaint the white area of `mask_path` on the back picture."""
+               picture_engine: str | None = None, which: str = "back") -> dict[str, Any]:
+    """The studio's "Fix part of the back" (or, which="front", "Fix part of the picture"): repaint
+    the white area of `mask_path`. The front only until a 3D model is made from it."""
     asset = find_asset(studio, asset_id, studio.get("api/assets")["assets"])
-    if not asset.get("back"):
+    if which not in ("back", "front"):
+        raise StudioError("which is 'back' or 'front'.")
+    if which == "front" and asset.get("model"):
+        raise StudioError(f"A 3D model was already made from {asset.get('name')}'s picture; fix its back, "
+                          "or draw another picture.")
+    if which == "front" and not asset.get("picture"):
+        raise StudioError(f"{asset.get('name')} has no picture.")
+    if which == "back" and not asset.get("back"):
         raise StudioError(f"{asset.get('name')} has no back picture. continue_asset(up_to='back') draws one.")
     if not change.strip():
         raise StudioError("Say what goes in the painted area (change=...).")
     mask = _upload(mask_path, (".png",))
-    fields = {"picture": asset["back"], "instruction": change.strip(),
+    target = asset["picture"] if which == "front" else asset["back"]
+    fields = {"picture": target, "instruction": change.strip(),
               "seed": str(int.from_bytes(os.urandom(3), "big"))}
     if picture_engine:
         fields["engine"] = picture_engine
     start = studio.post("api/image/brush", data=fields, files={"mask": mask})
-    return {"job_id": start["job_id"], "back": asset["back"],
+    kept = "The old back is kept beside it." if which == "back" else "The fixed picture replaces the old one."
+    return {"job_id": start["job_id"], which: target,
             "next": "Takes a couple of minutes: picture_status(job_id, wait_seconds=50) until done, then show the "
-                    "user the back (its file is `back` under output/). The old back is kept beside it."}
+                    f"user the picture (its file is `{which}` under output/). {kept}"}
 
 
 def back_versions(studio: Studio, *, asset_id: str, use: str | None = None,
@@ -1210,14 +1220,17 @@ def build_server(studio: Studio | None = None):
         return safe(lambda: list_versions(studio, asset_id=asset_id))
 
     @server.tool(name="brush_back", structured_output=False)
-    def tool_brush_back(asset_id: str, mask_path: str, change: str, picture_engine: str | None = None):
+    def tool_brush_back(asset_id: str, mask_path: str, change: str, picture_engine: str | None = None,
+                        which: str = "back"):
         """Fix part of a character's back picture: mask_path is a PNG the size of the back (or any size; it is
         scaled), white where to repaint, black elsewhere. change: what goes there ("a dark red leather satchel").
         Only the white area is redrawn; the rest stays pixel for pixel. Paint close around the part:
         everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True).
-        picture_engine: "flux" or "qwen"; default the engine that drew the back."""
+        picture_engine: "flux" or "qwen"; default the engine that drew the back.
+        which="front" fixes the picture itself instead, only before a 3D model is made from it; the fixed
+        picture replaces the old one. Describe what should be there, not the change."""
         return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change,
-                                       picture_engine=picture_engine))
+                                       picture_engine=picture_engine, which=which))
 
     @server.tool(name="back_versions", structured_output=False)
     def tool_back_versions(asset_id: str, use: str | None = None, delete: str | None = None):

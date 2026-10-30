@@ -1219,3 +1219,21 @@ def test_the_brush_picture_fits_the_big_view_whole_and_never_past_its_own_size()
     hint = _run("steps.js", """console.log(JSON.stringify(m.backBrush({ picture: 'a.png', back: 'a__back.png' },
       { pictureEngines: [{ id: 'flux', installed: true }] }).includes('Paint on the picture in the big view')));""")
     assert hint is True
+
+
+@needs_node
+def test_the_picture_brush_shows_only_until_a_model_is_made_and_warns_about_the_back():
+    """Fix the picture before building, not after (user, 2026-10-30): a model needs its picture as it was."""
+    out = _run("steps.js", """
+      const ctx = { pictureEngines: [{ id: 'flux', installed: true }] };
+      const fresh = { picture: 'images/a/a.png', back: null, model: null };
+      const body = m.stepBody('picture', { ...fresh, prompt: 'an orc' }, { ...ctx, engines: [] });
+      console.log(JSON.stringify([
+        m.frontBrush(fresh, ctx).includes('Fix part of the picture'),
+        m.frontBrush(fresh, ctx).includes('data-brush="front"'),
+        m.frontBrush(fresh, ctx).includes('back is not changed'),
+        m.frontBrush({ ...fresh, back: 'images/a/a__back.png' }, ctx).includes('back is not changed'),
+        m.frontBrush({ ...fresh, model: 'x/a.glb' }, ctx),
+        m.frontBrush(fresh, { pictureEngines: [] }),
+        body.includes('Fix part of the picture')]));""")
+    assert out == [True, True, False, True, "", "", True]

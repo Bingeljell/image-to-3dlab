@@ -668,6 +668,53 @@ def test_a_finished_brush_swaps_in_only_the_painted_part(tmp_path, monkeypatch):
 
 
 
+def _finish_brush(job, manager, monkeypatch, colour=(200, 30, 30)):
+    from PIL import Image
+
+    class Done:
+        def __init__(self, cmd, **k):
+            Image.new("RGB", (256, 256), colour).save(cmd[cmd.index("-o") + 1])
+            self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
+        def wait(self): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(api.subprocess, "Popen", Done)
+    monkeypatch.setattr(api.usage_api, "count_done", lambda *a: None)
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "done", job.error
+
+
+def test_a_brushed_front_replaces_the_old_one_and_carries_its_record(tmp_path, monkeypatch):
+    """The fixed front becomes the picture (user, 2026-10-30), but where it came from, and under
+    which licence, must not go with the old file: the outside of the paint is still that picture."""
+    from PIL import Image
+    front = tmp_path / "orc" / "orc.png"
+    front.parent.mkdir()
+    Image.new("RGB", (64, 64), (60, 120, 60)).save(front)
+    first = {"prompt": "an orc blacksmith", "license": {"name": "Apache-2.0"}}
+    front.with_suffix(".provenance.json").write_text(json.dumps(first))
+    manager = api.ImageJobManager(tmp_path)
+    _finish_brush(api.create_brush_job(manager, front, _stroke(), "a leather strap", keep_old=False), manager, monkeypatch)
+    assert sorted(p.name for p in front.parent.glob("orc*.png") if "_brush_" not in p.name) == ["orc.png"]
+    with Image.open(front) as out:
+        assert out.getpixel((2, 2)) == (60, 120, 60) and out.getpixel((30, 30)) == (200, 30, 30)
+    record = json.loads(front.with_suffix(".provenance.json").read_text())
+    assert record["brush"]["replaced"] is None and record["brush"]["replaced_record"] == first
+    import assets_api
+    assert assets_api.first_prompt(record) == "an orc blacksmith"   # Draw another picture still knows it
+
+
+def test_a_brushed_jpeg_upload_is_still_a_jpeg(tmp_path, monkeypatch):
+    from PIL import Image
+    front = tmp_path / "up" / "orc.jpg"
+    front.parent.mkdir()
+    Image.new("RGB", (64, 64), (60, 120, 60)).save(front)
+    manager = api.ImageJobManager(tmp_path)
+    _finish_brush(api.create_brush_job(manager, front, _stroke(), "a strap", keep_old=False), manager, monkeypatch)
+    with Image.open(front) as out:
+        assert out.format == "JPEG"
+    assert not front.with_suffix(".provenance.json").read_text().count('"replaced_record": {')   # an upload had none
+
+
 def test_a_back_already_at_a_drawable_size_is_brushed_as_it_is(tmp_path):
     from PIL import Image
     back = _back(tmp_path)

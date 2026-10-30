@@ -486,6 +486,7 @@ class ImageJob:
     init: Path | None = None        # a brush: the picture it starts from
     mask: Path | None = None        # ...the area it may redraw (white), as the model sees it
     paste_mask: Path | None = None  # ...and the area pasted back onto `init` when it is done
+    keep_old: bool = True          # a brushed back keeps the one it replaced; a brushed front does not
 
     def __post_init__(self) -> None:
         self.status = "queued"
@@ -727,6 +728,18 @@ def paste_through(original: Path, drawn: Path, paste_mask: Path) -> None:
                         mask.convert("L").resize(base.size)).save(drawn)
 
 
+def keep_format(picture: Path, suffix: str) -> None:
+    """Save `picture` again in the format `suffix` names, so a brushed .jpg upload is still a JPEG."""
+    from PIL import Image
+
+    format_ = {".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP"}.get(suffix.lower())
+    if format_ is None:
+        return
+    with Image.open(picture) as opened:
+        copy = opened.convert("RGB")
+    copy.save(picture, format=format_, quality=95)
+
+
 def brush_prompt(instruction: str) -> str:
     """What goes in the painted area, set in the picture it belongs to."""
     words = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION].strip().rstrip(".")
@@ -735,11 +748,12 @@ def brush_prompt(instruction: str) -> str:
 
 
 def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instruction: str,
-                     seed: int = 42, engine: PictureEngine = FLUX) -> ImageJob:
+                     seed: int = 42, engine: PictureEngine = FLUX, keep_old: bool = True) -> ImageJob:
     """Repaint the stroked area of `picture` as `instruction` says; the rest stays as it is.
 
     The new picture is drawn beside it (`<name>_new.png`) and swapped in when it is done; the
-    old one is kept, as a back drawn again is. `stroke`: a PIL image, white where painted.
+    old one is kept, as a back drawn again is, unless `keep_old` is False (a front: the fixed
+    one becomes the picture). `stroke`: a PIL image, white where painted.
     """
     with opaque(picture) as base:
         size = base.size
@@ -772,6 +786,7 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
             manager.finish(job)
             raise
     job.init, job.mask, job.paste_mask, job.replaces = init, mask, paste, picture
+    job.keep_old = keep_old
     # Every engine that can SEE the picture it repaints does, so the prompt stays the change
     # alone: told only the change, Flux filled the paint with it (2026-10-30); told the scene in
     # words, it drew what the words named (a lantern from the front's prompt). Flux always can;
@@ -784,9 +799,21 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
     return job
 
 
+def drop_kept(kept: Path) -> dict[str, Any] | None:
+    """Delete a replaced picture and its record; returns the record it had (None if none)."""
+    sidecar = kept.with_suffix(".provenance.json")
+    try:
+        record = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        record = None
+    kept.unlink(missing_ok=True)
+    sidecar.unlink(missing_ok=True)
+    return record
+
+
 def start_brush(picture: Path, stroke, instruction: str, seed: int = 42,
-                engine: PictureEngine = FLUX) -> ImageJob:
-    job = create_brush_job(MANAGER, picture, stroke, instruction, seed, engine)
+                engine: PictureEngine = FLUX, keep_old: bool = True) -> ImageJob:
+    job = create_brush_job(MANAGER, picture, stroke, instruction, seed, engine, keep_old)
     threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
     return job
 
@@ -899,6 +926,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         else:
             if job.paste_mask is not None and job.replaces is not None:
                 paste_through(job.replaces, job.output_path, job.paste_mask)
+                keep_format(job.output_path, job.replaces.suffix)
             kept = None
             if job.replaces is not None:
                 kept = take_place(job.output_path, job.replaces)
@@ -916,6 +944,11 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                                    "instruction": job.instruction, "strength": BRUSH_STRENGTH,
                                    "replaced": kept.name if kept else None,
                                    "saw_the_picture": job.reference is not None}
+                if kept is not None and not job.keep_old:
+                    # a front: the old picture goes, but what it was drawn from and under which
+                    # licence travels on inside this record (the outside of the paint is still it)
+                    record["brush"]["replaced"] = None
+                    record["brush"]["replaced_record"] = drop_kept(kept)
             sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))

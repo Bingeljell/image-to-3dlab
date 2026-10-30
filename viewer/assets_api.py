@@ -79,6 +79,15 @@ def _prop_wording() -> str | None:
         return None
 
 
+def first_prompt(record: Any) -> str | None:
+    """What a picture was first drawn from. A brushed front carries the record of the picture it
+    replaced (`brush.replaced_record`), whose prompt is the one that still describes it."""
+    while isinstance(record, dict) and isinstance((record.get("brush") or {}).get("replaced_record"), dict):
+        record = record["brush"]["replaced_record"]
+    text = record.get("prompt") if isinstance(record, dict) else None
+    return text if isinstance(text, str) and text.strip() else None
+
+
 def _prompted_as_prop(picture: Path, wording: str | None) -> bool:
     """Before the history said what a chain wanted: Create added the prop wording to the
     prompt, and the picture's provenance record kept the prompt."""
@@ -88,7 +97,7 @@ def _prompted_as_prop(picture: Path, wording: str | None) -> bool:
         record = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return wording in str(record.get("prompt", ""))
+    return wording in str(first_prompt(record) or "")
 
 
 def _picture_prompt(picture: Path | None) -> str | None:
@@ -96,10 +105,9 @@ def _picture_prompt(picture: Path | None) -> str | None:
     if picture is None:
         return None
     try:
-        text = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")).get("prompt")
-    except (OSError, ValueError, AttributeError):
+        return first_prompt(json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
         return None
-    return text if isinstance(text, str) and text.strip() else None
 
 
 def friendly_name(stem: str) -> str:

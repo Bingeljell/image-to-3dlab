@@ -26,7 +26,6 @@ export function fitSize(natural, room) {
 
 /** A layer over the big view to paint in (people reach for the big picture, not the side panel). */
 export function brushStage(stage) {
-  closeBrushStage(stage);
   const layer = document.createElement('div');
   layer.className = 'brushstage';
   layer.innerHTML = '<p class="brushstage-hint">Paint over the part to change</p>';

@@ -2005,14 +2005,23 @@ def _brush_form(picture, mask=True, instruction="a red satchel"):
     return form
 
 
-def test_a_brush_request_takes_only_a_back_picture_in_output(tmp_path):
+def test_a_brush_request_takes_a_back_or_a_front_no_model_was_made_from(tmp_path):
     folder = tmp_path / "images" / "orc"
     folder.mkdir(parents=True)
     (folder / "orc.png").write_bytes(b"front")
     (folder / "orc__back.png").write_bytes(b"back")
-    picture, stroke, words, seed = api.brush_request(_brush_form("images/orc/orc__back.png"), tmp_path)
+    (folder / "notes.png").write_bytes(b"not an asset's picture")
+    picture, stroke, words, seed, keep = api.brush_request(_brush_form("images/orc/orc__back.png"), tmp_path)
     assert picture.name == "orc__back.png" and stroke.size == (8, 8) and words == "a red satchel" and seed == 42
-    with pytest.raises(ValueError, match="works on a back picture"):
+    assert keep is True                                            # a back keeps the one it replaces
+    picture, *_, keep = api.brush_request(_brush_form("images/orc/orc.png"), tmp_path)
+    assert picture.name == "orc.png" and keep is False             # a front: the fixed one is the picture
+    with pytest.raises(ValueError, match="front or back picture"):
+        api.brush_request(_brush_form("images/orc/notes.png"), tmp_path)
+    gen = "orc__pixal3d__20261027-120000"
+    (tmp_path / "commercial_conditional" / gen).mkdir(parents=True)
+    (tmp_path / "commercial_conditional" / gen / f"{gen}.glb").write_bytes(b"MODEL")
+    with pytest.raises(ValueError, match="3D model was already made"):
         api.brush_request(_brush_form("images/orc/orc.png"), tmp_path)
     with pytest.raises(ValueError, match="not a picture in output"):
         api.brush_request(_brush_form("../../etc/passwd"), tmp_path)

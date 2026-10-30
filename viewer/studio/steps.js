@@ -28,7 +28,7 @@ export function stepBody(stepId, asset, ctx) {
     const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
-    return another + backRedo(asset, ctx) + backBrush(asset, ctx) + backVersions(asset);
+    return another + frontBrush(asset, ctx) + backRedo(asset, ctx) + backBrush(asset, ctx) + backVersions(asset);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -107,57 +107,72 @@ export function backRedo(asset, ctx) {
      <button class="primary" data-run="back">${title}</button>`);
 }
 
-/** The back picture's brush: needs a back and FLUX.2 klein (the engine it was tested on). */
-export function backBrush(asset, ctx) {
-  if (!asset.back) return '';
-  if (!(ctx.pictureEngines || []).some((e) => e.installed)) return '';
-  return `<details class="adv redo" data-brush><summary>Fix part of the back</summary>
-    <p class="hint">Paint over the part to change, then say what goes there. Only the painted part is drawn again;
+const BRUSH_TIP = `Paint over the part to change, then say what goes there. Only the painted part is drawn again;
       the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.
-      Say what should be there, not the change: "a leather strap from the shoulder to the belt", not "make the strap longer".</p>
+      Say what should be there, not the change: "a leather strap from the shoulder to the belt", not "make the strap longer".`;
+
+function brushBox(which, ctx, { title, note = '', sameEngine }) {
+  if (!(ctx.pictureEngines || []).some((e) => e.installed)) return '';
+  return `<details class="adv redo" data-brush="${which}"><summary>${title}</summary>
+    <p class="hint">${BRUSH_TIP}</p>${note}
     <div data-brush-canvas><p class="hint"><b>Paint on the picture in the big view.</b></p></div>
     <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
       <button type="button" class="ghost" data-brush-clear>Clear</button></div>
     <label class="field">What goes there<textarea data-brush-text rows="2" maxlength="500" placeholder="A dark red leather satchel on a thin brown strap"></textarea></label>
-    ${engineChoice(ctx, 'data-brushengine', 'Same engine as the back')}
+    ${engineChoice(ctx, 'data-brushengine', sameEngine)}
     <p class="error" data-brush-error hidden></p>
     <button class="primary" data-brush-run>Repaint the painted part</button></details>`;
 }
 
-/** Make the brush box work: the canvas is built when it is first opened (it needs a width). */
+/** The picture's own brush: fix it before a 3D model is made from it (after that, the model needs it as it was). */
+export function frontBrush(asset, ctx) {
+  if (!asset.picture || asset.model) return '';
+  const note = asset.back ? '<p class="hint">The back is not changed with it: check it after, and draw it again if they no longer match.</p>' : '';
+  return brushBox('front', ctx, { title: 'Fix part of the picture', note, sameEngine: 'Same engine as the picture' });
+}
+
+/** The back picture's brush. */
+export function backBrush(asset, ctx) {
+  if (!asset.back) return '';
+  return brushBox('back', ctx, { title: 'Fix part of the back', sameEngine: 'Same engine as the back' });
+}
+
+/** Make the brush boxes work. Each paints on a layer over the big view while it is open; only one is open at a time. */
 export function wireBrush(card, asset, ctx) {
-  const box = card.querySelector('[data-brush]');
-  if (!box) return;
-  let brush = null;
-  // built fresh each time: Back after a failed run restores this box as HTML, canvas and all
-  // painted on a layer over the big view; closing the box takes the layer (and its paint) away
-  const mount = () => {
-    const stage = ctx.stage?.();
-    if (!box.open) { closeBrushStage(stage); brush = null; return; }
-    if (brush) return;
-    const picture = `${ctx.url(asset.back)}?v=${Date.now()}`;
-    if (stage) brush = mountBrush(brushStage(stage), picture, { fit: true });
-    else {
-      const holder = box.querySelector('[data-brush-canvas]');
-      holder.innerHTML = '';
-      brush = mountBrush(holder, picture);
-    }
-  };
-  box.addEventListener('toggle', mount);
-  mount();
-  const error = box.querySelector('[data-brush-error]');
-  const fail = (message) => { error.textContent = message; error.hidden = false; };
-  box.querySelector('[data-brush-size]').oninput = (e) => brush?.setSize(e.target.value);
-  box.querySelector('[data-brush-clear]').onclick = () => brush?.clear();
-  box.querySelector('[data-brush-run]').onclick = async () => {
-    const words = box.querySelector('[data-brush-text]').value.trim();
-    if (!brush?.painted()) return fail('Paint over the part to change first.');
-    if (!words) return fail('Say what goes in the painted part.');
-    const mask = await brush.maskBlob();
-    closeBrushStage(ctx.stage?.());   // the run takes over the panel; its result shows when done
-    const engine = box.querySelector('[data-brushengine]')?.value || '';
-    await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed(), engine)) }), ctx, 'picture');
-  };
+  const boxes = [...card.querySelectorAll('[data-brush]')];
+  for (const box of boxes) {
+    const file = box.dataset.brush === 'front' ? asset.picture : asset.back;
+    let brush = null, layer = null;
+    // built fresh each time: Back after a failed run restores this box as HTML, canvas and all
+    const mount = () => {
+      const stage = ctx.stage?.();
+      if (!box.open) { layer?.remove(); layer = null; brush = null; return; }
+      if (brush) return;
+      boxes.forEach((other) => { if (other !== box) other.open = false; });
+      const picture = `${ctx.url(file)}?v=${Date.now()}`;
+      if (stage) brush = mountBrush((layer = brushStage(stage)), picture, { fit: true });
+      else {
+        const holder = box.querySelector('[data-brush-canvas]');
+        holder.innerHTML = '';
+        brush = mountBrush(holder, picture);
+      }
+    };
+    box.addEventListener('toggle', mount);
+    mount();
+    const error = box.querySelector('[data-brush-error]');
+    const fail = (message) => { error.textContent = message; error.hidden = false; };
+    box.querySelector('[data-brush-size]').oninput = (e) => brush?.setSize(e.target.value);
+    box.querySelector('[data-brush-clear]').onclick = () => brush?.clear();
+    box.querySelector('[data-brush-run]').onclick = async () => {
+      const words = box.querySelector('[data-brush-text]').value.trim();
+      if (!brush?.painted()) return fail('Paint over the part to change first.');
+      if (!words) return fail('Say what goes in the painted part.');
+      const mask = await brush.maskBlob();
+      closeBrushStage(ctx.stage?.());   // the run takes over the panel; its result shows when done
+      const engine = box.querySelector('[data-brushengine]')?.value || '';
+      await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(file, words, mask, freshSeed(), engine)) }), ctx, 'picture');
+    };
+  }
 }
 
 /** The back's kept versions: each redraw or brush keeps the one it replaced. Filled when opened. */

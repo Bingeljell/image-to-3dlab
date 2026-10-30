@@ -822,6 +822,24 @@ def test_brush_back_sends_the_back_the_mask_and_what_goes_there(studio, tmp_path
 
 
 
+def test_brush_back_can_fix_the_front_until_a_model_is_made(studio, tmp_path):
+    picture_only = {**KNIGHT, "model": None, "picture": "images/k/k.png"}
+    studio.http.assets = [picture_only]
+    original = studio.http.post
+    studio.http.post = lambda url, files=None, **k: (studio.http.posts.append((url.split("8777/", 1)[1], files))
+                                                     or Response(202, {"job_id": "j1"}))
+    mask = tmp_path / "mask.png"
+    mask.write_bytes(b"PNG")
+    out = ms.brush_back(studio, asset_id=picture_only["id"], mask_path=str(mask), change="a strap", which="front")
+    assert studio.http.posts[-1][1]["picture"] == (None, "images/k/k.png") and out["front"] == "images/k/k.png"
+    studio.http.post = original
+    studio.http.assets = [KNIGHT]                                     # has a model
+    with pytest.raises(ms.StudioError, match="already made"):
+        ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x", which="front")
+    with pytest.raises(ms.StudioError, match="'back' or 'front'"):
+        ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x", which="side")
+
+
 def test_back_versions_lists_uses_and_deletes_a_kept_back(studio):
     knight = {**KNIGHT, "back": "images/k/k__back.png"}
     studio.http.assets = [knight]

@@ -548,17 +548,25 @@ def change_back_version(action: str, body: dict[str, Any], output_root: Path | N
 
 
 def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = None):
-    """(picture, stroke, instruction, seed) from a brush request, or ValueError saying what is wrong.
-
-    Only a back picture in output/ may be brushed: the front is what the model was made from."""
+    """(picture, stroke, instruction, seed, keep_old) from a brush request, or ValueError saying
+    what is wrong. A back may always be brushed, and keeps the one it replaces; a front only
+    until a 3D model is built from it, and the fixed one simply becomes the picture."""
     from PIL import Image
 
     def text(name: str) -> str:
         return str((form.get(name) or {}).get("value") or "").strip()
 
-    picture = image_api.back_source(output_root or OUTPUT_ROOT, text("picture"))
-    if not picture.name.endswith("__back.png"):
-        raise ValueError("the brush works on a back picture")
+    root = output_root or OUTPUT_ROOT
+    picture = image_api.back_source(root, text("picture"))
+    keep_old = picture.name.endswith("__back.png")
+    if not keep_old:
+        relative = picture.relative_to(root.resolve()).as_posix()
+        users = [a for a in list_assets(root) if a.get("picture") == relative]
+        if not users:
+            raise ValueError("the brush works on a front or back picture")
+        if any(a.get("model") for a in users):
+            raise ValueError("a 3D model was already made from this picture; "
+                             "fix its back, or draw another picture")
     instruction = text("instruction")
     if not instruction:
         raise ValueError("say what goes in the painted area")
@@ -577,7 +585,7 @@ def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = No
         seed = int(text("seed") or 42)
     except ValueError:
         seed = 42
-    return picture, stroke, instruction, seed
+    return picture, stroke, instruction, seed, keep_old
 
 
 def back_drawer_ready() -> bool:
@@ -2929,13 +2937,13 @@ class Handler(SimpleHTTPRequestHandler):
                               "status_url": f"/api/image/{job.id}/status"})
 
     def _create_brush_job(self) -> None:
-        """Repaint the painted area of a back picture (multipart: picture, mask, instruction)."""
+        """Repaint the painted area of a front or back picture (multipart: picture, mask, instruction)."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > BRUSH_UPLOAD_LIMIT:
                 raise ValueError("expected a picture path, a painted mask and what to change")
             form = parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length))
-            picture, stroke, instruction, seed = brush_request(form)
+            picture, stroke, instruction, seed, keep_old = brush_request(form)
             asked = str((form.get("engine") or {}).get("value") or "").strip() or None
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
@@ -2958,7 +2966,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
             return
         try:
-            job = image_api.start_brush(picture, stroke, instruction, seed, engine)
+            job = image_api.start_brush(picture, stroke, instruction, seed, engine, keep_old)
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
             return

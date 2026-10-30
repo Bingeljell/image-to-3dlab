@@ -708,6 +708,11 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
             manager.finish(job)
             raise
     job.init, job.mask, job.paste_mask, job.replaces = init, mask, paste, picture
+    if engine.vision_file is None:
+        # Flux also SEES the picture it repaints, so the prompt can stay the change alone:
+        # told only the change, it filled the paint with it (2026-10-30); told the scene in
+        # words, it drew what the words named (a lantern from the front's prompt)
+        job.reference = init
     job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
     return job
 

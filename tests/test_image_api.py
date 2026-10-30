@@ -620,7 +620,7 @@ def test_a_brush_job_starts_from_the_back_with_its_mask_and_keeps_the_old(tmp_pa
     assert command[command.index("-i") + 1] == str(job.init)
     assert command[command.index("--mask") + 1] == str(job.mask)
     assert command[command.index("--strength") + 1] == str(api.BRUSH_STRENGTH)
-    assert "-r" not in command
+    assert command[command.index("-r") + 1] == str(job.init)      # Flux sees the picture it repaints
 
 
 def test_an_empty_stroke_is_refused_before_anything_runs(tmp_path):

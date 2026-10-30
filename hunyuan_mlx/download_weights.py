@@ -67,6 +67,16 @@ PAINT_FILES = (
 )
 
 
+def converter_can_run() -> bool:
+    """True when this interpreter can run the 2.1 converter, which imports torch."""
+    probe = subprocess.run(
+        [sys.executable, "-c", "import torch"],
+        capture_output=True,
+        check=False,
+    )
+    return probe.returncode == 0
+
+
 def download_shape(model: str) -> None:
     from huggingface_hub import hf_hub_download
 
@@ -210,6 +220,15 @@ def main() -> int:
     # Nobody chose that, and the extra two models go unused by the default route.
     models = sorted(SHAPE_HF_SOURCES) if args.all else [args.model]
     paint = not args.skip_paint
+
+    if "2.1" in models and not converter_can_run():
+        converter = REPO / "shape" / "scripts" / "convert_v21_ckpt.py"
+        print(
+            f"error: {converter.name} cannot run: {sys.executable} cannot import torch. "
+            "--model 2.1 is not downloaded.",
+            file=sys.stderr,
+        )
+        return 1
 
     if args.yes:
         announce(models, paint=paint)

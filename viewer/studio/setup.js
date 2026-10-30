@@ -32,6 +32,34 @@ function placeRunPanel() {
   if (card) card.after(s('setup-run'));
 }
 
+/** The one size on a card header.
+
+ *  Measured bytes when this machine has any of the download. The advertised total
+ *  when it has none. Another machine's tab stays on the advertised total, because
+ *  this disk is not that machine. */
+export function cardSize(backend, { readOnly = false } = {}) {
+  if (!readOnly && (backend.bytes_present || 0) > 0) return backend.human_present;
+  return backend.human_expected;
+}
+
+/** One download row. The name is the file; the link stays the repo it comes from.
+
+ *  Two files can share a repo (Qwen's text encoder and its vision projector). The
+ *  repo name alone made them look like one download. One size: the bytes measured
+ *  when the file is here, otherwise the advertised size. */
+export function weightRow(weight) {
+  const name = weight.label || weight.source || '';
+  const source = weight.source && weight.source !== name
+    ? `<br><a href="${weight.source_url}" target="_blank" rel="noopener">${weight.source}</a>`
+    : '';
+  const linked = source
+    ? name
+    : `<a href="${weight.source_url}" target="_blank" rel="noopener">${name}</a>`;
+  const size = weight.present ? (weight.human_present || '') : (weight.human_expected || '');
+  const note = weight.note ? `<br><small>${weight.note}</small>` : '';
+  return `${linked}${source} — ${size}${note}`;
+}
+
 /** Turn a repo path the card mentions into a link the lab can open. */
 export function linkRepoPaths(text) {
   const path = 'docs/hunyuan-mlx-recipes.md';
@@ -55,9 +83,7 @@ function backendCard(backend, { readOnly = false } = {}) {
   card.className = `setup-card ${readOnly ? 'elsewhere' : backend.state}`;
   card.dataset.backend = backend.id;
 
-  const size = !readOnly && backend.state === 'partial'
-    ? `${backend.human_present} of ${backend.human_expected}`
-    : backend.human_expected;
+  const size = cardSize(backend, { readOnly });
 
   card.innerHTML = `
     <div class="setup-card-head">
@@ -77,12 +103,7 @@ function backendCard(backend, { readOnly = false } = {}) {
       ? `<p class="setup-card-caveat">${backend.caveat}</p>` : ''}
     <details class="setup-card-detail">
       <summary>What gets downloaded</summary>
-      <ul>${backend.weights.map((w) => `
-        <li>
-          <a href="${w.source_url}" target="_blank" rel="noopener">${w.source}</a>
-          — ${w.human_expected}${w.present ? ` (${w.human_present} on disk)` : ''}
-          ${w.note ? `<br><small>${w.note}</small>` : ''}
-        </li>`).join('')}
+      <ul>${backend.weights.map((w) => `<li>${weightRow(w)}</li>`).join('')}
       </ul>
       ${backend.extra_steps.length
         ? `<p class="setup-card-extra">${backend.extra_steps.map(linkRepoPaths).join('<br>')}</p>` : ''}

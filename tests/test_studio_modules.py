@@ -252,6 +252,38 @@ def test_a_live_log_stays_where_the_reader_left_it():
 
 
 @needs_node
+def test_a_setup_card_header_shows_one_size():
+    out = _run("setup.js", """
+      const here = { human_expected: '8.6 GB', human_present: '9.4 GB', bytes_present: 1 };
+      const missing = { human_expected: '8.6 GB', human_present: '0 B', bytes_present: 0 };
+      const partial = { human_expected: '8.6 GB', human_present: '4.0 GB', bytes_present: 1 };
+      console.log(JSON.stringify([
+        m.cardSize(here),
+        m.cardSize(missing),
+        m.cardSize(partial),
+        m.cardSize(here, { readOnly: true }),
+      ]));""")
+    assert out == ["9.4 GB", "8.6 GB", "4.0 GB", "8.6 GB"]
+
+
+@needs_node
+def test_a_shared_repo_names_each_file_on_the_setup_card():
+    out = _run("setup.js", """
+      console.log(JSON.stringify([
+        m.weightRow({ label: 'Qwen3-VL vision projector (Q8_0)', source: 'Qwen/Qwen3-VL-8B-Instruct-GGUF',
+          source_url: 'https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF', human_expected: '717.4 MB', present: false }),
+        m.weightRow({ label: 'Qwen3-VL-8B text encoder (Q4_K_M)', source: 'Qwen/Qwen3-VL-8B-Instruct-GGUF',
+          source_url: 'https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF', human_expected: '5.0 GB',
+          present: true, human_present: '4.7 GB' }),
+      ]));""")
+    assert "Qwen3-VL vision projector (Q8_0)" in out[0]
+    assert "Qwen3-VL-8B text encoder (Q4_K_M)" in out[1]
+    assert "717.4 MB" in out[0] and "on disk" not in out[0]
+    assert "4.7 GB" in out[1] and "5.0 GB" not in out[1] and "on disk" not in out[1]
+    assert out[0] != out[1]
+
+
+@needs_node
 def test_the_hunyuan_recipes_path_is_a_link_on_the_setup_card():
     out = _run("setup.js", """
       console.log(JSON.stringify(m.linkRepoPaths(

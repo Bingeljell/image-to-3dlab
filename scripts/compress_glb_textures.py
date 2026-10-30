@@ -121,7 +121,7 @@ def _slot_images(document: dict, normal_only: bool) -> set[int]:
     return found
 
 
-def encode(image, fmt: str, quality: int, max_size: int | None) -> bytes:
+def encode(image, fmt: str, quality: int, max_size: int | None) -> tuple[bytes, str]:
     """Re-encode one image, optionally capping its longest side."""
     from PIL import Image
 
@@ -146,7 +146,7 @@ def encode(image, fmt: str, quality: int, max_size: int | None) -> bytes:
         image.save(buffer, "JPEG", quality=quality, subsampling=0)
     else:
         image.save(buffer, "PNG", optimize=True)
-    return buffer.getvalue()
+    return buffer.getvalue(), fmt
 
 
 def declare_webp(document: dict, texture_index: int, image_index: int) -> None:
@@ -200,7 +200,7 @@ def compress(
         with Image.open(io.BytesIO(blob)) as opened:
             opened.load()
             before_size = opened.size
-            encoded = encode(
+            encoded, used = encode(
                 opened,
                 fmt,
                 map_quality if is_data else quality,
@@ -214,7 +214,7 @@ def compress(
             })
             continue
         replacements[view_index] = encoded
-        image["mimeType"] = MIME[fmt]
+        image["mimeType"] = MIME[used]
         report.append({
             "image": index, "kind": "data" if is_data else "colour",
             "resolution": before_size, "before": len(blob), "after": len(encoded),

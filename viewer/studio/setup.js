@@ -33,6 +33,13 @@ function placeRunPanel() {
   if (card) card.after(s('setup-run'));
 }
 
+/** Turn a repo path the card mentions into a link the lab can open. */
+export function linkRepoPaths(text) {
+  const path = 'docs/hunyuan-mlx-recipes.md';
+  const link = `<a href="/${path}" target="_blank" rel="noopener">${path}</a>`;
+  return String(text).split(path).join(link);
+}
+
 const STATE_META = {
   ready: { dot: '●', cls: 'ok', text: 'installed' },
   partial: { dot: '◐', cls: 'warn', text: 'partly downloaded' },
@@ -83,7 +90,7 @@ function backendCard(backend, { readOnly = false } = {}) {
         </li>`).join('')}
       </ul>
       ${backend.extra_steps.length
-        ? `<p class="setup-card-extra">${backend.extra_steps.join('<br>')}</p>` : ''}
+        ? `<p class="setup-card-extra">${backend.extra_steps.map(linkRepoPaths).join('<br>')}</p>` : ''}
       <p class="setup-card-licence">
         Licence: ${backend.license.name}.
         <a href="${backend.license.url}" target="_blank" rel="noopener">Read it here</a>.
@@ -729,4 +736,6 @@ export async function load() {
   }
 }
 
-load();
+// A browser opens the page and reads the catalogue. Node imports this file to test
+// linkRepoPaths, and has no document.
+if (typeof document !== 'undefined') load();

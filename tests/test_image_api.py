@@ -722,3 +722,41 @@ def test_an_oversized_picture_is_refused_before_it_is_decoded():
     with pytest.raises(ValueError, match="largest taken"):
         api.check_picture_size(Image.new("L", (api.MAX_PICTURE_SIDE + 1, 4)))
     api.check_picture_size(Image.new("L", (api.MAX_PICTURE_SIDE, 4)))
+
+
+
+# --- Who redraws a back or brushes it (both engines, 2026-10-30) -------------------------------
+
+def _drawn_by(path, engine):
+    path.with_suffix(".provenance.json").write_text(json.dumps({"model": {"id": engine.licence_key}}))
+
+
+def test_the_engine_that_drew_a_picture_is_read_from_its_record(tmp_path):
+    picture = tmp_path / "p.png"
+    picture.write_bytes(b"x")
+    assert api.engine_of(picture) is None                       # an upload: no record
+    _drawn_by(picture, api.QWEN)
+    assert api.engine_of(picture) is api.QWEN
+
+
+def test_a_redraw_uses_the_engine_that_drew_the_picture_when_it_can(tmp_path, monkeypatch):
+    picture = tmp_path / "p.png"
+    picture.write_bytes(b"x")
+    _drawn_by(picture, api.QWEN)
+    ready = {"flux": True, "qwen": True}
+    monkeypatch.setattr(api, "usable", lambda engine, edit=False: ready[engine.id])
+    monkeypatch.setattr(api, "pick_engine", lambda name=None, edit=False, ready=None: (
+        api.ENGINES[name] if name else next(e for e in api.ENGINES.values() if ready_now[e.id])))
+    ready_now = ready
+    assert api.choose_engine(None, picture, edit=True) is api.QWEN             # the front's own
+    assert api.choose_engine("flux", picture, edit=True) is api.FLUX           # asked by name wins
+    assert api.choose_engine(None, picture, edit=True, prefer="flux") is api.FLUX
+    ready["qwen"] = False                                                      # Qwen can't draw backs here
+    assert api.choose_engine(None, picture, edit=True) is api.FLUX
+
+
+def test_a_qwen_brush_starts_from_the_back_without_a_vision_projector(tmp_path):
+    back = _back(tmp_path)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "a red satchel", engine=api.QWEN)
+    command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert job.engine is api.QWEN and "--mask" in command and "--llm_vision" not in command and "-r" not in command

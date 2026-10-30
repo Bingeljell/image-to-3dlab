@@ -355,7 +355,9 @@ class ChainRunner:
             front = chain.made.get("picture") or (self._kept_upload(chain) if chain.upload else None)
             if not front:
                 raise ValueError("the back picture needs a front picture, and there is none yet")
-            body = {"picture": front, "engine": chain.picture_engine, **chain.back_settings}
+            # the front's engine is a preference (any engine that can draw backs will do); a redraw's
+            # own choice in back_settings is an ask
+            body = {"picture": front, "prefer_engine": chain.picture_engine, **chain.back_settings}
             return kind, self._post("/api/image/back", json.dumps(body).encode(), "application/json")
         if step == "model":
             settings = {"backend": chain.engine} if chain.engine else {}
@@ -506,7 +508,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         title=text("title") or "Untitled", steps=[str(s) for s in steps], want=text("want") or "character",
         prompt=text("prompt"), engine=engine, first_move=text("first_move"),
         picture_engine=text("picture_engine"),
-        back_settings={k: back_settings[k] for k in ("seed", "instruction") if k in back_settings}
+        back_settings={k: back_settings[k] for k in ("seed", "instruction", "engine") if k in back_settings}
         if isinstance(back_settings, dict) else {},
         picture_settings={k: picture[k] for k in ("width", "height", "steps", "seed") if k in picture}
         if isinstance(picture, dict) else {},

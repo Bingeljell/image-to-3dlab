@@ -712,7 +712,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
 def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, want: str | None = None,
                    move: str | None = None, engine: str | None = None, again: bool = False,
                    finish_detail: str | int | None = None, pixel_match: bool = True,
-                   advanced: dict[str, Any] | None = None, back_change: str | None = None) -> dict[str, Any]:
+                   advanced: dict[str, Any] | None = None, back_change: str | None = None,
+                   picture_engine: str | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
     if back_change and not (again and up_to == "back"):
         raise StudioError("back_change goes with up_to='back', again=True: it says what to change in a new back.")
@@ -750,7 +751,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     if again and steps == ["back"]:
         # a fresh try each time, as the studio's "Draw the back again"
         form["back_settings"] = json.dumps({"seed": int.from_bytes(os.urandom(3), "big"),
-                                            **({"instruction": back_change.strip()} if back_change else {})})
+                                            **({"instruction": back_change.strip()} if back_change else {}),
+                                            **({"engine": picture_engine} if picture_engine else {})})
     if choices and "finished" in steps:
         form["finish_settings"] = json.dumps(choices)
     if move_settings and "animated" in steps:
@@ -838,7 +840,8 @@ def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
             "tip": "files.model is each version's raw 3D model (before Finish); preview(stage='model') shows it."}
 
 
-def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str) -> dict[str, Any]:
+def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str,
+               picture_engine: str | None = None) -> dict[str, Any]:
     """The studio's "Fix part of the back": repaint the white area of `mask_path` on the back picture."""
     asset = find_asset(studio, asset_id, studio.get("api/assets")["assets"])
     if not asset.get("back"):
@@ -846,9 +849,11 @@ def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str) ->
     if not change.strip():
         raise StudioError("Say what goes in the painted area (change=...).")
     mask = _upload(mask_path, (".png",))
-    start = studio.post("api/image/brush", data={"picture": asset["back"], "instruction": change.strip(),
-                                                 "seed": str(int.from_bytes(os.urandom(3), "big"))},
-                        files={"mask": mask})
+    fields = {"picture": asset["back"], "instruction": change.strip(),
+              "seed": str(int.from_bytes(os.urandom(3), "big"))}
+    if picture_engine:
+        fields["engine"] = picture_engine
+    start = studio.post("api/image/brush", data=fields, files={"mask": mask})
     return {"job_id": start["job_id"], "back": asset["back"],
             "next": "Takes a couple of minutes: picture_status(job_id, wait_seconds=50) until done, then show the "
                     "user the back (its file is `back` under output/). The old back is kept beside it."}
@@ -1150,7 +1155,8 @@ def build_server(studio: Studio | None = None):
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,
                           move: str | None = None, engine: str | None = None, again: bool = False,
                           finish_detail: str | None = None, pixel_match: bool = True,
-                          advanced: dict | None = None, back_change: str | None = None):
+                          advanced: dict | None = None, back_change: str | None = None,
+                          picture_engine: str | None = None):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
         character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
         again=True makes the up_to step again as a new version (another 3D model, another Finish at a
@@ -1158,10 +1164,12 @@ def build_server(studio: Studio | None = None):
         (run_status gives it when the run is done): continue from that id to work on it, since the
         family id is the original. finish_detail, pixel_match and advanced: as in create (options lists
         every advanced knob). Back picture you don't like: up_to="back", again=True, and optionally
-        back_change="what to change" (say what you want to see); then make the model again from it."""
+        back_change="what to change" (say what you want to see), picture_engine="flux"|"qwen" (default: the
+        engine that drew the front); then make the model again from it."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
-                                           pixel_match=pixel_match, advanced=advanced, back_change=back_change))
+                                           pixel_match=pixel_match, advanced=advanced, back_change=back_change,
+                                           picture_engine=picture_engine))
 
     @server.tool(name="run_status", structured_output=False)
     def tool_run_status(run_id: str | None = None, wait_seconds: int = 30):
@@ -1187,12 +1195,14 @@ def build_server(studio: Studio | None = None):
         return safe(lambda: list_versions(studio, asset_id=asset_id))
 
     @server.tool(name="brush_back", structured_output=False)
-    def tool_brush_back(asset_id: str, mask_path: str, change: str):
+    def tool_brush_back(asset_id: str, mask_path: str, change: str, picture_engine: str | None = None):
         """Fix part of a character's back picture: mask_path is a PNG the size of the back (or any size; it is
         scaled), white where to repaint, black elsewhere. change: what goes there ("a dark red leather satchel").
-        Only the white area is redrawn (FLUX.2 klein); the rest stays pixel for pixel. Paint close around the part:
-        everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True)."""
-        return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change))
+        Only the white area is redrawn; the rest stays pixel for pixel. Paint close around the part:
+        everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True).
+        picture_engine: "flux" or "qwen"; default the engine that drew the back."""
+        return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change,
+                                       picture_engine=picture_engine))
 
     @server.tool(name="picture_status", structured_output=False)
     def tool_picture_status(job_id: str, wait_seconds: int = 30):

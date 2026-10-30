@@ -1154,15 +1154,21 @@ def test_draw_the_back_again_shows_for_a_front_and_plans_a_one_step_back_run():
 
 
 @needs_node
-def test_the_back_brush_shows_with_a_back_and_flux_and_maps_strokes_to_the_picture():
+def test_the_back_brush_shows_with_a_back_and_any_engine_and_maps_strokes_to_the_picture():
+    """Both engines repaint (2026-10-30: the brush and the back redraw must work on Flux AND Qwen)."""
     out = _run("steps.js", """
-      const flux = { pictureEngines: [{ id: 'flux', installed: true }] };
+      const both = { pictureEngines: [{ id: 'flux', label: 'FLUX', installed: true }, { id: 'qwen', label: 'Qwen', installed: true }] };
+      const qwen = { pictureEngines: [{ id: 'qwen', installed: true }] };
       const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png' };
       console.log(JSON.stringify([
-        m.backBrush(asset, flux).includes('Fix part of the back'),
-        m.backBrush({ ...asset, back: null }, flux),
-        m.backBrush(asset, { pictureEngines: [{ id: 'qwen', installed: true }] })]));""")
-    assert out == [True, "", ""]
+        m.backBrush(asset, qwen).includes('Fix part of the back'),
+        m.backBrush({ ...asset, back: null }, qwen),
+        m.backBrush(asset, { pictureEngines: [] }),
+        m.backBrush(asset, qwen).includes('data-brushengine'),        // one engine: nothing to choose
+        m.backBrush(asset, both).includes('data-brushengine'),
+        m.backRedo(asset, both).includes('data-backengine'),
+        m.chainPlan('back', asset, { change: '', backEngine: 'qwen' }).backSettings.engine]));""")
+    assert out == [True, "", "", False, True, True, "qwen"]
     point = _run("brush.js", "console.log(JSON.stringify(m.toPicture(100, 50, { w: 400, h: 400 }, { w: 1024, h: 1024 })));")
     assert point == [256, 128]
 
@@ -1173,3 +1179,13 @@ def test_the_brush_form_is_what_the_server_reads():
       const form = m.brushForm('images/a/a__back.png', 'a red satchel', new Blob(['x']), 7);
       console.log(JSON.stringify([form.get('picture'), form.get('instruction'), form.get('seed'), form.get('mask').name]));""")
     assert out == ["images/a/a__back.png", "a red satchel", "7", "mask.png"]
+
+
+
+@needs_node
+def test_the_brush_form_names_an_engine_only_when_one_was_chosen():
+    out = _run("brush.js", """
+      const chosen = m.brushForm('b.png', 'x', new Blob(['x']), 1, 'qwen');
+      const same = m.brushForm('b.png', 'x', new Blob(['x']), 1);
+      console.log(JSON.stringify([chosen.get('engine'), same.get('engine')]));""")
+    assert out == ["qwen", None]

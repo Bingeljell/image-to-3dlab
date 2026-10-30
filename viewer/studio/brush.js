@@ -8,8 +8,9 @@ export function toPicture(x, y, shown, natural) {
 }
 
 /** The request the server's /api/image/brush reads. */
-export function brushForm(picture, instruction, mask, seed) {
+export function brushForm(picture, instruction, mask, seed, engine = '') {
   const form = new FormData();
+  if (engine) form.append('engine', engine);   // empty: the engine that drew the back
   form.append('picture', picture);
   form.append('instruction', instruction);
   form.append('seed', String(seed));

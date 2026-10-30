@@ -88,19 +88,29 @@ export function stepBody(stepId, asset, ctx) {
 /** A step that is already done, offered again: folded away, and its result is a new version. */
 /** "Draw the back again" (or a first back) under the Picture step, for a front Pixal3D can build
  *  from both sides. Empty when there is nothing to draw from or nothing to draw with. */
+/** A picture-engine choice for a redraw, when more than one is installed: "the same as the
+ *  picture" (the server reads who drew it) or one by name. */
+export function engineChoice(ctx, attr, same) {
+  const installed = (ctx.pictureEngines || []).filter((e) => e.installed);
+  if (installed.length < 2) return '';
+  return `<label class="field">Picture engine<select ${attr}><option value="">${esc(same)}</option>${installed
+    .map((e) => `<option value="${esc(e.id)}">${esc(e.label)}</option>`).join('')}</select></label>`;
+}
+
 export function backRedo(asset, ctx) {
   if (!asset.picture || asset.kind === 'prop set' || !(asset.back || ctx.frontBack?.ready)) return '';
   const title = asset.back ? 'Draw the back again' : 'Draw a back picture';
   return redoBox(title, `${asset.back ? 'A new try at the back, from the same front. The current back is kept beside it as an older copy. ' : ''}Make the 3D model again afterwards to build from it.`,
-    `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="The satchel strap is thinner and the coat has no patches on the back"></textarea></label>
+    `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="A thin satchel strap and a plain, smooth coat back"></textarea></label>
      <p class="hint">Say what you want to see, not what to remove: naming a thing tends to draw it.</p>
+     ${engineChoice(ctx, 'data-backengine', 'Same engine as the front')}
      <button class="primary" data-run="back">${title}</button>`);
 }
 
 /** The back picture's brush: needs a back and FLUX.2 klein (the engine it was tested on). */
 export function backBrush(asset, ctx) {
   if (!asset.back) return '';
-  if (!(ctx.pictureEngines || []).some((e) => e.id === 'flux' && e.installed)) return '';
+  if (!(ctx.pictureEngines || []).some((e) => e.installed)) return '';
   return `<details class="adv redo" data-brush><summary>Fix part of the back</summary>
     <p class="hint">Paint over the part to change, then say what goes there. Only the painted part is drawn again;
       the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.</p>
@@ -108,6 +118,7 @@ export function backBrush(asset, ctx) {
     <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
       <button type="button" class="ghost" data-brush-clear>Clear</button></div>
     <label class="field">What goes there<textarea data-brush-text rows="2" maxlength="500" placeholder="A dark red leather satchel on a thin brown strap"></textarea></label>
+    ${engineChoice(ctx, 'data-brushengine', 'Same engine as the back')}
     <p class="error" data-brush-error hidden></p>
     <button class="primary" data-brush-run>Repaint the painted part</button></details>`;
 }
@@ -135,7 +146,8 @@ export function wireBrush(card, asset, ctx) {
     if (!brush?.painted()) return fail('Paint over the part to change first.');
     if (!words) return fail('Say what goes in the painted part.');
     const mask = await brush.maskBlob();
-    await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed())) }), ctx, 'picture');
+    const engine = box.querySelector('[data-brushengine]')?.value || '';
+    await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed(), engine)) }), ctx, 'picture');
   };
 }
 
@@ -228,6 +240,7 @@ export function wireStep(card, stepId, asset, ctx) {
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
       change: k('change')?.value?.trim() || '',
+      backEngine: card.querySelector('[data-backengine]')?.value || '',
     };
     if (button.dataset.hero !== undefined) settings.detail = finishDetailSettings('hero');
     card.dataset.lastPreset = settings.preset || '';
@@ -254,7 +267,8 @@ export function chainPlan(stepId, asset, settings) {
   if (stepId === 'back') {
     if (!asset.picture) return null;
     return { ...base, steps: ['back'], made: { picture: asset.picture },
-      backSettings: { seed: freshSeed(), ...(settings.change ? { instruction: settings.change } : {}) } };
+      backSettings: { seed: freshSeed(), ...(settings.change ? { instruction: settings.change } : {}),
+        ...(settings.backEngine ? { engine: settings.backEngine } : {}) } };
   }
   if (stepId === 'model') {
     if (!asset.picture) return null;

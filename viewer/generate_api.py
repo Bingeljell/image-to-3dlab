@@ -562,14 +562,6 @@ def back_drawer_ready() -> bool:
     return False
 
 
-def back_engine_usable(engine) -> bool:
-    try:
-        image_api.check_ready(engine, edit=True)
-    except image_api.MissingWeights:
-        return False
-    return True
-
-
 def picture_engines_payload() -> list[dict[str, Any]]:
     """The picture engines, in the order Create offers them, with what each can do here."""
     out = []
@@ -2873,11 +2865,10 @@ class Handler(SimpleHTTPRequestHandler):
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
             instruction = str(payload.get("instruction") or "")
-            # the front's own engine when it can draw backs here (one model's parts should match),
-            # else whichever installed engine can
-            engine = image_api.pick_engine(str(payload.get("engine") or "") or None, edit=True)
-            if payload.get("engine") and not back_engine_usable(engine):
-                engine = image_api.pick_engine(edit=True)
+            # asked for by name: that engine. Otherwise the one Create drew the front with, else the
+            # one the front's record names (one model's pictures should match), else any that can
+            engine = image_api.choose_engine(str(payload.get("engine") or "") or None, front, edit=True,
+                                             prefer=str(payload.get("prefer_engine") or "") or None)
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -2913,6 +2904,7 @@ class Handler(SimpleHTTPRequestHandler):
                 raise ValueError("expected a picture path, a painted mask and what to change")
             form = parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length))
             picture, stroke, instruction, seed = brush_request(form)
+            asked = str((form.get("engine") or {}).get("value") or "").strip() or None
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -2924,13 +2916,17 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": waiting})
             return
         try:
-            image_api.check_ready(image_api.FLUX)
+            # asked for by name, else the engine that drew this back, else any that is set up
+            engine = image_api.choose_engine(asked, picture, edit=False)
+            image_api.check_ready(engine)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
         except image_api.MissingWeights as exc:
-            self._send_json(503, {"error": "The brush uses FLUX.2 klein. " + str(exc),
-                                  "needs_setup": True, "missing": exc.missing})
+            self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
             return
         try:
-            job = image_api.start_brush(picture, stroke, instruction, seed)
+            job = image_api.start_brush(picture, stroke, instruction, seed, engine)
         except ValueError as exc:
             self._send_json(422, {"error": str(exc)})
             return

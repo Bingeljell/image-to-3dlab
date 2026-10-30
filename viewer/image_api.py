@@ -217,6 +217,37 @@ def can_edit(engine: PictureEngine) -> bool:
     return resolve_vision(engine) is not None
 
 
+def engine_of(picture: Path) -> PictureEngine | None:
+    """The engine that drew `picture`, from its provenance sidecar; None for an upload or an
+    older picture with no record. A redraw uses it by default, so one model's pictures match."""
+    try:
+        record = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    model = ((record or {}).get("model") or {}).get("id") if isinstance(record, dict) else None
+    return next((e for e in ENGINES.values() if e.licence_key == model), None)
+
+
+def usable(engine: PictureEngine, *, edit: bool = False) -> bool:
+    try:
+        check_ready(engine, edit=edit)
+    except MissingWeights:
+        return False
+    return True
+
+
+def choose_engine(asked: str | None, picture: Path, *, edit: bool, prefer: str | None = None) -> PictureEngine:
+    """Who draws a back or a brush. Asked for by name: that one, whatever its state (the run then
+    says what to set up). Otherwise the preferred one, else the engine that drew `picture`, when it
+    can run here; else any engine that can."""
+    if asked:
+        return pick_engine(asked)
+    preferred = pick_engine(prefer) if prefer else engine_of(picture)
+    if preferred is not None and usable(preferred, edit=edit):
+        return preferred
+    return pick_engine(edit=edit)
+
+
 def check_ready(engine: PictureEngine, *, edit: bool = False) -> None:
     """Raise MissingWeights naming what `engine` still needs; return quietly when it can run."""
     resolve_weights(engine)

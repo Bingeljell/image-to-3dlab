@@ -465,7 +465,7 @@ def test_the_back_step_asks_for_the_fronts_own_engine(tmp_path):
                      steps=["picture", "back"])
     runner.submit(chain, background=False)
     sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image/back"))
-    assert sent["engine"] == "qwen"
+    assert sent["prefer_engine"] == "qwen" and "engine" not in sent   # a preference, not an ask
 
 
 def test_a_plan_that_stops_at_the_back_picture_still_counts_as_a_3d_source(tmp_path):
@@ -484,7 +484,17 @@ def test_drawing_the_back_again_passes_the_seed_and_change_through(tmp_path):
     runner, jobs = _runner(tmp_path)
     runner.submit(chain, background=False)
     sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image/back"))
-    assert sent == {"picture": "images/a/a.png", "engine": None, "seed": 77, "instruction": "a red cloak"}
+    assert sent == {"picture": "images/a/a.png", "prefer_engine": None, "seed": 77, "instruction": "a red cloak"}
+
+
+def test_a_redraw_can_ask_for_an_engine_by_name(tmp_path):
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": '["back"]', "made": '{"picture": "images/a/a.png"}',
+                                "back_settings": json.dumps({"seed": 1, "engine": "qwen"})}, {})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    assert json.loads(next(b for m, p, b in jobs.calls if p == "/api/image/back"))["engine"] == "qwen"
 
 
 

@@ -827,3 +827,9 @@ def test_picture_status_takes_only_a_real_job_id(studio, job_id):
     """It goes into a URL path; '../..' would read any other studio page."""
     with pytest.raises(ms.StudioError, match="32-character id"):
         ms.picture_status(studio, job_id=job_id)
+
+
+
+def test_the_back_redraw_and_brush_can_name_an_engine(studio, tmp_path):
+    ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="back", again=True, picture_engine="qwen")
+    assert json.loads(sent(studio)["back_settings"])["engine"] == "qwen"

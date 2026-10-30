@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Headless Blender savers refuse to overwrite the blend file they were opened with. An action name with a quote stays inside the snippet.
 - The Windows updater keeps learned timings and no longer stops because it rewrote its own baseline file.
 - The agent refuses to open a skin picture that is not inside the output folder.
 - The ComfyUI download writes into the working folder under a new name, so it does not replace a mesh that is already there.

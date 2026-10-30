@@ -145,8 +145,12 @@ def test_boundary_count_ignores_seams_on_a_UV_TEXTURED_mesh():
     )
 
     summary = gf.geometry_summary(split)
+    closed = gf.geometry_summary(box)
     assert summary["boundary_edges"] == 0, "UV seams must not be counted as holes"
-    assert summary["watertight"] is False  # the un-merged copy itself is still split
+    assert summary["watertight"] is True
+    assert summary["winding_consistent"] is closed["winding_consistent"]
+    assert summary["euler_number"] == closed["euler_number"]
+    assert summary["volume"] == pytest.approx(closed["volume"])
     assert summary["vertices_merged"] == len(box.vertices)
 
 

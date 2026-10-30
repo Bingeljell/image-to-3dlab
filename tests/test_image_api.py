@@ -579,14 +579,16 @@ def _stroke(box=(20, 20, 40, 40), size=(64, 64)):
     return stroke
 
 
-def test_the_brush_masks_grow_for_the_model_and_feather_for_the_paste():
+def test_the_paste_back_covers_everything_the_model_may_draw():
+    """Pasting back less than the model drew cut the new satchel off in a hard line (2026-10-30)."""
+    import numpy as np
     grown, feathered = api.brush_masks(_stroke((160, 160, 320, 320), (512, 512)), (256, 256))  # any stroke size
     assert grown.size == feathered.size == (256, 256)
-    edge = 80 - api.BRUSH_GROW + 2
-    assert grown.getpixel((edge, 120)) == 255 and grown.getpixel((40, 120)) == 0  # reaches a little past
-    assert feathered.getpixel((120, 120)) == 255 and feathered.getpixel((40, 120)) == 0
-    assert 0 < feathered.getpixel((80 + api.BRUSH_FEATHER, 120)) <= 255
-    assert 0 < feathered.getpixel((79, 120)) < 255                                  # soft at the edge
+    drawn, pasted = np.asarray(grown) == 255, np.asarray(feathered)
+    assert (pasted[drawn] == 255).all()                                  # all of the drawn area, at full strength
+    assert grown.getpixel((80 - api.BRUSH_GROW, 120)) == 255 and grown.getpixel((40, 120)) == 0
+    assert 0 < feathered.getpixel((80 - api.BRUSH_GROW - 2, 120)) < 255  # soft just past it
+    assert feathered.getpixel((40, 120)) == 0
 
 
 def test_the_paste_back_keeps_every_pixel_outside_the_brush(tmp_path):

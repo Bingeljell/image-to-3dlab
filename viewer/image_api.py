@@ -102,10 +102,12 @@ MAX_PROMPT = 2000
 # recoloured cleanly at 8 steps and strength 0.9 (output/images/brush-test-2026-10-30/).
 BRUSH_STEPS = 8
 BRUSH_STRENGTH = 0.9
-# The model's area reaches a little past the stroke so the new part meets the old in fresh
-# paint; the paste-back is feathered over a few pixels so no seam shows.
-BRUSH_GROW = 12
-BRUSH_FEATHER = 4
+# The model draws inside the stroke grown by a few pixels, and exactly that area is pasted
+# back, feathered at its edge so no seam shows. The two must match: with a paste area
+# smaller than the drawn one (12 px against 4, 2026-10-30) whatever the model drew in the
+# gap was cut off in a hard line.
+BRUSH_GROW = 6
+BRUSH_FEATHER = 3
 
 # "  |=====>    | 7/10 - 13.38s/it"
 PROGRESS = re.compile(r"\|\s*(\d+)/(\d+)\s*-\s*([\d.]+)s/it")
@@ -578,12 +580,13 @@ def take_place(new: Path, final: Path, stamp: str | None = None) -> Path | None:
 def brush_masks(stroke, size: tuple[int, int]):
     """From the painted stroke (white = repaint, any size), the two masks a brush needs at
     the picture's own size: the model's (grown, hard) and the paste-back (feathered)."""
-    from PIL import ImageFilter
+    from PIL import ImageChops, ImageFilter
 
     painted = stroke.convert("L").resize(size).point(lambda v: 255 if v > 127 else 0)
     grown = painted.filter(ImageFilter.MaxFilter(BRUSH_GROW * 2 + 1))
-    feathered = painted.filter(ImageFilter.MaxFilter(BRUSH_FEATHER * 2 + 1)).filter(
-        ImageFilter.GaussianBlur(BRUSH_FEATHER))
+    # the same area, softened at its edge: full strength everywhere inside it, fading out just
+    # past it, where the model left the picture as it was, so the fade blends like with like
+    feathered = ImageChops.lighter(grown, grown.filter(ImageFilter.GaussianBlur(BRUSH_FEATHER)))
     return grown, feathered
 
 

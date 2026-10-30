@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Generate no longer downloads model weights on its own. A route stays not ready until its weights are on disk, and the run cannot reach the hub. On a Mac, TRELLIS.2's Setup button downloads the weights after the port is built (it names the size and waits for yes) instead of fetching them on the first generate.
+- The generate commands (`pipeline.py --fast`, TRELLIS, Hunyuan, the input advisor) refuse when the weights are not already on disk. They name the backend, the route and the size, and they do not fetch.
 - Live Blender helpers (turntable, wind demo, normal fix, solidify bake, source comparison, staging, normal bake, light orbit, and region split) no longer delete every object in the open file. Comparison renders in its own background Blender. Marker spawn refuses to replace markers unless you pass `--yes`, and then it replaces only the markers. The agent import clears meshes, not rigs.
 - Every 3D engine that cuts out pictures now installs the background remover with it, and lists it on
   Setup & Status. If it is ever missing, the run says where to install it.

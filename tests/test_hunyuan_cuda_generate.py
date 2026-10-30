@@ -80,6 +80,17 @@ def test_check_needs_realesrgan(tmp_path, capsys):
     assert "RealESRGAN" in capsys.readouterr().out
 
 
+def test_generate_refuses_missing_weights_before_the_hub(tmp_path, monkeypatch):
+    vendor = _vendor(tmp_path)
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty-hub"))
+    monkeypatch.setattr(gen, "prepare_image", lambda *a, **k: pytest.fail("matted"))
+    with pytest.raises(SystemExit, match="about 19.5 GB") as raised:
+        gen.generate(tmp_path / "in.png", tmp_path / "out.glb", vendor, {})
+    message = str(raised.value)
+    assert "Hunyuan3D-2.1" in message and "NVIDIA / CUDA" in message
+    assert "missing weights" in message
+
+
 def test_generate_refuses_a_missing_install_before_touching_the_image(tmp_path, monkeypatch):
     monkeypatch.setattr(gen, "prepare_image", lambda *a, **k: pytest.fail("matted"))
     with pytest.raises(SystemExit, match="bootstrap_hunyuan_cuda"):

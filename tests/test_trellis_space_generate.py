@@ -404,6 +404,16 @@ def test_require_flex_gemm_raises_instead_of_invalid_none(monkeypatch):
 
 
 # --- filesystem verification ---
+def test_load_pipeline_refuses_when_the_snapshot_is_absent(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
+    monkeypatch.setitem(sys.modules, "torch", None)
+    with pytest.raises(SystemExit, match="about 16.5 GB") as raised:
+        gen.load_pipeline(tmp_path, "sdpa", False)
+    assert "Mac clean port" in str(raised.value)
+
+
 def test_verify_paths_flags_missing_build(tmp_path):
     problems = gen.verify_paths(tmp_path / "does-not-exist")
     assert problems  # every expected artifact is missing

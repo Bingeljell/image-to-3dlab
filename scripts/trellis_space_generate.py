@@ -627,6 +627,14 @@ def _decode_and_cache(
 
 def load_pipeline(vendor_root: Path, sparse_attn_backend: str, load_rembg: bool):
     """Configure the Mac env, import TRELLIS, load the 4B pipeline onto MPS. Returns the pipeline."""
+    from image_to_3dlab.weight_gate import require_local
+
+    model = require_local(
+        "microsoft/TRELLIS.2-4B",
+        backend="TRELLIS.2",
+        route="Mac clean port",
+        size="about 16.5 GB",
+    )
     configure_environment(vendor_root, sparse_attn_backend)
     sys.path.insert(0, str(vendor_root / "TRELLIS.2"))
     stubs = vendor_root / "stubs"
@@ -638,9 +646,7 @@ def load_pipeline(vendor_root: Path, sparse_attn_backend: str, load_rembg: bool)
     from trellis2.pipelines.trellis2_image_to_3d import Trellis2ImageTo3DPipeline
 
     print(f"Loading TRELLIS.2 pipeline (load_rembg={load_rembg})...", flush=True)
-    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(
-        "microsoft/TRELLIS.2-4B", load_rembg=load_rembg
-    )
+    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model, load_rembg=load_rembg)
     pipeline.to(torch.device("mps"))
     return pipeline
 

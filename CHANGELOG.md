@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- Paint refuses a checkpoint that leaves a tensor out. A 15-step DDIM run steps back by 66. The small paint script is no longer a setup command.
 - The old Mac setup scripts hand off to the installers that ask first, and the Hunyuan setup stops when there is nobody to ask.
 - Importing a TRELLIS patch no longer edits a tree, and a missing remesh-checkpoint patch fails its check.
 - A pod install ref is checked and quoted, and the traffic history is replaced only after the new file is finished.

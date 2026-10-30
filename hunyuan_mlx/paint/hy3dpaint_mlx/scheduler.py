@@ -54,7 +54,8 @@ class DDIMScheduler:
         ts = np.round(np.arange(self.num_train, 0, -ratio)).astype(int) - 1  # trailing
         ts = np.clip(ts, 0, self.num_train - 1)
         self.timesteps = ts
-        self.ratio = int(round(ratio))
+        # diffusers steps back by whole division. round(1000/15) is 67; 1000 // 15 is 66.
+        self.ratio = self.num_train // n
 
     def init_noise_sigma(self):
         return 1.0

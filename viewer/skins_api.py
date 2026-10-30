@@ -490,6 +490,9 @@ class SkinBuilds:
                 job.process = runner(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      bufsize=1, cwd=str(REPO), env=processes.child_env(), **processes.TEXT_PIPE,
                                      **processes.group_popen_kwargs())
+                pid = getattr(job.process, "pid", None)
+                if isinstance(pid, int):
+                    folder.joinpath("pid").write_text(processes.pid_record(pid), encoding="utf-8")
                 if job.cancel_requested:            # Cancel landed while it started: it found no process to stop
                     self.stop(job.process.pid)
                 for raw in job.process.stdout:
@@ -524,6 +527,7 @@ class SkinBuilds:
             job.status, job.error = "error", str(exc)
             job.emit({"phase": "error", "message": str(exc)})
         finally:
+            folder.joinpath("pid").unlink(missing_ok=True)
             self.store.save(skin)
             self._history(job, skin)
             with self.lock:

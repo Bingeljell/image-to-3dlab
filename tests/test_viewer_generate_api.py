@@ -1014,6 +1014,62 @@ def test_a_prop_bake_waits_for_a_running_rig_rebind(tmp_path, monkeypatch):
     assert api.Handler._props_busy(None) is None
 
 
+def test_terminate_active_job_stops_picture_animate_skin_and_download(tmp_path, monkeypatch):
+    """A server stop signals each of those children, not only generate and finish."""
+    import signal
+    import subprocess
+
+    sleepers = []
+
+    def sleeper():
+        proc = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+        sleepers.append(proc)
+        return proc
+
+    try:
+        pictures = api.image_api.ImageJobManager(tmp_path)
+        picture = pictures.create("cat", {"steps": 1}, output_path=tmp_path / "pic" / "cat.png")
+        picture.process = sleeper()
+        picture.status = "running"
+        monkeypatch.setattr(api.image_api, "MANAGER", pictures)
+
+        import autorig_api
+
+        animate = autorig_api.AnimateJobManager(tmp_path / "animate", tmp_path / "motions")
+        clip = tmp_path / "clip"
+        clip.mkdir()
+        animate_job = autorig_api.AnimateJob(
+            "a" * 32, "animate", clip, clip / "out.glb", [], 1.0, {},
+        )
+        animate_job.process = sleeper()
+        animate_job.status = "running"
+        animate.jobs[animate_job.id] = animate_job
+        animate.active = animate_job.id
+        monkeypatch.setattr(api, "ANIMATE_JOBS", animate)
+
+        builds = api.skins_api.SkinBuilds(type("Store", (), {"output": tmp_path})())
+        skin_job = api.skins_api.SkinBuild("b" * 32, "c" * 12)
+        skin_job.process = sleeper()
+        skin_job.status = "running"
+        builds.jobs[skin_job.id] = skin_job
+        builds.active = skin_job.id
+        monkeypatch.setattr(api.skins_api, "BUILDS", builds)
+
+        download = type("Run", (), {"process": sleeper(), "status": "running"})()
+        monkeypatch.setattr(api, "DOWNLOADS", {"sf3d": download})
+
+        api._terminate_active_job()
+
+        for proc in sleepers:
+            proc.wait(timeout=2)
+            assert proc.returncode == -signal.SIGTERM
+    finally:
+        for proc in sleepers:
+            if proc.poll() is None:
+                import os
+                os.killpg(proc.pid, signal.SIGKILL)
+
+
 def test_terminate_active_job_also_kills_a_running_finish(tmp_path, monkeypatch):
     """Its repaint runs in a process group of its own, so the server's exit alone
     leaves it running until the next start's reconciliation finds its pid file."""

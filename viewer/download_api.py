@@ -304,6 +304,8 @@ class DownloadRun:
         self.condition = threading.Condition()
         self.process: subprocess.Popen[bytes] | None = None
         self.cancelled = False
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", backend.id) or "setup"
+        self.directory = REPO / "output" / ".setup" / safe
         self.log: deque[str] = deque(maxlen=400)
 
     def emit(self, event: dict[str, Any]) -> None:
@@ -482,6 +484,9 @@ def _run(run: DownloadRun) -> None:
             # Its own process group, so cancelling kills the downloader's children too.
             **processes.group_popen_kwargs(),
         )
+        run.directory.mkdir(parents=True, exist_ok=True)
+        run.directory.joinpath("pid").write_text(
+            processes.pid_record(run.process.pid), encoding="utf-8")
         assert run.process.stdout is not None
         for raw in run.process.stdout:
             line = strip_ansi(raw.decode("utf-8", errors="replace"))
@@ -496,6 +501,7 @@ def _run(run: DownloadRun) -> None:
         return
     finally:
         stop.set()
+        run.directory.joinpath("pid").unlink(missing_ok=True)
 
     present = run.bytes_present()
     if run.cancelled:

@@ -269,7 +269,7 @@ The backends:
   hunyuan_mlx/shape/.venv/bin/python hunyuan_mlx/download_weights.py
   ```
   Downloads the 2.0 shape model plus the paint weights from Hugging Face, about 13 GB,
-  and prints the sizes before it starts. `--model 2.1` or `--model 2.0-turbo` fetches a
+  and asks before it fetches. `--model 2.1` or `--model 2.0-turbo` fetches a
   different one; `--all` fetches every shape model, which is about 24 GB and more than
   the default route uses. Full detail: [`docs/hunyuan-mlx-recipes.md`](docs/hunyuan-mlx-recipes.md).
 - **Pixal3D**: click **Set up** on the Setup & Status page, or run
@@ -303,15 +303,15 @@ The backends:
   needs about 21 GB of GPU memory, so a 24 GB card or bigger. The Hunyuan weights are not
   licensed in the EU, the UK or South Korea. Windows is not supported yet.
 - **TRELLIS.2 on a Mac**: click **Run setup** (bootstraps the Metal port, ~1h, needs `uv`,
-  Python 3.11 and Xcode command-line tools), or run it manually:
-  `python scripts/bootstrap_trellis_space_macos.py`. First run downloads the ~14 GB
-  TRELLIS.2-4B weights automatically. **Before that:** its DINOv3 image encoder is gated.
-  Request access at
+  Python 3.11 and Xcode command-line tools), or run
+  `python scripts/bootstrap_trellis_space_macos.py`. Weights are a separate step:
+  `python scripts/bootstrap_trellis_space_macos.py --weights-only`. It names the route
+  and the size (about 16.5 GB) and asks before it fetches. Its DINOv3 image encoder is
+  gated. Request access at
   [huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m](https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m)
-  (Meta approves by hand, so do it first) and run `hf auth login`, or the first run stops
-  after the big download. Selecting an image also runs an optional local
-  TinyCLIP style advisory; its small checkpoint downloads on first use and never blocks
-  generation.
+  (Meta approves by hand, so do it first) and run `hf auth login`, or that part is
+  refused. Selecting an image can run an optional local TinyCLIP check. The check uses
+  the checkpoint already on disk, does not fetch one, and never blocks generation.
 - **Hunyuan3D-MLX (dgrauet shape + Xiong paint)**: no automated setup yet; expect to read
   `scripts/hunyuan_mlx_generate.py` to set it up by hand.
 
@@ -430,9 +430,9 @@ much smaller web-ready file. The prompt that works and what was measured are in
 | gltfpack (optional) | smaller web-ready files for split props; one click in Setup & Status, under 2 MB |
 | `uv` | builds the reproducible Python environments |
 | Python 3.11 (TRELLIS) / 3.12 (Hunyuan3D-MLX) | pinned by each backend's own setup |
-| ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights (auto-downloaded once) |
-| ~14 GB disk | TRELLIS.2-4B weights (auto-downloaded once, if using TRELLIS) |
-| ~94 MB download | TinyCLIP flat-input advisor (local and non-blocking) |
+| ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights. The tool asks before it fetches. |
+| about 16.5 GB disk | TRELLIS.2 weights. Setup asks before it fetches. |
+| ~94 MB on disk | TinyCLIP flat-input advisor. Optional, and a check does not fetch it. |
 | ~224 MB download | BiRefNet-lite background remover (comes with Pixal3D; otherwise Setup & Status or `scripts/bootstrap_matte.py`) |
 
 ## How long a run takes
@@ -468,9 +468,8 @@ On a Mac, TRELLIS.2 runs about twice as fast with **Attention backend** set to `
 - **Hunyuan3D-MLX (dgrauet shape) code**: Tencent Hunyuan Community License, not MIT;
   the code itself, not just the weights, carries the same restriction. Stays vendor-cloned
   rather than tracked in this repo for that reason.
-- **BRIA RMBG-2.0 is disabled** by patch and must stay unloaded in the TRELLIS pipeline.
-  Inputs must carry a real transparent alpha foreground; the pipeline refuses anything else
-  unless you explicitly pass `--allow-rembg`.
+- **BRIA RMBG-2.0 stays unloaded** in the TRELLIS pipeline. A run refuses a tree that
+  would still load it. Pictures are cut out by this repo's own remover.
 - Every run emits a `.provenance.json` sidecar (hashes, settings, license classification,
   component licenses).
 

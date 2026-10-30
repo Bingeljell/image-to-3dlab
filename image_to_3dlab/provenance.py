@@ -32,6 +32,10 @@ QWEN_OUTPUT_RIGHTS = (
     f"licensed Materials ({QWEN_OUTPUT_STATEMENT}, 21 Sept 2026). The model runs on your own "
     "machine; its weights are not redistributed."
 )
+FLUX_OUTPUT_RIGHTS = (
+    "The pictures you generate are yours, for any use including commercial: FLUX.2 [klein] 4B "
+    "and its Qwen3-4B text encoder are both Apache-2.0."
+)
 
 
 # Whichever remover this machine runs (image_to_3dlab/matte.py picks it); both are MIT.
@@ -99,6 +103,18 @@ LICENSES = {
             "Attribution: say 'Built with Qwen'.",
         ),
         models=("Qwen/Qwen-Image-2.1",),
+    ),
+    # Apache-2.0 all the way down: the model (BFL's card: "open weights available for
+    # commercial use"), its GGUF quantisation, the VAE shipped in the same repo, and the
+    # Qwen3-4B text encoder (Apache-2.0, unlike Qwen-Image's research licence). Checked
+    # on each Hugging Face card 2026-10-30.
+    "flux2-klein-4b": LicenseProfile(
+        classification="commercial-clear",
+        folder="commercial",
+        license_name="Apache-2.0",
+        license_url="https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+        conditions=(FLUX_OUTPUT_RIGHTS,),
+        models=("black-forest-labs/FLUX.2-klein-4B", "Qwen/Qwen3-4B"),
     ),
 }
 

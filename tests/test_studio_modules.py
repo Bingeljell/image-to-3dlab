@@ -1102,3 +1102,17 @@ def test_copy_details_copies_what_the_server_scrubbed_and_nothing_if_it_cannot()
     assert out["copied"] == ["~/x.log", "z"]          # the server's text, never the raw log
     assert out["url"] == "/api/bug-report" and out["size"] == 30000
     assert out["fallback"] == "A step failed"         # the server refuses an empty message
+
+
+@needs_node
+def test_create_takes_each_picture_engines_own_size_and_steps():
+    """Flux: 1024 and 4 steps for a 3D source, 8 when the picture is the end product. Qwen: 768/8."""
+    flux = {"id": "flux", "defaults": {"width": 1024, "steps": 4}, "picture_only_steps": 8}
+    qwen = {"id": "qwen", "defaults": {"width": 768, "steps": 8}, "picture_only_steps": None}
+    out = _run("create.js", f"""
+      const flux = {json.dumps(flux)}, qwen = {json.dumps(qwen)};
+      const form = m.planForm({{ steps: ['picture'], pictureEngine: 'qwen' }});
+      console.log(JSON.stringify([m.pictureDefaults(flux), m.pictureDefaults(flux, true), m.pictureDefaults(qwen, true),
+        m.pictureDefaults(null), form.get('picture_engine'), m.planForm({{ steps: ['picture'] }}).get('picture_engine')]));""")
+    assert out == [{"size": 1024, "steps": 4}, {"size": 1024, "steps": 8}, {"size": 768, "steps": 8},
+                   {"size": 768, "steps": 8}, "qwen", None]

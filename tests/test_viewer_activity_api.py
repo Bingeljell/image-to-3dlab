@@ -167,7 +167,21 @@ def test_the_picture_step_sends_the_chosen_size_steps_and_seed(tmp_path):
     runner, jobs = _runner(tmp_path)
     runner.submit(chain, background=False)
     sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image"))
-    assert sent == {"prompt": "a crate", "settings": {"width": 512, "height": 512, "steps": 8, "seed": 99}}
+    assert sent == {"prompt": "a crate", "settings": {"width": 512, "height": 512, "steps": 8, "seed": 99},
+                    "engine": None, "picture_only": True}
+
+
+def test_the_picture_step_names_the_chosen_engine_and_whether_3d_follows(tmp_path):
+    """Flux spends 8 steps on a picture that is the end product, 4 on one a 3D model is built from."""
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": json.dumps(["picture", "model"]), "prompt": "a crate",
+                                "picture_engine": "qwen", "engine": "pixal3d"}, {})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    assert chain.picture_engine == "qwen"
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image"))
+    assert sent["engine"] == "qwen" and sent["picture_only"] is False
 
 
 def test_the_model_step_sends_the_fresh_seed_create_chose(tmp_path):

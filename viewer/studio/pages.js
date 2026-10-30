@@ -144,6 +144,7 @@ const CREDITS = [
   ['TRELLIS.2', 'Microsoft, on trellis2-apple', 'https://huggingface.co/microsoft/TRELLIS.2-4B', 'MIT; DINOv3 encoder under its own licence'],
   ['Hunyuan3D', 'Tencent, via ZimengXiong and dgrauet’s MLX ports', 'https://github.com/ZimengXiong/Hunyuan3D-MLX', 'Tencent Hunyuan Community License'],
   ['Stable Fast 3D', 'Stability AI', 'https://github.com/Stability-AI/stable-fast-3d', 'Stability AI Community License'],
+  ['FLUX.2 klein 4B', 'Black Forest Labs, run by stable-diffusion.cpp', 'https://huggingface.co/black-forest-labs/FLUX.2-klein-4B', 'Apache-2.0'],
   ['Qwen-Image', 'Qwen, run by stable-diffusion.cpp', 'https://huggingface.co/Qwen/Qwen-Image-2.1', 'Qwen licence'],
   ['SkinTokens', 'VAST-AI (auto-rig)', 'https://github.com/VAST-AI-Research/SkinTokens', 'MIT'],
   ['Kimodo', 'NVIDIA (the preset moves)', 'https://github.com/nv-tlabs/kimodo', 'Apache-2.0 code, NVIDIA Open Model License'],

@@ -1907,12 +1907,22 @@ def test_front_back_readiness_without_the_folder_says_how_to_get_it(tmp_path):
     assert not ready and "5.9 GB" in hint
 
 
-def test_front_back_is_ready_only_with_both_downloads():
-    assert api.front_back_status(lambda: (True, None), lambda: Path("/w/mmproj.gguf")) == {
-        "ready": True, "hint": None}
-    for weights, vision in (((True, None), None), ((False, "x"), Path("/w/m.gguf")), ((False, "x"), None)):
-        status = api.front_back_status(lambda w=weights: w, lambda v=vision: v)
-        assert not status["ready"] and "Front + back" in status["hint"] and "6.6 GB" in status["hint"]
+def test_front_back_is_ready_only_with_the_shape_weights_and_a_back_drawer():
+    assert api.front_back_status(lambda: (True, None), lambda: True) == {"ready": True, "hint": None}
+    for weights, drawer in (((True, None), False), ((False, "x"), True), ((False, "x"), False)):
+        status = api.front_back_status(lambda w=weights: w, lambda d=drawer: d)
+        assert not status["ready"] and "Front + back" in status["hint"]
+
+
+def test_flux_alone_can_draw_backs_but_qwen_needs_its_vision_projector(monkeypatch):
+    """Flux reads the front by itself; a Flux-only machine must not be told to fetch Qwen's projector."""
+    installed = {"flux": False, "qwen": True}
+    monkeypatch.setattr(api.image_api, "resolve_weights", lambda engine=None: (
+        {} if installed[engine.id] else (_ for _ in ()).throw(api.image_api.MissingWeights(["x"], engine))))
+    monkeypatch.setattr(api.image_api, "resolve_vision", lambda engine=None: None)
+    assert api.back_drawer_ready() is False          # Qwen without its projector
+    installed["flux"] = True
+    assert api.back_drawer_ready() is True           # Flux needs nothing more
 
 
 # --- One heavy job at a time (2026-10-19): every start waits for every other kind -----------

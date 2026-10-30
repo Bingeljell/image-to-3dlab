@@ -4,8 +4,12 @@
 Two halves, the same way the viewer tracks every other backend. The **build** is a
 prebuilt `stable-diffusion.cpp` release binary. Nothing is compiled: upstream publishes a
 Metal build for Apple Silicon, a CUDA build for Windows, a Vulkan build for Linux that
-runs on NVIDIA cards, and a ROCm build for AMD cards on Linux. The **weights** are three
-files totalling about 13.4 GB.
+runs on NVIDIA cards, and a ROCm build for AMD cards on Linux. The **weights** are four
+files totalling about 14.2 GB: the model, its text encoder, its VAE, and the vision projector
+its edits need (back views and skins).
+
+FLUX.2 [klein] (bootstrap_flux_image.py) is the smaller, Apache-licensed alternative and the
+studio's default; the two share the sd-cli binary this installs.
 
 `AGENTS.md`: a download path must name the backend, name the route, state the size, and
 require an affirmative answer. This prints all of that and stops, unless `--yes` is given
@@ -58,8 +62,9 @@ WEIGHTS = [
     ("Comfy-Org/Qwen-Image-2.1", "vae/qwen_image_2.1_vae_bf16.safetensors", 0.68),
 ]
 
-# Optional: the LLM's vision projector. Edit mode needs it (drawing a back picture from the
-# front for a front + back build); plain pictures do not. Fetched only with --vision.
+# The LLM's vision projector. Edit mode needs it (a back picture drawn from the front, a skin);
+# plain pictures do not. Part of the full install; --vision fetches it alone, for installs
+# from before it was.
 VISION = ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf", 0.75)
 
 LICENCE = (
@@ -90,7 +95,7 @@ def binary_stale(destination: Path | None = None) -> bool:
 
 
 def total_gb() -> float:
-    return sum(size for _, _, size in WEIGHTS)
+    return sum(size for _, _, size in (*WEIGHTS, VISION))
 
 
 def announcement(build: bool = True, weights: bool = True) -> str:
@@ -107,7 +112,7 @@ def announcement(build: bool = True, weights: bool = True) -> str:
         lines.append(f"  build:   prebuilt sd-cli release ({build_for.size}) -> vendor/sdcpp/")
     if weights:
         lines.append(f"  weights: {total_gb():.1f} GB total ->  Hugging Face cache")
-        for repo, filename, size in WEIGHTS:
+        for repo, filename, size in (*WEIGHTS, VISION):
             lines.append(f"             {size:>5.2f} GB  {filename}  ({repo})")
     lines += ["", "  licence: " + LICENCE, ""]
     return "\n".join(lines)
@@ -361,10 +366,41 @@ def install_weights() -> None:
         raise SystemExit(
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
-    for repo, filename, size in WEIGHTS:
+    for repo, filename, size in (*WEIGHTS, VISION):
         print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)
         path = hf_hub_download(repo_id=repo, filename=filename)
         print(f"  {path}")
+
+
+def ensure_binary() -> bool:
+    """Install or update sd-cli, then check it reaches the GPU. False: stop before the weights.
+
+    Shared with the other picture engines (bootstrap_flux_image.py): one binary draws them all.
+    """
+    if binary_present() and binary_stale():
+        print(f"\nUpdating sd-cli at {BINARY} to {PINNED[target()]}: pictures about twice "
+              "as fast. The weights stay as they are.")
+        install_binary()
+    elif binary_present():
+        print(f"\nsd-cli is already installed at {BINARY}, leaving it alone.")
+    else:
+        install_binary()
+    # The Linux/Windows builds load their GPU backend at run time and fall back to
+    # the CPU without a word if it cannot reach the driver. Catch that now, not
+    # many gigabytes later.
+    help_text = NO_AMD_GPU_HELP if target() == "linux-amd" else NO_GPU_HELP
+    if target() in ("linux-nvidia", "windows-nvidia", "linux-amd"):
+        found = gpu_found(probe_gpu())
+        if not found and target() == "linux-nvidia":
+            icd = add_nvidia_icd()
+            if icd is not None:
+                print(f"Vulkan had no NVIDIA driver file; wrote {icd}.")
+                found = gpu_found(probe_gpu())
+        if not found:
+            print("\n" + help_text + "\nThe weights were not downloaded.")
+            return False
+        print("sd-cli found the GPU.")
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -395,30 +431,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Nothing downloaded.")
             return 1
 
-    if build:
-        if binary_present() and binary_stale():
-            print(f"\nUpdating sd-cli at {BINARY} to {PINNED[target()]}: pictures about twice "
-                  "as fast. The weights stay as they are.")
-            install_binary()
-        elif binary_present():
-            print(f"\nsd-cli is already installed at {BINARY}, leaving it alone.")
-        else:
-            install_binary()
-        # The Linux/Windows builds load their GPU backend at run time and fall back to
-        # the CPU without a word if it cannot reach the driver. Catch that now, not
-        # 13 GB later.
-        help_text = NO_AMD_GPU_HELP if target() == "linux-amd" else NO_GPU_HELP
-        if target() in ("linux-nvidia", "windows-nvidia", "linux-amd"):
-            found = gpu_found(probe_gpu())
-            if not found and target() == "linux-nvidia":
-                icd = add_nvidia_icd()
-                if icd is not None:
-                    print(f"Vulkan had no NVIDIA driver file; wrote {icd}.")
-                    found = gpu_found(probe_gpu())
-            if not found:
-                print("\n" + help_text + "\nThe weights were not downloaded.")
-                return 1
-            print("sd-cli found the GPU.")
+    if build and not ensure_binary():
+        return 1
     if weights:
         install_weights()
     if args.vision:

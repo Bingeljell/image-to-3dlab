@@ -27,7 +27,8 @@ class Response:
         return self._body
 
 
-CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True}, "backends": [
+CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True},
+           "picture_engines": [{"id": "flux", "installed": True}, {"id": "qwen", "installed": False}], "backends": [
     {"id": "trellis", "kind": "3d", "rank": 3, "state": "ready", "license": {"name": "MIT"}},
     {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "license": {"name": "MIT"}},
     {"id": "qwen", "kind": "image", "rank": 1, "state": "ready"},
@@ -488,7 +489,8 @@ def test_every_studio_control_has_an_mcp_twin():
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
-            "speed": "speed", "spread": "arms_away", "keep": "keep_everything"}
+            "speed": "speed", "spread": "arms_away", "keep": "keep_everything",
+            "picengine": "picture_engine"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -750,3 +752,12 @@ def test_run_line_reads_the_mode_and_command():
     assert ms.run_line("Does a thing.\n\nRun (headless): blender -b -P x.py -- a b\n\nWhy.") == ("headless", "blender -b -P x.py -- a b")
     assert ms.run_line("Does a thing.") is None
     assert not ms.is_blender_helper("bootstrap_blender.py")     # an installer, not a helper
+
+
+def test_create_passes_an_installed_picture_engine_and_refuses_a_missing_one(studio):
+    ms.create(studio, want="picture", description="a fox", picture_engine="flux")
+    assert sent(studio)["picture_engine"] == "flux"
+    with pytest.raises(ms.StudioError, match="'qwen' isn't installed. Installed: flux"):
+        ms.create(studio, want="picture", description="a fox", picture_engine="qwen")
+    ms.create(studio, want="picture", description="a fox")
+    assert "picture_engine" not in sent(studio)   # the studio's default: Flux when installed

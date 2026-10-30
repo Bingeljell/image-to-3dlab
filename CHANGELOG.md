@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- FLUX.2 klein 4B as a picture engine, and the default when installed: Apache-2.0, so the pictures
+  are yours for any use, and much faster than Qwen-Image. It also draws the back for front + back
+  builds, with nothing extra to download. Qwen-Image stays as a choice in Create and for agents.
 - Agents can find and run the repo's Blender helpers: a new `blender_helpers` MCP tool lists each one, what it does and how to run it.
 - Models folder: on Setup & Status, pick a folder on any drive for downloaded models, handy when the
   system drive is small. Restart the studio to use it; models you already have stay where they are.
@@ -15,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when the step finishes and in the Library.
 
 ### Changed
+- Front + back no longer needs Qwen-Image: any installed picture engine can draw the back.
+  Qwen-Image's own setup now includes the small vision projector its skins and back views need.
 - Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
 - Runs with a non-default model (e.g. a custom `--sf3d-repo` or a ComfyUI workflow loading a foreign

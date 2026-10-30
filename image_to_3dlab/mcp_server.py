@@ -407,6 +407,8 @@ def options() -> dict[str, Any]:
             "want": "picture | prop | set | character (create only).",
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
+            "picture_engine": "create only: flux (FLUX.2 klein, Apache-2.0, fast; default when installed) | qwen "
+                              "(Qwen-Image, Qwen Research License, follows long prompts more closely).",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
             "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
@@ -615,7 +617,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
            model_path: str | None = None, stop_after_step: str | None = None, engine: str | None = None,
            front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
            finish_upload: bool = False, finish_detail: str | int | None = None,
-           pixel_match: bool = True, advanced: dict[str, Any] | None = None) -> dict[str, Any]:
+           pixel_match: bool = True, advanced: dict[str, Any] | None = None,
+           picture_engine: str | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
     have = "model" if model_path else "picture" if image_path else "idea"
     if model_path and image_path:
@@ -656,6 +659,12 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     }
     if have == "idea":
         form["prompt"] = compose_prompt(description, want, recipes, add_wording)
+    if picture_engine and "picture" in steps:
+        drawers = [e["id"] for e in catalog.get("picture_engines", []) if e.get("installed")]
+        if picture_engine not in drawers:
+            raise StudioError(f"Picture engine {picture_engine!r} isn't installed. Installed: "
+                              f"{', '.join(drawers) or 'none'}.")
+        form["picture_engine"] = picture_engine
     if engine and "model" in steps:
         form["engine"] = engine
         form["model_seed"] = str(int.from_bytes(os.urandom(3), "big"))  # a new try each time, like Create
@@ -1049,7 +1058,8 @@ def build_server(studio: Studio | None = None):
     def tool_create(want: str, description: str = "", image_path: str | None = None, model_path: str | None = None,
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
                   move: str | None = None, add_wording: bool = True, finish_upload: bool = False,
-                  finish_detail: str | None = None, pixel_match: bool = True, advanced: dict | None = None):
+                  finish_detail: str | None = None, pixel_match: bool = True, advanced: dict | None = None,
+                  picture_engine: str | None = None):
         """Make something new, as the studio's Create does. Returns a run_id at once; the run takes minutes.
 
         want: "picture" | "prop" (one game-ready object) | "set" (a 3x3 sheet cut into nine props) |
@@ -1066,12 +1076,16 @@ def build_server(studio: Studio | None = None):
         1000 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
         triangles; the sharpest look, for renders and stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
+        picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast;
+            the default when installed) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
+            more closely). Back pictures prefer Flux whichever drew the front.
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
                                    front_and_back=front_and_back, move=move, add_wording=add_wording,
                                    finish_upload=finish_upload, finish_detail=finish_detail,
-                                   pixel_match=pixel_match, advanced=advanced))
+                                   pixel_match=pixel_match, advanced=advanced,
+                                   picture_engine=picture_engine))
 
     @server.tool(name="continue_asset", structured_output=False)
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,

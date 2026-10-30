@@ -97,6 +97,7 @@ class Chain:
     engine: str | None = None
     first_move: str | None = None
     picture_settings: dict[str, Any] = field(default_factory=dict)  # size, steps, seed (the image job checks them)
+    picture_engine: str | None = None                                # "flux" / "qwen"; None = the studio's default
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
     finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
@@ -300,7 +301,9 @@ class ChainRunner:
         kind = KIND[step]
         self._client = chain.client   # each step is counted as the chain's asker's, not the studio's
         if step == "picture":
-            body = json.dumps({"prompt": chain.prompt or chain.title, "settings": chain.picture_settings}).encode()
+            # picture_only: no 3D build after it, so the engine may spend more steps on it
+            body = json.dumps({"prompt": chain.prompt or chain.title, "settings": chain.picture_settings,
+                               "engine": chain.picture_engine, "picture_only": "model" not in chain.steps}).encode()
             return kind, self._post("/api/image", body, "application/json")
         if step == "back":
             front = chain.made.get("picture") or (self._kept_upload(chain) if chain.upload else None)
@@ -444,6 +447,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
     return Chain(
         title=text("title") or "Untitled", steps=[str(s) for s in steps], want=text("want") or "character",
         prompt=text("prompt"), engine=text("engine"), first_move=text("first_move"),
+        picture_engine=text("picture_engine"),
         picture_settings={k: picture[k] for k in ("width", "height", "steps", "seed") if k in picture}
         if isinstance(picture, dict) else {},
         model_seed=int(text("model_seed")) if (text("model_seed") or "").isdigit() else None,

@@ -771,11 +771,38 @@ CATALOG: tuple[Backend, ...] = (
         ),
     ),
     Backend(
+        id="flux-image",
+        label="FLUX.2 klein 4B (text to image)",
+        kind="image",
+        best_for=("Makes the source image when you do not have one, and draws the back for "
+                  "front + back builds. Prompt in, picture out."),
+        tradeoff=("Fast, and Apache-2.0: the pictures you make are yours for any use. "
+                  "Follows very long prompts a little less closely than Qwen-Image."),
+        license_name="Apache-2.0",
+        license_url="https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+        install="scripts/bootstrap_flux_image.py",
+        runs_on=(APPLE, NVIDIA, AMD),
+        setup_minutes=10,
+        build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
+        weights=(
+            WeightSet("FLUX.2 klein 4B diffusion model (Q8_0)", "leejet/FLUX.2-klein-4B-GGUF",
+                      4_300_629_440, HF_HUB_DIR / "models--leejet--FLUX.2-klein-4B-GGUF"),
+            WeightSet("Qwen3-4B text encoder (Q8_0)", "unsloth/Qwen3-4B-GGUF", 4_280_405_792,
+                      HF_HUB_DIR / "models--unsloth--Qwen3-4B-GGUF",
+                      note="Reads your prompt. Plain Qwen3, Apache-2.0: not Qwen-Image's licence."),
+            WeightSet("FLUX.2 VAE", "Comfy-Org/Flux-2-Klein-4B", 336_211_292,
+                      HF_HUB_DIR / "models--Comfy-Org--Flux-2-Klein-4B",
+                      note="Turns the generated latent back into pixels."),
+        ),
+    ),
+    Backend(
         id="qwen-image",
         label="Qwen-Image 2.1 (text to image)",
         kind="image",
         best_for="Makes the source image when you do not have one. Prompt in, picture out.",
-        tradeoff="Runs on your machine, and the pictures you make are yours.",
+        tradeoff=("Follows long prompts closely and draws skins. Slower and a bigger download "
+                  "than FLUX.2 klein, and under the Qwen Research License (the pictures are "
+                  "still yours)."),
         license_name="Qwen Research License",
         license_url="https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
         install="Prebuilt stable-diffusion.cpp binary in vendor/sdcpp/",
@@ -794,6 +821,11 @@ CATALOG: tuple[Backend, ...] = (
             WeightSet("Qwen-Image 2.1 VAE", "Comfy-Org/Qwen-Image-2.1", int(0.68 * GB),
                       HF_HUB_DIR / "models--Comfy-Org--Qwen-Image-2.1",
                       note="Turns the generated latent back into pixels."),
+            WeightSet("Qwen3-VL vision projector (Q8_0)", "Qwen/Qwen3-VL-8B-Instruct-GGUF",
+                      752_289_728, HF_HUB_DIR / "models--Qwen--Qwen3-VL-8B-Instruct-GGUF",
+                      note="Lets Qwen-Image read a picture: skins, and back views when Qwen "
+                           "draws them.",
+                      pattern="snapshots/*/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"),
         ),
     ),
     Backend(
@@ -864,12 +896,13 @@ CATALOG: tuple[Backend, ...] = (
         id="front-back",
         label="Front + back",
         kind="tool",
-        best_for=("Builds characters and props from a front and a back picture: Qwen draws "
-                  "the back, Pixal3D builds the shape from both, and Pixel Match paints from "
-                  "both, so the sides and back match your picture instead of being guessed."),
-        tradeoff=("Needs Pixal3D and Qwen-Image set up first. Each model takes a few minutes "
-                  "more on a Mac for the back picture, under a minute on a Linux GPU."),
-        license_name="MIT + DINOv3 License (Pixal3D); Qwen Research License (vision projector)",
+        best_for=("Builds characters and props from a front and a back picture: the picture "
+                  "engine draws the back, Pixal3D builds the shape from both, and Pixel Match "
+                  "paints from both, so the sides and back match your picture instead of being "
+                  "guessed."),
+        tradeoff=("Needs Pixal3D and a picture engine set up first. Each model takes a little "
+                  "longer for the back picture."),
+        license_name="MIT + DINOv3 License (Pixal3D)",
         license_url="https://huggingface.co/raven38/pixal3d-q8_0-v1",
         install="scripts/bootstrap_front_back.py",
         runs_on=(APPLE, NVIDIA, AMD),
@@ -881,10 +914,6 @@ CATALOG: tuple[Backend, ...] = (
                            "decoders are linked from the single-view set.",
                       # The flows alone: the linked files are the single-view set's bytes.
                       pattern="*_mv.gguf"),
-            WeightSet("Qwen3-VL vision projector (Q8_0)", "Qwen/Qwen3-VL-8B-Instruct-GGUF",
-                      752_289_728, HF_HUB_DIR / "models--Qwen--Qwen3-VL-8B-Instruct-GGUF",
-                      note="Lets Qwen-Image read the front picture to draw the back.",
-                      pattern="snapshots/*/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"),
         ),
     ),
 )

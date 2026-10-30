@@ -18,7 +18,7 @@ let assets = [];
 let filter = 'all', query = '', showHidden = false, limit = 30;
 let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
-let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
+let engines = [], presets = [], recipes = null, frontBack = null, pictureEngines = [], busy = false, playNext = null;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
@@ -442,6 +442,7 @@ async function loadTools() {
   blenderReady = finishCaps ? !!finishCaps.ready : true;   // unknown: let the server say
   engines = readyEngines(catalog);
   frontBack = catalog?.front_back || null;
+  pictureEngines = catalog?.picture_engines || [];
   presets = animate?.installed ? animate.presets : [];
   recipes = await fetch('/api/recipes').then((r) => r.json()).catch(() => null);
 }
@@ -449,7 +450,7 @@ async function loadTools() {
 // ------------------------------------------------------------------ Create
 function openCreateSheet(prefill = null) {
   closeSheet($('stage'));
-  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, prefill, onStart: (plan) => startChain(plan) });
+  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, pictureEngines, prefill, onStart: (plan) => startChain(plan) });
 }
 
 $('createBtn').addEventListener('click', () => {

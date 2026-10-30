@@ -492,17 +492,44 @@ def hf_sign_in_response(payload: Any) -> tuple[int, dict]:
     return (422 if "error" in result else 200), result
 
 
-def front_back_status(weights=None, vision=None) -> dict[str, Any]:
+def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
     """Whether Create can build from a front and a back picture: Pixal3D's multi-view
-    weights for the shape, and Qwen's vision projector for drawing the back. One place to
-    get both: the Front + back card on the Setup page."""
+    weights for the shape, and a picture engine that can draw the back (Flux by itself, or
+    Qwen with its vision projector). One place to get what is missing: the Front + back
+    card on the Setup page."""
     weights_ready, _ = (weights or pixal3d_front_back_ready)()
-    vision_ready = (vision or image_api.resolve_vision)() is not None
-    if weights_ready and vision_ready:
+    drawer_ready = (drawer or back_drawer_ready)()
+    if weights_ready and drawer_ready:
         return {"ready": True, "hint": None}
     return {"ready": False,
-            "hint": "It needs two more downloads (6.6 GB): Setup & Status, Front + back, "
+            "hint": "It needs one more download: Setup & Status, Front + back, "
                     "or python scripts/bootstrap_front_back.py."}
+
+
+def back_drawer_ready() -> bool:
+    """Whether any installed picture engine can draw a back view from the front."""
+    for engine in image_api.ENGINES.values():
+        try:
+            image_api.check_ready(engine, edit=True)
+        except image_api.MissingWeights:
+            continue
+        return True
+    return False
+
+
+def picture_engines_payload() -> list[dict[str, Any]]:
+    """The picture engines, in the order Create offers them, with what each can do here."""
+    out = []
+    for engine in image_api.ENGINES.values():
+        installed = image_api.is_installed(engine)
+        out.append({
+            "id": engine.id, "label": engine.label, "setup_id": engine.setup_id,
+            "installed": installed, "can_draw_backs": installed and image_api.can_edit(engine),
+            "defaults": engine.defaults, "picture_only_steps": engine.picture_only_steps,
+            "license": {"name": engine.licence_name, "url": engine.licence_url,
+                        "attribution": engine.attribution},
+        })
+    return out
 
 
 def catalog_payload() -> dict:
@@ -510,6 +537,7 @@ def catalog_payload() -> dict:
     payload = with_rebuild_reasons(catalog_status())
     payload["running_setup"] = running_payload()
     payload["front_back"] = front_back_status()
+    payload["picture_engines"] = picture_engines_payload()
     return payload
 
 
@@ -2783,6 +2811,7 @@ class Handler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
+            engine = image_api.pick_engine(payload.get("engine") or None, edit=True)
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -2794,14 +2823,12 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": waiting})
             return
         try:
-            image_api.resolve_weights()
-            if image_api.resolve_vision() is None:
-                raise image_api.MissingWeights([image_api.VISION_FILE[1]])
+            image_api.check_ready(engine, edit=True)
         except image_api.MissingWeights as exc:
             self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
             return
         try:
-            job = image_api.start_back(front, seed)
+            job = image_api.start_back(front, seed, engine)
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return
@@ -2829,6 +2856,11 @@ class Handler(SimpleHTTPRequestHandler):
                 "error": f"prompt is longer than {image_api.MAX_PROMPT} characters"
             })
             return
+        try:
+            engine = image_api.pick_engine(payload.get("engine") or None)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
         if not image_api.BINARY.exists():
             self._send_json(503, {
                 "error": "stable-diffusion.cpp is not installed (vendor/sdcpp/sd-cli).",
@@ -2840,13 +2872,14 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": waiting})
             return
         try:
-            image_api.resolve_weights()
+            image_api.resolve_weights(engine)
         except image_api.MissingWeights as exc:
             self._send_json(503, {"error": str(exc), "needs_setup": True,
                                   "missing": exc.missing})
             return
         try:
-            job = image_api.start(prompt, payload.get("settings") or {})
+            job = image_api.start(prompt, payload.get("settings") or {}, engine,
+                                  picture_only=bool(payload.get("picture_only")))
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return
@@ -3238,12 +3271,16 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         if parts == ["api", "image", "defaults"]:
+            # The engine a picture would use now, at the top level as before; every engine below.
+            engine = image_api.pick_engine()
             self._send_json(200, {
-                "defaults": image_api.DEFAULTS,
+                "engine": engine.id,
+                "defaults": engine.defaults,
                 "samplers": list(image_api.SAMPLERS),
-                "installed": image_api.is_installed(),
-                "license": {"name": image_api.LICENSE_NAME, "url": image_api.LICENSE_URL,
-                            "attribution": image_api.ATTRIBUTION},
+                "installed": image_api.is_installed(engine),
+                "license": {"name": engine.licence_name, "url": engine.licence_url,
+                            "attribution": engine.attribution},
+                "engines": picture_engines_payload(),
             })
             return
         if parts == ["api", "backends"]:

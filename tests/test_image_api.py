@@ -424,7 +424,7 @@ def test_a_back_jobs_command_is_an_edit_from_its_reference(tmp_path):
 def test_a_back_job_without_the_vision_file_asks_for_setup(tmp_path, monkeypatch):
     manager = api.ImageJobManager(tmp_path)
     job = api.create_back_job(manager, _front(tmp_path), seed=3)
-    monkeypatch.setattr(api, "resolve_vision", lambda: None)
+    monkeypatch.setattr(api, "resolve_vision", lambda *a: None)
     api.run_job(job, manager, weights=WEIGHTS)
     assert job.status == "error" and job.events[-1].get("needs_setup")
     assert "mmproj" in job.error
@@ -443,3 +443,74 @@ def test_a_back_job_only_reads_pictures_inside_the_output_folder(tmp_path):
     for bad in ("../secrets.png", "/etc/passwd", "images/nope.png", f"images/{front.parent.name}"):
         with pytest.raises(ValueError):
             api.back_source(tmp_path, bad)
+
+
+# --- FLUX.2 klein, the default picture engine (2026-10-30) ---------------------------------
+
+def _ready_only(*ids):
+    return lambda engine: engine.id in ids
+
+
+def test_flux_is_preferred_when_installed_and_named_when_nothing_is():
+    assert api.pick_engine(ready=_ready_only("flux", "qwen")) is api.FLUX
+    assert api.pick_engine(ready=_ready_only("qwen")) is api.QWEN
+    # nothing set up: point at the smaller, Apache-licensed download
+    assert api.pick_engine(ready=_ready_only()) is api.FLUX
+    assert api.pick_engine("qwen", ready=_ready_only("flux")) is api.QWEN   # asked for is asked for
+    with pytest.raises(ValueError, match="no picture engine 'dalle'"):
+        api.pick_engine("dalle")
+
+
+def test_flux_draws_at_1024_in_4_steps_and_8_when_the_picture_is_the_end_product():
+    """Bake-off 2026-10-28: 4 steps ~62 s, 8 steps ~103 s for a near-identical picture."""
+    for_3d = api.clean_settings({}, api.FLUX)
+    alone = api.clean_settings({}, api.FLUX, picture_only=True)
+    assert (for_3d["width"], for_3d["height"], for_3d["steps"], for_3d["cfg_scale"]) == (1024, 1024, 4, 1.0)
+    assert alone["steps"] == 8
+    assert api.clean_settings({"steps": 6}, api.FLUX, picture_only=True)["steps"] == 6   # a choice wins
+    assert api.clean_settings({}, api.QWEN, picture_only=True)["steps"] == api.DEFAULTS["steps"]
+
+
+def test_a_flux_edit_reads_the_reference_without_a_vision_projector():
+    settings = api.clean_settings({}, api.FLUX)
+    command = api.build_command("its back", settings, Path("/out/b.png"), WEIGHTS,
+                                binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"), engine=api.FLUX)
+    assert command[command.index("-r") + 1] == "/in/front.png"
+    assert "--llm_vision" not in command
+    assert api.can_edit(api.FLUX)
+
+
+def test_a_qwen_edit_still_needs_its_vision_projector():
+    with pytest.raises(ValueError, match="vision projector"):
+        api.build_command("its back", api.clean_settings({}), Path("/out/b.png"), WEIGHTS,
+                          binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"))
+
+
+def test_a_flux_picture_records_its_apache_licence(tmp_path):
+    record = api.provenance("a fox", api.clean_settings({}, api.FLUX), 60.0, tmp_path / "x.png", api.FLUX)
+    assert record["model"]["id"] == "flux2-klein-4b"
+    assert record["license"]["name"] == "Apache-2.0" and record["license"]["classification"] == "commercial-clear"
+    assert record["license"]["attribution"] is None
+    assert "commercial" in record["license"]["inherited_by_derivatives"]
+    assert record["model"]["weights"]["llm"]["file"] == "Qwen3-4B-Q8_0.gguf"
+
+
+def test_a_missing_flux_install_says_flux_not_qwen(monkeypatch, tmp_path):
+    monkeypatch.setattr(api, "HF_HUB", tmp_path)
+    with pytest.raises(api.MissingWeights, match="FLUX.2"):
+        api.resolve_weights(api.FLUX)
+
+
+def test_a_flux_back_job_runs_flux_and_records_it(tmp_path):
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, _front(tmp_path), seed=3, engine=api.FLUX)
+    assert job.engine is api.FLUX and job.settings["width"] == 1024
+    assert "--llm_vision" not in api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert job.describe()["engine"] == "flux"
+
+
+def test_the_flux_files_are_the_ones_the_installer_fetches():
+    sys.path.insert(0, str(VIEWER.parent / "scripts"))
+    import bootstrap_flux_image as boot
+    fetched = {Path(name).name for _, name, _ in boot.WEIGHTS}
+    assert {name for _, name in api.FLUX.weight_files.values()} == fetched

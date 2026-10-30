@@ -407,7 +407,7 @@ def test_the_endpoints_walk_a_skin_from_front_to_back(output, monkeypatch, tmp_p
     engine = _write(tmp_path / "sd-cli", b"")
     monkeypatch.setattr(api.image_api, "BINARY", engine)
     monkeypatch.setattr(api.image_api, "resolve_weights", dict)
-    monkeypatch.setattr(api.image_api, "resolve_vision", lambda: engine)
+    monkeypatch.setattr(api.image_api, "resolve_vision", lambda *a: engine)
     started = []
 
     def fake_edit(reference, target, prompt, seed, mode="edit (skin)"):

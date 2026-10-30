@@ -117,9 +117,15 @@ export function wireBrush(card, asset, ctx) {
   const box = card.querySelector('[data-brush]');
   if (!box) return;
   let brush = null;
-  box.addEventListener('toggle', () => {
-    if (box.open && !brush) brush = mountBrush(box.querySelector('[data-brush-canvas]'), `${ctx.url(asset.back)}?v=${Date.now()}`);
-  });
+  // built fresh each time: Back after a failed run restores this box as HTML, canvas and all
+  const mount = () => {
+    if (!box.open || brush) return;
+    const holder = box.querySelector('[data-brush-canvas]');
+    holder.innerHTML = '';
+    brush = mountBrush(holder, `${ctx.url(asset.back)}?v=${Date.now()}`);
+  };
+  box.addEventListener('toggle', mount);
+  mount();
   const error = box.querySelector('[data-brush-error]');
   const fail = (message) => { error.textContent = message; error.hidden = false; };
   box.querySelector('[data-brush-size]').oninput = (e) => brush?.setSize(e.target.value);
@@ -326,7 +332,7 @@ async function runInCard(card, starter, ctx, stepId, note) {
   } catch (error) {
     ctx.onBusy?.(false);
     show(`<div class="job failed"><p class="job-msg">${esc(plainError(error.message))}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`);
-    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
+    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); };
     return;
   }
   const { kind, start } = started;
@@ -357,6 +363,6 @@ async function runInCard(card, starter, ctx, stepId, note) {
     : `<div class="job failed"><p class="job-msg">${esc(why)}</p>
     <details><summary class="hint">Show log</summary><pre class="log">${esc(tail.split('\n').slice(-30).join('\n'))}</pre></details>
     <div class="row end"><button class="ghost" data-copy>Copy details</button><button class="ghost" data-back>Back</button></div></div>`);
-  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
+  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); };
   body.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(why, tail));
 }

@@ -114,7 +114,7 @@ function renderSteps(asset) {
     const dot = state === 'done' ? '✓' : i + 1;
     // a finished model can be finished again at another detail level; a rigged one gets more moves
     const redo = state === 'done' && ({
-      picture: !!asset.prompt || !!asset.picture, model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
+      picture: !!asset.prompt || (!!asset.picture && (!!asset.back || !!frontBack?.ready)), model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
       rigged: asset.kind !== 'prop set', animated: true,
     }[step.id]);
     const body = state === 'now' || redo ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';

@@ -660,3 +660,50 @@ def test_a_back_already_at_a_drawable_size_is_brushed_as_it_is(tmp_path):
     Image.new("RGB", (512, 512), (60, 120, 60)).save(back)
     job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(size=(512, 512)), "x")
     assert job.init == back and (job.settings["width"], job.settings["height"]) == (512, 512)
+
+
+
+def test_a_see_through_back_is_brushed_on_grey_not_on_black(tmp_path):
+    """Converting an RGBA cut-out to RGB shows what hides under the alpha (often black)."""
+    from PIL import Image
+    back = _back(tmp_path)
+    cut = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    cut.paste((60, 120, 60, 255), (100, 100, 400, 400))
+    cut.save(back)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(size=(512, 512)), "x")
+    with Image.open(job.init) as init:
+        assert init.mode == "RGB" and init.getpixel((5, 5)) == (api.back_view.GREY,) * 3
+    drawn = tmp_path / "drawn.png"
+    Image.new("RGB", (512, 512), (200, 30, 30)).save(drawn)
+    api.paste_through(back, drawn, job.paste_mask)
+    with Image.open(drawn) as out:
+        assert out.getpixel((5, 5)) == (api.back_view.GREY,) * 3      # outside: grey, not black
+
+
+def test_a_brush_refused_as_busy_leaves_the_running_brushs_files_alone(tmp_path):
+    back = _back(tmp_path)
+    manager = api.ImageJobManager(tmp_path)
+    running = api.create_brush_job(manager, back, _stroke(), "a red satchel")
+    paste_before = running.paste_mask.read_bytes()
+    with pytest.raises(RuntimeError, match="already being generated"):
+        api.create_brush_job(manager, back, _stroke((0, 0, 63, 63)), "a blue hat")
+    assert running.paste_mask.read_bytes() == paste_before
+
+
+def test_a_brushed_picture_names_the_one_it_replaced(tmp_path, monkeypatch):
+    from PIL import Image
+    back = _back(tmp_path)
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_brush_job(manager, back, _stroke(), "a red satchel")
+
+    class Done:
+        def __init__(self, cmd, **k):
+            Image.new("RGB", (256, 256), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
+            self.stdout = __import__("io").BytesIO(b"")
+        def wait(self): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(api.subprocess, "Popen", Done)
+    monkeypatch.setattr(api.usage_api, "count_done", lambda *a: None)
+    api.run_job(job, manager, weights=WEIGHTS)
+    brush = json.loads(back.with_suffix(".provenance.json").read_text())["brush"]
+    assert brush["replaced"].startswith(back.stem + "_prev_") and brush["strength"] == api.BRUSH_STRENGTH

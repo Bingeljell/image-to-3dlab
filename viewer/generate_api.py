@@ -2859,7 +2859,8 @@ class Handler(SimpleHTTPRequestHandler):
         """Draw the back of a picture already in output/ (front + back builds)."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            # room for a 500-character "what to change" in any script (JSON escapes it 6x)
+            payload = json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {}
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
             instruction = str(payload.get("instruction") or "")

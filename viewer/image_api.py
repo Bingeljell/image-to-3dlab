@@ -590,14 +590,33 @@ def brush_masks(stroke, size: tuple[int, int]):
     return grown, feathered
 
 
+def opened_mode(path: Path) -> str:
+    from PIL import Image
+
+    with Image.open(path) as opened:
+        return opened.mode
+
+
+def opaque(path: Path):
+    """The picture as plain RGB. A see-through back (an uploaded cut-out) is laid on the grey
+    a drawn back has, not converted: converting drops the alpha and shows whatever colour
+    hides under it, often black. The 3D step cuts it out again as it does a drawn back."""
+    from PIL import Image
+
+    with Image.open(path) as opened:
+        opened.load()
+        if "A" in opened.getbands() or "transparency" in opened.info:
+            return back_view.reference_on_grey(opened.convert("RGBA"))
+        return opened.convert("RGB")
+
+
 def paste_through(original: Path, drawn: Path, paste_mask: Path) -> None:
     """Keep the drawn picture only inside the brush: everything outside is the original's
     own pixels again. The model re-encodes the whole picture, which shifts every pixel a
     little and leaves a halo at the stroke's edge (2026-10-30); this undoes both."""
     from PIL import Image
 
-    with Image.open(original) as base, Image.open(drawn) as new, Image.open(paste_mask) as mask:
-        base = base.convert("RGB")
+    with opaque(original) as base, Image.open(drawn) as new, Image.open(paste_mask) as mask:
         Image.composite(new.convert("RGB").resize(base.size), base,
                         mask.convert("L").resize(base.size)).save(drawn)
 
@@ -616,30 +635,34 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
     The new picture is drawn beside it (`<name>_new.png`) and swapped in when it is done; the
     old one is kept, as a back drawn again is. `stroke`: a PIL image, white where painted.
     """
-    from PIL import Image
-
-    with Image.open(picture) as opened:
-        size = opened.size
+    with opaque(picture) as base:
+        size = base.size
         # the engine draws at a size it accepts (multiples of 32, 256 to 1536): a back you
         # uploaded can be any size, so it starts from a copy at that size and the result is
         # scaled back to the picture's own size when it is pasted
         settings = clean_settings({"seed": seed, "steps": BRUSH_STEPS, "width": size[0], "height": size[1]}, engine)
         work = (settings["width"], settings["height"])
-        init = picture
-        if work != size:
-            init = picture.with_name(f"{picture.stem}_brush_init.png")
-            opened.convert("RGB").resize(work).save(init)
-    grown, _ = brush_masks(stroke, work)
-    _, feathered = brush_masks(stroke, size)
-    if not grown.getbbox():
-        raise ValueError("paint over the part to change first")
-    mask = picture.with_name(f"{picture.stem}_brush_mask.png")
-    paste = picture.with_name(f"{picture.stem}_brush_paste.png")
-    grown.save(mask)
-    feathered.save(paste)
-    job = manager.create(brush_prompt(instruction), settings,
-                         output_path=picture.with_name(f"{picture.stem}_new.png"),
-                         mode="brush", engine=engine)
+        grown, _ = brush_masks(stroke, work)
+        _, feathered = brush_masks(stroke, size)
+        if not grown.getbbox():
+            raise ValueError("paint over the part to change first")
+        # The job first: a request refused as busy must not touch the files a running brush
+        # reads when it finishes (its paste area above all).
+        job = manager.create(brush_prompt(instruction), settings,
+                             output_path=picture.with_name(f"{picture.stem}_new.png"),
+                             mode="brush", engine=engine)
+        try:
+            init = picture
+            if work != size or opened_mode(picture) != "RGB":   # resized, or laid on grey
+                init = picture.with_name(f"{picture.stem}_brush_init.png")
+                base.resize(work).save(init)
+            mask = picture.with_name(f"{picture.stem}_brush_mask.png")
+            paste = picture.with_name(f"{picture.stem}_brush_paste.png")
+            grown.save(mask)
+            feathered.save(paste)
+        except Exception:
+            manager.finish(job)
+            raise
     job.init, job.mask, job.paste_mask, job.replaces = init, mask, paste, picture
     job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
     return job
@@ -753,8 +776,9 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         else:
             if job.paste_mask is not None and job.replaces is not None:
                 paste_through(job.replaces, job.output_path, job.paste_mask)
+            kept = None
             if job.replaces is not None:
-                take_place(job.output_path, job.replaces)
+                kept = take_place(job.output_path, job.replaces)
                 job.output_path = job.replaces
             sidecar = job.output_path.with_suffix(".provenance.json")
             record = provenance(job.prompt, job.settings, elapsed, job.output_path, job.engine)
@@ -763,8 +787,11 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                 if job.instruction:
                     record["reference"]["instruction"] = job.instruction
             if job.init is not None:
+                # the result is the old picture outside the paint and new paint inside it:
+                # the old one's own record stays beside it, under the name it was kept as
                 record["brush"] = {"picture": job.output_path.name, "mask": job.mask.name if job.mask else None,
-                                   "instruction": job.instruction}
+                                   "instruction": job.instruction, "strength": BRUSH_STRENGTH,
+                                   "replaced": kept.name if kept else None}
             sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))

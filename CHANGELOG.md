@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- `audit_model_weights.py --apply` keeps a checkpoint when the matching safetensors file does not hold the tensor bytes. A header that only describes them is not a finished conversion.
 - A quality workflow with no reviewed checkpoint is refused, or recorded as unverified when the manifest allows it. It no longer inherits the Tencent licence. Manifests honour `commercial_intent` and `allow_research_only`, can name a `workflow`, and a bad TRELLIS material mode is rejected before generation.
 - The Mac TRELLIS patch no longer builds the BRIA background remover. An unpatched tree is refused before the model loads.
 - Generate no longer downloads model weights on its own. A route stays not ready until its weights are on disk, and the run cannot reach the hub. On a Mac, TRELLIS.2's Setup button downloads the weights after the port is built (it names the size and waits for yes) instead of fetching them on the first generate.

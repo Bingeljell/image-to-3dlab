@@ -123,6 +123,34 @@ def test_a_checkpoint_beside_a_dict_without_tensor_offsets_is_not_reclaimable(tm
     assert "conversion unproven" in found[0].reason
 
 
+def test_offsets_that_end_past_the_file_are_not_proven(tmp_path):
+    header = b'{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+    path = tmp_path / "model.safetensors"
+    path.write_bytes(len(header).to_bytes(8, "little") + header)
+    assert audit.conversion_proven(path) is False
+
+
+def test_metadata_with_in_file_offsets_is_proven(tmp_path):
+    header = (
+        b'{"__metadata__":{"format":"pt"},'
+        b'"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+    )
+    path = tmp_path / "model.safetensors"
+    path.write_bytes(len(header).to_bytes(8, "little") + header + b"\x00\x00\x00\x00")
+    assert audit.conversion_proven(path) is True
+
+
+def test_apply_keeps_the_checkpoint_when_the_safetensors_file_is_only_a_header(tmp_path):
+    ckpt = _weights(tmp_path, "m/model.fp16.ckpt", 2048)
+    header = b'{"t":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}'
+    (tmp_path / "m/model.fp16.safetensors").write_bytes(
+        len(header).to_bytes(8, "little") + header
+    )
+    found = audit.find_superseded_checkpoints(roots=(tmp_path,))
+    audit.report(found, apply=True)
+    assert ckpt.is_file()
+
+
 def test_a_checkpoint_beside_inverted_offsets_is_not_reclaimable(tmp_path):
     _weights(tmp_path, "m/model.fp16.ckpt", 2048)
     # data_offsets start is greater than end.

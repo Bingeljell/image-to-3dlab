@@ -93,12 +93,11 @@ MAX_SAFETENSORS_HEADER = 100 * 1024 * 1024
 
 
 def conversion_proven(converted: Path) -> bool:
-    """True when `converted` exists, is non-empty, and parses as safetensors.
+    """True when `converted` exists and its header describes tensors that fit in the file.
 
-    Verification is header-only: we read the 8-byte little-endian header length,
-    then the JSON header, and confirm it declares at least one tensor with valid
-    metadata. Tensor data is never deserialized, so this is cheap even for
-    multi-gigabyte files.
+    We read the 8-byte little-endian header length, then the JSON header. Every tensor's
+    end offset must lie inside the bytes after the header. `__metadata__` is not a tensor.
+    The tensor bytes themselves are never deserialized.
     """
     try:
         size = converted.stat().st_size
@@ -125,16 +124,22 @@ def conversion_proven(converted: Path) -> bool:
         return False
     if not isinstance(parsed, dict) or not parsed:
         return False
-    for entry in parsed.values():
+    data_end = size - 8 - header_len
+    tensors = 0
+    for key, entry in parsed.items():
+        if key == "__metadata__":
+            continue
         offsets = entry.get("data_offsets") if isinstance(entry, dict) else None
         if (
             not isinstance(offsets, list)
             or len(offsets) != 2
             or not all(isinstance(v, int) for v in offsets)
             or offsets[0] > offsets[1]
+            or offsets[1] > data_end
         ):
             return False
-    return True
+        tensors += 1
+    return tensors > 0
 
 
 def find_superseded_checkpoints(roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:

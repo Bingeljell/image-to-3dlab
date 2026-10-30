@@ -1134,3 +1134,20 @@ def test_create_offers_your_own_back_only_where_pixal3d_can_use_it():
         form.get('back_file')?.name ?? null, m.planForm({ steps: ['model'] }).get('back_file')]));""")
     # no picture engine needed (ready: false): your back needs no drawing
     assert out == [True, False, False, False, False, False, "b.png", None]
+
+
+@needs_node
+def test_draw_the_back_again_shows_for_a_front_and_plans_a_one_step_back_run():
+    out = _run("steps.js", """
+      const ctx = { frontBack: { ready: true } };
+      const withBack = { picture: 'images/a/a.png', back: 'images/a/a__back.png', kind: 'character' };
+      const plan = m.chainPlan('back', withBack, { change: 'a red cloak' });
+      console.log(JSON.stringify({
+        again: m.backRedo(withBack, ctx).includes('Draw the back again'),
+        first: m.backRedo({ ...withBack, back: null }, ctx).includes('Draw a back picture'),
+        none: m.backRedo({ ...withBack, back: null }, { frontBack: { ready: false } }),
+        sheet: m.backRedo({ ...withBack, kind: 'prop set' }, ctx),
+        steps: plan.steps, made: plan.made, change: plan.backSettings.instruction, seeded: Number.isInteger(plan.backSettings.seed),
+        plain: 'instruction' in m.chainPlan('back', withBack, { change: '' }).backSettings }));""")
+    assert out == {"again": True, "first": True, "none": "", "sheet": "", "steps": ["back"],
+                   "made": {"picture": "images/a/a.png"}, "change": "a red cloak", "seeded": True, "plain": False}

@@ -114,7 +114,7 @@ function renderSteps(asset) {
     const dot = state === 'done' ? '✓' : i + 1;
     // a finished model can be finished again at another detail level; a rigged one gets more moves
     const redo = state === 'done' && ({
-      picture: !!asset.prompt, model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
+      picture: !!asset.prompt || !!asset.picture, model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
       rigged: asset.kind !== 'prop set', animated: true,
     }[step.id]);
     const body = state === 'now' || redo ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
@@ -129,7 +129,8 @@ function renderSteps(asset) {
     viewingPictures = true;
     viewingStep = null;
     viewer.setClips([]);
-    viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? url(asset.back) : null);
+    // the back keeps its name when drawn again, so ask past the browser's copy
+    viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? `${url(asset.back)}?v=${Date.now()}` : null);
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
@@ -264,6 +265,7 @@ const ctx = {
   get engines() { return engines; },
   get presets() { return presets; },
   get blenderReady() { return blenderReady; },
+  get frontBack() { return frontBack; },
   url: (relative) => url(relative),
   asset: () => current,
   // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back

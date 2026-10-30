@@ -2825,6 +2825,7 @@ class Handler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
+            instruction = str(payload.get("instruction") or "")
             # the front's own engine when it can draw backs here (one model's parts should match),
             # else whichever installed engine can
             engine = image_api.pick_engine(payload.get("engine") or None, edit=True)
@@ -2846,7 +2847,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
             return
         try:
-            job = image_api.start_back(front, seed, engine)
+            job = image_api.start_back(front, seed, engine, instruction)
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return

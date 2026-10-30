@@ -273,7 +273,7 @@ def continue_steps(asset: dict[str, Any], want: str, up_to: str | None, front_ba
 
 def again_steps(asset: dict[str, Any], step: str | None) -> list[str]:
     """One finished step made again, as a new version (the Steps panel's redo)."""
-    needs = {"model": "picture", "finished": "model", "rigged": "finished", "animated": "rigged"}
+    needs = {"back": "picture", "model": "picture", "finished": "model", "rigged": "finished", "animated": "rigged"}
     if step not in needs:
         raise StudioError(f"again=True works with up_to = {', '.join(needs)}.")
     source = asset.get(needs[step]) or (asset.get("model") if step == "rigged" else None)
@@ -417,6 +417,8 @@ def options() -> dict[str, Any]:
             "move": "The animation to make (list_moves).",
             "stop_after / up_to": "The last step to run: picture, back, model, finished, split, rigged, animated.",
             "again": "continue_asset only: make that step again as a new version; the current one is kept.",
+            "back_change": "continue_asset with up_to='back', again=True: what to change in the new back picture "
+                           "(name what you want to see). The old back is kept as an older copy.",
         },
         "advanced": ADVANCED,
         "how": "Pass any of these as advanced, e.g. continue_asset(asset_id, up_to='finished', again=True, "
@@ -709,8 +711,10 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
 def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, want: str | None = None,
                    move: str | None = None, engine: str | None = None, again: bool = False,
                    finish_detail: str | int | None = None, pixel_match: bool = True,
-                   advanced: dict[str, Any] | None = None) -> dict[str, Any]:
+                   advanced: dict[str, Any] | None = None, back_change: str | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
+    if back_change and not (again and up_to == "back"):
+        raise StudioError("back_change goes with up_to='back', again=True: it says what to change in a new back.")
     assets = studio.get("api/assets")["assets"]
     asset = find_asset(studio, asset_id, assets)
     want = want or want_for(asset)
@@ -738,10 +742,14 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         raise StudioError(refused)
     engines = ready_engines(catalog)
     engine = engine or (engines[0]["id"] if engines else None)
-    if "back" in steps and engine != "pixal3d":
+    if "back" in steps and engine != "pixal3d" and not again:
         steps = [s for s in steps if s != "back"]
     form = {"title": asset.get("name") or "Asset", "steps": json.dumps(steps), "want": want,
             "made": json.dumps(made)}
+    if again and steps == ["back"]:
+        # a fresh try each time, as the studio's "Draw the back again"
+        form["back_settings"] = json.dumps({"seed": int.from_bytes(os.urandom(3), "big"),
+                                            **({"instruction": back_change.strip()} if back_change else {})})
     if choices and "finished" in steps:
         form["finish_settings"] = json.dumps(choices)
     if move_settings and "animated" in steps:
@@ -1112,17 +1120,18 @@ def build_server(studio: Studio | None = None):
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,
                           move: str | None = None, engine: str | None = None, again: bool = False,
                           finish_detail: str | None = None, pixel_match: bool = True,
-                          advanced: dict | None = None):
+                          advanced: dict | None = None, back_change: str | None = None):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
         character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
         again=True makes the up_to step again as a new version (another 3D model, another Finish at a
         different detail, a re-rig); the current one is kept. A new version has its own asset_id
         (run_status gives it when the run is done): continue from that id to work on it, since the
         family id is the original. finish_detail, pixel_match and advanced: as in create (options lists
-        every advanced knob)."""
+        every advanced knob). Back picture you don't like: up_to="back", again=True, and optionally
+        back_change="what to change" (say what you want to see); then make the model again from it."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
-                                           pixel_match=pixel_match, advanced=advanced))
+                                           pixel_match=pixel_match, advanced=advanced, back_change=back_change))
 
     @server.tool(name="run_status", structured_output=False)
     def tool_run_status(run_id: str | None = None, wait_seconds: int = 30):

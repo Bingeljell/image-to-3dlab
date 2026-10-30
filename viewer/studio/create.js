@@ -295,6 +295,7 @@ export function planForm(plan, made = {}) {
   if (plan.keepEverything) form.append('keep_everything', '1');
   if (plan.finishSettings) form.append('finish_settings', JSON.stringify(plan.finishSettings));
   if (plan.moveSettings) form.append('move_settings', JSON.stringify(plan.moveSettings));
+  if (plan.backSettings) form.append('back_settings', JSON.stringify(plan.backSettings));
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
   if (plan.backFile) form.append('back_file', plan.backFile);

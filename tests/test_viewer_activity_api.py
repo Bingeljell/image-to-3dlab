@@ -473,3 +473,15 @@ def test_a_plan_that_stops_at_the_back_picture_still_counts_as_a_3d_source(tmp_p
     chain = aa.Chain(title="orc", prompt="an orc", engine="pixal3d", steps=["picture", "back"])
     runner.submit(chain, background=False)
     assert json.loads(next(b for m, p, b in jobs.calls if p == "/api/image"))["picture_only"] is False
+
+
+def test_drawing_the_back_again_passes_the_seed_and_change_through(tmp_path):
+    from viewer.generate_api import parse_multipart
+    body, ctype = aa.multipart({"title": "x", "steps": '["back"]', "made": '{"picture": "images/a/a.png"}',
+                                "back_settings": json.dumps({"seed": 77, "instruction": "a red cloak", "evil": 1})}, {})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    assert chain.back_settings == {"seed": 77, "instruction": "a red cloak"}
+    runner, jobs = _runner(tmp_path)
+    runner.submit(chain, background=False)
+    sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image/back"))
+    assert sent == {"picture": "images/a/a.png", "engine": None, "seed": 77, "instruction": "a red cloak"}

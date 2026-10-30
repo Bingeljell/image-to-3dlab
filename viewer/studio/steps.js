@@ -24,9 +24,10 @@ export async function postStart(url, body) {
 /** The body for the step the asset can take next. `ctx` has engines, presets, url(). */
 export function stepBody(stepId, asset, ctx) {
   if (stepId === 'picture') {
-    return asset.prompt
+    const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
+    return another + backRedo(asset, ctx);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -84,6 +85,17 @@ export function stepBody(stepId, asset, ctx) {
 }
 
 /** A step that is already done, offered again: folded away, and its result is a new version. */
+/** "Draw the back again" (or a first back) under the Picture step, for a front Pixal3D can build
+ *  from both sides. Empty when there is nothing to draw from or nothing to draw with. */
+export function backRedo(asset, ctx) {
+  if (!asset.picture || asset.kind === 'prop set' || !(asset.back || ctx.frontBack?.ready)) return '';
+  const title = asset.back ? 'Draw the back again' : 'Draw a back picture';
+  return redoBox(title, `${asset.back ? 'A new try at the back, from the same front. The current back is kept beside it as an older copy. ' : ''}Make the 3D model again afterwards to build from it.`,
+    `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="The satchel strap is thinner and the coat has no patches on the back"></textarea></label>
+     <p class="hint">Say what you want to see, not what to remove: naming a thing tends to draw it.</p>
+     <button class="primary" data-run="back">${title}</button>`);
+}
+
 function redoBox(title, note, body) {
   return `<details class="adv redo"><summary>${title}</summary><p class="hint">${note}</p>${body}</details>`;
 }
@@ -172,10 +184,12 @@ export function wireStep(card, stepId, asset, ctx) {
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
+      change: k('change')?.value?.trim() || '',
     };
     if (button.dataset.hero !== undefined) settings.detail = finishDetailSettings('hero');
     card.dataset.lastPreset = settings.preset || '';
-    const plan = chainPlan(stepId, asset, settings);
+    // the Picture step also carries "Draw the back again": its button names the step it runs
+    const plan = chainPlan(button.dataset.run === 'back' ? 'back' : stepId, asset, settings);
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
@@ -194,6 +208,11 @@ export function chainPlan(stepId, asset, settings) {
   const made = Object.fromEntries(['picture', 'back', 'model', 'finished', 'rigged']
     .filter((k) => asset[k]).map((k) => [k, asset[k]]));
   const base = { description: asset.name || 'Asset', want: asset.kind === 'prop set' ? 'set' : asset.kind === 'prop' ? 'prop' : 'character' };
+  if (stepId === 'back') {
+    if (!asset.picture) return null;
+    return { ...base, steps: ['back'], made: { picture: asset.picture },
+      backSettings: { seed: freshSeed(), ...(settings.change ? { instruction: settings.change } : {}) } };
+  }
   if (stepId === 'model') {
     if (!asset.picture) return null;
     return { ...base, steps: ['model'], made: { picture: asset.picture, ...(asset.back ? { back: asset.back } : {}) },

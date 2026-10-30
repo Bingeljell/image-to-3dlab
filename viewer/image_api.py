@@ -423,6 +423,10 @@ class ImageJob:
     reference: Path | None = None   # an edit: the engine reads this picture (a back view's front)
     mode: str = "edit (back view)"  # what kind of edit, for the provenance record
     engine: PictureEngine = QWEN
+    # A redraw: the picture lands at output_path first and takes this place only once it is
+    # done, so a failed or cancelled try leaves the old one where it was.
+    replaces: Path | None = None
+    instruction: str | None = None  # what the person asked to change, for the record
 
     def __post_init__(self) -> None:
         self.status = "queued"
@@ -522,13 +526,48 @@ def job_command(job: ImageJob, weights: dict[str, Path], vision: Path | None,
                          engine=job.engine)
 
 
+MAX_INSTRUCTION = 500
+
+
+def back_prompt(instruction: str | None = None) -> str:
+    """The back prompt, with what the person wants changed added as its own sentence.
+
+    Their words go in as written: they name what they want, the way every prompt here should.
+    """
+    extra = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION].strip()
+    return f"{back_view.BACK_PROMPT} {extra}" if extra else back_view.BACK_PROMPT
+
+
+def archive_name(path: Path, stamp: str) -> Path:
+    """Where a replaced back is kept: `<front>__back_prev_<stamp>.png`, beside it."""
+    return path.with_name(f"{path.stem}_prev_{stamp}{path.suffix}")
+
+
+def take_place(new: Path, final: Path, stamp: str | None = None) -> Path | None:
+    """Move `new` (and its sidecar) to `final`, keeping any picture already there as an
+    archive. Returns where the old one went, or None when there was none."""
+    stamp = stamp or time.strftime("%Y%m%d-%H%M%S")
+    kept = None
+    if final.exists():
+        kept = archive_name(final, stamp)
+        final.rename(kept)
+        old_sidecar = final.with_suffix(".provenance.json")
+        if old_sidecar.exists():
+            old_sidecar.rename(kept.with_suffix(".provenance.json"))
+    new.rename(final)
+    return kept
+
+
 def create_back_job(manager: ImageJobManager, front: Path, seed: int = 3,
-                    engine: PictureEngine = QWEN) -> ImageJob:
+                    engine: PictureEngine = QWEN, instruction: str | None = None) -> ImageJob:
     """A job drawing the back of the subject in `front`, saved beside it as `<front>__back`.
 
     The reference is the front's cut-out on plain grey (image_to_3dlab/back_view.py), cut
     out here unless the picture already is. Seed 3 drew every back in the eight-character
     test of 2026-10-12. The back is drawn at the engine's own size and steps.
+
+    When a back is already there, the new one is drawn beside it (`__back_new`) and swapped in
+    when it is done; the old one is kept as `__back_prev_<time>`. `instruction`: what to change.
     """
     from PIL import Image
 
@@ -537,9 +576,13 @@ def create_back_job(manager: ImageJobManager, front: Path, seed: int = 3,
             opened.convert("RGB"))[0]
     reference = front.with_name(f"{front.stem}__back_reference.png")
     back_view.reference_on_grey(cut).save(reference)
-    return manager.create(back_view.BACK_PROMPT, clean_settings({"seed": seed}, engine),
-                          output_path=front.with_name(f"{front.stem}__back.png"),
-                          reference=reference, engine=engine)
+    final = front.with_name(f"{front.stem}__back.png")
+    job = manager.create(back_prompt(instruction), clean_settings({"seed": seed}, engine),
+                         output_path=final.with_name(f"{front.stem}__back_new.png") if final.exists() else final,
+                         reference=reference, engine=engine)
+    job.replaces = final if job.output_path != final else None
+    job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
+    return job
 
 
 def back_source(output_root: Path, relative: str) -> Path:
@@ -614,10 +657,15 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
         else:
+            if job.replaces is not None:
+                take_place(job.output_path, job.replaces)
+                job.output_path = job.replaces
             sidecar = job.output_path.with_suffix(".provenance.json")
             record = provenance(job.prompt, job.settings, elapsed, job.output_path, job.engine)
             if job.reference:
                 record["reference"] = {"picture": job.reference.name, "mode": job.mode}
+                if job.instruction:
+                    record["reference"]["instruction"] = job.instruction
             sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))
@@ -635,8 +683,9 @@ def run_job(job: ImageJob, manager: ImageJobManager,
 MANAGER = ImageJobManager()
 
 
-def start_back(front: Path, seed: int = 3, engine: PictureEngine = QWEN) -> ImageJob:
-    job = create_back_job(MANAGER, front, seed, engine)
+def start_back(front: Path, seed: int = 3, engine: PictureEngine = QWEN,
+               instruction: str | None = None) -> ImageJob:
+    job = create_back_job(MANAGER, front, seed, engine, instruction)
     threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
     return job
 

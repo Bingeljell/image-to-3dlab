@@ -490,7 +490,7 @@ def test_every_studio_control_has_an_mcp_twin():
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything",
-            "picengine": "picture_engine"}
+            "picengine": "picture_engine", "change": "back_change"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -790,3 +790,13 @@ def test_status_counts_an_installed_picture_engine_even_if_its_card_is_partial(s
     original = studio.http.get
     studio.http.get = lambda url, **k: Response(200, catalog) if url.endswith("api/catalog") else original(url, **k)
     assert ms.status(studio)["pictures"] is True
+
+
+def test_drawing_the_back_again_sends_a_fresh_seed_and_what_to_change(studio):
+    ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="back", again=True, back_change="  a red cloak  ")
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["back"]
+    settings = json.loads(form["back_settings"])
+    assert settings["instruction"] == "a red cloak" and isinstance(settings["seed"], int)
+    with pytest.raises(ms.StudioError, match="goes with up_to='back'"):
+        ms.continue_asset(studio, asset_id=KNIGHT["id"], back_change="a red cloak")

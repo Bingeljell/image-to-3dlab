@@ -280,6 +280,9 @@ def test_an_uploaded_picture_belongs_to_its_model_with_its_back(output):
     _write(up / "my-orc__1a2b3c4d.png", b"uploaded", 7000)
     _write(up / "my-orc__1a2b3c4d__back.png", b"back", 7010)
     _write(up / "my-orc__1a2b3c4d__back_reference.png", b"ref", 7010)
+    # a back drawn again: the try in progress and the replaced one are not pictures of their own
+    _write(up / "my-orc__1a2b3c4d__back_new.png", b"new", 7010)
+    _write(up / "my-orc__1a2b3c4d__back_prev_20261030-200000.png", b"old", 7010)
     gen = "my-orc__1a2b3c4d__pixal3d__20261027-120000"
     _write(output / "commercial_conditional" / gen / f"{gen}.glb", b"ORC MODEL", 7100)
     assets = _by_name(aa.list_assets(output))

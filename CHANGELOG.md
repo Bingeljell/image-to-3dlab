@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Draw the back again: under the Picture step, a new try at the back picture, with an optional
+  "what to change". The old back is kept. Agents: `continue_asset(up_to="back", again=True, back_change=...)`.
 - Bring your own back view: in Create, drop a back picture next to the front and Pixal3D builds
   from both, with nothing drawn. Agents pass `back_image_path` to `create`.
 - FLUX.2 klein 4B as a picture engine, and the default when installed: Apache-2.0, so the pictures

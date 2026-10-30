@@ -41,6 +41,8 @@ TAKE_SUFFIX = re.compile(r"_[b-z]$")
 STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
 UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}   # pictures Create keeps in images/uploads/
+# A front's back and its working files: the back, its reference, a redraw in progress, a replaced one.
+BACK_FILE = re.compile(r"__back(_reference|_new|_prev_[\d-]+)?$")
 META_NAME = ".assets-meta.json"   # the user's own choices about assets, e.g. hidden ones
 ASSET_ID = re.compile(r"^[0-9a-f]{12}$")
 RECIPES = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "prompt_recipes.json"
@@ -175,7 +177,7 @@ def _pictures(output: Path) -> list[dict[str, Any]]:
     found = []
     for file in sorted(uploads.iterdir()) if uploads.is_dir() else ():
         if (file.is_file() and file.suffix.lower() in UPLOAD_SUFFIXES
-                and not file.stem.endswith(("__back", "__back_reference"))):
+                and not BACK_FILE.search(file.stem)):
             found.append({"stem": file.stem, "file": file})
     for run in _dirs(output / "images"):
         png = run / f"{run.name}.png"

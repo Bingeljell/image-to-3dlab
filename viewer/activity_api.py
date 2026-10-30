@@ -99,6 +99,7 @@ class Chain:
     first_move: str | None = None
     picture_settings: dict[str, Any] = field(default_factory=dict)  # size, steps, seed (the image job checks them)
     picture_engine: str | None = None                                # "flux" / "qwen"; None = the studio's default
+    back_settings: dict[str, Any] = field(default_factory=dict)      # a back redraw: seed, what to change
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
     finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
@@ -338,8 +339,8 @@ class ChainRunner:
             front = chain.made.get("picture") or (self._kept_upload(chain) if chain.upload else None)
             if not front:
                 raise ValueError("the back picture needs a front picture, and there is none yet")
-            return kind, self._post("/api/image/back", json.dumps({"picture": front, "engine": chain.picture_engine}).encode(),
-                                    "application/json")
+            body = {"picture": front, "engine": chain.picture_engine, **chain.back_settings}
+            return kind, self._post("/api/image/back", json.dumps(body).encode(), "application/json")
         if step == "model":
             settings = {"backend": chain.engine} if chain.engine else {}
             if chain.model_seed is not None:
@@ -470,6 +471,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         picture = json.loads(text("picture_settings") or "{}")
         finish = json.loads(text("finish_settings") or "{}")
         move = json.loads(text("move_settings") or "{}")
+        back_settings = json.loads(text("back_settings") or "{}")
     except ValueError as exc:
         raise ValueError(f"the plan is not readable: {exc}") from exc
     upload = form.get("file")
@@ -488,6 +490,8 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         title=text("title") or "Untitled", steps=[str(s) for s in steps], want=text("want") or "character",
         prompt=text("prompt"), engine=engine, first_move=text("first_move"),
         picture_engine=text("picture_engine"),
+        back_settings={k: back_settings[k] for k in ("seed", "instruction") if k in back_settings}
+        if isinstance(back_settings, dict) else {},
         picture_settings={k: picture[k] for k in ("width", "height", "steps", "seed") if k in picture}
         if isinstance(picture, dict) else {},
         model_seed=int(text("model_seed")) if (text("model_seed") or "").isdigit() else None,

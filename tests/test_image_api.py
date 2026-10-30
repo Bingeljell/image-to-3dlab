@@ -514,3 +514,49 @@ def test_the_flux_files_are_the_ones_the_installer_fetches():
     import bootstrap_flux_image as boot
     fetched = {Path(name).name for _, name, _ in boot.WEIGHTS}
     assert {name for _, name in api.FLUX.weight_files.values()} == fetched
+
+
+# --- Drawing the back again (2026-10-30) -----------------------------------------------------
+
+def test_a_redrawn_back_is_drawn_beside_the_old_and_swapped_in_only_when_done(tmp_path):
+    front = _front(tmp_path)
+    old = front.with_name(f"{front.stem}__back.png")
+    old.write_bytes(b"old back")
+    old.with_suffix(".provenance.json").write_text("{}")
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, front, seed=9, engine=api.FLUX, instruction="  a red   cloak ")
+    assert job.output_path.name.endswith("__back_new.png") and job.replaces == old
+    assert job.prompt.endswith(" a red cloak") and job.prompt.startswith(api.back_view.BACK_PROMPT)
+    job.output_path.write_bytes(b"new back")
+    kept = api.take_place(job.output_path, old, stamp="20261030-200000")
+    assert old.read_bytes() == b"new back" and kept.read_bytes() == b"old back"
+    assert kept.name.endswith("__back_prev_20261030-200000.png")
+    assert kept.with_suffix(".provenance.json").exists()   # the old back keeps its record
+
+
+def test_a_first_back_goes_straight_to_its_place(tmp_path):
+    job = api.create_back_job(api.ImageJobManager(tmp_path), _front(tmp_path), engine=api.FLUX)
+    assert job.output_path.name.endswith("__back.png") and job.replaces is None
+    assert job.prompt == api.back_view.BACK_PROMPT and job.instruction is None
+
+
+def test_a_failed_redraw_leaves_the_old_back_where_it_was(tmp_path, monkeypatch):
+    front = _front(tmp_path)
+    old = front.with_name(f"{front.stem}__back.png")
+    old.write_bytes(b"old back")
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, front, engine=api.FLUX)
+
+    class Failed:
+        stdout = __import__("io").BytesIO(b"error: out of memory\n")
+        def wait(self): return 1
+        def poll(self): return 1
+    monkeypatch.setattr(api.subprocess, "Popen", lambda *a, **k: Failed())
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "error" and old.read_bytes() == b"old back"
+
+
+def test_the_instruction_is_trimmed_and_capped():
+    long = "word " * 400
+    assert len(api.back_prompt(long)) <= len(api.back_view.BACK_PROMPT) + 1 + api.MAX_INSTRUCTION
+    assert api.back_prompt("") == api.back_view.BACK_PROMPT

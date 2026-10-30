@@ -147,6 +147,7 @@ Most of these drive the user's open Blender (BlenderMCP add-on, port 9876); each
 | `blender_stage.py` | Put assets side by side in the RUNNING Blender, lit, textured and ready to look at. |
 | `blender_stage_bake.py` | Render a full frame sequence of a named Action at the locked dungeon-stage camera angle. |
 | `blender_render_asset.py` | Import a GLB into the local Blender MCP scene and render cardinal previews. |
+| `blender_scene.py` | Return the Blender text that renders in a private scene. |
 | `blender_turntable.py` | Render a seamlessly looping 360-degree turntable of a GLB via the Blender MCP scene. |
 | `blender_light_orbit.py` | Render a GLB under an orbiting key light, holding the camera still. |
 | `blender_lineup_sweep.py` | Render a camera sweep past a line-up of assets, headless. |

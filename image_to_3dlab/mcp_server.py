@@ -525,7 +525,9 @@ def status(studio: Studio) -> dict[str, Any]:
         "studio": studio.studio_link(),
         "machine": (catalog.get("host") or {}).get("label"),
         "ready_engines": [b["id"] for b in ready_engines(catalog)],
-        "pictures": any(b.get("kind") == "image" and b.get("state") == "ready" for b in catalog.get("backends", [])),
+        # by engine, not card state: Qwen draws pictures without the projector its card also lists
+        "pictures": any(e.get("installed") for e in catalog.get("picture_engines", []))
+        or any(b.get("kind") == "image" and b.get("state") == "ready" for b in catalog.get("backends", [])),
         "front_and_back": bool((catalog.get("front_back") or {}).get("ready")),
         "animation": bool(moves.get("installed")),
         "running": run_summary(chains["running"], studio) if chains.get("running") else None,

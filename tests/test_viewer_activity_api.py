@@ -444,3 +444,25 @@ def test_a_back_upload_that_cannot_be_used_is_refused_when_the_plan_arrives(fiel
     body, ctype = aa.multipart({"title": "x", **fields}, files)
     with pytest.raises(ValueError, match=error):
         aa.chain_from_form(parse_multipart(ctype, body))
+
+
+def test_a_back_that_breaks_the_decoder_in_any_way_ends_the_run(tmp_path, monkeypatch):
+    """PIL's DecompressionBombError is not an OSError: uncaught, the run sat at "running" forever."""
+    runner, _ = _runner(tmp_path)
+
+    def bomb(*a, **k):
+        raise RuntimeError("decompression bomb")
+    monkeypatch.setattr(runner, "_kept_back", bomb)
+    chain = aa.Chain(title="orc", engine="pixal3d", steps=["model"],
+                     upload=("orc.png", _picture_bytes()), back_upload=("b.png", b"x"))
+    runner.submit(chain, background=False)
+    assert chain.status == "error" and "decompression bomb" in chain.error
+
+
+def test_the_back_step_asks_for_the_fronts_own_engine(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="orc", prompt="an orc", engine="pixal3d", picture_engine="qwen",
+                     steps=["picture", "back"])
+    runner.submit(chain, background=False)
+    sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image/back"))
+    assert sent["engine"] == "qwen"

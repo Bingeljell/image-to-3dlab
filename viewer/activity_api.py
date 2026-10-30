@@ -192,7 +192,7 @@ class ChainRunner:
         if chain.back_upload and not chain.made.get("back"):
             try:
                 self._kept_back(chain)
-            except (OSError, ValueError) as exc:
+            except Exception as exc:  # any decode failure (a decompression bomb too) must end the run, not hang it
                 chain.status, chain.error = "error", f"The back picture could not be read: {exc}"
                 return
         for step in chain.steps:
@@ -337,7 +337,7 @@ class ChainRunner:
             front = chain.made.get("picture") or (self._kept_upload(chain) if chain.upload else None)
             if not front:
                 raise ValueError("the back picture needs a front picture, and there is none yet")
-            return kind, self._post("/api/image/back", json.dumps({"picture": front}).encode(),
+            return kind, self._post("/api/image/back", json.dumps({"picture": front, "engine": chain.picture_engine}).encode(),
                                     "application/json")
         if step == "model":
             settings = {"backend": chain.engine} if chain.engine else {}

@@ -1985,3 +1985,8 @@ def test_a_backend_is_found_by_its_catalogue_id_too():
     assert api.backend_spec("trellis") is api.BACKENDS["trellis"]
     assert api.backend_spec("no-such-engine") is None
 
+
+
+def test_front_back_says_to_install_a_picture_engine_when_only_that_is_missing():
+    status = api.front_back_status(lambda: (True, None), lambda: False)
+    assert status["shape_ready"] and "FLUX.2 klein" in status["hint"]

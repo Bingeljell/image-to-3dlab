@@ -502,7 +502,12 @@ def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
     # shape_ready: enough for a back picture you upload yourself, which needs no drawing
     if weights_ready and drawer_ready:
         return {"ready": True, "shape_ready": True, "hint": None}
-    return {"ready": False, "shape_ready": weights_ready,
+    if weights_ready:
+        # the Front + back card is complete; what is missing is something to draw the back
+        return {"ready": False, "shape_ready": True,
+                "hint": "Front + back needs a picture engine to draw the back: install FLUX.2 klein "
+                        "(or finish Qwen-Image's download) on Setup & Status."}
+    return {"ready": False, "shape_ready": False,
             "hint": "It needs one more download: Setup & Status, Front + back, "
                     "or python scripts/bootstrap_front_back.py."}
 
@@ -516,6 +521,14 @@ def back_drawer_ready() -> bool:
             continue
         return True
     return False
+
+
+def back_engine_usable(engine) -> bool:
+    try:
+        image_api.check_ready(engine, edit=True)
+    except image_api.MissingWeights:
+        return False
+    return True
 
 
 def picture_engines_payload() -> list[dict[str, Any]]:
@@ -2812,7 +2825,11 @@ class Handler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
+            # the front's own engine when it can draw backs here (one model's parts should match),
+            # else whichever installed engine can
             engine = image_api.pick_engine(payload.get("engine") or None, edit=True)
+            if payload.get("engine") and not back_engine_usable(engine):
+                engine = image_api.pick_engine(edit=True)
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return

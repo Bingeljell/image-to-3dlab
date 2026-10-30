@@ -782,3 +782,11 @@ def test_a_back_picture_that_cannot_be_used_is_refused_up_front(studio, tmp_path
     kwargs = {k: str(tmp_path / f"{v}.png") if v in ("FRONT", "BACK") else v for k, v in kwargs.items()}
     with pytest.raises(ms.StudioError, match=error):
         ms.create(studio, want="prop", **kwargs)
+
+
+def test_status_counts_an_installed_picture_engine_even_if_its_card_is_partial(studio):
+    """Qwen draws without its projector; a partial card must not tell agents there are no pictures."""
+    catalog = {**CATALOG, "backends": [b for b in CATALOG["backends"] if b["kind"] != "image"]}
+    original = studio.http.get
+    studio.http.get = lambda url, **k: Response(200, catalog) if url.endswith("api/catalog") else original(url, **k)
+    assert ms.status(studio)["pictures"] is True

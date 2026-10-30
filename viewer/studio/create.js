@@ -75,7 +75,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // size and steps follow the picture engine and whether the picture is the end product, until you set them
   const picEngine = () => pictureEngines.find((e) => e.id === state.picEngine) || null;
-  const fitPicture = () => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), state.want === 'picture')); };
+  const fitPicture = (pictureOnly) => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), pictureOnly)); };
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
   // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
@@ -103,13 +103,13 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
 
   const render = () => {
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
-    fitPicture();
     const installedPictures = pictureEngines.filter((e) => e.installed);
     const pixal = state.engine === 'pixal3d';
     // your own back replaces the drawn one, so the plan has no "Back picture" step to run
     const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) && !state.backFile });
     if (state.stop && !plan.includes(state.stop)) state.stop = null;
     const active = stopAfter(plan, state.stop);
+    fitPicture(!active.includes('model'));   // as the server reads it: no 3D model after the picture
     const backSlot = backSlotShown(state, frontBack, active);
     if (!backSlot && state.backFile) setBack(null);
     const back = backSlot ? `<div class="drop" data-backdrop tabindex="0" role="button">${state.backFile

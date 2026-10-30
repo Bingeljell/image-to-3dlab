@@ -44,7 +44,7 @@ bpy.ops.object.mode_set(mode="POSE")
 # first -- silently showing the previous take. Delete any same-named action outright.
 if arm.animation_data and arm.animation_data.action:
     arm.animation_data.action = None
-for stale in [a for a in bpy.data.actions if a.name.split(".")[0] == "{action_name}"]:
+for stale in [a for a in bpy.data.actions if a.name.split(".")[0] == {action_name!r}]:
     bpy.data.actions.remove(stale)
 
 for pb in arm.pose.bones:
@@ -78,7 +78,7 @@ for frame, pose in enumerate(poses, start=1):
         pb.keyframe_insert("rotation_euler", frame=frame)
 
 action = arm.animation_data.action
-action.name = "{action_name}"
+action.name = {action_name!r}
 scene.frame_set(1)
 bpy.ops.object.mode_set(mode="OBJECT")
 

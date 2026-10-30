@@ -32,6 +32,41 @@ function placeRunPanel() {
   if (card) card.after(s('setup-run'));
 }
 
+/** The one size on a card header.
+
+ *  Measured bytes when this machine has any of the download. The advertised total
+ *  when it has none. Another machine's tab stays on the advertised total, because
+ *  this disk is not that machine. */
+export function cardSize(backend, { readOnly = false } = {}) {
+  if (!readOnly && (backend.bytes_present || 0) > 0) return backend.human_present;
+  return backend.human_expected;
+}
+
+/** One download row. The name is the file; the link stays the repo it comes from.
+
+ *  Two files can share a repo (Qwen's text encoder and its vision projector). The
+ *  repo name alone made them look like one download. One size: the bytes measured
+ *  when the file is here, otherwise the advertised size. */
+export function weightRow(weight) {
+  const name = weight.label || weight.source || '';
+  const source = weight.source && weight.source !== name
+    ? `<br><a href="${weight.source_url}" target="_blank" rel="noopener">${weight.source}</a>`
+    : '';
+  const linked = source
+    ? name
+    : `<a href="${weight.source_url}" target="_blank" rel="noopener">${name}</a>`;
+  const size = weight.present ? (weight.human_present || '') : (weight.human_expected || '');
+  const note = weight.note ? `<br><small>${weight.note}</small>` : '';
+  return `${linked}${source} — ${size}${note}`;
+}
+
+/** Turn a repo path the card mentions into a link the lab can open. */
+export function linkRepoPaths(text) {
+  const path = 'docs/hunyuan-mlx-recipes.md';
+  const link = `<a href="/${path}" target="_blank" rel="noopener">${path}</a>`;
+  return String(text).split(path).join(link);
+}
+
 const STATE_META = {
   ready: { dot: '●', cls: 'ok', text: 'installed' },
   partial: { dot: '◐', cls: 'warn', text: 'partly downloaded' },
@@ -48,12 +83,7 @@ function backendCard(backend, { readOnly = false } = {}) {
   card.className = `setup-card ${readOnly ? 'elsewhere' : backend.state}`;
   card.dataset.backend = backend.id;
 
-  const size = !readOnly && backend.state === 'partial'
-    ? `${backend.human_present} of ${backend.human_expected}`
-    : backend.human_expected;
-  // Say where the weights are when they are not here yet but the backend still works.
-  const later = !readOnly && backend.action === 'none' && backend.bytes_present === 0
-    ? ' · weights download on your first run' : '';
+  const size = cardSize(backend, { readOnly });
 
   card.innerHTML = `
     <div class="setup-card-head">
@@ -61,7 +91,7 @@ function backendCard(backend, { readOnly = false } = {}) {
       <div class="setup-card-title">
         <strong>${backend.label}</strong>
         ${backend.recommended ? '<span class="setup-pill">start here</span>' : ''}
-        <div class="setup-card-state">${meta.text} · ${size}${later}</div>
+        <div class="setup-card-state">${meta.text} · ${size}</div>
       </div>
       <div class="setup-card-action"></div>
     </div>
@@ -73,15 +103,10 @@ function backendCard(backend, { readOnly = false } = {}) {
       ? `<p class="setup-card-caveat">${backend.caveat}</p>` : ''}
     <details class="setup-card-detail">
       <summary>What gets downloaded</summary>
-      <ul>${backend.weights.map((w) => `
-        <li>
-          <a href="${w.source_url}" target="_blank" rel="noopener">${w.source}</a>
-          — ${w.human_expected}${w.present ? ` (${w.human_present} on disk)` : ''}
-          ${w.note ? `<br><small>${w.note}</small>` : ''}
-        </li>`).join('')}
+      <ul>${backend.weights.map((w) => `<li>${weightRow(w)}</li>`).join('')}
       </ul>
       ${backend.extra_steps.length
-        ? `<p class="setup-card-extra">${backend.extra_steps.join('<br>')}</p>` : ''}
+        ? `<p class="setup-card-extra">${backend.extra_steps.map(linkRepoPaths).join('<br>')}</p>` : ''}
       <p class="setup-card-licence">
         Licence: ${backend.license.name}.
         <a href="${backend.license.url}" target="_blank" rel="noopener">Read it here</a>.
@@ -90,9 +115,9 @@ function backendCard(backend, { readOnly = false } = {}) {
 
   const action = card.querySelector('.setup-card-action');
   if (readOnly) return card;
-  // Driven by the server's `action`, not inferred from state here. Build and weights
-  // are independent: a built TRELLIS with no weights is usable and must not be offered a
-  // Set up button, because re-running a finished bootstrap fails on its own patches.
+  // Driven by the server's `action`, not inferred from state here. A built tree with
+  // no weights gets Download, which fetches them. Set up is only for a tree that is
+  // not built yet: re-running a finished bootstrap fails on its own patches.
   const LABELS = { build: 'Set up', download: 'Download', resume: 'Resume download' };
   // A backend that cannot run here gets no button at all. Offering one would spend
   // gigabytes of someone's bandwidth on a build that fails partway through.
@@ -204,13 +229,15 @@ function removeButton(backend) {
 /** State the cost, then ask. The confirmation is the point of the whole page. */
 function confirmDownload(backend, button) {
   const remaining = backend.bytes_expected - backend.bytes_present;
-  // Say what this particular button actually does. TRELLIS's setup builds the Metal port
-  // and fetches nothing; its weights arrive on the first generation run, and promising a
-  // download here would be a lie the progress bar then has to keep.
-  const body = backend.setup_fetches_weights
+  // A download action fetches, even for the Mac port whose code build does not.
+  // The code build itself still says so: it compiles, and the weights are the next button.
+  const fetching = backend.setup_fetches_weights
+    || backend.action === 'download' || backend.action === 'resume';
+  const body = fetching
     ? [
       // NVIDIA TRELLIS.2 compiles first, then downloads; say both, not just the bytes.
-      ...(backend.build_present || backend.install === 'viewer' ? []
+      ...(backend.build_present || backend.action === 'download' || backend.action === 'resume'
+        ? []
         : ['This builds the code for this machine first, then:', '']),
       `About ${formatBytes(remaining)} will be downloaded from Hugging Face`,
       `into ${backend.weights[0].path.replace(/\/[^/]*$/, '/')}`,
@@ -222,8 +249,8 @@ function confirmDownload(backend, button) {
       'This builds the Metal port first',
       'and downloads no weights.',
       '',
-      `The ${backend.human_expected} of weights are fetched on your first generation run,`,
-      'not now.',
+      `The ${backend.human_expected} of weights are a separate download`,
+      'from this card, once the build has finished.',
     ];
   const lines = [
     `${backend.label}`,
@@ -233,7 +260,7 @@ function confirmDownload(backend, button) {
     `Licence: ${backend.license.name}`,
     backend.caveat ? `\n${backend.caveat}\n` : '',
     '',
-    backend.setup_fetches_weights ? 'Start the download?' : 'Start the build?',
+    fetching ? 'Start the download?' : 'Start the build?',
   ].filter(Boolean);
 
   // eslint-disable-next-line no-alert -- a deliberate, blocking confirmation: this is the
@@ -724,4 +751,6 @@ export async function load() {
   }
 }
 
-load();
+// A browser opens the page and reads the catalogue. Node imports this file to test
+// linkRepoPaths, and has no document.
+if (typeof document !== 'undefined') load();

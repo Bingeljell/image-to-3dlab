@@ -141,7 +141,15 @@ def mb_per_s(curl_output: str) -> float:
 
 
 def install_command(ref: str) -> str:
-    return (f"curl -fsSL {INSTALL_URL.format(ref=ref)} | bash -s -- --ref {shlex.quote(ref)} "
+    check = subprocess.run(
+        ["git", "check-ref-format", "--allow-onelevel", ref],
+        capture_output=True,
+        check=False,
+    )
+    if check.returncode != 0:
+        raise ValueError(f"ref {ref!r} is not a git ref")
+    url = shlex.quote(INSTALL_URL.format(ref=ref))
+    return (f"curl -fsSL {url} | bash -s -- --ref {shlex.quote(ref)} "
             "--yes --no-start")
 
 

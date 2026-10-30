@@ -31,7 +31,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+if str(REPO / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts"))
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-mac"
+
+import patch_trellis_space_core as space_patch
 
 from image_to_3dlab import matte
 
@@ -179,6 +183,18 @@ def main() -> int:
     if not args.latents.is_file():
         raise SystemExit(f"missing latent bundle: {args.latents}")
 
+    # Weights before any TRELLIS import, so a missing cache cannot become a download.
+    from image_to_3dlab.weight_gate import require_local
+
+    model = require_local(
+        "microsoft/TRELLIS.2-4B",
+        backend="TRELLIS.2",
+        route="Mac clean port",
+        size="about 16.5 GB",
+    )
+    refusal = space_patch.bria_refusal(args.vendor_root.resolve() / "TRELLIS.2")
+    if refusal:
+        raise SystemExit(refusal)
     # Backend configuration must precede every torch/TRELLIS import.
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     os.environ.setdefault("ATTN_BACKEND", "sdpa")
@@ -248,10 +264,7 @@ def main() -> int:
             image_input, matted_with = matte.cut_out(raw_image.convert("RGB"))
             experiment["matted_with"] = matted_with
     print("Loading TRELLIS.2 pipeline...", flush=True)
-    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(
-        "microsoft/TRELLIS.2-4B",
-        load_rembg=False,
-    )
+    pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model, load_rembg=False)
     pipeline.to(torch.device("mps"))
     load_seconds = time.time() - started
     print(f"Pipeline loaded in {load_seconds:.1f}s", flush=True)

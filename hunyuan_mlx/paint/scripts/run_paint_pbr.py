@@ -19,7 +19,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import mlx.core as mx
-from mlx.utils import tree_unflatten
 from hy3dpaint_mlx.vae import AutoencoderKL
 from hy3dpaint_mlx.unet2p5d_pbr import UNet2p5DPBRConditionModel
 from hy3dpaint_mlx.dinov2 import Dinov2Model
@@ -47,6 +46,40 @@ IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+def _export_dir() -> str:
+    """This run's folder. A parent passes PAINT_OUT so two runs do not share one file."""
+    chosen = os.environ.get("PAINT_OUT")
+    if chosen:
+        os.makedirs(chosen, exist_ok=True)
+        return chosen
+    repo = _repo_root()
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from image_to_3dlab.provenance import hunyuan_paint_run_dir
+
+    path = hunyuan_paint_run_dir(os.path.join(os.getcwd(), "outputs"), "paint")
+    os.makedirs(path, exist_ok=True)
+    return str(path)
+
+
+def _write_sidecar(glb: str) -> None:
+    """Licence note for a standalone paint run. A parent writes the final one itself."""
+    if os.environ.get("PAINT_OUT"):
+        return
+    repo = _repo_root()
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from image_to_3dlab.provenance import write_hunyuan_sidecar
+
+    write_hunyuan_sidecar(
+        glb, IMG, backend="hunyuan-mlx-paint-pbr", paint=True, paint_weights=PBR,
+    )
+
+
 def prep_rgb(pil, size):
     pil = pil.resize((size, size))
     if pil.mode == "RGBA":
@@ -55,6 +88,7 @@ def prep_rgb(pil, size):
 
 
 def main():
+    out_dir = _export_dir()
     t0 = time.time()
     print(f"[2.1 PBR] res={R} steps={STEPS} guidance={GUID}")
     vae = AutoencoderKL.from_config(json.load(open(f"{PBR}/vae/config.json")))
@@ -62,9 +96,7 @@ def main():
     unet = UNet2p5DPBRConditionModel(json.load(open(f"{PBR}/unet/config.json")))
     load_torch_weights(unet, mx.load(f"{PBR}/unet/diffusion_pytorch_model.safetensors"))
     dino = Dinov2Model()
-    dino.update(tree_unflatten([(k, (v.transpose(0, 2, 3, 1) if v.ndim == 4 else v))
-                                for k, v in mx.load(f"{PBR}/dinov2/model.safetensors").items()]))
-    mx.eval(dino.parameters())
+    load_torch_weights(dino, mx.load(f"{PBR}/dinov2/model.safetensors"))
     print(f"models loaded ({time.time()-t0:.0f}s)")
 
     mesh = trimesh.load(MESH, force="mesh")
@@ -113,8 +145,8 @@ def main():
     # decode albedo (material 0) and mr (material 1)
     alb = np.clip((np.asarray(vae.decode(latents[0, 0] / SF)) + 1) / 2, 0, 1)   # [N,H,W,3]
     mr = np.clip((np.asarray(vae.decode(latents[0, 1] / SF)) + 1) / 2, 0, 1)
-    Image.fromarray((np.concatenate([alb[k] for k in range(N)], 1) * 255).astype(np.uint8)).save("outputs/pbr_albedo_views.png")
-    Image.fromarray((np.concatenate([mr[k] for k in range(N)], 1) * 255).astype(np.uint8)).save("outputs/pbr_mr_views.png")
+    Image.fromarray((np.concatenate([alb[k] for k in range(N)], 1) * 255).astype(np.uint8)).save(os.path.join(out_dir, "pbr_albedo_views.png"))
+    Image.fromarray((np.concatenate([mr[k] for k in range(N)], 1) * 255).astype(np.uint8)).save(os.path.join(out_dir, "pbr_mr_views.png"))
     print(f"views decoded ({time.time()-t0:.0f}s)")
 
     alb = [alb[k] for k in range(N)]; mr = [mr[k] for k in range(N)]
@@ -131,8 +163,8 @@ def main():
     tex_pos, _, chart_mask = rend.uv_rasterize(TEX)
     tex_a = rend.inpaint_occlusion_aware(tex_a, tex_pos, chart_mask, cov)
     tex_m = rend.inpaint_occlusion_aware(tex_m, tex_pos, chart_mask, cov)
-    Image.fromarray((tex_a * 255).astype(np.uint8)).save("outputs/pbr_albedo_texture.png")
-    Image.fromarray((tex_m * 255).astype(np.uint8)).save("outputs/pbr_mr_texture.png")
+    Image.fromarray((tex_a * 255).astype(np.uint8)).save(os.path.join(out_dir, "pbr_albedo_texture.png"))
+    Image.fromarray((tex_m * 255).astype(np.uint8)).save(os.path.join(out_dir, "pbr_mr_texture.png"))
 
     # PBR GLB: baseColor=albedo; metallicRoughness from mr (G=roughness, B=metallic)
     mat = trimesh.visual.material.PBRMaterial(
@@ -144,8 +176,10 @@ def main():
     # Y<->Z axis swap inverts face winding (would show inside-out / see-through in viewers)
     out = trimesh.Trimesh(vertices=V, faces=F, process=False,
                           visual=trimesh.visual.TextureVisuals(uv=uv_exp, material=mat))
-    out.export("outputs/textured_mesh_pbr.glb")
-    print(f"DONE {time.time()-t0:.0f}s -> outputs/textured_mesh_pbr.glb (+ pbr_albedo/mr textures)")
+    glb = os.path.join(out_dir, "textured_mesh_pbr.glb")
+    out.export(glb)
+    _write_sidecar(glb)
+    print(f"DONE {time.time()-t0:.0f}s -> {glb} (+ pbr_albedo/mr textures)")
 
 
 if __name__ == "__main__":

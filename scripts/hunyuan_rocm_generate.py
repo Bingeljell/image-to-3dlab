@@ -56,7 +56,7 @@ for _path in (REPO, REPO / "scripts"):
 
 import bootstrap_hunyuan_rocm as bootstrap  # noqa: E402, RUF100
 
-from image_to_3dlab import gpu_memory  # noqa: E402, RUF100
+from image_to_3dlab import gpu_memory, models_home  # noqa: E402, RUF100
 from image_to_3dlab.provenance import (  # noqa: E402, RUF100
     LICENSES,
     MATTE_LICENSES,
@@ -221,6 +221,13 @@ def describe_fit(settings: dict[str, Any], free_bytes: int | None) -> str:
             f"attention chunk {chunk or 'off'}, free VRAM {free}")
 
 
+def models_dir(vendor_root: Path) -> Path:
+    """Where the shape loader looks. The installed route follows the chosen models folder."""
+    if vendor_root == bootstrap.VENDOR:
+        return models_home.vendor_models("hunyuan-rocm")
+    return vendor_root / "models"
+
+
 def configure_environment(vendor_root: Path, chunk: int = 0,
                           environ: dict[str, str] | None = None) -> dict[str, str]:
     """Point upstream's shape loader at the weights the bootstrap fetched. Before import.
@@ -230,11 +237,11 @@ def configure_environment(vendor_root: Path, chunk: int = 0,
     is a far worse outcome than a few percent of speed.
     """
     environ = os.environ if environ is None else environ
-    # the installed route follows the chosen models folder; any other checkout keeps its own
-    models = bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
-    environ["HY3DGEN_MODELS"] = str(models)
+    environ["HY3DGEN_MODELS"] = str(models_dir(vendor_root))
     if chunk:
         environ[CHUNK_ENV] = str(chunk)
+    elif chunk == 0:
+        environ.pop(CHUNK_ENV, None)
     return environ
 
 
@@ -284,7 +291,7 @@ def missing_weights(vendor_root: Path, hub: Path | None = None,
     happen without a choice (CLAUDE.md), so a gap is a refusal that names the bootstrap.
     """
     hub = hf_hub_dir() if hub is None else hub
-    shape = vendor_root / bootstrap.MODELS.name / bootstrap.HUNYUAN_REPO
+    shape = models_dir(vendor_root) / bootstrap.HUNYUAN_REPO
     checks = {
         "Hunyuan3D-2.1 shape model": (shape / "hunyuan3d-dit-v2-1").is_dir(),
         "Hunyuan3D-2.1 shape VAE": (shape / "hunyuan3d-vae-v2-1").is_dir(),

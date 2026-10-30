@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -120,6 +121,8 @@ def validate_run_policy(
     allow_conditional: bool,
     model_identity: str | None = None,
     allow_unverified: bool = False,
+    commercial_intent: bool = False,
+    allow_research_only: bool = True,
 ) -> LicenseProfile:
     if use_case not in {"showcase", "game"}:
         raise ValueError("use_case must be 'showcase' or 'game'")
@@ -135,9 +138,17 @@ def validate_run_policy(
         raise ValueError(
             f"{backend} is {profile.classification}; manifest disallows conditional models"
         )
+    if commercial_intent and profile.classification != "commercial-clear":
+        raise ValueError(
+            f"{backend} is {profile.classification}; commercial_intent does not allow it"
+        )
     # research-only is stricter than conditional and is not covered by allow_conditional.
     # Running a non-commercial model is refused for anything but a private showcase,
     # whatever the manifest says. (Its outputs are the user's; running it is the limit.)
+    if profile.classification == "research-only" and not allow_research_only:
+        raise ValueError(
+            f"{backend} is research-only; license_policy.allow_research_only is false"
+        )
     if profile.classification == "research-only" and not (
         use_case == "showcase" and distribution == "private"
     ):
@@ -153,11 +164,15 @@ def validate_run_policy(
         raise ValueError(
             "Hunyuan outputs are not cleared for worldwide game distribution"
         )
-    if (
-        model_identity is not None
-        and model_identity not in profile.models
-        and not allow_unverified
+    if not allow_unverified and (
+        model_identity is None or model_identity not in profile.models
     ):
+        if model_identity is None:
+            raise ValueError(
+                f"{backend} has no reviewed model identity; declare it in a run manifest "
+                "with license_policy.allow_unverified: true if you have verified the "
+                "licence yourself"
+            )
         raise ValueError(
             f"model identity {model_identity!r} is not in the reviewed licence profile for "
             f"{backend}; declare it in a run manifest with license_policy.allow_unverified: true "
@@ -172,6 +187,104 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# The in-repo MLX port is MIT. The weights it loads are not.
+HUNYUAN_MLX_CODE_COMPONENT = {
+    "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
+    "purpose": "MLX generation code tracked in this repository",
+    "license": "MIT",
+    "license_url": "hunyuan_mlx/LICENSE",
+    "commercial_status": "commercial-clear",
+}
+
+
+def _hunyuan_weight_component(component: str, purpose: str, weights: str | None) -> dict[str, Any]:
+    """One Tencent weight entry. `weights` is the file or repo this run actually loaded."""
+    profile = LICENSES["hunyuan-comfyui"]
+    record: dict[str, Any] = {
+        "component": component,
+        "purpose": purpose,
+        "license": profile.license_name,
+        "license_url": profile.license_url,
+        "commercial_status": "territory-restricted",
+        "conditions": list(profile.conditions),
+    }
+    if weights is not None:
+        record["weights"] = weights
+    return record
+
+
+def write_hunyuan_sidecar(
+    output: Path,
+    image: Path,
+    *,
+    backend: str,
+    parameters: dict[str, Any] | None = None,
+    shape: bool = False,
+    paint: bool = False,
+    shape_weights: str | None = None,
+    paint_weights: str | None = None,
+    include_code: bool = False,
+) -> Path:
+    """Write a schema-1 licence sidecar beside a Hunyuan export.
+
+    A shape-only export passes `shape` and leaves `paint` false, so the record
+    does not claim a paint model. A paint export names the weights it loaded.
+    """
+    if not shape and not paint:
+        raise ValueError("a Hunyuan export must name the shape or paint weights it loaded")
+    output = Path(output)
+    image = Path(image)
+    profile = LICENSES["hunyuan-comfyui"]
+    components: list[dict[str, Any]] = []
+    if include_code:
+        components.append(dict(HUNYUAN_MLX_CODE_COMPONENT))
+    if shape:
+        components.append(_hunyuan_weight_component(
+            "Tencent Hunyuan3D-2/2.1 shape weights",
+            "shape-stage diffusion model",
+            shape_weights,
+        ))
+    if paint:
+        components.append(_hunyuan_weight_component(
+            "Tencent Hunyuan3D-2/2.1 paint weights (MLX-ready conversion)",
+            "paint-stage texture generation model",
+            paint_weights,
+        ))
+    record = {
+        "schema_version": 1,
+        "backend": backend,
+        "input": {
+            "path": str(image),
+            "sha256": sha256_file(image),
+            "source": "user-provided",
+        },
+        "output": {
+            "path": str(output),
+            "sha256": sha256_file(output),
+            "classification": profile.classification,
+        },
+        "model": {
+            "backend": backend,
+            "parameters": parameters or {},
+        },
+        "license": {
+            "name": profile.license_name,
+            "url": profile.license_url,
+            "conditions": list(profile.conditions),
+        },
+        "components": components,
+    }
+    sidecar = output.with_suffix(".provenance.json")
+    sidecar.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    return sidecar
+
+
+def hunyuan_paint_run_dir(outputs_root: Path, stem: str) -> Path:
+    """A folder this process owns. Two runs do not share textured_mesh_pbr.glb."""
+    safe = stem.replace("/", "_").replace("\\", "_") or "paint"
+    return Path(outputs_root) / f"{safe}-{os.getpid()}"
 
 
 def _git_revision(repo: Path) -> str | None:
@@ -240,9 +353,7 @@ def finalize_output(
     model_identity: str | None = None,
 ) -> tuple[Path, Path]:
     run_id = uuid.uuid4().hex[:12]
-    verified = (
-        model_identity is None or model_identity in profile.models
-    )
+    verified = model_identity is not None and model_identity in profile.models
     classification = profile.classification if verified else "unverified"
     destination_dir = output_root.resolve() / profile.folder
     destination_dir.mkdir(parents=True, exist_ok=True)

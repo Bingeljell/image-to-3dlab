@@ -27,8 +27,8 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 
 | Script | What it does |
 |---|---|
-| `bootstrap_macos.sh` | Create the project virtualenv and install the SF3D backend and its native dependencies (needs Python 3.10/3.11 and Homebrew's libomp). |
-| `bootstrap_trellis_macos.sh` | Clone and install the `shivampkumar/trellis-mac` port, with the Metal acceleration backends when Xcode's Metal compiler is present and a slower CPU bake fallback when it is not. |
+| `bootstrap_macos.sh` | Hand off to bootstrap_sf3d.py, which installs Stable Fast 3D and asks before fetching weights. |
+| `bootstrap_trellis_macos.sh` | Hand off to bootstrap_trellis_space_macos.py, the pinned Mac TRELLIS installer. |
 | `bootstrap_trellis_space_macos.py` | Bootstrap TRELLIS.2 on macOS from Microsoft's pinned Space source. |
 | `bootstrap_trellis_cuda.py` | Install TRELLIS.2 for Linux with an NVIDIA card: Microsoft's own code, built for CUDA. |
 | `bootstrap_hunyuan_cuda.py` | Install Hunyuan3D-2.1 for Linux with an NVIDIA card: Tencent's own code, built for CUDA. |
@@ -147,6 +147,7 @@ Most of these drive the user's open Blender (BlenderMCP add-on, port 9876); each
 | `blender_stage.py` | Put assets side by side in the RUNNING Blender, lit, textured and ready to look at. |
 | `blender_stage_bake.py` | Render a full frame sequence of a named Action at the locked dungeon-stage camera angle. |
 | `blender_render_asset.py` | Import a GLB into the local Blender MCP scene and render cardinal previews. |
+| `blender_scene.py` | Return the Blender text that renders in a private scene. |
 | `blender_turntable.py` | Render a seamlessly looping 360-degree turntable of a GLB via the Blender MCP scene. |
 | `blender_light_orbit.py` | Render a GLB under an orbiting key light, holding the camera still. |
 | `blender_lineup_sweep.py` | Render a camera sweep past a line-up of assets, headless. |

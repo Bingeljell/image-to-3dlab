@@ -42,7 +42,7 @@ if str(REPO) not in sys.path:
 
 import usage_api
 
-from image_to_3dlab import back_view, matte
+from image_to_3dlab import back_view, matte, processes
 from image_to_3dlab.host import APPLE, executable, host_platform, with_rocm_libraries
 from image_to_3dlab.provenance import LICENSES, QWEN_OUTPUT_RIGHTS
 from image_to_3dlab.sdcpp import BackendWatch, no_gpu_help
@@ -401,7 +401,7 @@ class ImageJobManager:
         job.cancel_requested = True
         job.set_status("cancelling")
         if job.process and job.process.poll() is None:
-            job.process.terminate()
+            processes.terminate_group(job.process.pid)
         return True
 
 
@@ -454,7 +454,10 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         job.process = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             cwd=str(REPO), env=with_rocm_libraries(dict(os.environ)),
+            **processes.group_popen_kwargs(),
         )
+        job.directory.joinpath("pid").write_text(
+            processes.pid_record(job.process.pid), encoding="utf-8")
         assert job.process.stdout is not None
         # Only where a GPU is expected from a runtime-loaded backend. The Mac build is
         # Metal and says nothing of the sort. Every other machine gets it, AMD included:
@@ -518,6 +521,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         job.error = f"{type(exc).__name__}: {exc}"
         job.set_status("error", error=job.error)
     finally:
+        job.directory.joinpath("pid").unlink(missing_ok=True)
         manager.finish(job)
 
 

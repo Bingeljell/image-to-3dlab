@@ -308,7 +308,9 @@ def test_the_setup_panel_says_a_run_finished_and_looks_like_it():
                             check=True, capture_output=True, text=True)
     out = json.loads(result.stdout)
 
-    assert out["verbs"] == ["Setting up", "Downloading", "Building", "Rebuilding"]
+    # The third card is built and its code bootstrap fetches nothing. A download
+    # action on it is still a download (the Mac TRELLIS weights), not another build.
+    assert out["verbs"] == ["Setting up", "Downloading", "Downloading", "Rebuilding"]
     assert out["whileRunning"] == ["Downloading TRELLIS.2 (AMD)"] * 4, (
         "a run in flight must not claim an outcome it has not reached")
     assert out["states"] == ["running"] * 4

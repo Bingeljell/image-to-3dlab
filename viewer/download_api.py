@@ -34,6 +34,7 @@ sys.path.insert(0, str(REPO))
 
 from backend_catalog import (
     AMD,
+    APPLE,
     BY_ID,
     HF_HUB_DIR,
     NVIDIA,
@@ -106,10 +107,23 @@ def _this_host() -> str:
 
 def command_for(backend_id: str, host: str | None = None,
                 rebuild: bool = False) -> list[str] | None:
-    """The command that sets this backend up (or rebuilds it) on this machine, or None."""
+    """The command that sets this backend up (or rebuilds it) on this machine, or None.
+
+    A finished Mac TRELLIS build is not run again: that bootstrap fetches nothing and
+    dies on patches it already applied. The button downloads the weights instead, and
+    passes ``--yes`` because the Setup page has already asked.
+    """
     if rebuild:
         return REBUILDS.get(backend_id)
-    return HOST_COMMANDS.get((backend_id, host or _this_host()), COMMANDS.get(backend_id))
+    here = host or _this_host()
+    command = HOST_COMMANDS.get((backend_id, here), COMMANDS.get(backend_id))
+    if command is None:
+        return None
+    command = list(command)
+    if (backend_id == "trellis" and here == APPLE
+            and BY_ID["trellis"].built_on(here)):
+        command += ["--weights-only", "--yes"]
+    return command
 
 
 def building_label(backend_id: str, host: str | None = None) -> str:
@@ -260,6 +274,8 @@ class DownloadRun:
         self.condition = threading.Condition()
         self.process: subprocess.Popen[bytes] | None = None
         self.cancelled = False
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", backend.id) or "setup"
+        self.directory = REPO / "output" / ".setup" / safe
         self.log: deque[str] = deque(maxlen=400)
 
     def emit(self, event: dict[str, Any]) -> None:
@@ -438,6 +454,9 @@ def _run(run: DownloadRun) -> None:
             # Its own process group, so cancelling kills the downloader's children too.
             **processes.group_popen_kwargs(),
         )
+        run.directory.mkdir(parents=True, exist_ok=True)
+        run.directory.joinpath("pid").write_text(
+            processes.pid_record(run.process.pid), encoding="utf-8")
         assert run.process.stdout is not None
         for raw in run.process.stdout:
             line = strip_ansi(raw.decode("utf-8", errors="replace"))
@@ -452,6 +471,7 @@ def _run(run: DownloadRun) -> None:
         return
     finally:
         stop.set()
+        run.directory.joinpath("pid").unlink(missing_ok=True)
 
     present = run.bytes_present()
     if run.cancelled:
@@ -465,25 +485,33 @@ def _run(run: DownloadRun) -> None:
                   "detail": _explain(code, list(run.log))})
     else:
         run.status = "done"
+        fetched = "--weights-only" in (run.command or []) or run.backend.setup_fetches_on(
+            _this_host())
         run.emit({"phase": "done", "overall_pct": 100,
                   "detail": "rebuilt · the next run uses this repo's patches" if run.rebuild
-                  else done_detail(run.backend, present)})
+                  else done_detail(run.backend, present, fetched=fetched)})
 
 
 def measures_bytes(run: DownloadRun, host: str | None = None) -> bool:
     """Whether this run's progress is bytes arriving (vs. minutes of compiling).
 
-    Asked per machine: TRELLIS.2 on a Mac downloads nothing at setup, but on NVIDIA and AMD
-    it builds and then fetches 16 GB, which deserves a byte count rather than a clock.
+    The Mac code build fetches nothing, so it is a clock. A weight download, including
+    the Mac one that runs after that build, is bytes. NVIDIA and AMD fetch during setup.
     """
-    return not run.rebuild and run.backend.setup_fetches_on(host or _this_host())
+    if run.rebuild:
+        return False
+    if run.command and "--weights-only" in run.command:
+        return True
+    return run.backend.setup_fetches_on(host or _this_host())
 
 
-def done_detail(backend: Backend, present: int) -> str:
+def done_detail(backend: Backend, present: int, *, fetched: bool | None = None) -> str:
     """The last line of a finished setup, true for this machine's route."""
-    if backend.setup_fetches_on(_this_host()):
+    if fetched is None:
+        fetched = backend.setup_fetches_on(_this_host())
+    if fetched:
         return f"done · {human_bytes(present)} on disk"
-    return "built · weights download on the first generation run"
+    return "built · download the weights from this card before a run"
 
 
 def _watch_size(run: DownloadRun, stop: threading.Event) -> None:

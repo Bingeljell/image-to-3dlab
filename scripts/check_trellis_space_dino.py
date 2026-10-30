@@ -14,6 +14,11 @@ REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor/trellis-space-mac"
 
 
+def pin_hub_offline() -> None:
+    """Force the hub offline. A shell value of 0 must not win."""
+    os.environ["HF_HUB_OFFLINE"] = "1"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("image", type=Path)
@@ -30,7 +35,7 @@ def main() -> int:
     root = args.root.resolve()
     output = args.output.resolve()
 
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    pin_hub_offline()
     os.environ.setdefault("ATTN_BACKEND", "sdpa")
     os.environ.setdefault("SPARSE_ATTN_BACKEND", "metal_flash")
     os.environ.setdefault("SPARSE_CONV_BACKEND", "flex_gemm")

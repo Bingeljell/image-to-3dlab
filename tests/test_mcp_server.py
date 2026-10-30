@@ -334,6 +334,28 @@ def test_a_studio_that_is_not_running_is_started_once():
     assert started == [1]
 
 
+def test_the_agent_starts_the_studio_the_way_lab_does(monkeypatch, tmp_path):
+    """On a RunPod pod, ./lab listens for the proxy and makes a key. The agent must too."""
+    monkeypatch.setenv("RUNPOD_POD_ID", "abc123")
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    started = {}
+
+    def popen(command, **kwargs):
+        started["command"] = list(command)
+        started["env"] = kwargs.get("env")
+        return object()
+
+    monkeypatch.setattr(ms.subprocess, "Popen", popen)
+    ms.Studio("http://127.0.0.1:8765")._start_server()
+
+    command = started["command"]
+    assert "--auto" in command and "--no-browser" in command
+    assert command[command.index("--port") + 1] == "8765"
+    assert "--host" not in command or command[command.index("--host") + 1] == "0.0.0.0"
+    env = started["env"]
+    assert env is None or env.get("RUNPOD_POD_ID") == "abc123"
+
+
 def test_a_remote_studio_is_never_started_from_here():
     http = FakeHttp()
     http.alive = False
@@ -588,6 +610,45 @@ def test_a_picture_still_drawing_is_not_shown():
     studio = ms.Studio("http://127.0.0.1:8777", http=SkinHttp(SKIN), start=lambda: None)
     with pytest.raises(ms.StudioError, match="still being drawn"):
         ms.skin_picture(studio, skin_id=SKIN["id"])
+
+
+def _picture_state(picture: str) -> dict:
+    return {**SKIN, "tries": {"front": [{"number": 1, "instruction": "x", "seed": 1,
+                                         "picture": picture}], "back": []}}
+
+
+def _studio_for(state: dict) -> ms.Studio:
+    return ms.Studio("http://127.0.0.1:8777", http=SkinHttp(state), start=lambda: None)
+
+
+def test_skin_picture_reads_a_file_inside_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    picture = tmp_path / "output" / "skins" / "front-1.png"
+    picture.parent.mkdir(parents=True)
+    picture.write_bytes(b"png")
+    body, info = ms.skin_picture(_studio_for(_picture_state("skins/front-1.png")), skin_id=SKIN["id"])
+    assert body == b"png"
+    assert info["side"] == "front" and info["number"] == 1
+
+
+def test_skin_picture_refuses_a_path_outside_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    (tmp_path / "output").mkdir()
+    secret = tmp_path / "id_rsa"
+    secret.write_bytes(b"secret")
+    reads = []
+    real_read = Path.read_bytes
+
+    def spy(self, *args, **kwargs):
+        reads.append(Path(self))
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", spy)
+    outside = ("../id_rsa", str(secret), "../../.ssh/id_rsa")
+    for picture in outside:
+        with pytest.raises(ms.StudioError, match="output"):
+            ms.skin_picture(_studio_for(_picture_state(picture)), skin_id=SKIN["id"])
+    assert reads == []
 
 
 def test_cancel_reaches_the_running_build_only():

@@ -89,6 +89,28 @@ def test_microsoft_space_versions_are_preserved():
         assert pin in requirements
 
 
+def test_weights_only_names_the_download_and_refuses_without_yes(capsys, monkeypatch):
+    """Name the backend, the route and the size, then stop. Nobody is at the keyboard."""
+    monkeypatch.setattr(bootstrap, "wrong_machine", lambda *a, **k: None)
+    monkeypatch.setattr(bootstrap, "install_mac_weights",
+                        lambda: pytest.fail("it downloaded without --yes"))
+    assert bootstrap.main(["--weights-only"]) == 1
+    out = capsys.readouterr().out
+    assert "TRELLIS.2" in out
+    assert "Mac" in out
+    assert "GB" in out
+    assert "without --yes" in out
+
+
+def test_weights_only_with_yes_downloads_and_does_not_rebuild(monkeypatch):
+    monkeypatch.setattr(bootstrap, "wrong_machine", lambda *a, **k: None)
+    called = []
+    monkeypatch.setattr(bootstrap, "install_mac_weights", lambda: called.append("weights"))
+    monkeypatch.setattr(bootstrap, "bootstrap", lambda *a, **k: called.append("build"))
+    assert bootstrap.main(["--weights-only", "--yes"]) == 0
+    assert called == ["weights"]
+
+
 def test_it_refuses_a_mac_older_than_macos_26_before_downloading():
     problem = bootstrap.wrong_machine("macos-arm64", macos=15)
     assert "macOS 26" in problem and "macOS 15" in problem and "Pixal3D" in problem

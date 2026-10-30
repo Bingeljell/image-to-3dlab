@@ -31,7 +31,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+if str(REPO / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts"))
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-mac"
+
+import patch_trellis_space_core as space_patch
 
 from image_to_3dlab import matte
 
@@ -188,6 +192,9 @@ def main() -> int:
         route="Mac clean port",
         size="about 16.5 GB",
     )
+    refusal = space_patch.bria_refusal(args.vendor_root.resolve() / "TRELLIS.2")
+    if refusal:
+        raise SystemExit(refusal)
     # Backend configuration must precede every torch/TRELLIS import.
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     os.environ.setdefault("ATTN_BACKEND", "sdpa")

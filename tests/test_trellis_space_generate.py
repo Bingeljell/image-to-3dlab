@@ -8,6 +8,7 @@ path is exercised manually via ``--check`` then a real run.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -405,13 +406,64 @@ def test_require_flex_gemm_raises_instead_of_invalid_none(monkeypatch):
 
 # --- filesystem verification ---
 def test_load_pipeline_refuses_when_the_snapshot_is_absent(tmp_path, monkeypatch):
-    import sys
-
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
     monkeypatch.setitem(sys.modules, "torch", None)
     with pytest.raises(SystemExit, match="about 16.5 GB") as raised:
         gen.load_pipeline(tmp_path, "sdpa", False)
     assert "Mac clean port" in str(raised.value)
+
+
+def _touch(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("")
+
+
+def _space_tree(tmp_path: Path, *, patched: bool) -> Path:
+    vendor = tmp_path / "trellis-space-mac"
+    pipeline = vendor / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    _touch(pipeline)
+    if patched:
+        pipeline.write_text("        new_pipeline.rembg_model = None\n")
+    else:
+        pipeline.write_text(
+            "        new_pipeline.rembg_model = getattr(rembg, "
+            "args['rembg_model']['name'])(**args['rembg_model']['args'])\n"
+        )
+    for relative in (
+        ".venv/bin/python",
+        "TRELLIS.2/trellis2/representations/mesh/base.py",
+        "deps/trellis2-apple/o-voxel/o_voxel/postprocess.py",
+        "deps/mtlmesh/src/metal/remesh.metal",
+    ):
+        _touch(vendor / relative)
+    return vendor
+
+
+def test_bria_refusal_names_the_patch_until_the_tree_is_disabled(tmp_path):
+    refusal = gen.bria_refusal(_space_tree(tmp_path, patched=False))
+    assert refusal and "BRIA RMBG-2.0" in refusal
+    assert "patch_trellis_space_core.py" in refusal
+    assert gen.bria_refusal(_space_tree(tmp_path / "ok", patched=True)) is None
+
+
+def test_load_pipeline_refuses_an_unpatched_tree_before_torch(tmp_path, monkeypatch):
+    vendor = _space_tree(tmp_path, patched=False)
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    (snap / "pipeline.json").write_text("{}\n")
+    from image_to_3dlab import weight_gate
+
+    monkeypatch.setattr(weight_gate, "snapshot_dir", lambda *a, **k: snap)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    with pytest.raises(SystemExit, match="BRIA RMBG-2.0"):
+        gen.load_pipeline(vendor, "sdpa", False)
+
+
+def test_check_refuses_an_unpatched_tree_before_torch(tmp_path, monkeypatch, capsys):
+    vendor = _space_tree(tmp_path, patched=False)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert gen.check_environment(vendor, "sdpa") == 1
+    assert "BRIA RMBG-2.0" in capsys.readouterr().out
 
 
 def test_verify_paths_flags_missing_build(tmp_path):

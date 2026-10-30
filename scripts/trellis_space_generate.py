@@ -36,9 +36,9 @@ robust at that scale on MPS (the decode->GLB blocker). This script instead CPU p
 Metal to_glb/mtlbvh path) and hands ``to_glb`` CPU tensors, which is what the metal backend
 expects internally.
 
-License note: the input must carry a transparent alpha foreground. With alpha, the background
-remover (rembg / BRIA RMBG) is never loaded (``load_rembg=False``), honoring the repo's BRIA
-guardrail. A non-alpha input is refused; the studio cuts it out with our own remover first.
+License note: the Mac patch assigns ``rembg_model = None``, so the pipeline cannot construct
+BRIA RMBG-2.0. ``--check`` and the load refuse an unpatched tree before the model is built.
+A non-alpha input is refused; the studio cuts it out with our own remover first.
 An image whose alpha does not actually cut the subject out (an opaque backdrop with only
 letterbox bars transparent) is refused too, unless ``--allow-uncut``.
 """
@@ -57,7 +57,11 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+if str(REPO / "scripts") not in sys.path:
+    sys.path.insert(0, str(REPO / "scripts"))
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-space-mac"
+
+import patch_trellis_space_core as space_patch
 
 # --- The upstream Gradio demo defaults, verbatim (app.py gr.Slider ``value=``). ---
 # resolution "1024" -> pipeline_type "1024_cascade"; seed 0; extract at 300k faces / 2048 texture.
@@ -285,6 +289,11 @@ def require_flex_gemm() -> None:
     os.environ["SPARSE_CONV_BACKEND"] = "flex_gemm"
 
 
+def bria_refusal(vendor_root: Path) -> str | None:
+    """Why this checkout may not run, or None."""
+    return space_patch.bria_refusal(vendor_root / "TRELLIS.2")
+
+
 def verify_paths(vendor_root: Path) -> list[str]:
     """Cheap filesystem checks: the clean port is present and looks built. Returns problems."""
     problems: list[str] = []
@@ -324,6 +333,9 @@ def _artifact(path: Path) -> dict[str, Any]:
 def check_environment(vendor_root: Path, sparse_attn_backend: str) -> int:
     """Fast env gate: imports resolve, MPS is up, the run/to_glb surface exists. No model load."""
     problems = verify_paths(vendor_root)
+    refusal = bria_refusal(vendor_root)
+    if refusal:
+        problems.append(refusal)
     if problems:
         for p in problems:
             print(f"  FAIL: {p}", flush=True)
@@ -635,6 +647,9 @@ def load_pipeline(vendor_root: Path, sparse_attn_backend: str, load_rembg: bool)
         route="Mac clean port",
         size="about 16.5 GB",
     )
+    refusal = bria_refusal(vendor_root)
+    if refusal:
+        raise SystemExit(refusal)
     configure_environment(vendor_root, sparse_attn_backend)
     sys.path.insert(0, str(vendor_root / "TRELLIS.2"))
     stubs = vendor_root / "stubs"

@@ -329,9 +329,10 @@ class ChainRunner:
         kind = KIND[step]
         self._client = chain.client   # each step is counted as the chain's asker's, not the studio's
         if step == "picture":
-            # picture_only: no 3D build after it, so the engine may spend more steps on it
+            # picture_only: no 3D build after it (a back is only drawn for one), so more steps are worth it
             body = json.dumps({"prompt": chain.prompt or chain.title, "settings": chain.picture_settings,
-                               "engine": chain.picture_engine, "picture_only": "model" not in chain.steps}).encode()
+                               "engine": chain.picture_engine,
+                               "picture_only": not {"back", "model"} & set(chain.steps)}).encode()
             return kind, self._post("/api/image", body, "application/json")
         if step == "back":
             front = chain.made.get("picture") or (self._kept_upload(chain) if chain.upload else None)

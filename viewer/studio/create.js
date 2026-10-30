@@ -109,7 +109,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) && !state.backFile });
     if (state.stop && !plan.includes(state.stop)) state.stop = null;
     const active = stopAfter(plan, state.stop);
-    fitPicture(!active.includes('model'));   // as the server reads it: no 3D model after the picture
+    fitPicture(!active.includes('model') && !active.includes('back'));   // as the server reads it: no 3D build after it
     const backSlot = backSlotShown(state, frontBack, active);
     if (!backSlot && state.backFile) setBack(null);
     const back = backSlot ? `<div class="drop" data-backdrop tabindex="0" role="button">${state.backFile

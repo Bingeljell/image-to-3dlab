@@ -1,31 +1,11 @@
 #!/usr/bin/env bash
+# The pinned Mac TRELLIS installer is the Python one. It asks before it fetches.
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TRELLIS_DIR="${PROJECT_DIR}/vendor/trellis-mac"
-
-if [[ ! -d "${TRELLIS_DIR}/.git" ]]; then
-  mkdir -p "${PROJECT_DIR}/vendor"
-  git clone https://github.com/shivampkumar/trellis-mac.git "${TRELLIS_DIR}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INSTALLER="${ROOT}/scripts/bootstrap_trellis_space_macos.py"
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "${INSTALLER}" "$@"
 fi
-
-pushd "${TRELLIS_DIR}" >/dev/null
-if [[ -d /Applications/Xcode.app/Contents/Developer ]] \
-  && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun -f metal >/dev/null 2>&1; then
-  echo "Xcode Metal compiler detected; installing Metal acceleration backends."
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash setup.sh
-else
-  echo "Xcode Metal compiler not found; installing the slower CPU bake fallback."
-  SKIP_METAL=1 bash setup.sh
-fi
-popd >/dev/null
-
-python3 "${PROJECT_DIR}/scripts/patch_trellis_no_bria.py"
-
-# The quality options are additive and default to the port's previous behaviour, with
-# one exception: brute-force UV packing ships on, for ~6 points of atlas coverage. Both
-# patches live in site-packages or the checkout, so re-run bootstrap after a reinstall.
-python3 "${PROJECT_DIR}/scripts/patch_ovoxel_pack_options.py"
-python3 "${PROJECT_DIR}/scripts/patch_trellis_quality.py"
-
-echo "TRELLIS setup complete; BRIA background removal is disabled."
+echo "Run: python3 scripts/bootstrap_trellis_space_macos.py" >&2
+exit 1

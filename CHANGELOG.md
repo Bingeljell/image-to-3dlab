@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- The old Mac setup scripts hand off to the installers that ask first, and the Hunyuan setup stops when there is nobody to ask.
 - Importing a TRELLIS patch no longer edits a tree, and a missing remesh-checkpoint patch fails its check.
 - A pod install ref is checked and quoted, and the traffic history is replaced only after the new file is finished.
 - Headless Blender savers refuse to overwrite the blend file they were opened with. An action name with a quote stays inside the snippet.

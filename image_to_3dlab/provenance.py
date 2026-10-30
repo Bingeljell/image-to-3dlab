@@ -136,6 +136,8 @@ def validate_run_policy(
     allow_conditional: bool,
     model_identity: str | None = None,
     allow_unverified: bool = False,
+    commercial_intent: bool = False,
+    allow_research_only: bool = True,
 ) -> LicenseProfile:
     if use_case not in {"showcase", "game"}:
         raise ValueError("use_case must be 'showcase' or 'game'")
@@ -151,9 +153,17 @@ def validate_run_policy(
         raise ValueError(
             f"{backend} is {profile.classification}; manifest disallows conditional models"
         )
+    if commercial_intent and profile.classification != "commercial-clear":
+        raise ValueError(
+            f"{backend} is {profile.classification}; commercial_intent does not allow it"
+        )
     # research-only is stricter than conditional and is not covered by allow_conditional.
     # Running a non-commercial model is refused for anything but a private showcase,
     # whatever the manifest says. (Its outputs are the user's; running it is the limit.)
+    if profile.classification == "research-only" and not allow_research_only:
+        raise ValueError(
+            f"{backend} is research-only; license_policy.allow_research_only is false"
+        )
     if profile.classification == "research-only" and not (
         use_case == "showcase" and distribution == "private"
     ):
@@ -169,11 +179,15 @@ def validate_run_policy(
         raise ValueError(
             "Hunyuan outputs are not cleared for worldwide game distribution"
         )
-    if (
-        model_identity is not None
-        and model_identity not in profile.models
-        and not allow_unverified
+    if not allow_unverified and (
+        model_identity is None or model_identity not in profile.models
     ):
+        if model_identity is None:
+            raise ValueError(
+                f"{backend} has no reviewed model identity; declare it in a run manifest "
+                "with license_policy.allow_unverified: true if you have verified the "
+                "licence yourself"
+            )
         raise ValueError(
             f"model identity {model_identity!r} is not in the reviewed licence profile for "
             f"{backend}; declare it in a run manifest with license_policy.allow_unverified: true "
@@ -256,9 +270,7 @@ def finalize_output(
     model_identity: str | None = None,
 ) -> tuple[Path, Path]:
     run_id = uuid.uuid4().hex[:12]
-    verified = (
-        model_identity is None or model_identity in profile.models
-    )
+    verified = model_identity is not None and model_identity in profile.models
     classification = profile.classification if verified else "unverified"
     destination_dir = output_root.resolve() / profile.folder
     destination_dir.mkdir(parents=True, exist_ok=True)

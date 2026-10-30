@@ -1,5 +1,6 @@
 """scripts/repo_traffic.py: GitHub's 14-day traffic and the install counts, kept as one CSV."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -46,6 +47,25 @@ def test_csv_round_trips_and_rerunning_changes_nothing(tmp_path):
     rt.write_csv(path, rt.merge(rt.read_csv(path), rt.rows_from_github(VIEWS, CLONES)))
     assert path.read_text() == first
     assert first.splitlines()[0] == ",".join(rt.FIELDS)
+
+
+def test_write_csv_replaces_a_finished_file(tmp_path, monkeypatch):
+    path = tmp_path / "traffic.csv"
+    path.write_text("old\n")
+    replaced = []
+    real = os.replace
+
+    def spy(src, dst):
+        replaced.append((Path(src), Path(dst)))
+        real(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+    rt.write_csv(path, {"2026-10-10": {"views": 1}})
+    assert replaced
+    assert replaced[0][0] != path
+    assert replaced[0][1] == path
+    assert path.read_text() != "old\n"
+    assert not replaced[0][0].exists()
 
 
 def test_week_summary_sums_the_newest_days_and_treats_gaps_as_zero():

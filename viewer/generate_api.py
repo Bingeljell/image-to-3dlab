@@ -514,6 +514,8 @@ def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
 
 
 BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
+# A plan's uploads: a picture or two, or a model GLB (a million-triangle one is a few hundred MB)
+CHAIN_UPLOAD_LIMIT = 1024 * 1024 * 1024
 
 
 def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = None):
@@ -536,7 +538,10 @@ def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = No
         raise ValueError("paint over the part to change first")
     try:
         stroke = Image.open(io.BytesIO(mask["data"]))
+        image_api.check_picture_size(stroke)
         stroke.load()
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError(f"the painted area could not be read ({exc})") from exc
     try:
@@ -2657,6 +2662,10 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "chains"]:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
+                if length > CHAIN_UPLOAD_LIMIT:
+                    # refused before reading: an unbounded read let one request fill the memory
+                    self._send_json(413, {"error": "That upload is too large (over 1 GB)."})
+                    return
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
                 # Before the picture and the 3D model, not ten minutes later at Finish
                 if set(chain.steps) & activity_api.NEEDS_BLENDER and find_blender() is None:
@@ -2866,10 +2875,10 @@ class Handler(SimpleHTTPRequestHandler):
             instruction = str(payload.get("instruction") or "")
             # the front's own engine when it can draw backs here (one model's parts should match),
             # else whichever installed engine can
-            engine = image_api.pick_engine(payload.get("engine") or None, edit=True)
+            engine = image_api.pick_engine(str(payload.get("engine") or "") or None, edit=True)
             if payload.get("engine") and not back_engine_usable(engine):
                 engine = image_api.pick_engine(edit=True)
-        except (ValueError, json.JSONDecodeError) as exc:
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
         if not image_api.BINARY.exists():
@@ -2886,6 +2895,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             job = image_api.start_back(front, seed, engine, instruction)
+        except (ValueError, OSError) as exc:      # an unreadable or oversized front
+            self._send_json(422, {"error": str(exc)})
+            return
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return

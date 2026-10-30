@@ -24,6 +24,7 @@ def nothing_real(monkeypatch):
     monkeypatch.setattr(boot.sdcpp, "ensure_binary", lambda: pytest.fail("reached the real engine install"))
     monkeypatch.setattr(boot, "install_weights", lambda: pytest.fail("reached the real download"))
     monkeypatch.setattr(boot.sdcpp, "binary_present", lambda: True)
+    monkeypatch.setattr(boot.sdcpp, "binary_stale", lambda: False)   # never the real install's record
 
 
 def test_the_announcement_names_backend_route_size_and_licence():
@@ -71,3 +72,10 @@ def test_the_studio_setup_button_runs_it_with_yes():
     import download_api
     command = download_api.COMMANDS["flux-image"]   # the Setup page's own dialog is the asking
     assert command[-1] == "--yes" and command[1].endswith("bootstrap_flux_image.py")
+
+
+def test_an_engine_update_is_named_before_the_yes(monkeypatch):
+    """ensure_binary replaces an older sd-cli: the announcement must say so (AGENTS.md: name it)."""
+    monkeypatch.setattr(boot.sdcpp, "binary_stale", lambda: True)
+    monkeypatch.setattr(boot.sdcpp, "target", lambda: "macos-arm64")
+    assert "update sd-cli to" in boot.announcement()

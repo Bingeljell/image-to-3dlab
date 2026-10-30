@@ -707,3 +707,18 @@ def test_a_brushed_picture_names_the_one_it_replaced(tmp_path, monkeypatch):
     api.run_job(job, manager, weights=WEIGHTS)
     brush = json.loads(back.with_suffix(".provenance.json").read_text())["brush"]
     assert brush["replaced"].startswith(back.stem + "_prev_") and brush["strength"] == api.BRUSH_STRENGTH
+
+
+
+def test_only_a_picture_file_in_output_can_be_a_back_source(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "notes.json").write_text("{}")
+    with pytest.raises(ValueError, match="not a picture in output"):
+        api.back_source(tmp_path, "a/notes.json")
+
+
+def test_an_oversized_picture_is_refused_before_it_is_decoded():
+    from PIL import Image
+    with pytest.raises(ValueError, match="largest taken"):
+        api.check_picture_size(Image.new("L", (api.MAX_PICTURE_SIDE + 1, 4)))
+    api.check_picture_size(Image.new("L", (api.MAX_PICTURE_SIDE, 4)))

@@ -39,6 +39,8 @@ FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge
 # Only Pixal3D builds from a front and a back picture.
 FRONT_BACK_ENGINES = {"pixal3d"}
 PICTURE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+# the largest back picture taken (image_api.MAX_PICTURE_SIDE): decoding a crafted file is the risk
+MAX_BACK_SIDE = 4096
 # Steps that run headless Blender; a plan with one is checked for Blender before anything runs.
 NEEDS_BLENDER = {"finished", "split"}
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)
@@ -190,6 +192,11 @@ class ChainRunner:
                 self._kept_upload(chain)   # kept from the start, so the Library shows it even on a front-only run
             except OSError:
                 pass                       # the run still has the bytes; only the Library loses the picture
+        outside = [k for k, v in chain.made.items() if v and not self._inside(v)]
+        if outside:
+            # a plan names files by their place in output/; anything else is refused, never written beside
+            chain.status, chain.error = "error", f"Not a file in output/: {', '.join(outside)}."
+            return
         if chain.back_upload and not chain.made.get("back"):
             try:
                 self._kept_back(chain)
@@ -309,6 +316,10 @@ class ChainRunner:
         chain.made["picture"] = relative
         return relative
 
+    def _inside(self, relative: str) -> bool:
+        root = self.output.resolve()
+        return root in (root / str(relative)).resolve().parents
+
     def _kept_back(self, chain: Chain) -> str:
         """The user's back picture, saved beside the kept front as <front>__back.png: the name a
         drawn back has, so the Library, the 3D step and Finish find it the same way. Always PNG,
@@ -319,7 +330,12 @@ class ChainRunner:
         if not front:
             raise ValueError("there is no front picture to put it beside")
         relative = str(Path(front).with_name(f"{Path(front).stem}__back.png").as_posix())
+        if not self._inside(relative):
+            raise ValueError("the front picture is not in output/")
         with Image.open(io.BytesIO(chain.back_upload[1])) as opened:
+            if max(opened.size) > MAX_BACK_SIDE:
+                raise ValueError(f"it is {opened.size[0]}x{opened.size[1]}; the largest taken is "
+                                 f"{MAX_BACK_SIDE} pixels on a side")
             opened.load()
             picture = opened.convert("RGBA") if "A" in opened.getbands() else opened.convert("RGB")
         picture.save(self.output / relative, "PNG")

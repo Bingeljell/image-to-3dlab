@@ -98,6 +98,10 @@ SIZE_STEP = 32
 MIN_SIZE, MAX_SIZE = 256, 1536
 MAX_STEPS = 50
 MAX_PROMPT = 2000
+PICTURE_FILES = {".png", ".jpg", ".jpeg", ".webp"}
+# The largest picture anything here decodes from a request: far past what any engine draws,
+# well short of the memory a crafted file could ask for (Pillow only refuses past ~179M pixels).
+MAX_PICTURE_SIDE = 4096
 # The brush (repaint one area of a picture): measured 2026-10-30 on Flux klein, a satchel
 # recoloured cleanly at 8 steps and strength 0.9 (output/images/brush-test-2026-10-30/).
 BRUSH_STEPS = 8
@@ -590,6 +594,14 @@ def brush_masks(stroke, size: tuple[int, int]):
     return grown, feathered
 
 
+def check_picture_size(picture) -> None:
+    """Refuse a picture too large to decode safely; call it after open, before load."""
+    width, height = picture.size
+    if max(width, height) > MAX_PICTURE_SIDE:
+        raise ValueError(f"the picture is {width}x{height}; the largest taken is "
+                         f"{MAX_PICTURE_SIDE} pixels on a side")
+
+
 def opened_mode(path: Path) -> str:
     from PIL import Image
 
@@ -604,6 +616,7 @@ def opaque(path: Path):
     from PIL import Image
 
     with Image.open(path) as opened:
+        check_picture_size(opened)
         opened.load()
         if "A" in opened.getbands() or "transparency" in opened.info:
             return back_view.reference_on_grey(opened.convert("RGBA"))
@@ -688,15 +701,22 @@ def create_back_job(manager: ImageJobManager, front: Path, seed: int = 3,
     """
     from PIL import Image
 
-    with Image.open(front) as opened:
-        cut = opened.convert("RGBA") if matte.is_matted(opened) else matte.cut_out(
-            opened.convert("RGB"))[0]
     reference = front.with_name(f"{front.stem}__back_reference.png")
-    back_view.reference_on_grey(cut).save(reference)
     final = front.with_name(f"{front.stem}__back.png")
+    # the job first: a request refused as busy must not pay for a cut-out, or rewrite the
+    # reference a running back is reading
     job = manager.create(back_prompt(instruction), clean_settings({"seed": seed}, engine),
                          output_path=final.with_name(f"{front.stem}__back_new.png") if final.exists() else final,
                          reference=reference, engine=engine)
+    try:
+        with Image.open(front) as opened:
+            check_picture_size(opened)
+            cut = opened.convert("RGBA") if matte.is_matted(opened) else matte.cut_out(
+                opened.convert("RGB"))[0]
+        back_view.reference_on_grey(cut).save(reference)
+    except Exception:
+        manager.finish(job)
+        raise
     job.replaces = final if job.output_path != final else None
     job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
     return job
@@ -706,7 +726,7 @@ def back_source(output_root: Path, relative: str) -> Path:
     """The front picture a back job may read: an existing file inside `output_root`."""
     root = output_root.resolve()
     path = (root / relative).resolve()
-    if root not in path.parents or not path.is_file():
+    if root not in path.parents or not path.is_file() or path.suffix.lower() not in PICTURE_FILES:
         raise ValueError(f"not a picture in output/: {relative}")
     return path
 

@@ -485,3 +485,32 @@ def test_drawing_the_back_again_passes_the_seed_and_change_through(tmp_path):
     runner.submit(chain, background=False)
     sent = json.loads(next(b for m, p, b in jobs.calls if p == "/api/image/back"))
     assert sent == {"picture": "images/a/a.png", "engine": None, "seed": 77, "instruction": "a red cloak"}
+
+
+
+# --- Security review fixes (2026-10-30) -------------------------------------------------------
+
+@pytest.mark.parametrize("front", ["../escape/x.png", "/tmp/elsewhere/x.png"])
+def test_a_plan_naming_a_file_outside_output_writes_nothing_there(tmp_path, front):
+    """`made` comes from the request: a back kept "beside" it once landed outside output/."""
+    output = tmp_path / "output"
+    output.mkdir()
+    runner, jobs = _runner(output)
+    chain = aa.Chain(title="x", engine="pixal3d", steps=["model"], made={"picture": front},
+                     upload=("x.png", _picture_bytes()), back_upload=("b.png", _picture_bytes()))
+    runner.submit(chain, background=False)
+    assert chain.status == "error" and "Not a file in output/" in chain.error
+    assert not list(tmp_path.glob("**/*__back.png")) and not [c for c in jobs.calls if c[0] == "POST"]
+
+
+def test_an_enormous_back_picture_is_refused_before_it_is_decoded(tmp_path):
+    import io
+
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new("L", (aa.MAX_BACK_SIDE + 1, 8)).save(buffer, "PNG")
+    runner, _ = _runner(tmp_path)
+    chain = aa.Chain(title="x", engine="pixal3d", steps=["model"],
+                     upload=("x.png", _picture_bytes()), back_upload=("b.png", buffer.getvalue()))
+    runner.submit(chain, background=False)
+    assert chain.status == "error" and "largest taken" in chain.error

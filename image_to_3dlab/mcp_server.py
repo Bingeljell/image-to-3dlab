@@ -857,6 +857,8 @@ def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str) ->
 def picture_status(studio: Studio, *, job_id: str, wait_seconds: int = 0,
                    sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
     """A picture job (a brushed back): its status, waiting up to `wait_seconds` for it to end."""
+    if not re.fullmatch(r"[0-9a-f]{32}", str(job_id)):
+        raise StudioError("job_id is the 32-character id brush_back gave you.")
     deadline = time.monotonic() + max(0, min(int(wait_seconds), 50))
     while True:
         job = studio.get(f"api/image/{job_id}/status")

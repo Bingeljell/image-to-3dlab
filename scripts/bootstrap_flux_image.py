@@ -52,6 +52,10 @@ def announcement(build: bool = True) -> str:
              f"  route:   GGUF via stable-diffusion.cpp, {route}"]
     if build and build_for and not sdcpp.binary_present():
         lines.append(f"  build:   prebuilt sd-cli release ({build_for.size}) -> vendor/sdcpp/")
+    elif build and build_for and sdcpp.binary_stale():
+        # ensure_binary updates an older engine: say so before the yes, not after
+        lines.append(f"  build:   update sd-cli to {sdcpp.PINNED[sdcpp.target()]} ({build_for.size}) "
+                     "-> vendor/sdcpp/")
     lines.append(f"  weights: {total_gb():.1f} GB total ->  Hugging Face cache")
     for repo, filename, size in WEIGHTS:
         lines.append(f"             {size:>5.2f} GB  {Path(filename).name}  ({repo})")

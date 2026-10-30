@@ -819,3 +819,11 @@ def test_brush_back_sends_the_back_the_mask_and_what_goes_there(studio, tmp_path
     studio.http.assets = [KNIGHT]
     with pytest.raises(ms.StudioError, match="has no back picture"):
         ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x")
+
+
+
+@pytest.mark.parametrize("job_id", ["../../skins", "abc", "A" * 32])
+def test_picture_status_takes_only_a_real_job_id(studio, job_id):
+    """It goes into a URL path; '../..' would read any other studio page."""
+    with pytest.raises(ms.StudioError, match="32-character id"):
+        ms.picture_status(studio, job_id=job_id)

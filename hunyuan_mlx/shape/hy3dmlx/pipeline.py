@@ -127,6 +127,8 @@ class Hunyuan3DShapePipeline:
 
 def main():
     import argparse
+    import sys
+    from pathlib import Path
     ap = argparse.ArgumentParser()
     ap.add_argument("image")
     ap.add_argument("--weights", default="weights/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini",
@@ -153,7 +155,20 @@ def main():
                          seed=args.seed, octree_decode=args.octree_decode,
                          compile_dit=args.compile_dit)
     mesh.export(args.out)
+    repo = Path(__file__).resolve().parents[3]
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+    from image_to_3dlab.provenance import write_hunyuan_sidecar
+    sidecar = write_hunyuan_sidecar(
+        args.out,
+        args.image,
+        backend="hunyuan-mlx-shape",
+        parameters={"weights": args.weights},
+        shape=True,
+        shape_weights=args.weights,
+    )
     print(f"wrote {args.out}")
+    print(f"provenance: {sidecar}")
 
 
 if __name__ == "__main__":

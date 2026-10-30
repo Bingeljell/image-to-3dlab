@@ -99,17 +99,19 @@ def run_remesh(mesh, decimation_target: int, t0: float) -> tuple[object, bool]:
 
 def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint_res: int,
               paint_steps: int, paint_tex: int, t0: float) -> None:
+    from image_to_3dlab.provenance import hunyuan_paint_run_dir
+
+    # One folder per run. The paint script used to write outputs/textured_mesh_pbr.glb,
+    # so two generations would overwrite each other.
+    out_dir = hunyuan_paint_run_dir(PAINT_ROOT / "outputs", output.stem)
+    out_dir.mkdir(parents=True, exist_ok=True)
     env = {
         **os.environ, "PYTHONUNBUFFERED": "1",
         "PAINT_MESH": str(mesh_path.resolve()), "PAINT_IMG": str(image.resolve()),
         "PAINT_SEED": str(paint_seed), "PAINT_RES": str(paint_res),
         "PAINT_STEPS": str(paint_steps), "PAINT_TEX": str(paint_tex),
+        "PAINT_OUT": str(out_dir),
     }
-    # run_paint_pbr.py does bare Image.save("outputs/...") calls with no directory creation --
-    # on a fresh machine (no leftover symlink/dir from earlier manual testing) that crashes
-    # with FileNotFoundError *after* the ~6-minute diffusion has already run. Make this
-    # self-sufficient regardless of what state PAINT_ROOT/outputs happens to be in.
-    (PAINT_ROOT / "outputs").mkdir(parents=True, exist_ok=True)
     print(f"starting paint stage ({time.time() - t0:.0f}s)", flush=True)
     proc = subprocess.run(
         [str(PAINT_PYTHON), "-u", str(PAINT_SCRIPT)], cwd=str(PAINT_ROOT), env=env,
@@ -118,14 +120,19 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
     if proc.returncode != 0:
         raise RuntimeError(f"paint stage exited with code {proc.returncode}")
 
-    result = PAINT_ROOT / "outputs" / "textured_mesh_pbr.glb"
+    result = out_dir / "textured_mesh_pbr.glb"
     if not result.is_file():
         raise RuntimeError(f"paint stage did not produce {result}")
     output.parent.mkdir(parents=True, exist_ok=True)
     result.replace(output)
+    # The paint script's own sidecar names the temporary file. The caller writes
+    # the one that travels with the finished mesh.
+    temp_sidecar = out_dir / "textured_mesh_pbr.provenance.json"
+    if temp_sidecar.is_file():
+        temp_sidecar.unlink()
     for name in ("pbr_albedo_texture.png", "pbr_albedo_views.png",
                  "pbr_mr_texture.png", "pbr_mr_views.png"):
-        src = PAINT_ROOT / "outputs" / name
+        src = out_dir / name
         if src.is_file():
             src.replace(output.with_name(f"{output.stem}_{name}"))
     print(f"paint stage done ({time.time() - t0:.0f}s) -> {output}", flush=True)
@@ -177,7 +184,20 @@ def main() -> None:
     }
     manifest_path = args.output.with_name(f"{args.output.stem}.json")
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    from image_to_3dlab.provenance import write_hunyuan_sidecar
+
+    sidecar = write_hunyuan_sidecar(
+        args.output,
+        args.image,
+        backend="hunyuan-mlx",
+        parameters=manifest["parameters"],
+        shape=True,
+        paint=True,
+        shape_weights="dgrauet/hunyuan3d-2.1-mlx",
+        paint_weights="weights/hunyuan3d-paintpbr-v2-1",
+    )
     print(f"Manifest: {manifest_path}", flush=True)
+    print(f"Provenance: {sidecar}", flush=True)
     print(f"Total: {total:.1f}s", flush=True)
 
 

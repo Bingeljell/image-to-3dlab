@@ -334,6 +334,28 @@ def test_a_studio_that_is_not_running_is_started_once():
     assert started == [1]
 
 
+def test_the_agent_starts_the_studio_the_way_lab_does(monkeypatch, tmp_path):
+    """On a RunPod pod, ./lab listens for the proxy and makes a key. The agent must too."""
+    monkeypatch.setenv("RUNPOD_POD_ID", "abc123")
+    monkeypatch.setattr(ms, "REPO", tmp_path)
+    started = {}
+
+    def popen(command, **kwargs):
+        started["command"] = list(command)
+        started["env"] = kwargs.get("env")
+        return object()
+
+    monkeypatch.setattr(ms.subprocess, "Popen", popen)
+    ms.Studio("http://127.0.0.1:8765")._start_server()
+
+    command = started["command"]
+    assert "--auto" in command and "--no-browser" in command
+    assert command[command.index("--port") + 1] == "8765"
+    assert "--host" not in command or command[command.index("--host") + 1] == "0.0.0.0"
+    env = started["env"]
+    assert env is None or env.get("RUNPOD_POD_ID") == "abc123"
+
+
 def test_a_remote_studio_is_never_started_from_here():
     http = FakeHttp()
     http.alive = False

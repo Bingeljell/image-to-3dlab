@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- The agent starts the studio the same way `./lab` does. On a RunPod pod that listens for the pod's web link and uses a key.
 - Stopping the studio also stops a picture, an animation, a skin build, and a weight download. Each of those leaves a process id so the next start can clear one the stop missed.
 - Growing a feature mask no longer wraps onto the opposite edge of the texture. Repair no longer treats a texture seam as a hole or drops the texture coordinates. A closed mesh split only along those seams is reported watertight.
 - Paint refuses a checkpoint that leaves a tensor out. A 15-step DDIM run steps back by 66. The small paint script is no longer a setup command.

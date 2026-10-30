@@ -52,9 +52,6 @@ function backendCard(backend, { readOnly = false } = {}) {
   const size = !readOnly && backend.state === 'partial'
     ? `${backend.human_present} of ${backend.human_expected}`
     : backend.human_expected;
-  // Say where the weights are when they are not here yet but the backend still works.
-  const later = !readOnly && backend.action === 'none' && backend.bytes_present === 0
-    ? ' · weights download on your first run' : '';
 
   card.innerHTML = `
     <div class="setup-card-head">
@@ -62,7 +59,7 @@ function backendCard(backend, { readOnly = false } = {}) {
       <div class="setup-card-title">
         <strong>${backend.label}</strong>
         ${backend.recommended ? '<span class="setup-pill">start here</span>' : ''}
-        <div class="setup-card-state">${meta.text} · ${size}${later}</div>
+        <div class="setup-card-state">${meta.text} · ${size}</div>
       </div>
       <div class="setup-card-action"></div>
     </div>
@@ -95,9 +92,9 @@ function backendCard(backend, { readOnly = false } = {}) {
 
   const action = card.querySelector('.setup-card-action');
   if (readOnly) return card;
-  // Driven by the server's `action`, not inferred from state here. Build and weights
-  // are independent: a built TRELLIS with no weights is usable and must not be offered a
-  // Set up button, because re-running a finished bootstrap fails on its own patches.
+  // Driven by the server's `action`, not inferred from state here. A built tree with
+  // no weights gets Download, which fetches them. Set up is only for a tree that is
+  // not built yet: re-running a finished bootstrap fails on its own patches.
   const LABELS = { build: 'Set up', download: 'Download', resume: 'Resume download' };
   // A backend that cannot run here gets no button at all. Offering one would spend
   // gigabytes of someone's bandwidth on a build that fails partway through.
@@ -209,13 +206,15 @@ function removeButton(backend) {
 /** State the cost, then ask. The confirmation is the point of the whole page. */
 function confirmDownload(backend, button) {
   const remaining = backend.bytes_expected - backend.bytes_present;
-  // Say what this particular button actually does. TRELLIS's setup builds the Metal port
-  // and fetches nothing; its weights arrive on the first generation run, and promising a
-  // download here would be a lie the progress bar then has to keep.
-  const body = backend.setup_fetches_weights
+  // A download action fetches, even for the Mac port whose code build does not.
+  // The code build itself still says so: it compiles, and the weights are the next button.
+  const fetching = backend.setup_fetches_weights
+    || backend.action === 'download' || backend.action === 'resume';
+  const body = fetching
     ? [
       // NVIDIA TRELLIS.2 compiles first, then downloads; say both, not just the bytes.
-      ...(backend.build_present || backend.install === 'viewer' ? []
+      ...(backend.build_present || backend.action === 'download' || backend.action === 'resume'
+        ? []
         : ['This builds the code for this machine first, then:', '']),
       `About ${formatBytes(remaining)} will be downloaded from Hugging Face`,
       `into ${backend.weights[0].path.replace(/\/[^/]*$/, '/')}`,
@@ -227,8 +226,8 @@ function confirmDownload(backend, button) {
       'This builds the Metal port first',
       'and downloads no weights.',
       '',
-      `The ${backend.human_expected} of weights are fetched on your first generation run,`,
-      'not now.',
+      `The ${backend.human_expected} of weights are a separate download`,
+      'from this card, once the build has finished.',
     ];
   const lines = [
     `${backend.label}`,
@@ -239,7 +238,7 @@ function confirmDownload(backend, button) {
     `Licence: ${backend.license.name}`,
     backend.caveat ? `\n${backend.caveat}\n` : '',
     '',
-    backend.setup_fetches_weights ? 'Start the download?' : 'Start the build?',
+    fetching ? 'Start the download?' : 'Start the build?',
   ].filter(Boolean);
 
   // eslint-disable-next-line no-alert -- a deliberate, blocking confirmation: this is the

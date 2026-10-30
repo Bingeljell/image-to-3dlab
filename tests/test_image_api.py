@@ -755,8 +755,12 @@ def test_a_redraw_uses_the_engine_that_drew_the_picture_when_it_can(tmp_path, mo
     assert api.choose_engine(None, picture, edit=True) is api.FLUX
 
 
-def test_a_qwen_brush_starts_from_the_back_without_a_vision_projector(tmp_path):
+@pytest.mark.parametrize("projector, sees", [(Path("/w/mmproj.gguf"), True), (None, False)])
+def test_a_qwen_brush_sees_the_picture_when_its_projector_is_there(tmp_path, monkeypatch, projector, sees):
+    """Flux and Qwen brush the same way; Qwen without its projector falls back to the words."""
+    monkeypatch.setattr(api, "resolve_vision", lambda engine=api.QWEN: projector)
     back = _back(tmp_path)
     job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "a red satchel", engine=api.QWEN)
-    command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
-    assert job.engine is api.QWEN and "--mask" in command and "--llm_vision" not in command and "-r" not in command
+    command = api.job_command(job, WEIGHTS, projector, binary=Path("/bin/sd-cli"))
+    assert job.engine is api.QWEN and "--mask" in command
+    assert ("-r" in command) is sees and ("--llm_vision" in command) is sees

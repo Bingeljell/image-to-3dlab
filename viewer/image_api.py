@@ -708,10 +708,11 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
             manager.finish(job)
             raise
     job.init, job.mask, job.paste_mask, job.replaces = init, mask, paste, picture
-    if engine.vision_file is None:
-        # Flux also SEES the picture it repaints, so the prompt can stay the change alone:
-        # told only the change, it filled the paint with it (2026-10-30); told the scene in
-        # words, it drew what the words named (a lantern from the front's prompt)
+    # Every engine that can SEE the picture it repaints does, so the prompt stays the change
+    # alone: told only the change, Flux filled the paint with it (2026-10-30); told the scene in
+    # words, it drew what the words named (a lantern from the front's prompt). Flux always can;
+    # Qwen with its vision projector. Without one, Qwen works from the words alone.
+    if can_edit(engine):
         job.reference = init
     job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
     return job
@@ -847,7 +848,8 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                 # the old one's own record stays beside it, under the name it was kept as
                 record["brush"] = {"picture": job.output_path.name, "mask": job.mask.name if job.mask else None,
                                    "instruction": job.instruction, "strength": BRUSH_STRENGTH,
-                                   "replaced": kept.name if kept else None}
+                                   "replaced": kept.name if kept else None,
+                                   "saw_the_picture": job.reference is not None}
             sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))

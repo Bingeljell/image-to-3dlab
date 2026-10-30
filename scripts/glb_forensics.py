@@ -95,7 +95,10 @@ def geometry_summary(mesh) -> dict[str, Any]:
     lengths = np.linalg.norm(verts[mesh.edges[:, 0]] - verts[mesh.edges[:, 1]], axis=1)
 
     # Degenerate or open meshes can yield a nan/inf "volume" rather than raising.
-    volume = float(mesh.volume)
+    # These four describe the position-merged surface. The file's own vertex
+    # list is still split at every texture seam, and reading them from that
+    # copy reports a closed shape as open.
+    volume = float(merged.volume)
     if not np.isfinite(volume):
         volume = None
 
@@ -105,9 +108,9 @@ def geometry_summary(mesh) -> dict[str, Any]:
         "vertices_merged": len(merged.vertices),
         "boundary_edges": int((counts == 1).sum()),
         "nonmanifold_edges": int((counts > 2).sum()),
-        "watertight": bool(mesh.is_watertight),
-        "winding_consistent": bool(mesh.is_winding_consistent),
-        "euler_number": int(mesh.euler_number),
+        "watertight": bool(merged.is_watertight),
+        "winding_consistent": bool(merged.is_winding_consistent),
+        "euler_number": int(merged.euler_number),
         "volume": volume,
         "face_area_ratio": float(areas.max() / np.median(areas)) if np.median(areas) else None,
         "edge_length_cv": float(lengths.std() / lengths.mean()),

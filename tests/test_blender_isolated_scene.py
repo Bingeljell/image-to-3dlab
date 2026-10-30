@@ -75,6 +75,50 @@ def test_compare_renders_in_a_headless_blender():
     assert "read_factory_settings" in code
 
 
+def test_stage_and_bakes_do_not_wipe_the_open_file():
+    stage = _load("blender_stage").build_code(["/a.glb"], ["A_x"], [0.0], False)
+    assert isolated_scene_prelude("IMG3D stage") in stage
+    assert "for obj in list(bpy.data.objects)" not in stage
+    assert "orphans_purge" not in stage
+
+    bake = _load("blender_bake_normals").blender_code(
+        Path("/tmp/low.glb"), Path("/tmp/high.ply"), Path("/tmp/out.png"),
+        1024, 0.1, False, "CPU", 1.0, 0, 8,
+    )
+    _assert_private(bake, "IMG3D normal bake")
+
+    orbit = _load("blender_light_orbit").blender_code(
+        Path("/tmp/a.glb"), Path("/tmp/f_"), 4, 52.0, 64, "[]",
+    )
+    _assert_private(orbit, "IMG3D light orbit")
+
+    regions = _load("blender_split_regions").blender_code(
+        Path("/tmp/a.glb"), Path("/tmp/out"), 256, 0.25, -0.1,
+    )
+    _assert_private(regions, "IMG3D regions")
+
+
+def test_marker_spawn_refuses_to_replace_markers_unless_confirmed():
+    markers = _load("blender_joint_markers")
+    code = markers.spawn_code(Path("/tmp/a.glb"))
+    assert "orphans_purge" not in code
+    assert "raise RuntimeError" in code
+    assert "JOINT_" in code
+    confirmed = markers.spawn_code(Path("/tmp/a.glb"), confirm=True)
+    assert "orphans_purge" not in confirmed
+    assert confirmed != code
+
+
+def test_stage_bake_puts_the_open_file_back():
+    code = _load("blender_stage_bake").build_code(
+        "Walk", 0.0, 0.0, None, None, None, 1, 256, "/tmp/out", "fox",
+    )
+    assert "previous_action" in code
+    assert "previous_camera" in code
+    assert "previous_target_rotation" in code
+    assert code.index("bpy.ops.render.render") < code.index("animation_data.action = previous_action")
+
+
 def test_prelude_only_clears_its_own_scene():
     code = isolated_scene_prelude("IMG3D turntable")
     assert "bpy.data.scenes.new" in code or "bpy.data.scenes.get" in code

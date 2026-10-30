@@ -84,5 +84,10 @@ def patch(path: Path) -> None:
     path.write_text(source)
 
 
-patch(GENERATOR)
-print("Patched TRELLIS to optionally dump the unsimplified mesh (--dump-highpoly).")
+def main() -> None:
+    patch(GENERATOR)
+    print("Patched TRELLIS to optionally dump the unsimplified mesh (--dump-highpoly).")
+
+
+if __name__ == "__main__":
+    main()

@@ -28,7 +28,7 @@ def _load_patch_module():
     source = PATCH.read_text()
     # The script patches on import by design; strip the trailing side effects so the
     # constants can be inspected in isolation.
-    trimmed = source.split("patch(GENERATOR)")[0]
+    trimmed = source.split('if __name__ == "__main__":')[0]
     spec = importlib.util.spec_from_loader("patch_highpoly", loader=None)
     module = importlib.util.module_from_spec(spec)
     # The script derives paths from __file__, which a hand-built module lacks.

@@ -560,3 +560,101 @@ def test_the_instruction_is_trimmed_and_capped():
     long = "word " * 400
     assert len(api.back_prompt(long)) <= len(api.back_view.BACK_PROMPT) + 1 + api.MAX_INSTRUCTION
     assert api.back_prompt("") == api.back_view.BACK_PROMPT
+
+
+# --- The back picture's brush (2026-10-30) ----------------------------------------------------
+
+def _back(tmp_path, colour=(60, 120, 60)):
+    from PIL import Image
+    front = _front(tmp_path)
+    back = front.with_name(f"{front.stem}__back.png")
+    Image.new("RGB", (64, 64), colour).save(back)
+    return back
+
+
+def _stroke(box=(20, 20, 40, 40), size=(64, 64)):
+    from PIL import Image, ImageDraw
+    stroke = Image.new("L", size, 0)
+    ImageDraw.Draw(stroke).rectangle(box, fill=255)
+    return stroke
+
+
+def test_the_brush_masks_grow_for_the_model_and_feather_for_the_paste():
+    grown, feathered = api.brush_masks(_stroke((160, 160, 320, 320), (512, 512)), (256, 256))  # any stroke size
+    assert grown.size == feathered.size == (256, 256)
+    edge = 80 - api.BRUSH_GROW + 2
+    assert grown.getpixel((edge, 120)) == 255 and grown.getpixel((40, 120)) == 0  # reaches a little past
+    assert feathered.getpixel((120, 120)) == 255 and feathered.getpixel((40, 120)) == 0
+    assert 0 < feathered.getpixel((80 + api.BRUSH_FEATHER, 120)) <= 255
+    assert 0 < feathered.getpixel((79, 120)) < 255                                  # soft at the edge
+
+
+def test_the_paste_back_keeps_every_pixel_outside_the_brush(tmp_path):
+    from PIL import Image
+    back = _back(tmp_path)
+    drawn = tmp_path / "drawn.png"
+    Image.new("RGB", (64, 64), (200, 30, 30)).save(drawn)        # the model changed everything, as it does
+    paste = tmp_path / "paste.png"
+    _stroke().save(paste)
+    api.paste_through(back, drawn, paste)
+    with Image.open(drawn) as out:
+        assert out.getpixel((2, 2)) == (60, 120, 60)              # outside: the original, exactly
+        assert out.getpixel((30, 30)) == (200, 30, 30)            # inside: the new paint
+
+
+def test_a_brush_job_starts_from_the_back_with_its_mask_and_keeps_the_old(tmp_path):
+    back = _back(tmp_path)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "  a red   satchel. ", seed=5)
+    assert job.replaces == back and job.output_path.name.endswith("__back_new.png")
+    assert job.engine is api.FLUX and job.settings["steps"] == api.BRUSH_STEPS
+    # 64 px is below what the engine draws: it starts from a copy at 256, and pastes back at 64
+    assert (job.settings["width"], job.settings["height"]) == (256, 256)
+    assert job.init.name.endswith("__back_brush_init.png")
+    from PIL import Image
+    with Image.open(job.init) as init, Image.open(job.mask) as mask, Image.open(job.paste_mask) as paste:
+        assert init.size == mask.size == (256, 256) and paste.size == (64, 64)
+    assert job.prompt.startswith("a red satchel. Keep the style")
+    command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert command[command.index("-i") + 1] == str(job.init)
+    assert command[command.index("--mask") + 1] == str(job.mask)
+    assert command[command.index("--strength") + 1] == str(api.BRUSH_STRENGTH)
+    assert "-r" not in command
+
+
+def test_an_empty_stroke_is_refused_before_anything_runs(tmp_path):
+    from PIL import Image
+    with pytest.raises(ValueError, match="paint over"):
+        api.create_brush_job(api.ImageJobManager(tmp_path), _back(tmp_path), Image.new("L", (64, 64), 0), "x")
+
+
+def test_a_finished_brush_swaps_in_only_the_painted_part(tmp_path, monkeypatch):
+    from PIL import Image
+    back = _back(tmp_path)
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_brush_job(manager, back, _stroke(), "a red satchel")
+
+    class Done:
+        def __init__(self, cmd, **k):
+            Image.new("RGB", (64, 64), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
+            self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
+        def wait(self): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(api.subprocess, "Popen", Done)
+    monkeypatch.setattr(api.usage_api, "count_done", lambda *a: None)
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "done" and job.output_path == back
+    with Image.open(back) as out:
+        assert out.getpixel((2, 2)) == (60, 120, 60) and out.getpixel((30, 30)) == (200, 30, 30)
+    kept = list(back.parent.glob("*__back_prev_*.png"))
+    assert len(kept) == 1
+    record = json.loads(back.with_suffix(".provenance.json").read_text())
+    assert record["brush"]["instruction"] == "a red satchel" and record["model"]["id"] == "flux2-klein-4b"
+
+
+
+def test_a_back_already_at_a_drawable_size_is_brushed_as_it_is(tmp_path):
+    from PIL import Image
+    back = _back(tmp_path)
+    Image.new("RGB", (512, 512), (60, 120, 60)).save(back)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(size=(512, 512)), "x")
+    assert job.init == back and (job.settings["width"], job.settings["height"]) == (512, 512)

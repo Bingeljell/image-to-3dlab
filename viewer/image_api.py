@@ -98,6 +98,14 @@ SIZE_STEP = 32
 MIN_SIZE, MAX_SIZE = 256, 1536
 MAX_STEPS = 50
 MAX_PROMPT = 2000
+# The brush (repaint one area of a picture): measured 2026-10-30 on Flux klein, a satchel
+# recoloured cleanly at 8 steps and strength 0.9 (output/images/brush-test-2026-10-30/).
+BRUSH_STEPS = 8
+BRUSH_STRENGTH = 0.9
+# The model's area reaches a little past the stroke so the new part meets the old in fresh
+# paint; the paste-back is feathered over a few pixels so no seam shows.
+BRUSH_GROW = 12
+BRUSH_FEATHER = 4
 
 # "  |=====>    | 7/10 - 13.38s/it"
 PROGRESS = re.compile(r"\|\s*(\d+)/(\d+)\s*-\s*([\d.]+)s/it")
@@ -284,7 +292,8 @@ def clean_settings(raw: dict[str, Any], engine: PictureEngine = QWEN,
 def build_command(prompt: str, settings: dict[str, Any], output_path: Path,
                   weights: dict[str, Path], binary: Path = BINARY,
                   reference: Path | None = None, vision: Path | None = None,
-                  engine: PictureEngine = QWEN) -> list[str]:
+                  engine: PictureEngine = QWEN, init: Path | None = None,
+                  mask: Path | None = None, strength: float = BRUSH_STRENGTH) -> list[str]:
     """The full argument list, as a pure function so a test can read it without a GPU.
 
     With `reference`, an edit. Qwen reads that picture through the `vision` projector
@@ -314,6 +323,11 @@ def build_command(prompt: str, settings: dict[str, Any], output_path: Path,
         command[command.index("-p") + 2:command.index("-p") + 2] = [
             "--negative-prompt", settings["negative_prompt"]
         ]
+    if init is not None:
+        # a brush: start from `init` and redraw only where `mask` is white
+        command += ["-i", str(init), "--strength", str(strength)]
+        if mask is not None:
+            command += ["--mask", str(mask)]
     if reference is not None:
         command += ["-r", str(reference)]
         if engine.vision_file is not None:
@@ -427,6 +441,9 @@ class ImageJob:
     # done, so a failed or cancelled try leaves the old one where it was.
     replaces: Path | None = None
     instruction: str | None = None  # what the person asked to change, for the record
+    init: Path | None = None        # a brush: the picture it starts from
+    mask: Path | None = None        # ...the area it may redraw (white), as the model sees it
+    paste_mask: Path | None = None  # ...and the area pasted back onto `init` when it is done
 
     def __post_init__(self) -> None:
         self.status = "queued"
@@ -523,7 +540,7 @@ def job_command(job: ImageJob, weights: dict[str, Path], vision: Path | None,
     """`build_command` for a job: an edit when the job has a reference picture."""
     return build_command(job.prompt, job.settings, job.output_path, weights, binary=binary,
                          reference=job.reference, vision=vision if job.reference else None,
-                         engine=job.engine)
+                         engine=job.engine, init=job.init, mask=job.mask)
 
 
 MAX_INSTRUCTION = 500
@@ -556,6 +573,80 @@ def take_place(new: Path, final: Path, stamp: str | None = None) -> Path | None:
             old_sidecar.rename(kept.with_suffix(".provenance.json"))
     new.rename(final)
     return kept
+
+
+def brush_masks(stroke, size: tuple[int, int]):
+    """From the painted stroke (white = repaint, any size), the two masks a brush needs at
+    the picture's own size: the model's (grown, hard) and the paste-back (feathered)."""
+    from PIL import ImageFilter
+
+    painted = stroke.convert("L").resize(size).point(lambda v: 255 if v > 127 else 0)
+    grown = painted.filter(ImageFilter.MaxFilter(BRUSH_GROW * 2 + 1))
+    feathered = painted.filter(ImageFilter.MaxFilter(BRUSH_FEATHER * 2 + 1)).filter(
+        ImageFilter.GaussianBlur(BRUSH_FEATHER))
+    return grown, feathered
+
+
+def paste_through(original: Path, drawn: Path, paste_mask: Path) -> None:
+    """Keep the drawn picture only inside the brush: everything outside is the original's
+    own pixels again. The model re-encodes the whole picture, which shifts every pixel a
+    little and leaves a halo at the stroke's edge (2026-10-30); this undoes both."""
+    from PIL import Image
+
+    with Image.open(original) as base, Image.open(drawn) as new, Image.open(paste_mask) as mask:
+        base = base.convert("RGB")
+        Image.composite(new.convert("RGB").resize(base.size), base,
+                        mask.convert("L").resize(base.size)).save(drawn)
+
+
+def brush_prompt(instruction: str) -> str:
+    """What goes in the painted area, set in the picture it belongs to."""
+    words = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION].strip().rstrip(".")
+    return (f"{words}. Keep the style, colours, materials and lighting of the rest of the picture, "
+            "plain light grey background.")
+
+
+def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instruction: str,
+                     seed: int = 42, engine: PictureEngine = FLUX) -> ImageJob:
+    """Repaint the stroked area of `picture` as `instruction` says; the rest stays as it is.
+
+    The new picture is drawn beside it (`<name>_new.png`) and swapped in when it is done; the
+    old one is kept, as a back drawn again is. `stroke`: a PIL image, white where painted.
+    """
+    from PIL import Image
+
+    with Image.open(picture) as opened:
+        size = opened.size
+        # the engine draws at a size it accepts (multiples of 32, 256 to 1536): a back you
+        # uploaded can be any size, so it starts from a copy at that size and the result is
+        # scaled back to the picture's own size when it is pasted
+        settings = clean_settings({"seed": seed, "steps": BRUSH_STEPS, "width": size[0], "height": size[1]}, engine)
+        work = (settings["width"], settings["height"])
+        init = picture
+        if work != size:
+            init = picture.with_name(f"{picture.stem}_brush_init.png")
+            opened.convert("RGB").resize(work).save(init)
+    grown, _ = brush_masks(stroke, work)
+    _, feathered = brush_masks(stroke, size)
+    if not grown.getbbox():
+        raise ValueError("paint over the part to change first")
+    mask = picture.with_name(f"{picture.stem}_brush_mask.png")
+    paste = picture.with_name(f"{picture.stem}_brush_paste.png")
+    grown.save(mask)
+    feathered.save(paste)
+    job = manager.create(brush_prompt(instruction), settings,
+                         output_path=picture.with_name(f"{picture.stem}_new.png"),
+                         mode="brush", engine=engine)
+    job.init, job.mask, job.paste_mask, job.replaces = init, mask, paste, picture
+    job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
+    return job
+
+
+def start_brush(picture: Path, stroke, instruction: str, seed: int = 42,
+                engine: PictureEngine = FLUX) -> ImageJob:
+    job = create_brush_job(MANAGER, picture, stroke, instruction, seed, engine)
+    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    return job
 
 
 def create_back_job(manager: ImageJobManager, front: Path, seed: int = 3,
@@ -657,6 +748,8 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
         else:
+            if job.paste_mask is not None and job.replaces is not None:
+                paste_through(job.replaces, job.output_path, job.paste_mask)
             if job.replaces is not None:
                 take_place(job.output_path, job.replaces)
                 job.output_path = job.replaces
@@ -666,6 +759,9 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                 record["reference"] = {"picture": job.reference.name, "mode": job.mode}
                 if job.instruction:
                     record["reference"]["instruction"] = job.instruction
+            if job.init is not None:
+                record["brush"] = {"picture": job.output_path.name, "mask": job.mask.name if job.mask else None,
+                                   "instruction": job.instruction}
             sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))

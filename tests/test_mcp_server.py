@@ -149,7 +149,7 @@ def test_the_server_registers_every_tool():
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend", "blender_helpers",
                      "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
                      "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
-                     "usage_counts"}
+                     "usage_counts", "brush_back", "picture_status"}
 
 
 # --------------------------------------------------------------------------- create
@@ -800,3 +800,22 @@ def test_drawing_the_back_again_sends_a_fresh_seed_and_what_to_change(studio):
     assert settings["instruction"] == "a red cloak" and isinstance(settings["seed"], int)
     with pytest.raises(ms.StudioError, match="goes with up_to='back'"):
         ms.continue_asset(studio, asset_id=KNIGHT["id"], back_change="a red cloak")
+
+
+def test_brush_back_sends_the_back_the_mask_and_what_goes_there(studio, tmp_path):
+    knight = {**KNIGHT, "back": "images/k/k__back.png"}
+    studio.http.assets = [knight]
+    original = studio.http.post
+    studio.http.post = lambda url, files=None, **k: (studio.http.posts.append((url.split("8777/", 1)[1], files))
+                                                     or Response(202, {"job_id": "j1"}))
+    mask = tmp_path / "mask.png"
+    mask.write_bytes(b"PNG")
+    out = ms.brush_back(studio, asset_id=knight["id"], mask_path=str(mask), change=" a red satchel ")
+    path, files = studio.http.posts[-1]
+    assert path == "api/image/brush" and out["job_id"] == "j1"
+    assert files["picture"] == (None, "images/k/k__back.png") and files["instruction"] == (None, "a red satchel")
+    assert files["mask"][0] == "mask.png"
+    studio.http.post = original
+    studio.http.assets = [KNIGHT]
+    with pytest.raises(ms.StudioError, match="has no back picture"):
+        ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x")

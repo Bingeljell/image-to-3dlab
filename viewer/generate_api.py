@@ -8,6 +8,7 @@ the viewer server, running its tests, or serving Compare never imports torch.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -510,6 +511,39 @@ def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
     return {"ready": False, "shape_ready": False,
             "hint": "It needs one more download: Setup & Status, Front + back, "
                     "or python scripts/bootstrap_front_back.py."}
+
+
+BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
+
+
+def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = None):
+    """(picture, stroke, instruction, seed) from a brush request, or ValueError saying what is wrong.
+
+    Only a back picture in output/ may be brushed: the front is what the model was made from."""
+    from PIL import Image
+
+    def text(name: str) -> str:
+        return str((form.get(name) or {}).get("value") or "").strip()
+
+    picture = image_api.back_source(output_root or OUTPUT_ROOT, text("picture"))
+    if not picture.name.endswith("__back.png"):
+        raise ValueError("the brush works on a back picture")
+    instruction = text("instruction")
+    if not instruction:
+        raise ValueError("say what goes in the painted area")
+    mask = form.get("mask") or {}
+    if not mask.get("data"):
+        raise ValueError("paint over the part to change first")
+    try:
+        stroke = Image.open(io.BytesIO(mask["data"]))
+        stroke.load()
+    except Exception as exc:
+        raise ValueError(f"the painted area could not be read ({exc})") from exc
+    try:
+        seed = int(text("seed") or 42)
+    except ValueError:
+        seed = 42
+    return picture, stroke, instruction, seed
 
 
 def back_drawer_ready() -> bool:
@@ -2741,6 +2775,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "image", "back"]:
             self._create_back_job()
             return
+        if parts == ["api", "image", "brush"]:
+            self._create_brush_job()
+            return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "name":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2848,6 +2885,42 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             job = image_api.start_back(front, seed, engine, instruction)
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._send_json(202, {"job_id": job.id, "settings": job.settings,
+                              "events_url": f"/api/image/{job.id}/events",
+                              "status_url": f"/api/image/{job.id}/status"})
+
+    def _create_brush_job(self) -> None:
+        """Repaint the painted area of a back picture (multipart: picture, mask, instruction)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > BRUSH_UPLOAD_LIMIT:
+                raise ValueError("expected a picture path, a painted mask and what to change")
+            form = parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length))
+            picture, stroke, instruction, seed = brush_request(form)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        if not image_api.BINARY.exists():
+            self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
+            return
+        waiting = busy_reason("image")
+        if waiting:
+            self._send_json(409, {"error": waiting})
+            return
+        try:
+            image_api.check_ready(image_api.FLUX)
+        except image_api.MissingWeights as exc:
+            self._send_json(503, {"error": "The brush uses FLUX.2 klein. " + str(exc),
+                                  "needs_setup": True, "missing": exc.missing})
+            return
+        try:
+            job = image_api.start_brush(picture, stroke, instruction, seed)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return

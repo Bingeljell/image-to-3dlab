@@ -1990,3 +1990,33 @@ def test_a_backend_is_found_by_its_catalogue_id_too():
 def test_front_back_says_to_install_a_picture_engine_when_only_that_is_missing():
     status = api.front_back_status(lambda: (True, None), lambda: False)
     assert status["shape_ready"] and "FLUX.2 klein" in status["hint"]
+
+
+
+def _brush_form(picture, mask=True, instruction="a red satchel"):
+    import io as _io
+
+    from PIL import Image
+    form = {"picture": {"value": picture}, "instruction": {"value": instruction}}
+    if mask:
+        buffer = _io.BytesIO()
+        Image.new("L", (8, 8), 255).save(buffer, "PNG")
+        form["mask"] = {"filename": "mask.png", "data": buffer.getvalue()}
+    return form
+
+
+def test_a_brush_request_takes_only_a_back_picture_in_output(tmp_path):
+    folder = tmp_path / "images" / "orc"
+    folder.mkdir(parents=True)
+    (folder / "orc.png").write_bytes(b"front")
+    (folder / "orc__back.png").write_bytes(b"back")
+    picture, stroke, words, seed = api.brush_request(_brush_form("images/orc/orc__back.png"), tmp_path)
+    assert picture.name == "orc__back.png" and stroke.size == (8, 8) and words == "a red satchel" and seed == 42
+    with pytest.raises(ValueError, match="works on a back picture"):
+        api.brush_request(_brush_form("images/orc/orc.png"), tmp_path)
+    with pytest.raises(ValueError, match="not a picture in output"):
+        api.brush_request(_brush_form("../../etc/passwd"), tmp_path)
+    with pytest.raises(ValueError, match="paint over"):
+        api.brush_request(_brush_form("images/orc/orc__back.png", mask=False), tmp_path)
+    with pytest.raises(ValueError, match="say what goes"):
+        api.brush_request(_brush_form("images/orc/orc__back.png", instruction=" "), tmp_path)

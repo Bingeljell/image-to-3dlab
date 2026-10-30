@@ -71,7 +71,8 @@ STUDIO_ONLY = {
 }
 # Server actions the tools below call.
 USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report", "api/usage",
-        "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel"}
+        "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel",
+        "api/image/brush"}
 
 
 class StudioError(RuntimeError):
@@ -837,6 +838,33 @@ def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
             "tip": "files.model is each version's raw 3D model (before Finish); preview(stage='model') shows it."}
 
 
+def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str) -> dict[str, Any]:
+    """The studio's "Fix part of the back": repaint the white area of `mask_path` on the back picture."""
+    asset = find_asset(studio, asset_id, studio.get("api/assets")["assets"])
+    if not asset.get("back"):
+        raise StudioError(f"{asset.get('name')} has no back picture. continue_asset(up_to='back') draws one.")
+    if not change.strip():
+        raise StudioError("Say what goes in the painted area (change=...).")
+    mask = _upload(mask_path, (".png",))
+    start = studio.post("api/image/brush", data={"picture": asset["back"], "instruction": change.strip(),
+                                                 "seed": str(int.from_bytes(os.urandom(3), "big"))},
+                        files={"mask": mask})
+    return {"job_id": start["job_id"], "back": asset["back"],
+            "next": "Takes a couple of minutes: picture_status(job_id, wait_seconds=50) until done, then show the "
+                    "user the back (its file is `back` under output/). The old back is kept beside it."}
+
+
+def picture_status(studio: Studio, *, job_id: str, wait_seconds: int = 0,
+                   sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    """A picture job (a brushed back): its status, waiting up to `wait_seconds` for it to end."""
+    deadline = time.monotonic() + max(0, min(int(wait_seconds), 50))
+    while True:
+        job = studio.get(f"api/image/{job_id}/status")
+        if job.get("status") in {"done", "error", "cancelled"} or time.monotonic() >= deadline:
+            return {k: job.get(k) for k in ("status", "error", "picture", "elapsed_seconds")}
+        sleep(5)
+
+
 def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint",
             move: str | None = None, skin: str | None = None) -> tuple[bytes, dict[str, Any]]:
     params = ({"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
@@ -1155,6 +1183,19 @@ def build_server(studio: Studio | None = None):
         """Every version of one character or prop, oldest first: the same picture's 3D models,
         Finishes and rigs, each with its files (the raw 3D model too). Any version's id works."""
         return safe(lambda: list_versions(studio, asset_id=asset_id))
+
+    @server.tool(name="brush_back", structured_output=False)
+    def tool_brush_back(asset_id: str, mask_path: str, change: str):
+        """Fix part of a character's back picture: mask_path is a PNG the size of the back (or any size; it is
+        scaled), white where to repaint, black elsewhere. change: what goes there ("a dark red leather satchel").
+        Only the white area is redrawn (FLUX.2 klein); the rest stays pixel for pixel. Paint close around the part:
+        everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True)."""
+        return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change))
+
+    @server.tool(name="picture_status", structured_output=False)
+    def tool_picture_status(job_id: str, wait_seconds: int = 30):
+        """Status of a picture job started by brush_back; waits up to wait_seconds (max 50) for it to end."""
+        return safe(lambda: picture_status(studio, job_id=job_id, wait_seconds=wait_seconds))
 
     @server.tool(name="preview", structured_output=False)
     def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None,

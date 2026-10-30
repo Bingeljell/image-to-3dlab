@@ -42,7 +42,7 @@ STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
 UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}   # pictures Create keeps in images/uploads/
 # A front's back and its working files: the back, its reference, a redraw in progress, a replaced one.
-BACK_FILE = re.compile(r"__back(_reference|_new|_prev_[\d-]+)?$")
+BACK_FILE = re.compile(r"__back(_reference|_new|_prev_[\d-]+|_brush_mask|_brush_paste|_brush_init)?$")
 META_NAME = ".assets-meta.json"   # the user's own choices about assets, e.g. hidden ones
 ASSET_ID = re.compile(r"^[0-9a-f]{12}$")
 RECIPES = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "prompt_recipes.json"

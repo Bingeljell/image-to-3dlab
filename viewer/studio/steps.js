@@ -4,6 +4,7 @@
 import { followJob, plainError, statusUrlFor, jobEnd, copyDetails } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
+import { mountBrush, brushForm } from './brush.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -27,7 +28,7 @@ export function stepBody(stepId, asset, ctx) {
     const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
-    return another + backRedo(asset, ctx);
+    return another + backRedo(asset, ctx) + backBrush(asset, ctx);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -94,6 +95,42 @@ export function backRedo(asset, ctx) {
     `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="The satchel strap is thinner and the coat has no patches on the back"></textarea></label>
      <p class="hint">Say what you want to see, not what to remove: naming a thing tends to draw it.</p>
      <button class="primary" data-run="back">${title}</button>`);
+}
+
+/** The back picture's brush: needs a back and FLUX.2 klein (the engine it was tested on). */
+export function backBrush(asset, ctx) {
+  if (!asset.back) return '';
+  if (!(ctx.pictureEngines || []).some((e) => e.id === 'flux' && e.installed)) return '';
+  return `<details class="adv redo" data-brush><summary>Fix part of the back</summary>
+    <p class="hint">Paint over the part to change, then say what goes there. Only the painted part is drawn again;
+      the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.</p>
+    <div data-brush-canvas></div>
+    <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
+      <button type="button" class="ghost" data-brush-clear>Clear</button></div>
+    <label class="field">What goes there<textarea data-brush-text rows="2" maxlength="500" placeholder="A dark red leather satchel on a thin brown strap"></textarea></label>
+    <p class="error" data-brush-error hidden></p>
+    <button class="primary" data-brush-run>Repaint the painted part</button></details>`;
+}
+
+/** Make the brush box work: the canvas is built when it is first opened (it needs a width). */
+export function wireBrush(card, asset, ctx) {
+  const box = card.querySelector('[data-brush]');
+  if (!box) return;
+  let brush = null;
+  box.addEventListener('toggle', () => {
+    if (box.open && !brush) brush = mountBrush(box.querySelector('[data-brush-canvas]'), `${ctx.url(asset.back)}?v=${Date.now()}`);
+  });
+  const error = box.querySelector('[data-brush-error]');
+  const fail = (message) => { error.textContent = message; error.hidden = false; };
+  box.querySelector('[data-brush-size]').oninput = (e) => brush?.setSize(e.target.value);
+  box.querySelector('[data-brush-clear]').onclick = () => brush?.clear();
+  box.querySelector('[data-brush-run]').onclick = async () => {
+    const words = box.querySelector('[data-brush-text]').value.trim();
+    if (!brush?.painted()) return fail('Paint over the part to change first.');
+    if (!words) return fail('Say what goes in the painted part.');
+    const mask = await brush.maskBlob();
+    await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(asset.back, words, mask, freshSeed())) }), ctx, 'picture');
+  };
 }
 
 function redoBox(title, note, body) {

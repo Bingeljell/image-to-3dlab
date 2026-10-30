@@ -1151,3 +1151,25 @@ def test_draw_the_back_again_shows_for_a_front_and_plans_a_one_step_back_run():
         plain: 'instruction' in m.chainPlan('back', withBack, { change: '' }).backSettings }));""")
     assert out == {"again": True, "first": True, "none": "", "sheet": "", "steps": ["back"],
                    "made": {"picture": "images/a/a.png"}, "change": "a red cloak", "seeded": True, "plain": False}
+
+
+@needs_node
+def test_the_back_brush_shows_with_a_back_and_flux_and_maps_strokes_to_the_picture():
+    out = _run("steps.js", """
+      const flux = { pictureEngines: [{ id: 'flux', installed: true }] };
+      const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png' };
+      console.log(JSON.stringify([
+        m.backBrush(asset, flux).includes('Fix part of the back'),
+        m.backBrush({ ...asset, back: null }, flux),
+        m.backBrush(asset, { pictureEngines: [{ id: 'qwen', installed: true }] })]));""")
+    assert out == [True, "", ""]
+    point = _run("brush.js", "console.log(JSON.stringify(m.toPicture(100, 50, { w: 400, h: 400 }, { w: 1024, h: 1024 })));")
+    assert point == [256, 128]
+
+
+@needs_node
+def test_the_brush_form_is_what_the_server_reads():
+    out = _run("brush.js", """
+      const form = m.brushForm('images/a/a__back.png', 'a red satchel', new Blob(['x']), 7);
+      console.log(JSON.stringify([form.get('picture'), form.get('instruction'), form.get('seed'), form.get('mask').name]));""")
+    assert out == ["images/a/a__back.png", "a red satchel", "7", "mask.png"]

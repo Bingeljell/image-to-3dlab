@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Fix part of the back: paint over a spot on the back picture, say what goes there, and only that
+  spot is drawn again; the rest stays exactly as it was. Agents: `brush_back`.
 - Draw the back again: under the Picture step, a new try at the back picture, with an optional
   "what to change". The old back is kept. Agents: `continue_asset(up_to="back", again=True, back_change=...)`.
 - Bring your own back view: in Create, drop a back picture next to the front and Pixal3D builds

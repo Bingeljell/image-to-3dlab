@@ -131,6 +131,27 @@ def test_manifest_workflow_is_checked_before_a_working_dir(tmp_path, monkeypatch
     assert not (tmp_path / "out" / ".working").exists()
 
 
+def test_quality_download_uses_the_working_directory(tmp_path, monkeypatch):
+    manifest = _hunyuan_manifest(tmp_path, {
+        "1": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "tencent/Hunyuan3D-2.1"},
+        },
+    })
+    seen = {}
+
+    def fake_generate(self, image, workflow_path, output_dir, **_kwargs):
+        seen["output_dir"] = Path(output_dir)
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        asset = Path(output_dir) / "mesh.glb"
+        asset.write_bytes(b"glb")
+        return asset
+
+    monkeypatch.setattr("image_to_3dlab.comfyui_backend.ComfyUIClient.generate", fake_generate)
+    assert main(["--run-manifest", str(manifest)]) == 0
+    assert seen["output_dir"] == tmp_path / "out" / ".working"
+
+
 def test_unet_loader_workflow_does_not_get_a_tencent_sidecar(tmp_path, monkeypatch):
     manifest = _hunyuan_manifest(
         tmp_path,

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- A quality workflow with no reviewed checkpoint is refused, or recorded as unverified when the manifest allows it. It no longer inherits the Tencent licence. Manifests honour `commercial_intent` and `allow_research_only`, can name a `workflow`, and a bad TRELLIS material mode is rejected before generation.
 - The Mac TRELLIS patch no longer builds the BRIA background remover. An unpatched tree is refused before the model loads.
 - Generate no longer downloads model weights on its own. A route stays not ready until its weights are on disk, and the run cannot reach the hub. On a Mac, TRELLIS.2's Setup button downloads the weights after the port is built (it names the size and waits for yes) instead of fetching them on the first generate.
 - The generate commands (`pipeline.py --fast`, TRELLIS, Hunyuan, the input advisor) refuse when the weights are not already on disk. They name the backend, the route and the size, and they do not fetch.

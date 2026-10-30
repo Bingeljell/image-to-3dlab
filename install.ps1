@@ -51,6 +51,18 @@ if (-not $uv) {
 # 3. Code: clone, or update an existing install
 if (Test-Path (Join-Path $Dir ".git")) {
     Say "Updating the install in $Dir"
+    # Viewers up to 0.3.6 wrote learned ETA timings into this tracked file, which then
+    # blocked every update. Keep the timings where newer viewers look, and restore the file.
+    $Baseline = "viewer/generate_baseline.json"
+    if (git -C $Dir status --porcelain --untracked-files=no -- $Baseline) {
+        $out = Join-Path $Dir "output"
+        New-Item -ItemType Directory -Force -Path $out | Out-Null
+        $saved = Join-Path $out ".generate_baseline.json"
+        if (-not (Test-Path $saved)) {
+            Copy-Item (Join-Path $Dir $Baseline) $saved
+        }
+        git -C $Dir checkout --quiet -- $Baseline
+    }
     if (git -C $Dir status --porcelain --untracked-files=no) {
         Die "$Dir has local edits to tracked files. Commit or stash them, then run this again."
     }

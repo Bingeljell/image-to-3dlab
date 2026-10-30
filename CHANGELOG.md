@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- The Windows updater keeps learned timings and no longer stops because it rewrote its own baseline file.
 - The agent refuses to open a skin picture that is not inside the output folder.
 - The ComfyUI download writes into the working folder under a new name, so it does not replace a mesh that is already there.
 - Hunyuan exports write a licence sidecar beside the mesh. A shape-only file does not claim paint, and two paint runs no longer share one output file.

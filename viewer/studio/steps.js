@@ -113,7 +113,8 @@ export function backBrush(asset, ctx) {
   if (!(ctx.pictureEngines || []).some((e) => e.installed)) return '';
   return `<details class="adv redo" data-brush><summary>Fix part of the back</summary>
     <p class="hint">Paint over the part to change, then say what goes there. Only the painted part is drawn again;
-      the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.</p>
+      the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.
+      Say what should be there, not the change: "a leather strap from the shoulder to the belt", not "make the strap longer".</p>
     <div data-brush-canvas></div>
     <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
       <button type="button" class="ghost" data-brush-clear>Clear</button></div>

@@ -604,6 +604,20 @@ def test_the_paste_back_keeps_every_pixel_outside_the_brush(tmp_path):
         assert out.getpixel((30, 30)) == (200, 30, 30)            # inside: the new paint
 
 
+def test_the_engine_is_shown_the_picture_with_the_painted_area_blanked(tmp_path):
+    """Shown the old pixels, Flux drew them again: a strap stayed bare skin (2026-10-30)."""
+    from PIL import Image
+    back = _back(tmp_path)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "a leather strap")
+    command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert command[command.index("-r") + 1] == str(job.reference) != str(job.init)
+    with Image.open(job.reference) as guide, Image.open(job.mask) as mask:
+        assert guide.size == mask.size == (256, 256)
+        grey = (api.BRUSH_GUIDE_GREY,) * 3
+        assert guide.getpixel((120, 120)) == grey                 # painted: blanked
+        assert guide.getpixel((4, 4)) == (60, 120, 60)            # the rest: the picture itself
+
+
 def test_a_brush_job_starts_from_the_back_with_its_mask_and_keeps_the_old(tmp_path):
     back = _back(tmp_path)
     job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "  a red   satchel. ", seed=5)
@@ -620,7 +634,7 @@ def test_a_brush_job_starts_from_the_back_with_its_mask_and_keeps_the_old(tmp_pa
     assert command[command.index("-i") + 1] == str(job.init)
     assert command[command.index("--mask") + 1] == str(job.mask)
     assert command[command.index("--strength") + 1] == str(api.BRUSH_STRENGTH)
-    assert command[command.index("-r") + 1] == str(job.init)      # Flux sees the picture it repaints
+    assert command[command.index("-r") + 1] == str(job.reference)  # Flux sees the picture it repaints, blanked
 
 
 def test_an_empty_stroke_is_refused_before_anything_runs(tmp_path):

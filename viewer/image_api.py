@@ -112,6 +112,11 @@ BRUSH_STRENGTH = 0.9
 # gap was cut off in a hard line.
 BRUSH_GROW = 6
 BRUSH_FEATHER = 3
+# The guide picture the engine sees has the painted area filled with this grey. Shown the old
+# pixels there, Flux drew them again whatever the words said: a strap asked to reach the belt
+# came back as the same bare skin, at strength 0.9 and 1.0 alike (2026-10-30). With the area
+# blanked it drew the strap, and the rest of the guide still keeps the style.
+BRUSH_GUIDE_GREY = 200
 
 # "  |=====>    | 7/10 - 13.38s/it"
 PROGRESS = re.compile(r"\|\s*(\d+)/(\d+)\s*-\s*([\d.]+)s/it")
@@ -654,6 +659,14 @@ def opaque(path: Path):
         return opened.convert("RGB")
 
 
+def blank_guide(picture, mask):
+    """The picture the engine is shown: itself, with the area to redraw filled flat grey."""
+    from PIL import Image
+
+    grey = Image.new("RGB", picture.size, (BRUSH_GUIDE_GREY,) * 3)
+    return Image.composite(grey, picture.convert("RGB"), mask.convert("L").resize(picture.size))
+
+
 def paste_through(original: Path, drawn: Path, paste_mask: Path) -> None:
     """Keep the drawn picture only inside the brush: everything outside is the original's
     own pixels again. The model re-encodes the whole picture, which shifts every pixel a
@@ -702,8 +715,10 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
                 base.resize(work).save(init)
             mask = picture.with_name(f"{picture.stem}_brush_mask.png")
             paste = picture.with_name(f"{picture.stem}_brush_paste.png")
+            guide = picture.with_name(f"{picture.stem}_brush_guide.png")
             grown.save(mask)
             feathered.save(paste)
+            blank_guide(base.resize(work), grown).save(guide)
         except Exception:
             manager.finish(job)
             raise
@@ -712,8 +727,10 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
     # alone: told only the change, Flux filled the paint with it (2026-10-30); told the scene in
     # words, it drew what the words named (a lantern from the front's prompt). Flux always can;
     # Qwen with its vision projector. Without one, Qwen works from the words alone.
+    # It sees the picture with the painted area blanked (BRUSH_GUIDE_GREY), so it draws what the
+    # words ask for there rather than what was there before.
     if can_edit(engine):
-        job.reference = init
+        job.reference = guide
     job.instruction = " ".join(str(instruction or "").split())[:MAX_INSTRUCTION] or None
     return job
 

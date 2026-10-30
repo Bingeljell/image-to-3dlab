@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_joint_markers import send
+from blender_scene import isolated_scene_prelude, restore_previous_scene
 
 REGION_NAMES = ("head", "body", "tail")
 
@@ -78,13 +79,9 @@ TAIL_CUT = {tail_cut}
 REGIONS = ["head", "body", "tail"]
 
 t0 = time.time()
-
+{prelude}
 def _is_precious(o):
     return o.name.startswith("JOINT_") or o.type == "ARMATURE"
-
-for obj in list(bpy.data.objects):
-    if not _is_precious(obj):
-        bpy.data.objects.remove(obj, do_unlink=True)
 
 bpy.ops.import_scene.gltf(filepath=ASSET)
 mesh = [o for o in bpy.data.objects if o.type == "MESH" and not _is_precious(o)][0]
@@ -232,7 +229,19 @@ print(json.dumps({{
     "error": err,
     "seconds": round(time.time() - t0, 1),
 }}, indent=2))
-'''
+{restore}'''
+
+
+def blender_code(asset: Path, out_dir: Path, size: int, head_cut: float, tail_cut: float) -> str:
+    return TEMPLATE.format(
+        prelude=isolated_scene_prelude("IMG3D regions"),
+        restore=restore_previous_scene(),
+        asset=str(asset),
+        out_dir=str(out_dir),
+        size=size,
+        head_cut=head_cut,
+        tail_cut=tail_cut,
+    )
 
 
 def main() -> int:
@@ -256,10 +265,10 @@ def main() -> int:
         raise SystemExit("--head-cut must be greater than --tail-cut")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    code = TEMPLATE.format(
-        asset=str(args.asset.expanduser().resolve()),
-        out_dir=str(args.out_dir.expanduser().resolve()),
-        size=args.size, head_cut=args.head_cut, tail_cut=args.tail_cut,
+    code = blender_code(
+        args.asset.expanduser().resolve(),
+        args.out_dir.expanduser().resolve(),
+        args.size, args.head_cut, args.tail_cut,
     )
     print(send(code, args.host, args.port))
     return 0

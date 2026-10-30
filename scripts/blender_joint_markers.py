@@ -87,7 +87,7 @@ QUADRUPED_MARKERS: dict[str, tuple[float, float, float]] = {
 PREFIX = "JOINT_"
 
 
-def spawn_code(asset: Path) -> str:
+def spawn_code(asset: Path, confirm: bool = False) -> str:
     return f'''
 import bpy
 import json
@@ -96,15 +96,18 @@ from mathutils import Vector
 asset_path = {str(asset)!r}
 markers = {json.dumps(QUADRUPED_MARKERS)}
 prefix = {PREFIX!r}
+confirm = {confirm!r}
 
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-for prior in list(bpy.data.collections):
-    bpy.data.collections.remove(prior)
-try:
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
-except RuntimeError:
-    pass
+existing = [obj.name for obj in bpy.data.objects if obj.name.startswith(prefix)]
+if existing and not confirm:
+    raise RuntimeError(
+        "joint markers already in this file (" + ", ".join(existing)
+        + "). Re-run with --yes to replace the markers only."
+    )
+if confirm:
+    for obj in list(bpy.data.objects):
+        if obj.name.startswith(prefix):
+            bpy.data.objects.remove(obj, do_unlink=True)
 
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=asset_path)
@@ -229,12 +232,16 @@ def main() -> int:
     parser.add_argument("--asset", type=Path, help="GLB to import (spawn mode)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="replace JOINT_ markers already in the open file. Does not clear the rest.",
+    )
     args = parser.parse_args()
 
     if args.mode == "spawn":
         if args.asset is None:
             raise SystemExit("spawn requires --asset")
-        code = spawn_code(args.asset.expanduser().resolve())
+        code = spawn_code(args.asset.expanduser().resolve(), confirm=args.yes)
     elif args.mode == "load":
         if args.file is None:
             raise SystemExit("load requires --file")

@@ -122,6 +122,12 @@ def test_no_chunk_means_the_variable_is_not_set_at_all(tmp_path):
     assert gen.CHUNK_ENV not in fresh, "an empty value would be read as a chunk of zero rows"
 
 
+def test_turning_the_chunk_off_clears_a_leftover_value(tmp_path):
+    fresh = {gen.CHUNK_ENV: "1024"}
+    gen.configure_environment(tmp_path, chunk=0, environ=fresh)
+    assert gen.CHUNK_ENV not in fresh
+
+
 def test_the_expandable_segments_trap_the_nvidia_route_sets_is_not_set_here(tmp_path):
     """It has produced silent NaNs on ROCm, and a run that writes nothing is worse than a
     slow one. Its absence here is deliberate, so it is pinned."""
@@ -331,6 +337,24 @@ def _all_weights(vendor: Path, hub: Path) -> None:
     (dino / "model.safetensors").write_bytes(b"x")
     gen.realesrgan_path(vendor).parent.mkdir(parents=True)
     gen.realesrgan_path(vendor).write_bytes(b"x")
+
+
+def test_shape_weights_follow_the_chosen_models_folder(tmp_path, monkeypatch):
+    chosen = tmp_path / "chosen"
+    monkeypatch.setenv("ASSETFURNACE_MODELS", str(chosen))
+    vendor = tmp_path / "vendor" / "hunyuan-rocm"
+    monkeypatch.setattr(gen.bootstrap, "VENDOR", vendor)
+
+    wrong = vendor / "hunyuan-rocm" / "tencent" / "Hunyuan3D-2.1"
+    (wrong / "hunyuan3d-dit-v2-1").mkdir(parents=True)
+    (wrong / "hunyuan3d-vae-v2-1").mkdir()
+    missing = gen.missing_weights(vendor, tmp_path / "hub", shape_only=True)
+    assert any("shape" in line for line in missing)
+
+    right = chosen / "hunyuan-rocm" / "tencent" / "Hunyuan3D-2.1"
+    (right / "hunyuan3d-dit-v2-1").mkdir(parents=True)
+    (right / "hunyuan3d-vae-v2-1").mkdir()
+    assert gen.missing_weights(vendor, tmp_path / "hub", shape_only=True) == []
 
 
 def test_nothing_missing_means_nothing_to_refuse(tmp_path):

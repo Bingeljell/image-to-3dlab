@@ -1,7 +1,7 @@
 // The Steps panel's actions: each step's settings, its start call, and its progress card.
 // The job APIs live on the server; the studio sends them the asset's files. Prop sheets split here too.
 
-import { followJob, plainError, statusUrlFor, jobEnd, copyDetails } from './jobs.js';
+import { followJob, plainError, statusUrlFor, jobEnd, copyDetails, logScroll } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
 
@@ -287,7 +287,9 @@ async function runInCard(card, starter, ctx, stepId, note) {
       msg.textContent = `${event.message || event.phase || 'Working…'} · ${minutes}:${String(seconds).padStart(2, '0')}`;
       if (percent != null) bar.style.width = `${percent}%`;
       else bar.classList.add('busy');
+      const kept = { scrollTop: log.scrollTop, clientHeight: log.clientHeight, scrollHeight: log.scrollHeight };
       log.textContent = tail.split('\n').slice(-5).join('\n');
+      log.scrollTop = logScroll(kept, log.scrollHeight);
       card.classList.toggle('stalled', stalled);
       if (stalled && !body.querySelector('.stallnote')) msg.insertAdjacentHTML('afterend', '<p class="stallnote">No news from this step for a few minutes. It may be stuck: you can keep waiting or cancel.</p>');
     },

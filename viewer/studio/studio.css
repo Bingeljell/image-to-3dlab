@@ -209,7 +209,7 @@ input[type="range"] { accent-color: var(--ember); }
 .bigbar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #b4501c, var(--flame)); transition: width .4s; }
 .bigbar span.busy { width: 35%; animation: slide 1.4s ease-in-out infinite; }
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
-.log { margin: 0; max-height: 110px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: #0a0807; border: 1px solid var(--line); font: 400 11px/1.55 var(--f-num); color: #c9b9ad; white-space: pre-wrap; }
+.log { margin: 0; max-height: 110px; overflow: auto; overscroll-behavior: contain; padding: 8px 10px; border-radius: 8px; background: #0a0807; border: 1px solid var(--line); font: 400 11px/1.55 var(--f-num); color: #c9b9ad; white-space: pre-wrap; }
 .step.stalled { border-color: #f2c14e; }
 .stallnote { margin: 0; font-size: 12.5px; color: #f6dfa4; }
 body.busy .step .body [data-run] { opacity: .5; pointer-events: none; }
@@ -282,7 +282,12 @@ textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); bord
 /* Create progress in the viewer */
 .progress { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; padding: 24px; pointer-events: none; }
 .progress > * { pointer-events: auto; }
-.pcard { width: min(520px, 100%); background: rgb(23 18 15 / .94); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: grid; gap: 12px; }
+.pcard { position: relative; width: min(520px, 100%); background: rgb(23 18 15 / .94); border: 1px solid var(--line); border-radius: 16px; padding: 20px; display: grid; gap: 12px; cursor: grab; touch-action: none; }
+.pcard.placed { position: absolute; display: flex; flex-direction: column; overflow: hidden; margin: 0; }
+.pcard.placed .log { flex: 1; max-height: none; min-height: 0; }
+.pcard .log { cursor: text; touch-action: pan-y; }
+.pcard .grip { position: absolute; right: 6px; bottom: 6px; width: 18px; height: 18px; padding: 0; border: 0; background: linear-gradient(135deg, transparent 0 45%, var(--ash) 45% 55%, transparent 55% 70%, var(--ash) 70% 80%, transparent 80%); cursor: nwse-resize; touch-action: none; }
+.pcard .row.end { margin-right: 16px; }
 .pcard > img.glow { width: 40px; height: 40px; justify-self: center; }
 .progress.failed .pcard { border-color: #f07067; }
 .progress.stalled .pcard, .progress.stalled .pc { border-color: #f2c14e; }

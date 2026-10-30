@@ -92,6 +92,40 @@ export function followJob(statusUrl, { onUpdate, interval = 1200, fetchImpl = fe
 // engine chatter, and the picture model's tokenizer dumps (<|im_start|>, token lists with Ġ/Ċ markers)
 const NOISE = /\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+|<\|im_(start|end)\|>|\btokens \[|[\u0120\u010a]/i;
 
+/** Where a live log sits after its text is replaced.
+
+A reader at the bottom stays there, so a new line does not hide under the edge.
+A reader who scrolled up keeps that place. The first paint has no box, so it
+starts at the bottom. */
+export function logScroll(box, nextHeight) {
+  if (!box) return nextHeight;
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 2;
+  return atBottom ? nextHeight : box.scrollTop;
+}
+
+
+const CARD_MIN = { w: 280, h: 220 };
+
+/** Keep a progress card inside the viewer after a drag or a resize. */
+export function clampCard(box, bounds) {
+  const w = Math.min(Math.max(box.w, CARD_MIN.w), bounds.w);
+  const h = Math.min(Math.max(box.h, CARD_MIN.h), bounds.h);
+  return {
+    x: Math.min(Math.max(0, box.x), Math.max(0, bounds.w - w)),
+    y: Math.min(Math.max(0, box.y), Math.max(0, bounds.h - h)),
+    w, h,
+  };
+}
+
+export function moveBox(box, dx, dy, bounds) {
+  return clampCard({ ...box, x: box.x + dx, y: box.y + dy }, bounds);
+}
+
+export function resizeBox(box, dw, dh, bounds) {
+  return clampCard({ ...box, w: box.w + dw, h: box.h + dh }, bounds);
+}
+
+
 /** The last `count` lines of a log worth showing to a person. */
 export function readableLog(text, count = 4) {
   return String(text || '').split('\n').map((line) => line.trimEnd()).filter((line) => line && !NOISE.test(line)).slice(-count).join('\n');

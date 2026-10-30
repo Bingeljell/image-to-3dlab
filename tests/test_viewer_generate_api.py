@@ -163,15 +163,37 @@ def test_unready_mlx_never_makes_the_machine_look_unready(monkeypatch):
     """Generation works without mlx; the default sdpa path needs none of it.
 
     Folding mlx readiness into the top-level `ready` flag would block the Generate button
-    over an optional accelerator.
+    over an optional accelerator. Missing weights are a different question and are not
+    what this test is about.
     """
     monkeypatch.setattr(api, "mlx_attention_status",
                         lambda *a, **k: {"patched": False, "package": False, "ready": False, "hint": "x"})
     monkeypatch.setattr(api, "clean_port_build_present", lambda: True)
     monkeypatch.setattr(api, "weights_on_disk", lambda *a, **k: {})
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: ([], "16.5 GB"))
     status = api.setup_status()
     assert status["ready"] is True
     assert status["mlx_attention"]["ready"] is False
+
+
+def test_a_built_mac_trellis_with_no_weights_is_not_ready(monkeypatch):
+    """An empty weight cache must not count as ready. The first generate used to fetch it."""
+    monkeypatch.setattr(api, "clean_port_build_present", lambda: True)
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: (
+        ["TRELLIS.2-4B", "DINOv3 image encoder"], "16.5 GB"))
+    status = api.setup_status()
+    assert status["ready"] is False
+    assert "TRELLIS.2-4B" in status["missing_weights"]
+    warning = status["warning"] or ""
+    assert "TRELLIS" in warning and "16.5 GB" in warning and "Setup" in warning
+
+
+def test_generate_child_cannot_fetch_hub_weights(monkeypatch):
+    """A missed readiness check must not fall through to a hub download."""
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    for backend_id in ("trellis", "sf3d", "hunyuan-mlx"):
+        assert api.generate_child_env(backend_id)["HF_HUB_OFFLINE"] == "1"
+    assert api.generate_child_env("pixal3d").get("HF_HUB_OFFLINE") == "0"
 
 
 def test_overall_progress_is_stage_weighted():
@@ -1254,12 +1276,35 @@ def test_sf3d_on_amd_is_not_ready_without_its_weights(monkeypatch):
     monkeypatch.setattr(api, "SF3D_ROCM_MARKER", Path(__file__))
     monkeypatch.setattr(api, "SF3D_ROCM_PYTHON", Path(sys.executable))
     monkeypatch.setattr(api, "_sf3d_weights", lambda: [
-        {"label": "Stable Fast 3D", "present": False, "human_present": "0 B"},
-        {"label": "DINOv2 image encoder", "present": True, "human_present": "1.1 GB"}])
+        {"label": "Stable Fast 3D", "present": False, "human_present": "0 B",
+         "bytes_present": 0, "bytes_expected": 4},
+        {"label": "DINOv2 image encoder", "present": True, "human_present": "1.1 GB",
+         "bytes_present": 4, "bytes_expected": 4}])
     readiness = api._sf3d_readiness(api.AMD)
     assert readiness["ready"] is False
     assert readiness["missing_weights"] == ["Stable Fast 3D"]
     assert "--weights-only" in readiness["build"]["hint"]
+
+
+def test_sf3d_on_a_mac_is_not_ready_with_only_the_checkout(tmp_path, monkeypatch):
+    """system.py proves the code is there. It does not prove the weights are."""
+    checkout = tmp_path / "stable-fast-3d"
+    (checkout / "sf3d").mkdir(parents=True)
+    (checkout / "sf3d" / "system.py").write_text("installed\n")
+    monkeypatch.setattr(api, "SF3D_REPO_DEFAULT", checkout)
+    monkeypatch.setattr(api, "_sf3d_weights", lambda host=None: [
+        {"label": "Stable Fast 3D", "present": False, "human_present": "0 B", "note": "",
+         "bytes_present": 0, "bytes_expected": 4},
+        {"label": "DINOv2 image encoder", "present": False, "human_present": "0 B", "note": "",
+         "bytes_present": 0, "bytes_expected": 4},
+    ])
+    readiness = api._sf3d_readiness(api.APPLE)
+    assert readiness["ready"] is False
+    assert readiness["missing_weights"] == ["Stable Fast 3D", "DINOv2 image encoder"]
+    text = (readiness["build"]["hint"] or "") + (readiness.get("warning") or "")
+    assert "Setup" in text
+    assert "GB" in text or "MB" in text
+    assert "bootstrap_sf3d_rocm.py" not in text
 
 def test_sf3d_is_offered_on_an_amd_card_and_still_on_a_mac():
     import backend_catalog
@@ -1497,7 +1542,37 @@ def _cuda_install(tmp_path, monkeypatch, *, built=True, patched=True):
 
 def test_cuda_route_is_ready_when_built_and_patched(tmp_path, monkeypatch):
     _cuda_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: ([], "16.5 GB"))
     assert api.cuda_setup_status(api.NVIDIA)["ready"] is True
+
+
+def test_linux_trellis_is_not_ready_without_weights_or_a_local_pipeline(tmp_path, monkeypatch):
+    """Patched code and an empty cache still has nothing to load. pipeline.json is the
+    local tree; without it, and without the cache, generate would ask the hub."""
+    _cuda_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(api, "TRELLIS_CUDA_VENDOR", tmp_path / "no-tree")
+    monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: (
+        ["TRELLIS.2-4B"], "16.5 GB"))
+    status = api.cuda_setup_status(api.NVIDIA)
+    assert status["ready"] is False
+    warning = status["warning"] or ""
+    assert "16.5 GB" in warning and "Setup" in warning and "TRELLIS" in warning
+
+
+def test_linux_trellis_with_a_local_pipeline_does_not_need_the_cache(tmp_path, monkeypatch):
+    _cuda_install(tmp_path, monkeypatch)
+    vendor = tmp_path / "trellis-cuda"
+    tree = vendor / "models" / "TRELLIS.2-4B"
+    tree.mkdir(parents=True)
+    (tree / "pipeline.json").write_text("{}\n")
+    monkeypatch.setattr(api, "TRELLIS_CUDA_VENDOR", vendor)
+    monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: (
+        ["TRELLIS.2-4B"], "16.5 GB"))
+    status = api.cuda_setup_status(api.NVIDIA)
+    assert status["ready"] is True
+    assert status["warning"] is None
 
 
 def test_cuda_route_is_not_ready_without_the_bria_patch(tmp_path, monkeypatch):
@@ -1554,6 +1629,7 @@ def test_the_rocm_route_is_not_ready_without_aule_installed(tmp_path, monkeypatc
 
     vendor = _rocm_install(tmp_path, monkeypatch)
     monkeypatch.setattr(patch_trellis_rocm, "is_patched", lambda root: True)
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: ([], "16.5 GB"))
     status = api.cuda_setup_status(api.AMD)
     assert status["ready"] is False
     assert "aule" in status["build"]["hint"]
@@ -1565,9 +1641,28 @@ def test_the_rocm_route_is_not_ready_without_aule_installed(tmp_path, monkeypatc
 
 def test_the_nvidia_route_is_not_asked_about_aule(tmp_path, monkeypatch):
     _cuda_install(tmp_path, monkeypatch)
+    monkeypatch.setattr(api, "trellis_weight_gap", lambda host=None: ([], "16.5 GB"))
     monkeypatch.setattr(api, "trellis_rocm_attention_problem",
                         lambda *a: pytest.fail("asked an NVIDIA card about aule"))
     assert api.cuda_setup_status(api.NVIDIA)["ready"] is True
+
+
+def test_dgrauet_hunyuan_is_not_ready_without_its_shape_repo(tmp_path, monkeypatch):
+    """The paint weights and the shape venv do not stand in for the shape model."""
+    marker = tmp_path / "python"
+    marker.write_text("")
+    paint = tmp_path / "paint-weights"
+    paint.mkdir()
+    monkeypatch.setattr(api, "HUNYUAN_PYTHON", marker)
+    monkeypatch.setattr(api, "HUNYUAN_WRAPPER", marker)
+    monkeypatch.setattr(api, "HUNYUAN_PAINT_VENV", marker)
+    monkeypatch.setattr(api, "HUNYUAN_PAINT_WEIGHTS", paint)
+    monkeypatch.setattr(api, "HUNYUAN_SHAPE_REPO", tmp_path / "missing-shape-repo")
+    readiness = api._hunyuan_readiness()
+    assert readiness["ready"] is False
+    text = (readiness["build"]["hint"] or "") + (readiness.get("warning") or "")
+    assert "Setup" in text
+    assert "GB" in text
 
 
 def test_bria_patch_probe_reads_the_real_checkout_rule(tmp_path):

@@ -297,6 +297,8 @@ BACKEND_ENV_KEYS = (
 )
 
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
+# dgrauet's shape weights. from_pretrained("dgrauet/hunyuan3d-2.1-mlx") reads this cache.
+HUNYUAN_SHAPE_REPO = HF_HUB_DIR / "models--dgrauet--hunyuan3d-2.1-mlx"
 WEIGHT_REPOS = (
     ("models--microsoft--TRELLIS.2-4B", "TRELLIS.2-4B weights"),
     ("models--facebook--dinov3-vitl16-pretrain-lvd1689m", "DINOv3 image encoder"),
@@ -318,6 +320,63 @@ def _job_env() -> dict[str, str]:
     for key in BACKEND_ENV_KEYS:
         env.pop(key, None)
     return env
+
+
+# Routes whose generator calls from_pretrained on a hub id when the files are absent.
+# The child is pinned offline so a missed readiness check cannot fetch. Setup's download
+# is the fetch, and it does not use this env.
+HUB_OFFLINE_ROUTES = frozenset({"trellis", "sf3d", "hunyuan-mlx"})
+
+
+def generate_child_env(backend_id: str) -> dict[str, str]:
+    """Environment for one generate child. These routes cannot reach the hub."""
+    env = _job_env()
+    if backend_id in HUB_OFFLINE_ROUTES:
+        env["HF_HUB_OFFLINE"] = "1"
+    return env
+
+
+def weights_needed(label: str, route: str, size: str) -> str:
+    """The sentence a not-ready card shows. Names the backend, the route and the size."""
+    return (f"{label} ({route}) needs its weights ({size}) before a run. "
+            "Download them from Setup & Status. Generation does not fetch them.")
+
+
+def weight_blocks_generate(weight: dict[str, Any]) -> bool:
+    """True when this catalogue row is not on disk in enough of a copy to run.
+
+    Advisory rows (the note says so) do not block. Rows that already carry byte counts
+    use the catalogue's 85% floor. Rows that only say present or not are taken at that.
+    """
+    if "Advisory only" in (weight.get("note") or ""):
+        return False
+    if "bytes_expected" in weight and "bytes_present" in weight:
+        expected = weight["bytes_expected"]
+        if expected <= 0:
+            return False
+        return weight["bytes_present"] < expected * 0.85
+    return not weight.get("present")
+
+
+def trellis_weight_gap(host: str | None = None) -> tuple[list[str], str]:
+    """Labels still short of the catalogue, and the size the card states."""
+    described = backend_catalog.BY_ID["trellis"].describe(host or host_platform())
+    missing = [w["label"] for w in described["weights"] if weight_blocks_generate(w)]
+    return missing, described["human_expected"]
+
+
+def linux_trellis_pipeline_present(host: str | None = None) -> bool:
+    """True when this card has a local TRELLIS.2 tree with pipeline.json.
+
+    That file is what makes the generator load the directory instead of the hub id.
+    Bytes in a folder that has no pipeline.json do not stop the hub call.
+    """
+    on_amd = (host or host_platform()) == AMD
+    vendor = TRELLIS_ROCM_VENDOR if on_amd else TRELLIS_CUDA_VENDOR
+    if (vendor / "models" / "TRELLIS.2-4B" / "pipeline.json").is_file():
+        return True
+    named = os.environ.get("I2L_TRELLIS_MODEL_PATH")
+    return bool(named and (Path(named) / "pipeline.json").is_file())
 
 
 def attention_backend_spec(choice: str) -> tuple[str, dict[str, str]]:
@@ -532,7 +591,8 @@ def setup_status() -> dict[str, Any]:
     """Machine readiness for the clean-port generator, for the Generate > Setup card."""
     build_present = clean_port_build_present()
     weights = weights_on_disk()
-    missing = [w["label"] for w in weights.values() if not w["present"]]
+    missing, size = trellis_weight_gap(APPLE)
+    warning = weights_needed("TRELLIS.2", "Mac clean port", size) if build_present and missing else None
     return {
         "schema_version": 1,
         "build": {
@@ -551,8 +611,8 @@ def setup_status() -> dict[str, Any]:
         # Advisory only: the default sdpa path works without it, so an unready mlx backend
         # must never make the machine look unready for generation.
         "mlx_attention": mlx_attention_status(),
-        "ready": build_present,
-        "warning": "first use will download missing weights" if missing else None,
+        "ready": build_present and not missing,
+        "warning": warning,
     }
 
 
@@ -608,7 +668,12 @@ def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
     # as far as the first attention and dies there.
     attention = trellis_rocm_attention_problem(vendor) if on_amd and built else None
     weights = weights_on_disk()
-    missing = [w["label"] for w in weights.values() if not w["present"]]
+    card_host = AMD if on_amd else NVIDIA
+    missing, size = trellis_weight_gap(card_host)
+    # A local pipeline.json is the tree the generator loads. Without it the hub id is
+    # used, and only a filled cache keeps that from downloading.
+    if linux_trellis_pipeline_present(card_host):
+        missing = []
     hint = None
     if not built:
         hint = (f"TRELLIS.2 for {card} is not installed. Set it up from Setup & Status, or "
@@ -618,7 +683,8 @@ def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
                 "python scripts/patch_trellis_cuda_no_bria.py first.")
     elif attention:
         hint = attention
-    ready = built and patched and not attention
+    code_ready = built and patched and not attention
+    ready = code_ready and not missing
     return {
         "schema_version": 1,
         "build": {"present": ready, "interpreter": str(python),
@@ -627,7 +693,7 @@ def cuda_setup_status(host: str | None = None) -> dict[str, Any]:
         "missing_weights": missing,
         "bria_patched": patched,
         "ready": ready,
-        "warning": "first use will download missing weights" if missing else None,
+        "warning": (weights_needed("TRELLIS.2", card, size) if code_ready and missing else None),
     }
 
 
@@ -642,7 +708,7 @@ def run_trellis_input_advisor(image_path: Path) -> dict[str, Any]:
         result = subprocess.run(
             [str(python), str(TINYCLIP_ADVISOR), str(image_path)],
             cwd=REPO,
-            env=_job_env(),
+            env=generate_child_env("trellis"),
             check=True,
             capture_output=True,
             timeout=TINYCLIP_TIMEOUT_SECONDS,
@@ -1473,7 +1539,7 @@ def failure_reason(log_lines, limit: int = 6) -> str | None:
 def _run_job(job: Job) -> None:
     spec = BACKENDS[job.backend_id]
     args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
-    env = _job_env()
+    env = generate_child_env(job.backend_id)
     if job.backend_id == "trellis" and spec.wrapper == WRAPPER:
         env.update(attention_backend_spec(job.settings["sparse_attn_backend"])[1])
     try:
@@ -1649,11 +1715,11 @@ def _sf3d_parse_line(job: Job, line: str) -> None:
         job.emit({"phase": "running", "message": stripped[:200]})
 
 
-def _sf3d_weights() -> list[dict[str, Any]]:
+def _sf3d_weights(host: str | None = None) -> list[dict[str, Any]]:
     """SF3D's weights as the Setup card counts them, so the two screens agree."""
     import backend_catalog
 
-    return backend_catalog.BY_ID["sf3d"].describe(AMD)["weights"]
+    return backend_catalog.BY_ID["sf3d"].describe(host or AMD)["weights"]
 
 
 def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
@@ -1668,8 +1734,9 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
         present = SF3D_ROCM_MARKER.is_file() and SF3D_ROCM_PYTHON.is_file()
         # The weights too: a code-only install (or one stopped by the gated licence) would
         # otherwise start a run, and SF3D would fetch ~4.9 GB that nobody agreed to.
-        weights = {w["label"]: {"label": w["label"], "present": w["present"],
-                                "human": w["human_present"]} for w in _sf3d_weights()}
+        rows = _sf3d_weights()
+        weights = {w["label"]: {"label": w["label"], "present": not weight_blocks_generate(w),
+                                "human": w.get("human_present", "")} for w in rows}
         missing = [label for label, w in weights.items() if not w["present"]]
         hint = None
         if not present:
@@ -1686,19 +1753,26 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
             "ready": present and not missing, "warning": None,
         }
     present = (SF3D_REPO_DEFAULT / "sf3d" / "system.py").is_file()
+    rows = _sf3d_weights(APPLE)
+    weights = {w["label"]: {"label": w["label"], "present": not weight_blocks_generate(w),
+                            "human": w.get("human_present", "")} for w in rows}
+    missing = [label for label, w in weights.items() if not w["present"]]
+    hint = None
+    warning = None
+    if not present:
+        hint = (f"SF3D checkout not found at {SF3D_REPO_DEFAULT} — "
+                "run scripts/bootstrap_macos.sh first.")
+    elif missing:
+        size = backend_catalog.BY_ID["sf3d"].describe(APPLE)["human_expected"]
+        warning = weights_needed("Stable Fast 3D", "Mac", size)
+        hint = warning
     return {
         "schema_version": 1,
-        "build": {
-            "present": present,
-            "hint": None if present else (
-                f"SF3D checkout not found at {SF3D_REPO_DEFAULT} — "
-                "run scripts/bootstrap_macos.sh first."
-            ),
-        },
-        "weights": {},
-        "missing_weights": [],
-        "ready": present,
-        "warning": None,
+        "build": {"present": present, "hint": hint},
+        "weights": weights,
+        "missing_weights": missing,
+        "ready": present and not missing,
+        "warning": warning,
     }
 
 
@@ -1830,7 +1904,11 @@ def _hunyuan_readiness() -> dict[str, Any]:
     shape_ok = HUNYUAN_PYTHON.is_file() and HUNYUAN_WRAPPER.is_file()
     paint_venv_ok = HUNYUAN_PAINT_VENV.is_file()
     weights_ok = HUNYUAN_PAINT_WEIGHTS.is_dir()
-    ready = shape_ok and paint_venv_ok and weights_ok
+    shape_repo_ok = _dir_state(HUNYUAN_SHAPE_REPO)[0]
+    shape_weight = next(w for w in backend_catalog.BY_ID["hunyuan-mlx"].weights
+                        if w.source == "dgrauet/hunyuan3d-2.1-mlx")
+    shape_size = backend_catalog.human_bytes(shape_weight.bytes_expected)
+    ready = shape_ok and paint_venv_ok and weights_ok and shape_repo_ok
     missing = []
     if not shape_ok:
         missing.append("shape venv/wrapper (vendor/hunyuan-mlx, scripts/hunyuan_mlx_generate.py)")
@@ -1838,6 +1916,10 @@ def _hunyuan_readiness() -> dict[str, Any]:
         missing.append("paint venv (hunyuan_mlx/paint/.venv)")
     if not weights_ok:
         missing.append("paint weights (hunyuan_mlx/paint/weights/hunyuan3d-paintpbr-v2-1)")
+    if not shape_repo_ok:
+        missing.append(f"shape weights (dgrauet/hunyuan3d-2.1-mlx, {shape_size})")
+    warning = (weights_needed("Hunyuan3D-MLX", "dgrauet shape", shape_size)
+               if not shape_repo_ok else None)
     return {
         "schema_version": 1,
         "build": {
@@ -1853,7 +1935,7 @@ def _hunyuan_readiness() -> dict[str, Any]:
         "weights": {},
         "missing_weights": missing,
         "ready": ready,
-        "warning": None,
+        "warning": warning,
     }
 
 

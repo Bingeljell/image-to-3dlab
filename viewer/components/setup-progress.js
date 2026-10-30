@@ -32,6 +32,9 @@ export function panelState(event) {
 export function setupVerb(backend, action) {
   if (action === 'rebuild') return 'Rebuilding';
   if (backend && !backend.build_present) return 'Setting up';
+  // A download is a download even when the code bootstrap itself fetches nothing.
+  // That is the Mac TRELLIS weight button, which runs after the port is built.
+  if (action === 'download' || action === 'resume') return 'Downloading';
   return backend && backend.setup_fetches_weights ? 'Downloading' : 'Building';
 }
 

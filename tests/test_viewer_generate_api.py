@@ -1256,7 +1256,8 @@ def test_sf3d_readiness_proves_the_right_install_for_each_machine(monkeypatch):
     assert amd["ready"] is False and apple["ready"] is False
     # Each hint names its own installer, so "not installed" is actionable.
     assert "bootstrap_sf3d_rocm.py" in amd["build"]["hint"]
-    assert "bootstrap_macos.sh" in apple["build"]["hint"]
+    assert "bootstrap_sf3d.py" in apple["build"]["hint"]
+    assert "bootstrap_macos.sh" not in apple["build"]["hint"]
     assert "bootstrap_sf3d_rocm.py" not in apple["build"]["hint"]
 
     # And when it is installed, AMD proves it from its venv rather than from the checkout

@@ -27,13 +27,11 @@ REGISTRY = SCRIPTS / "README.md"
 #: checked for presence.
 NON_PYTHON = {
     "bootstrap_macos.sh": (
-        "Create the project virtualenv and install the SF3D backend and its native "
-        "dependencies (needs Python 3.10/3.11 and Homebrew's libomp)."
+        "Hand off to bootstrap_sf3d.py, which installs Stable Fast 3D and asks before "
+        "fetching weights."
     ),
     "bootstrap_trellis_macos.sh": (
-        "Clone and install the `shivampkumar/trellis-mac` port, with the Metal "
-        "acceleration backends when Xcode's Metal compiler is present and a slower CPU "
-        "bake fallback when it is not."
+        "Hand off to bootstrap_trellis_space_macos.py, the pinned Mac TRELLIS installer."
     ),
     "rebuild_metallib.sh": (
         "Recompile and install cumesh's Metal shader library after patching a `.metal` "

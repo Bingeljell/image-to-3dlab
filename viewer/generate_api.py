@@ -1887,7 +1887,7 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
     warning = None
     if not present:
         hint = (f"SF3D checkout not found at {SF3D_REPO_DEFAULT} — "
-                "run scripts/bootstrap_macos.sh first.")
+                "run python scripts/bootstrap_sf3d.py first.")
     elif missing:
         size = backend_catalog.BY_ID["sf3d"].describe(APPLE)["human_expected"]
         warning = weights_needed("Stable Fast 3D", "Mac", size)

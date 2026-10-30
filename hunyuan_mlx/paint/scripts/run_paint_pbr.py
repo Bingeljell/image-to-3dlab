@@ -19,7 +19,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import mlx.core as mx
-from mlx.utils import tree_unflatten
 from hy3dpaint_mlx.vae import AutoencoderKL
 from hy3dpaint_mlx.unet2p5d_pbr import UNet2p5DPBRConditionModel
 from hy3dpaint_mlx.dinov2 import Dinov2Model
@@ -97,9 +96,7 @@ def main():
     unet = UNet2p5DPBRConditionModel(json.load(open(f"{PBR}/unet/config.json")))
     load_torch_weights(unet, mx.load(f"{PBR}/unet/diffusion_pytorch_model.safetensors"))
     dino = Dinov2Model()
-    dino.update(tree_unflatten([(k, (v.transpose(0, 2, 3, 1) if v.ndim == 4 else v))
-                                for k, v in mx.load(f"{PBR}/dinov2/model.safetensors").items()]))
-    mx.eval(dino.parameters())
+    load_torch_weights(dino, mx.load(f"{PBR}/dinov2/model.safetensors"))
     print(f"models loaded ({time.time()-t0:.0f}s)")
 
     mesh = trimesh.load(MESH, force="mesh")

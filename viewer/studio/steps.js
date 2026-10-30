@@ -185,7 +185,7 @@ export function backVersions(asset) {
 
 /** The list inside Back versions, from the server's /api/image/versions. `url` makes a file's link. */
 export function versionsList(payload, url, stamp = Date.now()) {
-  const shot = (v) => `<img src="${esc(url(v.file))}?v=${stamp}" alt="" loading="lazy">`;
+  const shot = (v) => `<img src="${esc(url(v.file))}?v=${stamp}" alt="Show it big" title="Show it big" data-show="${esc(v.file)}" loading="lazy">`;
   const note = (v) => `<span class="vnote">${esc(v.note || 'Drawn')}</span>`;
   const rows = [`<li class="current">${shot(payload.current)}<span>${note(payload.current)}<b>In use</b></span></li>`]
     .concat((payload.versions || []).map((v) => `<li data-file="${esc(v.file)}">${shot(v)}<span>${note(v)}
@@ -212,10 +212,16 @@ export function wireVersions(card, asset, ctx) {
       body: JSON.stringify({ back: asset.back, version: file }) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) return fail(payload.error || `Could not ${action} it.`);
-    if (action === 'use') await ctx.onDone?.('picture'); else render(payload);   // a new back: redraw the page
+    if (action !== 'use') return render(payload);
+    // a new back: the page is drawn again, so open this box again there and show the back in use
+    await ctx.onDone?.('picture');
+    const again = document.querySelector('[data-step="picture"] [data-versions]');
+    if (again) again.open = true;
+    ctx.showBack?.(asset.back);
   };
   box.addEventListener('toggle', load);
   list.addEventListener('click', (event) => {
+    if (event.target.matches('[data-show]')) return ctx.showBack?.(event.target.dataset.show);
     const row = event.target.closest('li[data-file]');
     if (!row) return;
     if (event.target.matches('[data-use]')) change('use', row.dataset.file);

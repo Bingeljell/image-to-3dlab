@@ -397,7 +397,7 @@ img.glow { animation: doorglow 2.4s ease-in-out infinite; }
 .usage-notice .row > * { font-size: 12px; padding: 3px 9px; }
 .versions { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
 .versions li { display: flex; gap: 10px; align-items: center; }
-.versions img { width: 72px; height: 72px; object-fit: contain; border-radius: 6px; background: #ececec; flex: none; }
+.versions img { width: 72px; height: 72px; object-fit: contain; border-radius: 6px; background: #ececec; flex: none; cursor: zoom-in; }
 .versions li > span { display: grid; gap: 4px; min-width: 0; }
 .versions .vnote { font-size: 12px; overflow-wrap: anywhere; }
 .versions .current b { font-size: 11px; color: var(--ember); }

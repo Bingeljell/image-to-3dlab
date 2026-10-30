@@ -135,7 +135,7 @@ function renderSteps(asset) {
     viewingStep = null;
     viewer.setClips([]);
     // the back keeps its name when drawn again, so ask past the browser's copy
-    viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? `${url(asset.back)}?v=${Date.now()}` : null);
+    viewer.showImage(fresh(asset.picture), 'What the model was made from.', asset.back ? fresh(asset.back) : null);
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
@@ -265,6 +265,9 @@ $('copyPathBtn').addEventListener('click', async (event) => {
   setTimeout(() => { button.textContent = 'Copy path'; }, 1500);
 });
 
+// A picture redrawn, brushed or swapped keeps its file name: ask past the browser's copy
+const fresh = (relative) => `${url(relative)}?v=${Date.now()}`;
+
 // what the step actions need from the page
 const ctx = {
   get engines() { return engines; },
@@ -274,6 +277,16 @@ const ctx = {
   get pictureEngines() { return pictureEngines; },
   url: (relative) => url(relative),
   stage: () => $('stage'),
+  // one back (a kept version, or the one in use) full size, beside the front
+  showBack: (file) => {
+    if (!current?.picture) return;
+    viewingPictures = true;
+    viewingStep = null;
+    viewer.setClips([]);
+    viewer.showImage(fresh(current.picture), file === current.back ? 'The back in use.' : 'A kept version of the back.', fresh(file));
+    const toggle = $('steps').querySelector('[data-pictures]');
+    if (toggle) toggle.textContent = 'Show model';
+  },
   asset: () => current,
   // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
   // up, and the server runs one big job at a time whoever starts it
@@ -324,8 +337,8 @@ function show(asset) {
     if (model) viewer.load(url(model), { label: asset.name });
     else if (asset.picture) {
       const inRun = making && !making.finished && !making.failed && making.made?.picture === asset.picture;
-      viewer.showImage(url(asset.picture), inRun ? 'Being made into 3D now. Its progress is above.'
-        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? url(asset.back) : null);
+      viewer.showImage(fresh(asset.picture), inRun ? 'Being made into 3D now. Its progress is above.'
+        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? fresh(asset.back) : null);
     }
     else viewer.showEmpty('Nothing to show for this asset yet.');
   }

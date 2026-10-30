@@ -1237,3 +1237,12 @@ def test_the_picture_brush_shows_only_until_a_model_is_made_and_warns_about_the_
         m.frontBrush(fresh, { pictureEngines: [] }),
         body.includes('Fix part of the picture')]));""")
     assert out == [True, True, False, True, "", "", True]
+
+
+@needs_node
+def test_every_back_version_thumbnail_can_be_shown_big():
+    """Clicking a version did nothing; people expect to see it (user, 2026-10-30)."""
+    out = _run("steps.js", """
+      const html = m.versionsList({ current: { file: 'a__back.png' }, versions: [{ file: 'a__back_prev_1.png' }] }, (f) => f, 1);
+      console.log(JSON.stringify([html.includes('data-show="a__back.png"'), html.includes('data-show="a__back_prev_1.png"')]));""")
+    assert out == [True, True]

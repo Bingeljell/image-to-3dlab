@@ -12,6 +12,7 @@ silently counting flipped faces.
 from __future__ import annotations
 
 import importlib.util
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -110,7 +111,11 @@ def test_single_triangle_has_three_boundary_edges():
         faces=np.array([[0, 1, 2]]),
         process=False,
     )
-    assert gf.geometry_summary(mesh)["boundary_edges"] == 3
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        summary = gf.geometry_summary(mesh)
+    assert summary["boundary_edges"] == 3
+    assert summary["volume"] == 0
 
 
 def test_boundary_count_ignores_uv_seam_splits():

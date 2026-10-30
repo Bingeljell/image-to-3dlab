@@ -69,6 +69,22 @@ def material_summary(gltf: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def signed_volume(mesh) -> float:
+    """Signed volume of the triangle fan.
+
+    Matches trimesh on a closed box, including a reversed winding. A flat
+    mesh is 0. trimesh's own volume divides by this number and warns then.
+    """
+    import numpy as np
+
+    triangles = np.asarray(mesh.triangles, dtype=np.float64)
+    if len(triangles) == 0:
+        return 0.0
+    v0 = triangles[:, 0]
+    crossed = np.cross(triangles[:, 1], triangles[:, 2])
+    return float(np.einsum("ij,ij->i", v0, crossed).sum() / 6.0)
+
+
 def geometry_summary(mesh) -> dict[str, Any]:
     """Topology and shape statistics for one trimesh geometry.
 
@@ -98,7 +114,7 @@ def geometry_summary(mesh) -> dict[str, Any]:
     # These four describe the position-merged surface. The file's own vertex
     # list is still split at every texture seam, and reading them from that
     # copy reports a closed shape as open.
-    volume = float(merged.volume)
+    volume = signed_volume(merged)
     if not np.isfinite(volume):
         volume = None
 

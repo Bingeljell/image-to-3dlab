@@ -825,3 +825,40 @@ def test_a_qwen_brush_sees_the_picture_when_its_projector_is_there(tmp_path, mon
     command = api.job_command(job, WEIGHTS, projector, binary=Path("/bin/sd-cli"))
     assert job.engine is api.QWEN and "--mask" in command
     assert ("-r" in command) is sees and ("--llm_vision" in command) is sees
+
+@pytest.mark.parametrize("ends", ["done", "error"])
+def test_a_brush_leaves_no_working_files_however_it_ends(tmp_path, monkeypatch, ends):
+    """Review of #202 (2026-10-31): mask, paste, guide and init stayed beside the picture."""
+    from PIL import Image
+    front = tmp_path / "uploads" / "orc.png"
+    front.parent.mkdir()
+    Image.new("RGBA", (64, 64), (60, 120, 60, 255)).save(front)   # RGBA: an init copy is made too
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_brush_job(manager, front, _stroke(), "a leather strap", keep_old=False)
+    assert job.scratch and all(p.exists() for p in job.scratch)
+    if ends == "done":
+        _finish_brush(job, manager, monkeypatch)
+    else:
+        class Fails:
+            def __init__(self, cmd, **k):
+                self.stdout = __import__("io").BytesIO(b"boom\n")
+            def wait(self): return 1
+            def poll(self): return 1
+        monkeypatch.setattr(api.subprocess, "Popen", Fails)
+        api.run_job(job, manager, weights=WEIGHTS)
+        assert job.status == "error"
+    assert not any(p.exists() for p in job.scratch)
+    assert sorted(p.name for p in front.parent.iterdir() if p.suffix == ".png") == ["orc.png"]
+
+
+def test_two_swaps_in_one_second_keep_both_old_pictures(tmp_path):
+    """Review of #202: take_place named the kept copy by the second, so a second swap overwrote it."""
+    final = tmp_path / "orc__back.png"
+    final.write_bytes(b"first")
+    for content in (b"second", b"third"):
+        new = tmp_path / "orc__back_new.png"
+        new.write_bytes(content)
+        api.take_place(new, final, stamp="20261031-120000")
+    kept = sorted(p.read_bytes() for p in tmp_path.glob("orc__back_prev_*.png"))
+    assert kept == [b"first", b"second"] and final.read_bytes() == b"third"
+    assert len(api.back_versions(final)) == 2

@@ -514,3 +514,16 @@ def test_the_delete_endpoints_preview_first_and_need_a_confirmation(output, monk
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_brushed_front_upload_leaves_no_ghost_pictures(output):
+    """Review of #202 (2026-10-31): a front's brush files showed up in the Library as pictures."""
+    up = output / "images" / "uploads"
+    _write(up / "my-orc__1a2b3c4d.png", b"uploaded", 7000)
+    _write(up / "my-orc__1a2b3c4d_new.png", b"new", 7010)
+    for part in ("mask", "paste", "init", "guide"):
+        _write(up / f"my-orc__1a2b3c4d_brush_{part}.png", b"brush", 7010)
+    _write(up / "brand_new.png", b"a real upload that ends in _new", 7020)   # no brand.png beside it
+    pictures = [a.get("picture") or "" for a in aa.list_assets(output)]
+    assert "images/uploads/my-orc__1a2b3c4d.png" in pictures and "images/uploads/brand_new.png" in pictures
+    assert not [p for p in pictures if "_brush_" in p or p.endswith("__1a2b3c4d_new.png")]

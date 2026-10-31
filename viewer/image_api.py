@@ -41,7 +41,7 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -485,6 +485,7 @@ class ImageJob:
     instruction: str | None = None  # what the person asked to change, for the record
     init: Path | None = None        # a brush: the picture it starts from
     mask: Path | None = None        # ...the area it may redraw (white), as the model sees it
+    scratch: list = field(default_factory=list)  # working files deleted when the job ends, however it ends
     paste_mask: Path | None = None  # ...and the area pasted back onto `init` when it is done
     keep_old: bool = True          # a brushed back keeps the one it replaced; a brushed front does not
 
@@ -665,6 +666,10 @@ def take_place(new: Path, final: Path, stamp: str | None = None) -> Path | None:
     stamp = stamp or time.strftime("%Y%m%d-%H%M%S")
     kept = None
     if final.exists():
+        base, n = stamp, 0
+        while archive_name(final, stamp).exists():   # two swaps in one second must not overwrite
+            n += 1
+            stamp = f"{base}-{n}"
         kept = archive_name(final, stamp)
         final.rename(kept)
         old_sidecar = final.with_suffix(".provenance.json")
@@ -793,6 +798,7 @@ def create_brush_job(manager: ImageJobManager, picture: Path, stroke, instructio
             manager.finish(job)
             raise
     job.init, job.mask, job.paste_mask, job.replaces = init, mask, paste, picture
+    job.scratch = [mask, paste, guide] + ([init] if init != picture else [])
     job.keep_old = keep_old
     # Every engine that can SEE the picture it repaints does, so the prompt stays the change
     # alone: told only the change, Flux filled the paint with it (2026-10-30); told the scene in
@@ -947,7 +953,8 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             if job.init is not None:
                 # the result is the old picture outside the paint and new paint inside it:
                 # the old one's own record stays beside it, under the name it was kept as
-                record["brush"] = {"picture": job.output_path.name, "mask": job.mask.name if job.mask else None,
+                # the mask is a working file, deleted when the job ends: not named in the record
+                record["brush"] = {"picture": job.output_path.name,
                                    "instruction": job.instruction, "strength": BRUSH_STRENGTH,
                                    "replaced": kept.name if kept else None,
                                    "saw_the_picture": job.reference is not None}
@@ -967,6 +974,8 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         job.error = f"{type(exc).__name__}: {exc}"
         job.set_status("error", error=job.error)
     finally:
+        for scratch in job.scratch:
+            scratch.unlink(missing_ok=True)
         manager.finish(job)
 
 

@@ -8,6 +8,7 @@ that a non-interactive run cannot silently spend someone's bandwidth.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -486,3 +487,52 @@ def test_vision_with_a_yes_fetches_only_the_projector(monkeypatch):
     monkeypatch.setattr(boot, "install_vision", lambda *a, **k: fetched.append(1))
     assert boot.main(["--vision", "--yes"]) == 0
     assert fetched == [1]
+
+
+def test_a_file_that_is_not_the_tested_one_is_deleted_and_stops_the_install(tmp_path):
+    """Security review 2026-10-31: a release file can be swapped under a pinned tag."""
+    good = tmp_path / "good.zip"
+    good.write_bytes(b"tested")
+    boot.check_sha256(good, boot.sha256_of(good), "good.zip")          # passes, file kept
+    assert good.exists()
+    with pytest.raises(SystemExit, match="does not match"):
+        boot.check_sha256(good, "0" * 64, "good.zip")
+    assert not good.exists()
+    unknown = tmp_path / "new.zip"
+    unknown.write_bytes(b"x")
+    with pytest.raises(SystemExit, match="no fingerprint"):
+        boot.check_sha256(unknown, None, "new.zip")
+    assert not unknown.exists()
+
+
+@pytest.mark.parametrize("key", sorted(boot.BUILDS))
+def test_every_machine_s_pinned_archives_have_a_fingerprint(key):
+    """Every archive pick_assets would choose for a build has its SHA-256 on record."""
+    fake_release = [{"name": name} for name in boot.ARCHIVE_SHA256]
+    picked = boot.pick_assets(fake_release, boot.BUILDS[key])
+    assert len(picked) == len(boot.BUILDS[key].assets)
+    assert boot.PINNED[key] == boot.PINNED_RELEASE
+
+
+def test_install_checks_the_fingerprint_before_unpacking(monkeypatch, tmp_path):
+    monkeypatch.setattr(boot, "target", lambda: "macos-arm64")
+    name = "sd-master-95b3090-bin-Darwin-macOS-26.6.2-arm64.zip"
+    release = {"tag_name": boot.PINNED_RELEASE, "assets": [{"name": name, "size": 1, "browser_download_url": "u"}]}
+
+    class Reply(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(boot.urllib.request, "urlopen", lambda *a, **k: Reply(json.dumps(release).encode()))
+
+    def swapped(url, target):
+        with zipfile.ZipFile(target, "w") as bundle:
+            bundle.writestr("sd-cli", "not what we tested")
+    monkeypatch.setattr(boot.urllib.request, "urlretrieve", swapped)
+    dest = tmp_path / "engine"
+    with pytest.raises(SystemExit, match="does not match"):
+        REAL_INSTALL_BINARY(dest)
+    assert not (dest / "sd-cli").exists() and not (dest / "release.zip").exists()

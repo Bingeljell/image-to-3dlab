@@ -1256,3 +1256,14 @@ def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing
     assert fits == "" and "4097x10" in wide and "10x20000" in tall
     from viewer import image_api
     assert limit == image_api.MAX_PICTURE_SIDE
+
+
+def test_the_setup_question_lists_what_comes_down_beyond_the_weights():
+    url = (REPO / "viewer" / "components" / "also-fetches.js").as_uri()
+    program = f"import * as m from {json.dumps(url)};\n" + """console.log(JSON.stringify([
+      m.alsoFetchesLines({ also_fetches: [{ what: 'sd engine', size: '~35 MB', licence: 'MIT', from: 'https://g' }] }),
+      m.alsoFetchesLines({})]));"""
+    lines, none = json.loads(subprocess.run([NODE, "--input-type=module", "--eval", program], check=True,
+                                            capture_output=True, text=True).stdout)
+    assert "Also downloads:" in lines and any("sd engine: ~35 MB, MIT" in x and "https://g" in x for x in lines)
+    assert none == []

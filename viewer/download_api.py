@@ -159,6 +159,35 @@ def rebuild_download(backend_id: str, source: Path | None = None,
     return None if host.executable(cli.parent, "post-replay").exists() else NEW_BUILD_SIZE
 
 
+def also_fetches(backend_id: str) -> list[dict[str, str]]:
+    """What a backend's setup downloads beyond its listed weights, said before the yes
+    (AGENTS.md: name it, its size, where from and its licence). Each: what, from, size, licence.
+
+    The picture engines share one prebuilt stable-diffusion.cpp, fetched when it is missing
+    or older than the pinned release. Front + back fetches Qwen's vision projector when Qwen
+    is the only engine set up and nothing can draw a back yet."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    extra: list[dict[str, str]] = []
+    if backend_id in {"flux-image", "qwen-image"}:
+        import bootstrap_qwen_image as sdcpp
+
+        build = sdcpp.BUILDS.get(sdcpp.target())
+        if build and (not sdcpp.binary_present() or sdcpp.binary_stale()):
+            release = sdcpp.PINNED.get(sdcpp.target(), "latest")
+            extra.append({"what": f"stable-diffusion.cpp picture engine, {build.route} ({release})",
+                          "from": f"https://github.com/leejet/stable-diffusion.cpp/releases/tag/{release}",
+                          "size": build.size, "licence": "MIT"})
+    elif backend_id == "front-back":
+        import bootstrap_front_back as front_back
+
+        if front_back.needs_vision():
+            repo, filename, size = front_back.qwen.VISION
+            extra.append({"what": f"Qwen3-VL vision projector ({filename}), so Qwen-Image can draw backs",
+                          "from": f"https://huggingface.co/{repo}", "size": f"{size:.2f} GB",
+                          "licence": "Qwen Research License"})
+    return extra
+
+
 def rebuild_reason(backend_id: str, source: Path | None = None,
                    cli: Path | None = None) -> str | None:
     """Why this backend's build should be recompiled (or, for upstream's old prebuilt,

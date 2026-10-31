@@ -93,6 +93,7 @@ from backend_catalog import (
 )
 from download_api import (
     DOWNLOADS,
+    also_fetches,
     rebuild_download,
     rebuild_reason,
     running_payload,
@@ -637,7 +638,8 @@ def catalog_payload() -> dict:
 
 def with_rebuild_reasons(catalog: dict[str, Any],
                          reason: Callable[[str], str | None] = rebuild_reason,
-                         download: Callable[[str], str | None] = rebuild_download) -> dict[str, Any]:
+                         download: Callable[[str], str | None] = rebuild_download,
+                         extra: Callable[[str], list[dict[str, str]]] | None = None) -> dict[str, Any]:
     """Say which installed backends want recompiling, so the page can offer a Rebuild
     button instead of a Terminal command.
 
@@ -647,6 +649,8 @@ def with_rebuild_reasons(catalog: dict[str, Any],
     for backend in [*catalog.get("backends", []), *here]:
         backend["rebuild_reason"] = reason(backend["id"]) if backend.get("supported_here") else None
         backend["rebuild_downloads"] = download(backend["id"]) if backend["rebuild_reason"] else None
+        # downloads beyond the listed weights (an engine, a projector): named before the yes
+        backend["also_fetches"] = (extra or also_fetches)(backend["id"]) if backend.get("supported_here") else []
     return catalog
 
 

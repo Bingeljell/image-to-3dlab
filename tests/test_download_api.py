@@ -634,3 +634,28 @@ def test_a_compile_error_is_not_mistaken_for_a_sign_in_problem():
 
 def test_a_bad_token_is_still_a_sign_in_problem():
     assert "login" in dl._explain(1, ["huggingface_hub.errors: Invalid user token."])
+
+
+def test_a_picture_engine_s_setup_names_the_engine_it_fetches(monkeypatch):
+    """Security review 2026-10-31: setup fetched sd-cli after a yes that listed only weights."""
+    sys.path.insert(0, str(Path(dl.REPO) / "scripts"))
+    import bootstrap_qwen_image as sdcpp
+    monkeypatch.setattr(sdcpp, "target", lambda: "windows-nvidia")
+    monkeypatch.setattr(sdcpp, "binary_present", lambda: False)
+    for backend in ("flux-image", "qwen-image"):
+        [engine] = dl.also_fetches(backend)
+        assert "~850 MB" in engine["size"] and engine["licence"] == "MIT"
+        assert sdcpp.PINNED_RELEASE in engine["from"]
+    monkeypatch.setattr(sdcpp, "binary_present", lambda: True)
+    monkeypatch.setattr(sdcpp, "binary_stale", lambda: False)
+    assert dl.also_fetches("flux-image") == []                      # installed and current: nothing
+
+
+@pytest.mark.parametrize("needs, listed", [(True, 1), (False, 0)])
+def test_front_back_setup_names_qwen_s_projector_when_it_fetches_it(monkeypatch, needs, listed):
+    import bootstrap_front_back as front_back
+    monkeypatch.setattr(front_back, "needs_vision", lambda: needs)
+    got = dl.also_fetches("front-back")
+    assert len(got) == listed
+    if got:
+        assert got[0]["licence"] == "Qwen Research License" and got[0]["size"] == "0.75 GB"

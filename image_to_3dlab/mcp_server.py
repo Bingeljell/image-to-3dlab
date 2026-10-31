@@ -957,7 +957,8 @@ def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -
         "backend": backend_id, "label": backend.get("label"),
         "route": backend.get("best_for"),
         "downloads": [{"what": w.get("label"), "from": w.get("source_url") or w.get("source"),
-                       "size": w.get("human_expected")} for w in backend.get("weights", []) if not w.get("present")],
+                       "size": w.get("human_expected")} for w in backend.get("weights", []) if not w.get("present")]
+                     + [dict(x) for x in backend.get("also_fetches", [])],
         "total_size": backend.get("human_expected"),
         "licence": (backend.get("license") or {}).get("name"), "licence_url": (backend.get("license") or {}).get("url"),
         "caveat": backend.get("caveat"),

@@ -874,3 +874,15 @@ def test_picture_status_takes_only_a_real_job_id(studio, job_id):
 def test_the_back_redraw_and_brush_can_name_an_engine(studio, tmp_path):
     ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="back", again=True, picture_engine="qwen")
     assert json.loads(sent(studio)["back_settings"])["engine"] == "qwen"
+
+
+def test_install_plan_names_what_setup_fetches_beyond_the_weights(studio):
+    """Security review 2026-10-31: the picture engine came down after a yes that never named it."""
+    engine = {"what": "stable-diffusion.cpp picture engine", "from": "https://github.com/x", "size": "~35 MB",
+              "licence": "MIT"}
+    CATALOG["backends"].append({"id": "flux-image", "label": "FLUX.2", "weights": [], "also_fetches": [engine]})
+    try:
+        plan = ms.install_backend(studio, backend_id="flux-image")
+    finally:
+        CATALOG["backends"].pop()
+    assert engine in plan["downloads"] and studio.http.posts == []

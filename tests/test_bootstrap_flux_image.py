@@ -18,6 +18,8 @@ sys.path[:0] = [str(REPO / "scripts"), str(REPO / "viewer")]
 import backend_catalog
 import bootstrap_flux_image as boot
 
+REAL_INSTALL_WEIGHTS = boot.install_weights
+
 
 @pytest.fixture(autouse=True)
 def nothing_real(monkeypatch):
@@ -79,3 +81,22 @@ def test_an_engine_update_is_named_before_the_yes(monkeypatch):
     monkeypatch.setattr(boot.sdcpp, "binary_stale", lambda: True)
     monkeypatch.setattr(boot.sdcpp, "target", lambda: "macos-arm64")
     assert "update sd-cli to" in boot.announcement()
+
+
+def test_weights_come_from_the_tested_revision_and_are_checked(monkeypatch, tmp_path):
+    """Security review 2026-10-31: pin each file and check it, whatever the repo serves later."""
+    import huggingface_hub
+    asked = []
+
+    def fake_download(repo_id, filename, revision=None):
+        asked.append((repo_id, revision))
+        path = tmp_path / Path(filename).name
+        path.write_bytes(b"swapped")
+        return str(path)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
+    with pytest.raises(SystemExit, match="not the file we tested"):
+        REAL_INSTALL_WEIGHTS()
+    assert asked == [(boot.WEIGHTS[0][0], boot.PINS[boot.WEIGHTS[0][0]][0])]   # stopped at the first
+    assert set(boot.PINS) == {repo for repo, _, _ in boot.WEIGHTS}
+    assert all(len(rev) == 40 and len(sha) == 64 for rev, sha in boot.PINS.values())

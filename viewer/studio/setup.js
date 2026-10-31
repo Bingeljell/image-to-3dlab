@@ -11,6 +11,7 @@
 // is why it is "Setup & Status" and not "Install": it is the machine-state page, and the
 // natural home later for account and preferences.
 
+import { alsoFetchesLines } from '../components/also-fetches.js';
 import { showsCaveat } from '../components/gated-caveat.js';
 import { panelState, runTitle } from '../components/setup-progress.js';
 
@@ -78,6 +79,10 @@ function backendCard(backend, { readOnly = false } = {}) {
           <a href="${w.source_url}" target="_blank" rel="noopener">${w.source}</a>
           — ${w.human_expected}${w.present ? ` (${w.human_present} on disk)` : ''}
           ${w.note ? `<br><small>${w.note}</small>` : ''}
+        </li>`).join('')}${(backend.also_fetches || []).map((x) => `
+        <li>
+          <a href="${x.from}" target="_blank" rel="noopener">${x.what}</a>
+          — ${x.size} · ${x.licence}
         </li>`).join('')}
       </ul>
       ${backend.extra_steps.length
@@ -229,6 +234,7 @@ function confirmDownload(backend, button) {
     `${backend.label}`,
     '',
     ...body,
+    ...alsoFetchesLines(backend),
     '',
     `Licence: ${backend.license.name}`,
     backend.caveat ? `\n${backend.caveat}\n` : '',

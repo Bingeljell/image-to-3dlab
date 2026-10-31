@@ -23,6 +23,7 @@ for non-interactive use. Defaulting to yes is not allowed, so it does not.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -52,6 +53,42 @@ RELEASES = "https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/{w
 PINNED_RELEASE = "master-975-95b3090"
 PINNED = dict.fromkeys(("macos-arm64", "windows-nvidia", "linux-nvidia", "linux-amd"), PINNED_RELEASE)
 RELEASE_FILE = "release.txt"
+# The SHA-256 of every archive the pinned release is installed from, checked before it is
+# unpacked: a release file can be replaced even when its tag stays the same. Taken from
+# GitHub's record of each file on 2026-10-31. A new pin needs its archives listed here.
+ARCHIVE_SHA256 = {
+    "sd-master-95b3090-bin-Darwin-macOS-26.6.2-arm64.zip":
+        "2edf5a21c4b73f448c3a02c87925283b77aa94f1859c0d8e649134da68b40813",
+    "sd-master-95b3090-bin-win-cuda12-x64.zip":
+        "b935f5902fbedefe6db0b68c8930ae3e7c0f3cc778bd5d501a3c7f7ee7336338",
+    "cudart-sd-bin-win-cu12-x64.zip":
+        "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d",
+    "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip":
+        "703f547a0bbe254979940ec6142a87b4af6acbc01d34e37358f4feabb430a225",
+    "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-rocm-10.1.0.zip":
+        "b0deb148e8f0c05c75b5c8b54876ff97f819e80f57fcf1398ebb5dbb727c7a16",
+}
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def check_sha256(path: Path, expected: str | None, what: str) -> None:
+    """Stop, and delete `path`, unless its SHA-256 is `expected`. No fingerprint on record
+    is a stop too: running a file nobody has checked is the thing this guards against."""
+    if expected is None:
+        path.unlink(missing_ok=True)
+        raise SystemExit(f"{what} has no fingerprint on record, so it was not installed.")
+    actual = sha256_of(path)
+    if actual != expected:
+        path.unlink(missing_ok=True)
+        raise SystemExit(f"{what} does not match the file we tested (SHA-256 {actual}, expected "
+                         f"{expected}). Nothing was installed from it.")
 
 # (repo, filename, approximate gigabytes). These are the files the upstream Qwen-Image 2.1
 # guide names, at the quantisations that were measured to be worth it: Q8 for the image
@@ -226,6 +263,7 @@ def install_binary(destination: Path | None = None) -> Path:
         print(f"Downloading {asset['name']} ({asset.get('size', 0) / 1e6:.0f} MB)...",
               flush=True)
         urllib.request.urlretrieve(asset["browser_download_url"], archive)
+        check_sha256(archive, ARCHIVE_SHA256.get(asset["name"]), asset["name"])
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(destination)
             restore_symlinks(bundle, destination)

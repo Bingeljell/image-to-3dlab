@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-31
+
 ### Added
 - Fix part of the back: paint over a spot on the back picture, right in the big view, say what goes there, and only that
   spot is drawn again; the rest stays exactly as it was. Agents: `brush_back`.

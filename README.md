@@ -43,6 +43,7 @@ $1 to reserve, locked for 6 months. The app stays free and open source.</p>
 
 ## News
 
+- **2026-10-31 · 0.5.4** FLUX.2 draws your pictures (faster, yours for any use), bring your own back picture, and a brush to fix the picture before it goes 3D.
 - **2026-10-26 · 0.5.3** A News button in the studio, and a safer studio when it is reachable from a network.
 - **2026-10-25 · 0.5.2** `.\lab` on Windows; anonymous usage counts (turn off in About).
 - **2026-10-22 · 0.5.0** Fix a spot (a brush for holes and bumps), Hero face, and Skins: new paint on the same model.

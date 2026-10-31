@@ -4,6 +4,7 @@
 import { followJob, plainError, statusUrlFor, jobEnd, copyDetails } from './jobs.js';
 import { freshSeed } from './create.js';
 import { finishDetailSettings } from './library.js';
+import { mountBrush, brushForm, brushStage, closeBrushStage } from './brush.js';
 
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fileName = (path) => path?.split('/').pop() ?? '';
@@ -24,9 +25,10 @@ export async function postStart(url, body) {
 /** The body for the step the asset can take next. `ctx` has engines, presets, url(). */
 export function stepBody(stepId, asset, ctx) {
   if (stepId === 'picture') {
-    return asset.prompt
+    const another = asset.prompt
       ? `<details class="adv redo"><summary>Draw another picture</summary><p class="hint">Opens Create with the same description. A new picture starts a new item in the Library.</p>
           <button class="primary" data-newpicture>Open Create</button></details>` : '';
+    return another + frontBrush(asset, ctx) + backRedo(asset, ctx) + backBrush(asset, ctx) + backVersions(asset);
   }
   if (stepId === 'model') {
     if (!asset.picture) return '<p class="hint">This asset has no picture on disk to build from.</p>';
@@ -84,6 +86,156 @@ export function stepBody(stepId, asset, ctx) {
 }
 
 /** A step that is already done, offered again: folded away, and its result is a new version. */
+/** "Draw the back again" (or a first back) under the Picture step, for a front Pixal3D can build
+ *  from both sides. Empty when there is nothing to draw from or nothing to draw with. */
+/** A picture-engine choice for a redraw, when more than one is installed: "the same as the
+ *  picture" (the server reads who drew it) or one by name. */
+export function engineChoice(ctx, attr, same) {
+  const installed = (ctx.pictureEngines || []).filter((e) => e.installed);
+  if (installed.length < 2) return '';
+  return `<label class="field">Picture engine<select ${attr}><option value="">${esc(same)}</option>${installed
+    .map((e) => `<option value="${esc(e.id)}">${esc(e.label)}</option>`).join('')}</select></label>`;
+}
+
+export function backRedo(asset, ctx) {
+  if (!asset.picture || asset.kind === 'prop set' || !(asset.back || ctx.frontBack?.ready)) return '';
+  const title = asset.back ? 'Draw the back again' : 'Draw a back picture';
+  return redoBox(title, `${asset.back ? 'A new try at the back, from the same front. The current back is kept beside it as an older copy. ' : ''}Make the 3D model again afterwards to build from it.`,
+    `<label class="field">What to change <span class="hint">(optional)</span><textarea data-k="change" rows="2" maxlength="500" placeholder="A thin satchel strap and a plain, smooth coat back"></textarea></label>
+     <p class="hint">Say what you want to see, not what to remove: naming a thing tends to draw it.</p>
+     ${engineChoice(ctx, 'data-backengine', 'Same engine as the front')}
+     <button class="primary" data-run="back">${title}</button>`);
+}
+
+const BRUSH_TIP = `Paint over the part to change, then say what goes there. Only the painted part is drawn again;
+      the rest stays exactly as it is. Paint close around it: everything inside the paint is redrawn.
+      Say what should be there, not the change: "a leather strap from the shoulder to the belt", not "make the strap longer".`;
+
+function brushBox(which, ctx, { title, note = '', sameEngine }) {
+  if (!(ctx.pictureEngines || []).some((e) => e.installed)) return '';
+  return `<details class="adv redo" data-brush="${which}"><summary>${title}</summary>
+    <p class="hint">${BRUSH_TIP}</p>${note}
+    <div data-brush-canvas><p class="hint"><b>Paint on the picture in the big view.</b></p></div>
+    <div class="row"><label class="field">Brush size<input type="range" data-brush-size min="12" max="160" value="48"></label>
+      <button type="button" class="ghost" data-brush-clear>Clear</button></div>
+    <label class="field">What goes there<textarea data-brush-text rows="2" maxlength="500" placeholder="A dark red leather satchel on a thin brown strap"></textarea></label>
+    ${engineChoice(ctx, 'data-brushengine', sameEngine)}
+    <p class="error" data-brush-error hidden></p>
+    <button class="primary" data-brush-run>Repaint the painted part</button></details>`;
+}
+
+/** The picture's own brush: fix it before a 3D model is made from it (after that, the model needs it as it was). */
+export function frontBrush(asset, ctx) {
+  if (!asset.picture || asset.model) return '';
+  const note = asset.back ? '<p class="hint">The back is not changed with it: check it after, and draw it again if they no longer match.</p>' : '';
+  return brushBox('front', ctx, { title: 'Fix part of the picture', note, sameEngine: 'Same engine as the picture' });
+}
+
+/** The back picture's brush. */
+export function backBrush(asset, ctx) {
+  if (!asset.back) return '';
+  return brushBox('back', ctx, { title: 'Fix part of the back', sameEngine: 'Same engine as the back' });
+}
+
+/** Make the brush boxes work. Each paints on a layer over the big view while it is open; only one is open at a time. */
+export function wireBrush(card, asset, ctx) {
+  const boxes = [...card.querySelectorAll('[data-brush]')];
+  for (const box of boxes) {
+    const file = box.dataset.brush === 'front' ? asset.picture : asset.back;
+    let brush = null, layer = null;
+    // built fresh each time: Back after a failed run restores this box as HTML, canvas and all
+    const mount = () => {
+      const stage = ctx.stage?.();
+      if (!box.open) { layer?.remove(); layer = null; brush = null; return; }
+      if (brush) return;
+      boxes.forEach((other) => { if (other !== box) other.open = false; });
+      const picture = `${ctx.url(file)}?v=${Date.now()}`;
+      if (stage) brush = mountBrush((layer = brushStage(stage)), picture, { fit: true });
+      else {
+        const holder = box.querySelector('[data-brush-canvas]');
+        holder.innerHTML = '';
+        brush = mountBrush(holder, picture);
+      }
+    };
+    box.addEventListener('toggle', mount);
+    mount();
+    const error = box.querySelector('[data-brush-error]');
+    const fail = (message) => { error.textContent = message; error.hidden = false; };
+    box.querySelector('[data-brush-size]').oninput = (e) => brush?.setSize(e.target.value);
+    box.querySelector('[data-brush-clear]').onclick = () => brush?.clear();
+    box.querySelector('[data-brush-run]').onclick = async () => {
+      const words = box.querySelector('[data-brush-text]').value.trim();
+      if (brush?.blocked()) return fail(brush.blocked());
+      if (!brush?.painted()) return fail('Paint over the part to change first.');
+      if (!words) return fail('Say what goes in the painted part.');
+      const mask = await brush.maskBlob();
+      closeBrushStage(ctx.stage?.());   // the run takes over the panel; its result shows when done
+      const engine = box.querySelector('[data-brushengine]')?.value || '';
+      await runInCard(card, async () => ({ kind: 'image', start: await postStart('/api/image/brush', brushForm(file, words, mask, freshSeed(), engine)) }), ctx, 'picture');
+    };
+  }
+}
+
+/** The back's kept versions: each redraw or brush keeps the one it replaced. Filled when opened. */
+export function backVersions(asset) {
+  if (!asset.back) return '';
+  return `<details class="adv redo" data-versions><summary>Back versions</summary>
+    <p class="hint">Every redraw or brush keeps the back it replaced. Use one again, or delete the ones you don't want.</p>
+    <div data-versions-list><p class="hint">Loading…</p></div><p class="error" data-versions-error hidden></p></details>`;
+}
+
+/** The list inside Back versions, from the server's /api/image/versions. `url` makes a file's link. */
+export function versionsList(payload, url, stamp = Date.now()) {
+  const shot = (v) => `<img src="${esc(url(v.file))}?v=${stamp}" alt="Show it big" title="Show it big" data-show="${esc(v.file)}" loading="lazy">`;
+  const note = (v) => `<span class="vnote">${esc(v.note || 'Drawn')}</span>`;
+  const rows = [`<li class="current">${shot(payload.current)}<span>${note(payload.current)}<b>In use</b></span></li>`]
+    .concat((payload.versions || []).map((v) => `<li data-file="${esc(v.file)}">${shot(v)}<span>${note(v)}
+      <span class="row"><button type="button" class="ghost small" data-use>Use this one</button>
+      <button type="button" class="ghost small" data-delete>Delete</button></span></span></li>`));
+  return `<ul class="versions">${rows.join('')}</ul>${(payload.versions || []).length ? '' : '<p class="hint">No other versions kept.</p>'}`;
+}
+
+/** Make Back versions work: list on open, Use swaps it in, Delete asks first. */
+export function wireVersions(card, asset, ctx) {
+  const box = card.querySelector('[data-versions]');
+  if (!box) return;
+  const list = box.querySelector('[data-versions-list]'), error = box.querySelector('[data-versions-error]');
+  const fail = (message) => { error.textContent = message; error.hidden = false; };
+  const render = (payload) => { error.hidden = true; list.innerHTML = versionsList(payload, ctx.url); };
+  const load = async () => {
+    if (!box.open) return;
+    const response = await fetch(`/api/image/versions?back=${encodeURIComponent(asset.back)}`);
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok) render(payload); else fail(payload.error || 'Could not list the versions.');
+  };
+  const change = async (action, file) => {
+    const response = await fetch(`/api/image/versions/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ back: asset.back, version: file }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return fail(payload.error || `Could not ${action} it.`);
+    if (action !== 'use') return render(payload);
+    // a new back: the page is drawn again, so open this box again there and show the back in use
+    await ctx.onDone?.('picture');
+    const again = document.querySelector('[data-step="picture"] [data-versions]');
+    if (again) again.open = true;
+    ctx.showBack?.(asset.back);
+  };
+  box.addEventListener('toggle', load);
+  list.addEventListener('click', (event) => {
+    if (event.target.matches('[data-show]')) return ctx.showBack?.(event.target.dataset.show);
+    const row = event.target.closest('li[data-file]');
+    if (!row) return;
+    if (event.target.matches('[data-use]')) change('use', row.dataset.file);
+    if (event.target.matches('[data-delete]')) {
+      event.target.closest('.row').innerHTML = `<span class="hint">Delete for good?</span>
+        <button type="button" class="ghost small" data-keep>Keep</button><button type="button" class="danger small" data-sure>Delete</button>`;
+    }
+    if (event.target.matches('[data-keep]')) load();
+    if (event.target.matches('[data-sure]')) { event.target.disabled = true; change('delete', row.dataset.file); }
+  });
+  load();
+}
+
 function redoBox(title, note, body) {
   return `<details class="adv redo"><summary>${title}</summary><p class="hint">${note}</p>${body}</details>`;
 }
@@ -172,10 +324,13 @@ export function wireStep(card, stepId, asset, ctx) {
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
       rigSource: k('rigsource')?.value || 'finished',
+      change: k('change')?.value?.trim() || '',
+      backEngine: card.querySelector('[data-backengine]')?.value || '',
     };
     if (button.dataset.hero !== undefined) settings.detail = finishDetailSettings('hero');
     card.dataset.lastPreset = settings.preset || '';
-    const plan = chainPlan(stepId, asset, settings);
+    // the Picture step also carries "Draw the back again": its button names the step it runs
+    const plan = chainPlan(button.dataset.run === 'back' ? 'back' : stepId, asset, settings);
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
@@ -194,6 +349,12 @@ export function chainPlan(stepId, asset, settings) {
   const made = Object.fromEntries(['picture', 'back', 'model', 'finished', 'rigged']
     .filter((k) => asset[k]).map((k) => [k, asset[k]]));
   const base = { description: asset.name || 'Asset', want: asset.kind === 'prop set' ? 'set' : asset.kind === 'prop' ? 'prop' : 'character' };
+  if (stepId === 'back') {
+    if (!asset.picture) return null;
+    return { ...base, steps: ['back'], made: { picture: asset.picture },
+      backSettings: { seed: freshSeed(), ...(settings.change ? { instruction: settings.change } : {}),
+        ...(settings.backEngine ? { engine: settings.backEngine } : {}) } };
+  }
   if (stepId === 'model') {
     if (!asset.picture) return null;
     return { ...base, steps: ['model'], made: { picture: asset.picture, ...(asset.back ? { back: asset.back } : {}) },
@@ -270,7 +431,7 @@ async function runInCard(card, starter, ctx, stepId, note) {
   } catch (error) {
     ctx.onBusy?.(false);
     show(`<div class="job failed"><p class="job-msg">${esc(plainError(error.message))}</p><div class="row end"><button class="ghost" data-back>Back</button></div></div>`);
-    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
+    body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); wireVersions(card, ctx.asset(), ctx); };
     return;
   }
   const { kind, start } = started;
@@ -301,6 +462,6 @@ async function runInCard(card, starter, ctx, stepId, note) {
     : `<div class="job failed"><p class="job-msg">${esc(why)}</p>
     <details><summary class="hint">Show log</summary><pre class="log">${esc(tail.split('\n').slice(-30).join('\n'))}</pre></details>
     <div class="row end"><button class="ghost" data-copy>Copy details</button><button class="ghost" data-back>Back</button></div></div>`);
-  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); };
+  body.querySelector('[data-back]').onclick = () => { body.innerHTML = keep; wireStep(card, stepId, ctx.asset(), ctx); wireBrush(card, ctx.asset(), ctx); wireVersions(card, ctx.asset(), ctx); };
   body.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(why, tail));
 }

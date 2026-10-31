@@ -4,7 +4,8 @@
 import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, canFixShown, fixBlockedNote, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails } from './jobs.js';
-import { stepBody, wireStep } from './steps.js';
+import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
+import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
 import { STEP_LABELS } from './plan.js';
@@ -18,7 +19,7 @@ let assets = [];
 let filter = 'all', query = '', showHidden = false, limit = 30;
 let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
-let engines = [], presets = [], recipes = null, frontBack = null, busy = false, playNext = null;
+let engines = [], presets = [], recipes = null, frontBack = null, pictureEngines = [], busy = false, playNext = null;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
@@ -106,6 +107,7 @@ function summaries(asset) {
 }
 
 function renderSteps(asset) {
+  closeBrushStage($('stage'));   // a brush layer belongs to the panel being replaced
   $('sideKind').textContent = { 'prop set': 'Prop set', prop: 'Prop', character: 'Character', model: '3D model', picture: 'Picture' }[asset.kind] || '';
   const total = stepCount(asset), sum = summaries(asset);
   $('steps').innerHTML = STEPS.map((step, i) => {
@@ -114,7 +116,8 @@ function renderSteps(asset) {
     const dot = state === 'done' ? '✓' : i + 1;
     // a finished model can be finished again at another detail level; a rigged one gets more moves
     const redo = state === 'done' && ({
-      picture: !!asset.prompt, model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
+      // a picture no model is made from yet can still be fixed with the brush
+      picture: !!asset.prompt || (!!asset.picture && (!asset.model || !!asset.back || !!frontBack?.ready)), model: !!asset.picture && !!engines.length, finished: asset.kind !== 'prop set',
       rigged: asset.kind !== 'prop set', animated: true,
     }[step.id]);
     const body = state === 'now' || redo ? `<div class="body">${stepBody(step.id, asset, ctx)}</div>` : '';
@@ -122,6 +125,8 @@ function renderSteps(asset) {
   }).join('');
   $('steps').querySelectorAll('.step').forEach((card) => {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
+    wireBrush(card, asset, ctx);
+    wireVersions(card, asset, ctx);
     card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({ text: asset.prompt, want: asset.kind === 'prop' ? 'prop' : 'character' }));
   });
   $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
@@ -129,7 +134,8 @@ function renderSteps(asset) {
     viewingPictures = true;
     viewingStep = null;
     viewer.setClips([]);
-    viewer.showImage(url(asset.picture), 'What the model was made from.', asset.back ? url(asset.back) : null);
+    // the back keeps its name when drawn again, so ask past the browser's copy
+    viewer.showImage(fresh(asset.picture), 'What the model was made from.', asset.back ? fresh(asset.back) : null);
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
@@ -259,12 +265,28 @@ $('copyPathBtn').addEventListener('click', async (event) => {
   setTimeout(() => { button.textContent = 'Copy path'; }, 1500);
 });
 
+// A picture redrawn, brushed or swapped keeps its file name: ask past the browser's copy
+const fresh = (relative) => `${url(relative)}?v=${Date.now()}`;
+
 // what the step actions need from the page
 const ctx = {
   get engines() { return engines; },
   get presets() { return presets; },
   get blenderReady() { return blenderReady; },
+  get frontBack() { return frontBack; },
+  get pictureEngines() { return pictureEngines; },
   url: (relative) => url(relative),
+  stage: () => $('stage'),
+  // one back (a kept version, or the one in use) full size, beside the front
+  showBack: (file) => {
+    if (!current?.picture) return;
+    viewingPictures = true;
+    viewingStep = null;
+    viewer.setClips([]);
+    viewer.showImage(fresh(current.picture), file === current.back ? 'The back in use.' : 'A kept version of the back.', fresh(file));
+    const toggle = $('steps').querySelector('[data-pictures]');
+    if (toggle) toggle.textContent = 'Show model';
+  },
   asset: () => current,
   // a Steps-panel run goes through the same chain as Create: a reopened studio picks it back
   // up, and the server runs one big job at a time whoever starts it
@@ -315,8 +337,8 @@ function show(asset) {
     if (model) viewer.load(url(model), { label: asset.name });
     else if (asset.picture) {
       const inRun = making && !making.finished && !making.failed && making.made?.picture === asset.picture;
-      viewer.showImage(url(asset.picture), inRun ? 'Being made into 3D now. Its progress is above.'
-        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? url(asset.back) : null);
+      viewer.showImage(fresh(asset.picture), inRun ? 'Being made into 3D now. Its progress is above.'
+        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? fresh(asset.back) : null);
     }
     else viewer.showEmpty('Nothing to show for this asset yet.');
   }
@@ -442,6 +464,7 @@ async function loadTools() {
   blenderReady = finishCaps ? !!finishCaps.ready : true;   // unknown: let the server say
   engines = readyEngines(catalog);
   frontBack = catalog?.front_back || null;
+  pictureEngines = catalog?.picture_engines || [];
   presets = animate?.installed ? animate.presets : [];
   recipes = await fetch('/api/recipes').then((r) => r.json()).catch(() => null);
 }
@@ -449,7 +472,7 @@ async function loadTools() {
 // ------------------------------------------------------------------ Create
 function openCreateSheet(prefill = null) {
   closeSheet($('stage'));
-  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, prefill, onStart: (plan) => startChain(plan) });
+  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, pictureEngines, prefill, onStart: (plan) => startChain(plan) });
 }
 
 $('createBtn').addEventListener('click', () => {

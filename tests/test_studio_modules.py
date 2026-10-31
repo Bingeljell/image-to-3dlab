@@ -1102,3 +1102,168 @@ def test_copy_details_copies_what_the_server_scrubbed_and_nothing_if_it_cannot()
     assert out["copied"] == ["~/x.log", "z"]          # the server's text, never the raw log
     assert out["url"] == "/api/bug-report" and out["size"] == 30000
     assert out["fallback"] == "A step failed"         # the server refuses an empty message
+
+
+@needs_node
+def test_create_takes_each_picture_engines_own_size_and_steps():
+    """Flux: 1024 and 4 steps for a 3D source, 8 when the picture is the end product. Qwen: 768/8."""
+    flux = {"id": "flux", "defaults": {"width": 1024, "steps": 4}, "picture_only_steps": 8}
+    qwen = {"id": "qwen", "defaults": {"width": 768, "steps": 8}, "picture_only_steps": None}
+    out = _run("create.js", f"""
+      const flux = {json.dumps(flux)}, qwen = {json.dumps(qwen)};
+      const form = m.planForm({{ steps: ['picture'], pictureEngine: 'qwen' }});
+      console.log(JSON.stringify([m.pictureDefaults(flux), m.pictureDefaults(flux, true), m.pictureDefaults(qwen, true),
+        m.pictureDefaults(null), form.get('picture_engine'), m.planForm({{ steps: ['picture'] }}).get('picture_engine')]));""")
+    assert out == [{"size": 1024, "steps": 4}, {"size": 1024, "steps": 8}, {"size": 768, "steps": 8},
+                   {"size": 768, "steps": 8}, "qwen", None]
+
+
+@needs_node
+def test_create_offers_your_own_back_only_where_pixal3d_can_use_it():
+    out = _run("create.js", """
+      const fb = { ready: false, shape_ready: true };
+      const shown = (s, f = fb, steps = ['model', 'finished']) => m.backSlotShown(s, f, steps);
+      const form = m.planForm({ steps: ['model'], backFile: new File(['x'], 'b.png') });
+      console.log(JSON.stringify([
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }),
+        shown({ have: 'idea', want: 'prop', engine: 'pixal3d' }),
+        shown({ have: 'picture', want: 'prop', engine: 'trellis' }),
+        shown({ have: 'picture', want: 'set', engine: 'pixal3d' }),
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }, { shape_ready: false }),
+        shown({ have: 'picture', want: 'prop', engine: 'pixal3d' }, fb, ['picture']),
+        form.get('back_file')?.name ?? null, m.planForm({ steps: ['model'] }).get('back_file')]));""")
+    # no picture engine needed (ready: false): your back needs no drawing
+    assert out == [True, False, False, False, False, False, "b.png", None]
+
+
+@needs_node
+def test_draw_the_back_again_shows_for_a_front_and_plans_a_one_step_back_run():
+    out = _run("steps.js", """
+      const ctx = { frontBack: { ready: true } };
+      const withBack = { picture: 'images/a/a.png', back: 'images/a/a__back.png', kind: 'character' };
+      const plan = m.chainPlan('back', withBack, { change: 'a red cloak' });
+      console.log(JSON.stringify({
+        again: m.backRedo(withBack, ctx).includes('Draw the back again'),
+        first: m.backRedo({ ...withBack, back: null }, ctx).includes('Draw a back picture'),
+        none: m.backRedo({ ...withBack, back: null }, { frontBack: { ready: false } }),
+        sheet: m.backRedo({ ...withBack, kind: 'prop set' }, ctx),
+        steps: plan.steps, made: plan.made, change: plan.backSettings.instruction, seeded: Number.isInteger(plan.backSettings.seed),
+        plain: 'instruction' in m.chainPlan('back', withBack, { change: '' }).backSettings }));""")
+    assert out == {"again": True, "first": True, "none": "", "sheet": "", "steps": ["back"],
+                   "made": {"picture": "images/a/a.png"}, "change": "a red cloak", "seeded": True, "plain": False}
+
+
+@needs_node
+def test_the_back_brush_shows_with_a_back_and_any_engine_and_maps_strokes_to_the_picture():
+    """Both engines repaint (2026-10-30: the brush and the back redraw must work on Flux AND Qwen)."""
+    out = _run("steps.js", """
+      const both = { pictureEngines: [{ id: 'flux', label: 'FLUX', installed: true }, { id: 'qwen', label: 'Qwen', installed: true }] };
+      const qwen = { pictureEngines: [{ id: 'qwen', installed: true }] };
+      const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png' };
+      console.log(JSON.stringify([
+        m.backBrush(asset, qwen).includes('Fix part of the back'),
+        m.backBrush({ ...asset, back: null }, qwen),
+        m.backBrush(asset, { pictureEngines: [] }),
+        m.backBrush(asset, qwen).includes('data-brushengine'),        // one engine: nothing to choose
+        m.backBrush(asset, both).includes('data-brushengine'),
+        m.backRedo(asset, both).includes('data-backengine'),
+        m.chainPlan('back', asset, { change: '', backEngine: 'qwen' }).backSettings.engine]));""")
+    assert out == [True, "", "", False, True, True, "qwen"]
+    point = _run("brush.js", "console.log(JSON.stringify(m.toPicture(100, 50, { w: 400, h: 400 }, { w: 1024, h: 1024 })));")
+    assert point == [256, 128]
+
+
+@needs_node
+def test_the_brush_form_is_what_the_server_reads():
+    out = _run("brush.js", """
+      const form = m.brushForm('images/a/a__back.png', 'a red satchel', new Blob(['x']), 7);
+      console.log(JSON.stringify([form.get('picture'), form.get('instruction'), form.get('seed'), form.get('mask').name]));""")
+    assert out == ["images/a/a__back.png", "a red satchel", "7", "mask.png"]
+
+
+
+@needs_node
+def test_the_brush_form_names_an_engine_only_when_one_was_chosen():
+    out = _run("brush.js", """
+      const chosen = m.brushForm('b.png', 'x', new Blob(['x']), 1, 'qwen');
+      const same = m.brushForm('b.png', 'x', new Blob(['x']), 1);
+      console.log(JSON.stringify([chosen.get('engine'), same.get('engine')]));""")
+    assert out == ["qwen", None]
+
+
+@needs_node
+def test_back_versions_show_the_one_in_use_and_offer_use_and_delete_on_the_kept_ones():
+    out = _run("steps.js", """
+      const asset = { picture: 'images/a/a.png', back: 'images/a/a__back.png' };
+      const url = (f) => '/output/' + f;
+      const payload = { current: { file: 'images/a/a__back.png', note: 'Brushed: a <strap>' },
+                        versions: [{ file: 'images/a/a__back_prev_1.png', note: 'Drawn' }] };
+      const html = m.versionsList(payload, url, 7);
+      console.log(JSON.stringify([
+        m.backVersions(asset).includes('Back versions'), m.backVersions({ ...asset, back: null }),
+        html.includes('/output/images/a/a__back.png?v=7'), html.includes('a &lt;strap&gt;'),
+        (html.match(/data-use/g) || []).length, (html.match(/data-delete/g) || []).length,
+        html.includes('data-file="images/a/a__back_prev_1.png"'),
+        m.versionsList({ ...payload, versions: [] }, url).includes('No other versions kept')]));""")
+    assert out == [True, "", True, True, 1, 1, True, True]   # the one in use has no Use or Delete
+
+
+@needs_node
+def test_the_brush_picture_fits_the_big_view_whole_and_never_past_its_own_size():
+    """Painting happens over the big view now (2026-10-30: people reached for it, not the panel)."""
+    out = _run("brush.js", """console.log(JSON.stringify([
+      m.fitSize({ w: 1024, h: 1024 }, { w: 900, h: 600 }),     // tall room limit: the height
+      m.fitSize({ w: 1024, h: 512 }, { w: 400, h: 900 }),      // narrow room: the width
+      m.fitSize({ w: 300, h: 200 }, { w: 2000, h: 2000 })]));""")  # small picture: its own size
+    assert out == [{"w": 600, "h": 600}, {"w": 400, "h": 200}, {"w": 300, "h": 200}]
+    hint = _run("steps.js", """console.log(JSON.stringify(m.backBrush({ picture: 'a.png', back: 'a__back.png' },
+      { pictureEngines: [{ id: 'flux', installed: true }] }).includes('Paint on the picture in the big view')));""")
+    assert hint is True
+
+
+@needs_node
+def test_the_picture_brush_shows_only_until_a_model_is_made_and_warns_about_the_back():
+    """Fix the picture before building, not after (user, 2026-10-30): a model needs its picture as it was."""
+    out = _run("steps.js", """
+      const ctx = { pictureEngines: [{ id: 'flux', installed: true }] };
+      const fresh = { picture: 'images/a/a.png', back: null, model: null };
+      const body = m.stepBody('picture', { ...fresh, prompt: 'an orc' }, { ...ctx, engines: [] });
+      console.log(JSON.stringify([
+        m.frontBrush(fresh, ctx).includes('Fix part of the picture'),
+        m.frontBrush(fresh, ctx).includes('data-brush="front"'),
+        m.frontBrush(fresh, ctx).includes('back is not changed'),
+        m.frontBrush({ ...fresh, back: 'images/a/a__back.png' }, ctx).includes('back is not changed'),
+        m.frontBrush({ ...fresh, model: 'x/a.glb' }, ctx),
+        m.frontBrush(fresh, { pictureEngines: [] }),
+        body.includes('Fix part of the picture')]));""")
+    assert out == [True, True, False, True, "", "", True]
+
+
+@needs_node
+def test_every_back_version_thumbnail_can_be_shown_big():
+    """Clicking a version did nothing; people expect to see it (user, 2026-10-30)."""
+    out = _run("steps.js", """
+      const html = m.versionsList({ current: { file: 'a__back.png' }, versions: [{ file: 'a__back_prev_1.png' }] }, (f) => f, 1);
+      console.log(JSON.stringify([html.includes('data-show="a__back.png"'), html.includes('data-show="a__back_prev_1.png"')]));""")
+    assert out == [True, True]
+
+
+def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing_it():
+    """Two full-size canvases for a huge picture froze the tab (security review 2026-10-31)."""
+    out = _run("brush.js", """console.log(JSON.stringify([
+      m.tooBig({ w: 4096, h: 4096 }), m.tooBig({ w: 4097, h: 10 }), m.tooBig({ w: 10, h: 20000 }), m.MAX_SIDE]));""")
+    fits, wide, tall, limit = out
+    assert fits == "" and "4097x10" in wide and "10x20000" in tall
+    from viewer import image_api
+    assert limit == image_api.MAX_PICTURE_SIDE
+
+
+def test_the_setup_question_lists_what_comes_down_beyond_the_weights():
+    url = (REPO / "viewer" / "components" / "also-fetches.js").as_uri()
+    program = f"import * as m from {json.dumps(url)};\n" + """console.log(JSON.stringify([
+      m.alsoFetchesLines({ also_fetches: [{ what: 'sd engine', size: '~35 MB', licence: 'MIT', from: 'https://g' }] }),
+      m.alsoFetchesLines({})]));"""
+    lines, none = json.loads(subprocess.run([NODE, "--input-type=module", "--eval", program], check=True,
+                                            capture_output=True, text=True).stdout)
+    assert "Also downloads:" in lines and any("sd engine: ~35 MB, MIT" in x and "https://g" in x for x in lines)
+    assert none == []

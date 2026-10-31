@@ -4,8 +4,12 @@
 Two halves, the same way the viewer tracks every other backend. The **build** is a
 prebuilt `stable-diffusion.cpp` release binary. Nothing is compiled: upstream publishes a
 Metal build for Apple Silicon, a CUDA build for Windows, a Vulkan build for Linux that
-runs on NVIDIA cards, and a ROCm build for AMD cards on Linux. The **weights** are three
-files totalling about 13.4 GB.
+runs on NVIDIA cards, and a ROCm build for AMD cards on Linux. The **weights** are four
+files totalling about 14.2 GB: the model, its text encoder, its VAE, and the vision projector
+its edits need (back views and skins).
+
+FLUX.2 [klein] (bootstrap_flux_image.py) is the smaller, Apache-licensed alternative and the
+studio's default; the two share the sd-cli binary this installs.
 
 `AGENTS.md`: a download path must name the backend, name the route, state the size, and
 require an affirmative answer. This prints all of that and stops, unless `--yes` is given
@@ -19,6 +23,7 @@ for non-interactive use. Defaulting to yes is not allowed, so it does not.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -48,6 +53,42 @@ RELEASES = "https://api.github.com/repos/leejet/stable-diffusion.cpp/releases/{w
 PINNED_RELEASE = "master-975-95b3090"
 PINNED = dict.fromkeys(("macos-arm64", "windows-nvidia", "linux-nvidia", "linux-amd"), PINNED_RELEASE)
 RELEASE_FILE = "release.txt"
+# The SHA-256 of every archive the pinned release is installed from, checked before it is
+# unpacked: a release file can be replaced even when its tag stays the same. Taken from
+# GitHub's record of each file on 2026-10-31. A new pin needs its archives listed here.
+ARCHIVE_SHA256 = {
+    "sd-master-95b3090-bin-Darwin-macOS-26.6.2-arm64.zip":
+        "2edf5a21c4b73f448c3a02c87925283b77aa94f1859c0d8e649134da68b40813",
+    "sd-master-95b3090-bin-win-cuda12-x64.zip":
+        "b935f5902fbedefe6db0b68c8930ae3e7c0f3cc778bd5d501a3c7f7ee7336338",
+    "cudart-sd-bin-win-cu12-x64.zip":
+        "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d",
+    "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip":
+        "703f547a0bbe254979940ec6142a87b4af6acbc01d34e37358f4feabb430a225",
+    "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64-rocm-10.1.0.zip":
+        "b0deb148e8f0c05c75b5c8b54876ff97f819e80f57fcf1398ebb5dbb727c7a16",
+}
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def check_sha256(path: Path, expected: str | None, what: str) -> None:
+    """Stop, and delete `path`, unless its SHA-256 is `expected`. No fingerprint on record
+    is a stop too: running a file nobody has checked is the thing this guards against."""
+    if expected is None:
+        path.unlink(missing_ok=True)
+        raise SystemExit(f"{what} has no fingerprint on record, so it was not installed.")
+    actual = sha256_of(path)
+    if actual != expected:
+        path.unlink(missing_ok=True)
+        raise SystemExit(f"{what} does not match the file we tested (SHA-256 {actual}, expected "
+                         f"{expected}). Nothing was installed from it.")
 
 # (repo, filename, approximate gigabytes). These are the files the upstream Qwen-Image 2.1
 # guide names, at the quantisations that were measured to be worth it: Q8 for the image
@@ -58,9 +99,27 @@ WEIGHTS = [
     ("Comfy-Org/Qwen-Image-2.1", "vae/qwen_image_2.1_vae_bf16.safetensors", 0.68),
 ]
 
-# Optional: the LLM's vision projector. Edit mode needs it (drawing a back picture from the
-# front for a front + back build); plain pictures do not. Fetched only with --vision.
+# The LLM's vision projector. Edit mode needs it (a back picture drawn from the front, a skin);
+# plain pictures do not. Part of the full install; --vision fetches it alone, for installs
+# from before it was.
 VISION = ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf", 0.75)
+
+# Each file at the revision we tested, and its SHA-256, checked once it is down (pinned
+# 2026-10-31 from the copies our pictures were made with). Keyed by (repo, file).
+PINS = {
+    ("leejet/Qwen-Image-2.1-GGUF", "qwen_image_2.1-Q8_0.gguf"): (
+        "cc11433936a06e9765f7c0c0b1f0436cfd2b9856",
+        "f8b244b00937f0e444a40dbf7866460871b89b30142594973b6012d1b471dc0a"),
+    ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "Qwen3VL-8B-Instruct-Q4_K_M.gguf"): (
+        "f982a07559d4a2f6c8744d840bf6fccab30eea96",
+        "67d1659bfe71b89d50b45a4ad1a9e5b997e5bb16ce5da66a6a6167abd569e9e2"),
+    ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"): (
+        "f982a07559d4a2f6c8744d840bf6fccab30eea96",
+        "c6ba85508d82f42590e6eb77d5340369ab6fecf107a7561d809523d8aa5f3bfd"),
+    ("Comfy-Org/Qwen-Image-2.1", "vae/qwen_image_2.1_vae_bf16.safetensors"): (
+        "ace0edeb3791a594ddfa36ed5f41a178a394e921",
+        "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"),
+}
 
 LICENCE = (
     "Qwen Research License. The pictures you generate are yours (Qwen confirmed it);\n"
@@ -90,7 +149,7 @@ def binary_stale(destination: Path | None = None) -> bool:
 
 
 def total_gb() -> float:
-    return sum(size for _, _, size in WEIGHTS)
+    return sum(size for _, _, size in (*WEIGHTS, VISION))
 
 
 def announcement(build: bool = True, weights: bool = True) -> str:
@@ -107,7 +166,7 @@ def announcement(build: bool = True, weights: bool = True) -> str:
         lines.append(f"  build:   prebuilt sd-cli release ({build_for.size}) -> vendor/sdcpp/")
     if weights:
         lines.append(f"  weights: {total_gb():.1f} GB total ->  Hugging Face cache")
-        for repo, filename, size in WEIGHTS:
+        for repo, filename, size in (*WEIGHTS, VISION):
             lines.append(f"             {size:>5.2f} GB  {filename}  ({repo})")
     lines += ["", "  licence: " + LICENCE, ""]
     return "\n".join(lines)
@@ -129,9 +188,7 @@ def install_vision() -> None:
         raise SystemExit(
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
-    repo, filename, size = VISION
-    print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)
-    print(f"  {hf_hub_download(repo_id=repo, filename=filename)}")
+    fetch_pinned(hf_hub_download, *VISION, PINS)
 
 
 def binary_present() -> bool:
@@ -221,6 +278,7 @@ def install_binary(destination: Path | None = None) -> Path:
         print(f"Downloading {asset['name']} ({asset.get('size', 0) / 1e6:.0f} MB)...",
               flush=True)
         urllib.request.urlretrieve(asset["browser_download_url"], archive)
+        check_sha256(archive, ARCHIVE_SHA256.get(asset["name"]), asset["name"])
         with zipfile.ZipFile(archive) as bundle:
             bundle.extractall(destination)
             restore_symlinks(bundle, destination)
@@ -361,10 +419,54 @@ def install_weights() -> None:
         raise SystemExit(
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
-    for repo, filename, size in WEIGHTS:
-        print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)
-        path = hf_hub_download(repo_id=repo, filename=filename)
-        print(f"  {path}")
+    for repo, filename, size in (*WEIGHTS, VISION):
+        fetch_pinned(hf_hub_download, repo, filename, size, PINS)
+
+
+def fetch_pinned(download, repo: str, filename: str, size: float, pins: dict) -> Path:
+    """One file at its pinned revision, checked against its SHA-256. A cached copy that does
+    not match is never deleted (another tool may share the cache); the user is told instead.
+    Shared with bootstrap_flux_image.py."""
+    revision, expected = pins[(repo, filename)]
+    print(f"\nFetching {Path(filename).name} ({size:.2f} GB) from {repo}...", flush=True)
+    path = Path(download(repo_id=repo, filename=filename, revision=revision))
+    print(f"  {path}\n  Checking it is the file we tested...", flush=True)
+    actual = sha256_of(path)
+    if actual != expected:
+        raise SystemExit(f"{Path(filename).name} at {path} is not the file we tested (SHA-256 {actual}, "
+                         f"expected {expected}). Delete it and run setup again.")
+    return path
+
+
+def ensure_binary() -> bool:
+    """Install or update sd-cli, then check it reaches the GPU. False: stop before the weights.
+
+    Shared with the other picture engines (bootstrap_flux_image.py): one binary draws them all.
+    """
+    if binary_present() and binary_stale():
+        print(f"\nUpdating sd-cli at {BINARY} to {PINNED[target()]}: pictures about twice "
+              "as fast. The weights stay as they are.")
+        install_binary()
+    elif binary_present():
+        print(f"\nsd-cli is already installed at {BINARY}, leaving it alone.")
+    else:
+        install_binary()
+    # The Linux/Windows builds load their GPU backend at run time and fall back to
+    # the CPU without a word if it cannot reach the driver. Catch that now, not
+    # many gigabytes later.
+    help_text = NO_AMD_GPU_HELP if target() == "linux-amd" else NO_GPU_HELP
+    if target() in ("linux-nvidia", "windows-nvidia", "linux-amd"):
+        found = gpu_found(probe_gpu())
+        if not found and target() == "linux-nvidia":
+            icd = add_nvidia_icd()
+            if icd is not None:
+                print(f"Vulkan had no NVIDIA driver file; wrote {icd}.")
+                found = gpu_found(probe_gpu())
+        if not found:
+            print("\n" + help_text + "\nThe weights were not downloaded.")
+            return False
+        print("sd-cli found the GPU.")
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -395,30 +497,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Nothing downloaded.")
             return 1
 
-    if build:
-        if binary_present() and binary_stale():
-            print(f"\nUpdating sd-cli at {BINARY} to {PINNED[target()]}: pictures about twice "
-                  "as fast. The weights stay as they are.")
-            install_binary()
-        elif binary_present():
-            print(f"\nsd-cli is already installed at {BINARY}, leaving it alone.")
-        else:
-            install_binary()
-        # The Linux/Windows builds load their GPU backend at run time and fall back to
-        # the CPU without a word if it cannot reach the driver. Catch that now, not
-        # 13 GB later.
-        help_text = NO_AMD_GPU_HELP if target() == "linux-amd" else NO_GPU_HELP
-        if target() in ("linux-nvidia", "windows-nvidia", "linux-amd"):
-            found = gpu_found(probe_gpu())
-            if not found and target() == "linux-nvidia":
-                icd = add_nvidia_icd()
-                if icd is not None:
-                    print(f"Vulkan had no NVIDIA driver file; wrote {icd}.")
-                    found = gpu_found(probe_gpu())
-            if not found:
-                print("\n" + help_text + "\nThe weights were not downloaded.")
-                return 1
-            print("sd-cli found the GPU.")
+    if build and not ensure_binary():
+        return 1
     if weights:
         install_weights()
     if args.vision:

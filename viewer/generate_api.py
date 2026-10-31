@@ -8,6 +8,7 @@ the viewer server, running its tests, or serving Compare never imports torch.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -92,6 +93,7 @@ from backend_catalog import (
 )
 from download_api import (
     DOWNLOADS,
+    also_fetches,
     rebuild_download,
     rebuild_reason,
     running_payload,
@@ -492,17 +494,137 @@ def hf_sign_in_response(payload: Any) -> tuple[int, dict]:
     return (422 if "error" in result else 200), result
 
 
-def front_back_status(weights=None, vision=None) -> dict[str, Any]:
+def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
     """Whether Create can build from a front and a back picture: Pixal3D's multi-view
-    weights for the shape, and Qwen's vision projector for drawing the back. One place to
-    get both: the Front + back card on the Setup page."""
+    weights for the shape, and a picture engine that can draw the back (Flux by itself, or
+    Qwen with its vision projector). One place to get what is missing: the Front + back
+    card on the Setup page."""
     weights_ready, _ = (weights or pixal3d_front_back_ready)()
-    vision_ready = (vision or image_api.resolve_vision)() is not None
-    if weights_ready and vision_ready:
-        return {"ready": True, "hint": None}
-    return {"ready": False,
-            "hint": "It needs two more downloads (6.6 GB): Setup & Status, Front + back, "
+    drawer_ready = (drawer or back_drawer_ready)()
+    # shape_ready: enough for a back picture you upload yourself, which needs no drawing
+    if weights_ready and drawer_ready:
+        return {"ready": True, "shape_ready": True, "hint": None}
+    if weights_ready:
+        # the Front + back card is complete; what is missing is something to draw the back
+        return {"ready": False, "shape_ready": True,
+                "hint": "Front + back needs a picture engine to draw the back: install FLUX.2 klein "
+                        "(or finish Qwen-Image's download) on Setup & Status."}
+    return {"ready": False, "shape_ready": False,
+            "hint": "It needs one more download: Setup & Status, Front + back, "
                     "or python scripts/bootstrap_front_back.py."}
+
+
+BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
+# A plan's uploads: a picture or two, or a model GLB (a million-triangle one is a few hundred MB)
+CHAIN_UPLOAD_LIMIT = 1024 * 1024 * 1024
+
+
+BACK_VERSIONS_LOCK = threading.Lock()   # "use" and "delete" of a kept back, one at a time
+
+
+def upload_length_ok(length: int, limit: int) -> bool:
+    """A request body we will read: something there, and no more than `limit`. A negative
+    Content-Length makes read() take everything, so it is refused as well."""
+    return 0 < length <= limit
+
+
+def _back_in_output(output_root: Path, relative: str) -> Path:
+    back = image_api.back_source(output_root, relative)
+    if not back.name.endswith("__back.png"):
+        raise ValueError("versions are kept for back pictures")
+    return back
+
+
+def back_versions_payload(relative: str, output_root: Path | None = None) -> dict[str, Any]:
+    """The back in use and every kept version of it, newest first, as output/-relative paths."""
+    root = output_root or OUTPUT_ROOT
+    back = _back_in_output(root, relative)
+    entry = lambda f: {"file": f.relative_to(root.resolve()).as_posix(), "note": image_api.version_note(f)}
+    return {"current": entry(back), "versions": [entry(f) for f in image_api.back_versions(back)]}
+
+
+def change_back_version(action: str, body: dict[str, Any], output_root: Path | None = None) -> dict[str, Any]:
+    """`use` a kept version of a back, or `delete` one. Returns the versions as they are now."""
+    root = output_root or OUTPUT_ROOT
+    # one change at a time, checked and done under the same lock: a "use" and a "delete" that
+    # cross could otherwise delete the very file being swapped in
+    with BACK_VERSIONS_LOCK:
+        back = _back_in_output(root, str(body.get("back") or ""))
+        version = image_api.back_source(root, str(body.get("version") or ""))
+        if action == "use":
+            image_api.use_back_version(back, version)
+        elif action == "delete":
+            image_api.delete_back_version(back, version)
+        else:
+            raise ValueError(f"unknown action: {action}")
+        return back_versions_payload(str(body.get("back")), root)
+
+
+def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = None):
+    """(picture, stroke, instruction, seed, keep_old) from a brush request, or ValueError saying
+    what is wrong. A back may always be brushed, and keeps the one it replaces; a front only
+    until a 3D model is built from it, and the fixed one simply becomes the picture."""
+    from PIL import Image
+
+    def text(name: str) -> str:
+        return str((form.get(name) or {}).get("value") or "").strip()
+
+    root = output_root or OUTPUT_ROOT
+    picture = image_api.back_source(root, text("picture"))
+    keep_old = picture.name.endswith("__back.png")
+    if not keep_old:
+        relative = picture.relative_to(root.resolve()).as_posix()
+        users = [a for a in list_assets(root) if a.get("picture") == relative]
+        if not users:
+            raise ValueError("the brush works on a front or back picture")
+        if any(a.get("model") for a in users):
+            raise ValueError("a 3D model was already made from this picture; "
+                             "fix its back, or draw another picture")
+    instruction = text("instruction")
+    if not instruction:
+        raise ValueError("say what goes in the painted area")
+    mask = form.get("mask") or {}
+    if not mask.get("data"):
+        raise ValueError("paint over the part to change first")
+    try:
+        stroke = Image.open(io.BytesIO(mask["data"]))
+        image_api.check_picture_size(stroke)
+        stroke.load()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"the painted area could not be read ({exc})") from exc
+    try:
+        seed = int(text("seed") or 42)
+    except ValueError:
+        seed = 42
+    return picture, stroke, instruction, seed, keep_old
+
+
+def back_drawer_ready() -> bool:
+    """Whether any installed picture engine can draw a back view from the front."""
+    for engine in image_api.ENGINES.values():
+        try:
+            image_api.check_ready(engine, edit=True)
+        except image_api.MissingWeights:
+            continue
+        return True
+    return False
+
+
+def picture_engines_payload() -> list[dict[str, Any]]:
+    """The picture engines, in the order Create offers them, with what each can do here."""
+    out = []
+    for engine in image_api.ENGINES.values():
+        installed = image_api.is_installed(engine)
+        out.append({
+            "id": engine.id, "label": engine.label, "setup_id": engine.setup_id,
+            "installed": installed, "can_draw_backs": installed and image_api.can_edit(engine),
+            "defaults": engine.defaults, "picture_only_steps": engine.picture_only_steps,
+            "license": {"name": engine.licence_name, "url": engine.licence_url,
+                        "attribution": engine.attribution},
+        })
+    return out
 
 
 def catalog_payload() -> dict:
@@ -510,12 +632,14 @@ def catalog_payload() -> dict:
     payload = with_rebuild_reasons(catalog_status())
     payload["running_setup"] = running_payload()
     payload["front_back"] = front_back_status()
+    payload["picture_engines"] = picture_engines_payload()
     return payload
 
 
 def with_rebuild_reasons(catalog: dict[str, Any],
                          reason: Callable[[str], str | None] = rebuild_reason,
-                         download: Callable[[str], str | None] = rebuild_download) -> dict[str, Any]:
+                         download: Callable[[str], str | None] = rebuild_download,
+                         extra: Callable[[str], list[dict[str, str]]] | None = None) -> dict[str, Any]:
     """Say which installed backends want recompiling, so the page can offer a Rebuild
     button instead of a Terminal command.
 
@@ -525,6 +649,8 @@ def with_rebuild_reasons(catalog: dict[str, Any],
     for backend in [*catalog.get("backends", []), *here]:
         backend["rebuild_reason"] = reason(backend["id"]) if backend.get("supported_here") else None
         backend["rebuild_downloads"] = download(backend["id"]) if backend["rebuild_reason"] else None
+        # downloads beyond the listed weights (an engine, a projector): named before the yes
+        backend["also_fetches"] = (extra or also_fetches)(backend["id"]) if backend.get("supported_here") else []
     return catalog
 
 
@@ -2581,6 +2707,13 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "chains"]:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
+                if not upload_length_ok(length, CHAIN_UPLOAD_LIMIT):
+                    # refused before reading: an unbounded read (a negative length reads to the end)
+                    # let one request fill the memory
+                    self._send_json(413 if length > 0 else 400,
+                                    {"error": "That upload is too large (over 1 GB)." if length > 0
+                                     else "The request is empty."})
+                    return
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
                 # Before the picture and the 3D model, not ten minutes later at Finish
                 if set(chain.steps) & activity_api.NEEDS_BLENDER and find_blender() is None:
@@ -2699,6 +2832,12 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "image", "back"]:
             self._create_back_job()
             return
+        if parts == ["api", "image", "brush"]:
+            self._create_brush_job()
+            return
+        if len(parts) == 4 and parts[:3] == ["api", "image", "versions"] and parts[3] in {"use", "delete"}:
+            self._change_back_version(parts[3])
+            return
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "name":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -2780,10 +2919,16 @@ class Handler(SimpleHTTPRequestHandler):
         """Draw the back of a picture already in output/ (front + back builds)."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            # room for a 500-character "what to change" in any script (JSON escapes it 6x)
+            payload = json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {}
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
-        except (ValueError, json.JSONDecodeError) as exc:
+            instruction = str(payload.get("instruction") or "")
+            # asked for by name: that engine. Otherwise the one Create drew the front with, else the
+            # one the front's record names (one model's pictures should match), else any that can
+            engine = image_api.choose_engine(str(payload.get("engine") or "") or None, front, edit=True,
+                                             prefer=str(payload.get("prefer_engine") or "") or None)
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
         if not image_api.BINARY.exists():
@@ -2794,20 +2939,80 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": waiting})
             return
         try:
-            image_api.resolve_weights()
-            if image_api.resolve_vision() is None:
-                raise image_api.MissingWeights([image_api.VISION_FILE[1]])
+            image_api.check_ready(engine, edit=True)
         except image_api.MissingWeights as exc:
             self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
             return
         try:
-            job = image_api.start_back(front, seed)
+            job = image_api.start_back(front, seed, engine, instruction)
+        except (ValueError, OSError) as exc:      # an unreadable or oversized front
+            self._send_json(422, {"error": str(exc)})
+            return
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return
         self._send_json(202, {"job_id": job.id, "settings": job.settings,
                               "events_url": f"/api/image/{job.id}/events",
                               "status_url": f"/api/image/{job.id}/status"})
+
+    def _create_brush_job(self) -> None:
+        """Repaint the painted area of a front or back picture (multipart: picture, mask, instruction)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > BRUSH_UPLOAD_LIMIT:
+                raise ValueError("expected a picture path, a painted mask and what to change")
+            form = parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length))
+            picture, stroke, instruction, seed, keep_old = brush_request(form)
+            asked = str((form.get("engine") or {}).get("value") or "").strip() or None
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        if not image_api.BINARY.exists():
+            self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
+            return
+        waiting = busy_reason("image")
+        if waiting:
+            self._send_json(409, {"error": waiting})
+            return
+        try:
+            # asked for by name, else the engine that drew this back, else any that is set up
+            engine = image_api.choose_engine(asked, picture, edit=False)
+            image_api.check_ready(engine)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except image_api.MissingWeights as exc:
+            self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
+            return
+        try:
+            job = image_api.start_brush(picture, stroke, instruction, seed, engine, keep_old)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._send_json(202, {"job_id": job.id, "settings": job.settings,
+                              "events_url": f"/api/image/{job.id}/events",
+                              "status_url": f"/api/image/{job.id}/status"})
+
+    def _change_back_version(self, action: str) -> None:
+        """Use or delete a kept version of a back (JSON: back, version)."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+        except (ValueError, json.JSONDecodeError):
+            body = {}
+        # a picture run may be about to swap this very back in when it finishes
+        if _running(image_api.MANAGER):
+            self._send_json(409, {"error": "a picture is being made; wait for it to finish"})
+            return
+        try:
+            payload = change_back_version(action, body)
+        except (ValueError, OSError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        self._send_json(200, payload)
 
     def _create_image_job(self) -> None:
         """Start one text-to-image run. The prompt is the only required field."""
@@ -2829,6 +3034,11 @@ class Handler(SimpleHTTPRequestHandler):
                 "error": f"prompt is longer than {image_api.MAX_PROMPT} characters"
             })
             return
+        try:
+            engine = image_api.pick_engine(payload.get("engine") or None)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
         if not image_api.BINARY.exists():
             self._send_json(503, {
                 "error": "stable-diffusion.cpp is not installed (vendor/sdcpp/sd-cli).",
@@ -2840,13 +3050,14 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": waiting})
             return
         try:
-            image_api.resolve_weights()
+            image_api.resolve_weights(engine)
         except image_api.MissingWeights as exc:
             self._send_json(503, {"error": str(exc), "needs_setup": True,
                                   "missing": exc.missing})
             return
         try:
-            job = image_api.start(prompt, payload.get("settings") or {})
+            job = image_api.start(prompt, payload.get("settings") or {}, engine,
+                                  picture_only=bool(payload.get("picture_only")))
         except RuntimeError as exc:
             self._send_json(409, {"error": str(exc)})
             return
@@ -3237,13 +3448,25 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+        if parts == ["api", "image", "versions"]:
+            try:
+                payload = back_versions_payload(parse_qs(urlparse(self.path).query).get("back", [""])[0])
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
+            self._send_json(200, payload)
+            return
         if parts == ["api", "image", "defaults"]:
+            # The engine a picture would use now, at the top level as before; every engine below.
+            engine = image_api.pick_engine()
             self._send_json(200, {
-                "defaults": image_api.DEFAULTS,
+                "engine": engine.id,
+                "defaults": engine.defaults,
                 "samplers": list(image_api.SAMPLERS),
-                "installed": image_api.is_installed(),
-                "license": {"name": image_api.LICENSE_NAME, "url": image_api.LICENSE_URL,
-                            "attribution": image_api.ATTRIBUTION},
+                "installed": image_api.is_installed(engine),
+                "license": {"name": engine.licence_name, "url": engine.licence_url,
+                            "attribution": engine.attribution},
+                "engines": picture_engines_payload(),
             })
             return
         if parts == ["api", "backends"]:

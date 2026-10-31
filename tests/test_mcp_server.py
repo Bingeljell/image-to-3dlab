@@ -27,7 +27,8 @@ class Response:
         return self._body
 
 
-CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True}, "backends": [
+CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True, "shape_ready": True},
+           "picture_engines": [{"id": "flux", "installed": True}, {"id": "qwen", "installed": False}], "backends": [
     {"id": "trellis", "kind": "3d", "rank": 3, "state": "ready", "license": {"name": "MIT"}},
     {"id": "pixal3d", "kind": "3d", "rank": 1, "state": "ready", "license": {"name": "MIT"}},
     {"id": "qwen", "kind": "image", "rank": 1, "state": "ready"},
@@ -148,7 +149,7 @@ def test_the_server_registers_every_tool():
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend", "blender_helpers",
                      "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
                      "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
-                     "usage_counts"}
+                     "usage_counts", "brush_back", "picture_status", "back_versions"}
 
 
 # --------------------------------------------------------------------------- create
@@ -488,7 +489,8 @@ def test_every_studio_control_has_an_mcp_twin():
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
-            "speed": "speed", "spread": "arms_away", "keep": "keep_everything"}
+            "speed": "speed", "spread": "arms_away", "keep": "keep_everything",
+            "picengine": "picture_engine", "change": "back_change"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -750,3 +752,137 @@ def test_run_line_reads_the_mode_and_command():
     assert ms.run_line("Does a thing.\n\nRun (headless): blender -b -P x.py -- a b\n\nWhy.") == ("headless", "blender -b -P x.py -- a b")
     assert ms.run_line("Does a thing.") is None
     assert not ms.is_blender_helper("bootstrap_blender.py")     # an installer, not a helper
+
+
+def test_create_passes_an_installed_picture_engine_and_refuses_a_missing_one(studio):
+    ms.create(studio, want="picture", description="a fox", picture_engine="flux")
+    assert sent(studio)["picture_engine"] == "flux"
+    with pytest.raises(ms.StudioError, match="'qwen' isn't installed. Installed: flux"):
+        ms.create(studio, want="picture", description="a fox", picture_engine="qwen")
+    ms.create(studio, want="picture", description="a fox")
+    assert "picture_engine" not in sent(studio)   # the studio's default: Flux when installed
+
+
+def test_create_sends_your_own_back_and_draws_none(studio, tmp_path):
+    front, back = tmp_path / "orc.png", tmp_path / "orc-back.png"
+    front.write_bytes(b"front"), back.write_bytes(b"back")
+    out = ms.create(studio, want="prop", image_path=str(front), back_image_path=str(back))
+    _, files = studio.http.posts[-1]
+    assert files["back_file"][0] == "orc-back.png" and files["back_file"][1] == b"back"
+    assert "back" not in out["steps"] and "model" in out["steps"] and out["engine"] == "pixal3d"
+
+
+@pytest.mark.parametrize("kwargs, error", [
+    ({"back_image_path": "x.png"}, "goes with image_path"),
+    ({"image_path": "FRONT", "back_image_path": "BACK", "engine": "trellis"}, "Pixal3D only"),
+])
+def test_a_back_picture_that_cannot_be_used_is_refused_up_front(studio, tmp_path, kwargs, error):
+    for name in ("FRONT", "BACK"):
+        (tmp_path / f"{name}.png").write_bytes(b"x")
+    kwargs = {k: str(tmp_path / f"{v}.png") if v in ("FRONT", "BACK") else v for k, v in kwargs.items()}
+    with pytest.raises(ms.StudioError, match=error):
+        ms.create(studio, want="prop", **kwargs)
+
+
+def test_status_counts_an_installed_picture_engine_even_if_its_card_is_partial(studio):
+    """Qwen draws without its projector; a partial card must not tell agents there are no pictures."""
+    catalog = {**CATALOG, "backends": [b for b in CATALOG["backends"] if b["kind"] != "image"]}
+    original = studio.http.get
+    studio.http.get = lambda url, **k: Response(200, catalog) if url.endswith("api/catalog") else original(url, **k)
+    assert ms.status(studio)["pictures"] is True
+
+
+def test_drawing_the_back_again_sends_a_fresh_seed_and_what_to_change(studio):
+    ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="back", again=True, back_change="  a red cloak  ")
+    form = sent(studio)
+    assert json.loads(form["steps"]) == ["back"]
+    settings = json.loads(form["back_settings"])
+    assert settings["instruction"] == "a red cloak" and isinstance(settings["seed"], int)
+    with pytest.raises(ms.StudioError, match="goes with up_to='back'"):
+        ms.continue_asset(studio, asset_id=KNIGHT["id"], back_change="a red cloak")
+
+
+def test_brush_back_sends_the_back_the_mask_and_what_goes_there(studio, tmp_path):
+    knight = {**KNIGHT, "back": "images/k/k__back.png"}
+    studio.http.assets = [knight]
+    original = studio.http.post
+    studio.http.post = lambda url, files=None, **k: (studio.http.posts.append((url.split("8777/", 1)[1], files))
+                                                     or Response(202, {"job_id": "j1"}))
+    mask = tmp_path / "mask.png"
+    mask.write_bytes(b"PNG")
+    out = ms.brush_back(studio, asset_id=knight["id"], mask_path=str(mask), change=" a red satchel ")
+    path, files = studio.http.posts[-1]
+    assert path == "api/image/brush" and out["job_id"] == "j1"
+    assert files["picture"] == (None, "images/k/k__back.png") and files["instruction"] == (None, "a red satchel")
+    assert files["mask"][0] == "mask.png"
+    studio.http.post = original
+    studio.http.assets = [KNIGHT]
+    with pytest.raises(ms.StudioError, match="has no back picture"):
+        ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x")
+
+
+
+def test_brush_back_can_fix_the_front_until_a_model_is_made(studio, tmp_path):
+    picture_only = {**KNIGHT, "model": None, "picture": "images/k/k.png"}
+    studio.http.assets = [picture_only]
+    original = studio.http.post
+    studio.http.post = lambda url, files=None, **k: (studio.http.posts.append((url.split("8777/", 1)[1], files))
+                                                     or Response(202, {"job_id": "j1"}))
+    mask = tmp_path / "mask.png"
+    mask.write_bytes(b"PNG")
+    out = ms.brush_back(studio, asset_id=picture_only["id"], mask_path=str(mask), change="a strap", which="front")
+    assert studio.http.posts[-1][1]["picture"] == (None, "images/k/k.png") and out["front"] == "images/k/k.png"
+    studio.http.post = original
+    studio.http.assets = [KNIGHT]                                     # has a model
+    with pytest.raises(ms.StudioError, match="already made"):
+        ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x", which="front")
+    with pytest.raises(ms.StudioError, match="'back' or 'front'"):
+        ms.brush_back(studio, asset_id=KNIGHT["id"], mask_path=str(mask), change="x", which="side")
+
+
+def test_back_versions_lists_uses_and_deletes_a_kept_back(studio):
+    knight = {**KNIGHT, "back": "images/k/k__back.png"}
+    studio.http.assets = [knight]
+    original_get, original_post = studio.http.get, studio.http.post
+    studio.http.get = lambda url, params=None, timeout=None: (
+        Response(200, {"current": {"file": params["back"]}, "versions": []}) if "api/image/versions" in url
+        else original_get(url, params, timeout))
+    assert ms.back_versions(studio, asset_id=knight["id"])["current"]["file"] == "images/k/k__back.png"
+    studio.http.post = lambda url, files=None, json=None, timeout=None: (
+        studio.http.posts.append((url.split("8777/", 1)[1], json)) or Response(200, {"versions": []}))
+    ms.back_versions(studio, asset_id=knight["id"], use="images/k/k__back_prev_1.png")
+    ms.back_versions(studio, asset_id=knight["id"], delete="images/k/k__back_prev_2.png")
+    assert studio.http.posts[-2:] == [
+        ("api/image/versions/use", {"back": "images/k/k__back.png", "version": "images/k/k__back_prev_1.png"}),
+        ("api/image/versions/delete", {"back": "images/k/k__back.png", "version": "images/k/k__back_prev_2.png"})]
+    with pytest.raises(ms.StudioError, match="not both"):
+        ms.back_versions(studio, asset_id=knight["id"], use="a", delete="b")
+    studio.http.get, studio.http.post = original_get, original_post
+    studio.http.assets = [KNIGHT]
+    with pytest.raises(ms.StudioError, match="has no back picture"):
+        ms.back_versions(studio, asset_id=KNIGHT["id"])
+
+
+@pytest.mark.parametrize("job_id", ["../../skins", "abc", "A" * 32])
+def test_picture_status_takes_only_a_real_job_id(studio, job_id):
+    """It goes into a URL path; '../..' would read any other studio page."""
+    with pytest.raises(ms.StudioError, match="32-character id"):
+        ms.picture_status(studio, job_id=job_id)
+
+
+
+def test_the_back_redraw_and_brush_can_name_an_engine(studio, tmp_path):
+    ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="back", again=True, picture_engine="qwen")
+    assert json.loads(sent(studio)["back_settings"])["engine"] == "qwen"
+
+
+def test_install_plan_names_what_setup_fetches_beyond_the_weights(studio):
+    """Security review 2026-10-31: the picture engine came down after a yes that never named it."""
+    engine = {"what": "stable-diffusion.cpp picture engine", "from": "https://github.com/x", "size": "~35 MB",
+              "licence": "MIT"}
+    CATALOG["backends"].append({"id": "flux-image", "label": "FLUX.2", "weights": [], "also_fetches": [engine]})
+    try:
+        plan = ms.install_backend(studio, backend_id="flux-image")
+    finally:
+        CATALOG["backends"].pop()
+    assert engine in plan["downloads"] and studio.http.posts == []

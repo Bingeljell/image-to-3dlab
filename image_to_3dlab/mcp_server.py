@@ -71,7 +71,8 @@ STUDIO_ONLY = {
 }
 # Server actions the tools below call.
 USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report", "api/usage",
-        "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel"}
+        "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel",
+        "api/image/brush", "api/image/versions/use", "api/image/versions/delete"}
 
 
 class StudioError(RuntimeError):
@@ -273,7 +274,7 @@ def continue_steps(asset: dict[str, Any], want: str, up_to: str | None, front_ba
 
 def again_steps(asset: dict[str, Any], step: str | None) -> list[str]:
     """One finished step made again, as a new version (the Steps panel's redo)."""
-    needs = {"model": "picture", "finished": "model", "rigged": "finished", "animated": "rigged"}
+    needs = {"back": "picture", "model": "picture", "finished": "model", "rigged": "finished", "animated": "rigged"}
     if step not in needs:
         raise StudioError(f"again=True works with up_to = {', '.join(needs)}.")
     source = asset.get(needs[step]) or (asset.get("model") if step == "rigged" else None)
@@ -407,6 +408,9 @@ def options() -> dict[str, Any]:
             "want": "picture | prop | set | character (create only).",
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
+            "back_image_path": "create only: your own back view to go with image_path; Pixal3D builds from both.",
+            "picture_engine": "create only: flux (FLUX.2 klein, Apache-2.0, fast; default when installed) | qwen "
+                              "(Qwen-Image, Qwen Research License, follows long prompts more closely).",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
             "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
@@ -414,6 +418,8 @@ def options() -> dict[str, Any]:
             "move": "The animation to make (list_moves).",
             "stop_after / up_to": "The last step to run: picture, back, model, finished, split, rigged, animated.",
             "again": "continue_asset only: make that step again as a new version; the current one is kept.",
+            "back_change": "continue_asset with up_to='back', again=True: what to change in the new back picture "
+                           "(name what you want to see). The old back is kept as an older copy.",
         },
         "advanced": ADVANCED,
         "how": "Pass any of these as advanced, e.g. continue_asset(asset_id, up_to='finished', again=True, "
@@ -522,7 +528,9 @@ def status(studio: Studio) -> dict[str, Any]:
         "studio": studio.studio_link(),
         "machine": (catalog.get("host") or {}).get("label"),
         "ready_engines": [b["id"] for b in ready_engines(catalog)],
-        "pictures": any(b.get("kind") == "image" and b.get("state") == "ready" for b in catalog.get("backends", [])),
+        # by engine, not card state: Qwen draws pictures without the projector its card also lists
+        "pictures": any(e.get("installed") for e in catalog.get("picture_engines", []))
+        or any(b.get("kind") == "image" and b.get("state") == "ready" for b in catalog.get("backends", [])),
         "front_and_back": bool((catalog.get("front_back") or {}).get("ready")),
         "animation": bool(moves.get("installed")),
         "running": run_summary(chains["running"], studio) if chains.get("running") else None,
@@ -615,11 +623,14 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
            model_path: str | None = None, stop_after_step: str | None = None, engine: str | None = None,
            front_and_back: bool | None = None, move: str | None = None, add_wording: bool = True,
            finish_upload: bool = False, finish_detail: str | int | None = None,
-           pixel_match: bool = True, advanced: dict[str, Any] | None = None) -> dict[str, Any]:
+           pixel_match: bool = True, advanced: dict[str, Any] | None = None,
+           picture_engine: str | None = None, back_image_path: str | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
     have = "model" if model_path else "picture" if image_path else "idea"
     if model_path and image_path:
         raise StudioError("Give an image or a model, not both.")
+    if back_image_path and not image_path:
+        raise StudioError("back_image_path goes with image_path: give the front picture too.")
     why = refusal(have, want)
     if why:
         raise StudioError(why)
@@ -631,9 +642,20 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         raise StudioError(f"Engine {engine!r} isn't ready. Ready: {', '.join(e['id'] for e in engines) or 'none'}.")
     fb_ready = bool((catalog.get("front_back") or {}).get("ready"))
     front_back = fb_ready if front_and_back is None else front_and_back
+    if back_image_path:
+        # your own back: nothing to draw, so only Pixal3D's multi-view weights are needed
+        if not (catalog.get("front_back") or {}).get("shape_ready"):
+            raise StudioError("Front and back isn't installed. The studio's Setup page adds it.")
+        if engine and engine != "pixal3d":
+            raise StudioError("A back picture is used by Pixal3D only: leave engine out or pass engine='pixal3d'.")
+        if "pixal3d" not in {e["id"] for e in engines}:
+            raise StudioError("A back picture needs Pixal3D, which isn't ready. install_backend sets it up.")
+        engine, front_back = "pixal3d", False
     if front_back and not fb_ready:
         raise StudioError("Front and back isn't installed. The studio's Setup page adds it.")
     steps = stop_after(plan_for(have, want, finish_upload=finish_upload, front_back=front_back), stop_after_step)
+    if back_image_path and "model" not in steps:
+        raise StudioError("A back picture is only used to build the 3D model: don't stop before it.")
     if adv["rig_from"] == "model" and "rigged" in steps:
         steps = [s for s in steps if s != "finished"]   # rig the raw model, as the studio's "skips Finish"
     engine = engine or (engines[0]["id"] if engines else None)
@@ -656,6 +678,12 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     }
     if have == "idea":
         form["prompt"] = compose_prompt(description, want, recipes, add_wording)
+    if picture_engine and "picture" in steps:
+        drawers = [e["id"] for e in catalog.get("picture_engines", []) if e.get("installed")]
+        if picture_engine not in drawers:
+            raise StudioError(f"Picture engine {picture_engine!r} isn't installed. Installed: "
+                              f"{', '.join(drawers) or 'none'}.")
+        form["picture_engine"] = picture_engine
     if engine and "model" in steps:
         form["engine"] = engine
         form["model_seed"] = str(int.from_bytes(os.urandom(3), "big"))  # a new try each time, like Create
@@ -672,7 +700,10 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     if move_settings and "animated" in steps:
         form["move_settings"] = json.dumps(move_settings)
     upload = _upload(image_path, (".png", ".jpg", ".jpeg", ".webp")) or _upload(model_path, (".glb",))
-    run = studio.post("api/chains", data=form, files={"file": upload} if upload else None)
+    files = {"file": upload} if upload else {}
+    if back_image_path:
+        files["back_file"] = _upload(back_image_path, (".png", ".jpg", ".jpeg", ".webp"))
+    run = studio.post("api/chains", data=form, files=files or None)
     return {"run_id": run["id"], "steps": steps, "engine": form.get("engine"), "move": form.get("first_move"),
             "prompt_sent": form.get("prompt"), "watch": "run_status with this run_id (wait_seconds up to 50)",
             "studio": studio.studio_link()}
@@ -681,8 +712,11 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
 def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, want: str | None = None,
                    move: str | None = None, engine: str | None = None, again: bool = False,
                    finish_detail: str | int | None = None, pixel_match: bool = True,
-                   advanced: dict[str, Any] | None = None) -> dict[str, Any]:
+                   advanced: dict[str, Any] | None = None, back_change: str | None = None,
+                   picture_engine: str | None = None) -> dict[str, Any]:
     adv = read_advanced(advanced)
+    if back_change and not (again and up_to == "back"):
+        raise StudioError("back_change goes with up_to='back', again=True: it says what to change in a new back.")
     assets = studio.get("api/assets")["assets"]
     asset = find_asset(studio, asset_id, assets)
     want = want or want_for(asset)
@@ -710,10 +744,15 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         raise StudioError(refused)
     engines = ready_engines(catalog)
     engine = engine or (engines[0]["id"] if engines else None)
-    if "back" in steps and engine != "pixal3d":
+    if "back" in steps and engine != "pixal3d" and not again:
         steps = [s for s in steps if s != "back"]
     form = {"title": asset.get("name") or "Asset", "steps": json.dumps(steps), "want": want,
             "made": json.dumps(made)}
+    if again and steps == ["back"]:
+        # a fresh try each time, as the studio's "Draw the back again"
+        form["back_settings"] = json.dumps({"seed": int.from_bytes(os.urandom(3), "big"),
+                                            **({"instruction": back_change.strip()} if back_change else {}),
+                                            **({"engine": picture_engine} if picture_engine else {})})
     if choices and "finished" in steps:
         form["finish_settings"] = json.dumps(choices)
     if move_settings and "animated" in steps:
@@ -801,6 +840,63 @@ def list_versions(studio: Studio, *, asset_id: str) -> dict[str, Any]:
             "tip": "files.model is each version's raw 3D model (before Finish); preview(stage='model') shows it."}
 
 
+def brush_back(studio: Studio, *, asset_id: str, mask_path: str, change: str,
+               picture_engine: str | None = None, which: str = "back") -> dict[str, Any]:
+    """The studio's "Fix part of the back" (or, which="front", "Fix part of the picture"): repaint
+    the white area of `mask_path`. The front only until a 3D model is made from it."""
+    asset = find_asset(studio, asset_id, studio.get("api/assets")["assets"])
+    if which not in ("back", "front"):
+        raise StudioError("which is 'back' or 'front'.")
+    if which == "front" and asset.get("model"):
+        raise StudioError(f"A 3D model was already made from {asset.get('name')}'s picture; fix its back, "
+                          "or draw another picture.")
+    if which == "front" and not asset.get("picture"):
+        raise StudioError(f"{asset.get('name')} has no picture.")
+    if which == "back" and not asset.get("back"):
+        raise StudioError(f"{asset.get('name')} has no back picture. continue_asset(up_to='back') draws one.")
+    if not change.strip():
+        raise StudioError("Say what goes in the painted area (change=...).")
+    mask = _upload(mask_path, (".png",))
+    target = asset["picture"] if which == "front" else asset["back"]
+    fields = {"picture": target, "instruction": change.strip(),
+              "seed": str(int.from_bytes(os.urandom(3), "big"))}
+    if picture_engine:
+        fields["engine"] = picture_engine
+    start = studio.post("api/image/brush", data=fields, files={"mask": mask})
+    kept = "The old back is kept beside it." if which == "back" else "The fixed picture replaces the old one."
+    return {"job_id": start["job_id"], which: target,
+            "next": "Takes a couple of minutes: picture_status(job_id, wait_seconds=50) until done, then show the "
+                    f"user the picture (its file is `{which}` under output/). {kept}"}
+
+
+def back_versions(studio: Studio, *, asset_id: str, use: str | None = None,
+                  delete: str | None = None) -> dict[str, Any]:
+    """The back in use and every kept one (each redraw or brush keeps the one it replaced); `use`
+    makes a kept one the back again, `delete` removes one. Both take a `file` from the list."""
+    asset = find_asset(studio, asset_id, studio.get("api/assets")["assets"])
+    if not asset.get("back"):
+        raise StudioError(f"{asset.get('name')} has no back picture.")
+    if use and delete:
+        raise StudioError("Pass use or delete, not both.")
+    if use or delete:
+        action = "use" if use else "delete"
+        return studio.post_json(f"api/image/versions/{action}", {"back": asset["back"], "version": use or delete})
+    return studio.get("api/image/versions", back=asset["back"])
+
+
+def picture_status(studio: Studio, *, job_id: str, wait_seconds: int = 0,
+                   sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    """A picture job (a brushed back): its status, waiting up to `wait_seconds` for it to end."""
+    if not re.fullmatch(r"[0-9a-f]{32}", str(job_id)):
+        raise StudioError("job_id is the 32-character id brush_back gave you.")
+    deadline = time.monotonic() + max(0, min(int(wait_seconds), 50))
+    while True:
+        job = studio.get(f"api/image/{job_id}/status")
+        if job.get("status") in {"done", "error", "cancelled"} or time.monotonic() >= deadline:
+            return {k: job.get(k) for k in ("status", "error", "picture", "elapsed_seconds")}
+        sleep(5)
+
+
 def preview(studio: Studio, *, asset_id: str, stage: str = "latest", look: str = "paint",
             move: str | None = None, skin: str | None = None) -> tuple[bytes, dict[str, Any]]:
     params = ({"asset": asset_id, "stage": stage, "look": look} | ({"move": move} if move else {})
@@ -861,7 +957,8 @@ def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -
         "backend": backend_id, "label": backend.get("label"),
         "route": backend.get("best_for"),
         "downloads": [{"what": w.get("label"), "from": w.get("source_url") or w.get("source"),
-                       "size": w.get("human_expected")} for w in backend.get("weights", []) if not w.get("present")],
+                       "size": w.get("human_expected")} for w in backend.get("weights", []) if not w.get("present")]
+                     + [dict(x) for x in backend.get("also_fetches", [])],
         "total_size": backend.get("human_expected"),
         "licence": (backend.get("license") or {}).get("name"), "licence_url": (backend.get("license") or {}).get("url"),
         "caveat": backend.get("caveat"),
@@ -1049,7 +1146,8 @@ def build_server(studio: Studio | None = None):
     def tool_create(want: str, description: str = "", image_path: str | None = None, model_path: str | None = None,
                   stop_after: str | None = None, engine: str | None = None, front_and_back: bool | None = None,
                   move: str | None = None, add_wording: bool = True, finish_upload: bool = False,
-                  finish_detail: str | None = None, pixel_match: bool = True, advanced: dict | None = None):
+                  finish_detail: str | None = None, pixel_match: bool = True, advanced: dict | None = None,
+                  picture_engine: str | None = None, back_image_path: str | None = None):
         """Make something new, as the studio's Create does. Returns a run_id at once; the run takes minutes.
 
         want: "picture" | "prop" (one game-ready object) | "set" (a 3x3 sheet cut into nine props) |
@@ -1066,28 +1164,38 @@ def build_server(studio: Studio | None = None):
         1000 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
         triangles; the sharpest look, for renders and stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
+        picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast;
+            the default when installed) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
+            more closely). Back pictures prefer Flux whichever drew the front.
+        back_image_path: your own back view to go with image_path (same pose, size and framing, seen from
+            directly behind). Pixal3D then builds from both and nothing is drawn. Needs Front + back installed.
         """
         return safe(lambda: create(studio, want=want, description=description, image_path=image_path,
                                    model_path=model_path, stop_after_step=stop_after, engine=engine,
                                    front_and_back=front_and_back, move=move, add_wording=add_wording,
                                    finish_upload=finish_upload, finish_detail=finish_detail,
-                                   pixel_match=pixel_match, advanced=advanced))
+                                   pixel_match=pixel_match, advanced=advanced,
+                                   picture_engine=picture_engine, back_image_path=back_image_path))
 
     @server.tool(name="continue_asset", structured_output=False)
     def tool_continue_asset(asset_id: str, up_to: str | None = None, want: str | None = None,
                           move: str | None = None, engine: str | None = None, again: bool = False,
                           finish_detail: str | None = None, pixel_match: bool = True,
-                          advanced: dict | None = None):
+                          advanced: dict | None = None, back_change: str | None = None,
+                          picture_engine: str | None = None):
         """Take an existing asset further: e.g. a picture to 3D, a model to rigged, or give an animated
         character another move (up_to="animated", move=...). up_to: the last step to run (default: all).
         again=True makes the up_to step again as a new version (another 3D model, another Finish at a
         different detail, a re-rig); the current one is kept. A new version has its own asset_id
         (run_status gives it when the run is done): continue from that id to work on it, since the
         family id is the original. finish_detail, pixel_match and advanced: as in create (options lists
-        every advanced knob)."""
+        every advanced knob). Back picture you don't like: up_to="back", again=True, and optionally
+        back_change="what to change" (say what you want to see), picture_engine="flux"|"qwen" (default: the
+        engine that drew the front); then make the model again from it."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
-                                           pixel_match=pixel_match, advanced=advanced))
+                                           pixel_match=pixel_match, advanced=advanced, back_change=back_change,
+                                           picture_engine=picture_engine))
 
     @server.tool(name="run_status", structured_output=False)
     def tool_run_status(run_id: str | None = None, wait_seconds: int = 30):
@@ -1111,6 +1219,32 @@ def build_server(studio: Studio | None = None):
         """Every version of one character or prop, oldest first: the same picture's 3D models,
         Finishes and rigs, each with its files (the raw 3D model too). Any version's id works."""
         return safe(lambda: list_versions(studio, asset_id=asset_id))
+
+    @server.tool(name="brush_back", structured_output=False)
+    def tool_brush_back(asset_id: str, mask_path: str, change: str, picture_engine: str | None = None,
+                        which: str = "back"):
+        """Fix part of a character's back picture: mask_path is a PNG the size of the back (or any size; it is
+        scaled), white where to repaint, black elsewhere. change: what goes there ("a dark red leather satchel").
+        Only the white area is redrawn; the rest stays pixel for pixel. Paint close around the part:
+        everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True).
+        picture_engine: "flux" or "qwen"; default the engine that drew the back.
+        which="front" fixes the picture itself instead, only before a 3D model is made from it; the fixed
+        picture replaces the old one. Describe what should be there, not the change."""
+        return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change,
+                                       picture_engine=picture_engine, which=which))
+
+    @server.tool(name="back_versions", structured_output=False)
+    def tool_back_versions(asset_id: str, use: str | None = None, delete: str | None = None):
+        """Every kept version of a character's back picture (each redraw or brush keeps the one it
+        replaced), newest first, with how each was made. use=<file> makes one the back again (the one in
+        use is kept); delete=<file> removes one for good, so ask the user first. The back in use cannot
+        be deleted. After use, make the 3D model again for the change to show."""
+        return safe(lambda: back_versions(studio, asset_id=asset_id, use=use, delete=delete))
+
+    @server.tool(name="picture_status", structured_output=False)
+    def tool_picture_status(job_id: str, wait_seconds: int = 30):
+        """Status of a picture job started by brush_back; waits up to wait_seconds (max 50) for it to end."""
+        return safe(lambda: picture_status(studio, job_id=job_id, wait_seconds=wait_seconds))
 
     @server.tool(name="preview", structured_output=False)
     def tool_preview(asset_id: str, stage: str = "latest", look: str = "paint", move: str | None = None,

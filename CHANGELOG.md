@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Fix part of the back: paint over a spot on the back picture, right in the big view, say what goes there, and only that
+  spot is drawn again; the rest stays exactly as it was. Agents: `brush_back`.
+- Fix part of the picture: the same brush on the front picture, before a 3D model is made from it. The
+  fixed picture replaces the old one. Agents: `brush_back(which="front")`.
+- Back versions: every back you redraw or brush is kept. See them all under the Picture step, use an
+  older one again, or delete the ones you don't want. Agents: `back_versions`.
+- Draw the back again: under the Picture step, a new try at the back picture, with an optional
+  "what to change". The old back is kept. Agents: `continue_asset(up_to="back", again=True, back_change=...)`.
+- Bring your own back view: in Create, drop a back picture next to the front and Pixal3D builds
+  from both, with nothing drawn. Agents pass `back_image_path` to `create`.
+- FLUX.2 klein 4B as a picture engine, and the default when installed: Apache-2.0, so the pictures
+  are yours for any use, and much faster than Qwen-Image. It also draws the back for front + back
+  builds, with nothing extra to download. Qwen-Image stays as a choice in Create and for agents.
 - Agents can find and run the repo's Blender helpers: a new `blender_helpers` MCP tool lists each one, what it does and how to run it.
 - Models folder: on Setup & Status, pick a folder on any drive for downloaded models, handy when the
   system drive is small. Restart the studio to use it; models you already have stay where they are.
@@ -15,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when the step finishes and in the Library.
 
 ### Changed
+- Front + back no longer needs Qwen-Image: any installed picture engine can draw the back.
+  Qwen-Image's own setup now includes the small vision projector its skins and back views need.
 - Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
 - Runs with a non-default model (e.g. a custom `--sf3d-repo` or a ComfyUI workflow loading a foreign
@@ -54,6 +69,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unsafe pickle load.
 - Finish, Rig, Auto-rig and Props workers are terminated and reaped if their job errors after the worker
   process has started, so the active slot is not released while expensive work keeps running.
+
+### Security
+- The studio refuses an upload with an empty or broken size up front, and lets go of uploaded pictures
+  once a run ends. A picture too big for the brush is refused before the browser tries to open it.
+- The picture engine download is checked against a fingerprint of the file we tested before it is
+  unpacked, and the FLUX.2 and Qwen-Image files come from the exact versions we tested and are
+  checked the same way.
+- Setup names everything it downloads before you say yes: the picture engine with FLUX.2 or
+  Qwen-Image, and Qwen's vision projector with Front + back, each with its size and licence.
 
 ## [0.5.3] - 2026-10-26
 

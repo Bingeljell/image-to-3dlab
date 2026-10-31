@@ -1907,12 +1907,25 @@ def test_front_back_readiness_without_the_folder_says_how_to_get_it(tmp_path):
     assert not ready and "5.9 GB" in hint
 
 
-def test_front_back_is_ready_only_with_both_downloads():
-    assert api.front_back_status(lambda: (True, None), lambda: Path("/w/mmproj.gguf")) == {
-        "ready": True, "hint": None}
-    for weights, vision in (((True, None), None), ((False, "x"), Path("/w/m.gguf")), ((False, "x"), None)):
-        status = api.front_back_status(lambda w=weights: w, lambda v=vision: v)
-        assert not status["ready"] and "Front + back" in status["hint"] and "6.6 GB" in status["hint"]
+def test_front_back_is_ready_only_with_the_shape_weights_and_a_back_drawer():
+    assert api.front_back_status(lambda: (True, None), lambda: True) == {
+        "ready": True, "shape_ready": True, "hint": None}
+    for weights, drawer in (((True, None), False), ((False, "x"), True), ((False, "x"), False)):
+        status = api.front_back_status(lambda w=weights: w, lambda d=drawer: d)
+        assert not status["ready"] and "Front + back" in status["hint"]
+        # an uploaded back needs only the shape weights, not a picture engine to draw it
+        assert status["shape_ready"] is weights[0]
+
+
+def test_flux_alone_can_draw_backs_but_qwen_needs_its_vision_projector(monkeypatch):
+    """Flux reads the front by itself; a Flux-only machine must not be told to fetch Qwen's projector."""
+    installed = {"flux": False, "qwen": True}
+    monkeypatch.setattr(api.image_api, "resolve_weights", lambda engine=None: (
+        {} if installed[engine.id] else (_ for _ in ()).throw(api.image_api.MissingWeights(["x"], engine))))
+    monkeypatch.setattr(api.image_api, "resolve_vision", lambda engine=None: None)
+    assert api.back_drawer_ready() is False          # Qwen without its projector
+    installed["flux"] = True
+    assert api.back_drawer_ready() is True           # Flux needs nothing more
 
 
 # --- One heavy job at a time (2026-10-19): every start waits for every other kind -----------
@@ -1972,3 +1985,160 @@ def test_a_backend_is_found_by_its_catalogue_id_too():
     assert api.backend_spec("trellis") is api.BACKENDS["trellis"]
     assert api.backend_spec("no-such-engine") is None
 
+
+
+def test_front_back_says_to_install_a_picture_engine_when_only_that_is_missing():
+    status = api.front_back_status(lambda: (True, None), lambda: False)
+    assert status["shape_ready"] and "FLUX.2 klein" in status["hint"]
+
+
+
+def _brush_form(picture, mask=True, instruction="a red satchel"):
+    import io as _io
+
+    from PIL import Image
+    form = {"picture": {"value": picture}, "instruction": {"value": instruction}}
+    if mask:
+        buffer = _io.BytesIO()
+        Image.new("L", (8, 8), 255).save(buffer, "PNG")
+        form["mask"] = {"filename": "mask.png", "data": buffer.getvalue()}
+    return form
+
+
+def test_a_brush_request_takes_a_back_or_a_front_no_model_was_made_from(tmp_path):
+    folder = tmp_path / "images" / "orc"
+    folder.mkdir(parents=True)
+    (folder / "orc.png").write_bytes(b"front")
+    (folder / "orc__back.png").write_bytes(b"back")
+    (folder / "notes.png").write_bytes(b"not an asset's picture")
+    picture, stroke, words, seed, keep = api.brush_request(_brush_form("images/orc/orc__back.png"), tmp_path)
+    assert picture.name == "orc__back.png" and stroke.size == (8, 8) and words == "a red satchel" and seed == 42
+    assert keep is True                                            # a back keeps the one it replaces
+    picture, *_, keep = api.brush_request(_brush_form("images/orc/orc.png"), tmp_path)
+    assert picture.name == "orc.png" and keep is False             # a front: the fixed one is the picture
+    with pytest.raises(ValueError, match="front or back picture"):
+        api.brush_request(_brush_form("images/orc/notes.png"), tmp_path)
+    gen = "orc__pixal3d__20261027-120000"
+    (tmp_path / "commercial_conditional" / gen).mkdir(parents=True)
+    (tmp_path / "commercial_conditional" / gen / f"{gen}.glb").write_bytes(b"MODEL")
+    with pytest.raises(ValueError, match="3D model was already made"):
+        api.brush_request(_brush_form("images/orc/orc.png"), tmp_path)
+    with pytest.raises(ValueError, match="not a picture in output"):
+        api.brush_request(_brush_form("../../etc/passwd"), tmp_path)
+    with pytest.raises(ValueError, match="paint over"):
+        api.brush_request(_brush_form("images/orc/orc__back.png", mask=False), tmp_path)
+    with pytest.raises(ValueError, match="say what goes"):
+        api.brush_request(_brush_form("images/orc/orc__back.png", instruction=" "), tmp_path)
+
+
+# --- Kept versions of a back: use one again, or delete one (2026-10-30) ------------------------
+
+def _back_with_versions(tmp_path):
+    folder = tmp_path / "images" / "orc"
+    folder.mkdir(parents=True)
+    (folder / "orc.png").write_bytes(b"front")
+    for name, words in (("orc__back", "now"), ("orc__back_prev_20261030-200000", "first"),
+                        ("orc__back_prev_20261030-210000", "second")):
+        (folder / f"{name}.png").write_bytes(words.encode())
+        (folder / f"{name}.provenance.json").write_text(json.dumps({"brush": {"instruction": words}}))
+    (folder / "orc__back_brush_mask.png").write_bytes(b"not a version")
+    return folder
+
+
+def test_a_backs_kept_versions_are_listed_newest_first_with_how_they_were_made(tmp_path):
+    _back_with_versions(tmp_path)
+    got = api.back_versions_payload("images/orc/orc__back.png", tmp_path)
+    assert got["current"] == {"file": "images/orc/orc__back.png", "note": "Brushed: now"}
+    assert [v["file"] for v in got["versions"]] == ["images/orc/orc__back_prev_20261030-210000.png",
+                                                    "images/orc/orc__back_prev_20261030-200000.png"]
+    with pytest.raises(ValueError, match="back pictures"):
+        api.back_versions_payload("images/orc/orc.png", tmp_path)
+
+
+def test_using_a_kept_back_keeps_the_one_it_replaces_each_with_its_own_record(tmp_path):
+    folder = _back_with_versions(tmp_path)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    got = api.change_back_version("use", body, tmp_path)
+    assert (folder / "orc__back.png").read_bytes() == b"first"
+    assert "first" in (folder / "orc__back.provenance.json").read_text()
+    assert got["current"]["note"] == "Brushed: first"
+    replaced = [v for v in got["versions"] if v["note"] == "Brushed: now"]
+    assert len(replaced) == 1 and (tmp_path / replaced[0]["file"]).read_bytes() == b"now"
+    assert len(got["versions"]) == 2                                   # nothing lost, nothing doubled
+
+
+def test_using_kept_backs_twice_in_one_second_overwrites_nothing(tmp_path):
+    _back_with_versions(tmp_path)
+    for note in ("Brushed: first", "Brushed: second"):
+        listed = api.back_versions_payload("images/orc/orc__back.png", tmp_path)["versions"]
+        pick = next(v["file"] for v in listed if v["note"] == note)
+        api.change_back_version("use", {"back": "images/orc/orc__back.png", "version": pick}, tmp_path)
+    got = api.back_versions_payload("images/orc/orc__back.png", tmp_path)
+    notes = sorted([got["current"]["note"]] + [v["note"] for v in got["versions"]])
+    assert notes == ["Brushed: first", "Brushed: now", "Brushed: second"]
+
+
+def test_deleting_a_kept_back_removes_it_and_its_record_only(tmp_path):
+    folder = _back_with_versions(tmp_path)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    got = api.change_back_version("delete", body, tmp_path)
+    assert not (folder / "orc__back_prev_20261030-200000.png").exists()
+    assert not (folder / "orc__back_prev_20261030-200000.provenance.json").exists()
+    assert [v["note"] for v in got["versions"]] == ["Brushed: second"]
+    assert (folder / "orc__back.png").read_bytes() == b"now"
+
+
+@pytest.mark.parametrize("version", ["images/orc/orc__back.png", "images/orc/orc.png",
+                                     "images/orc/orc__back_brush_mask.png", "../../etc/passwd"])
+def test_only_a_kept_version_can_be_used_or_deleted(tmp_path, version):
+    """The back in use, the front, a working file or anything outside output/ is refused."""
+    folder = _back_with_versions(tmp_path)
+    before = sorted(p.name for p in folder.iterdir())
+    for action in ("use", "delete"):
+        with pytest.raises(ValueError):
+            api.change_back_version(action, {"back": "images/orc/orc__back.png", "version": version}, tmp_path)
+    assert sorted(p.name for p in folder.iterdir()) == before
+
+
+@pytest.mark.parametrize("length, ok", [(-1, False), (0, False), (1, True), (100, True), (101, False)])
+def test_an_upload_length_must_be_something_and_under_the_limit(length, ok):
+    """A negative Content-Length made read() take everything (security review 2026-10-31)."""
+    assert api.upload_length_ok(length, 100) is ok
+
+
+def test_a_use_that_fails_halfway_puts_the_back_back(tmp_path, monkeypatch):
+    """A half swap left no back in use (security review 2026-10-31)."""
+    folder = _back_with_versions(tmp_path)
+    before = sorted(p.name for p in folder.iterdir())
+    real = Path.rename
+
+    def flaky(self, target):
+        if self.name == "orc__back_prev_20261030-200000.png":   # the second move: the old version in
+            raise OSError("disk went away")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    with pytest.raises(OSError):
+        api.change_back_version("use", body, tmp_path)
+    monkeypatch.setattr(Path, "rename", real)
+    assert sorted(p.name for p in folder.iterdir()) == before
+    assert (folder / "orc__back.png").read_bytes() == b"now"
+
+
+def test_back_version_changes_take_one_lock(tmp_path):
+    """A "use" and a "delete" that cross must not both pass their checks first."""
+    _back_with_versions(tmp_path)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    assert api.BACK_VERSIONS_LOCK.acquire(blocking=False)
+    try:
+        import threading
+        t = threading.Thread(target=api.change_back_version, args=("delete", body, tmp_path))
+        t.start()
+        t.join(0.3)
+        assert t.is_alive()                                                   # waiting its turn
+        assert (tmp_path / body["version"]).exists()
+    finally:
+        api.BACK_VERSIONS_LOCK.release()
+    t.join(2)
+    assert not (tmp_path / body["version"]).exists()

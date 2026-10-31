@@ -39,20 +39,43 @@ export function pictureSettings({ size = 768, steps = 8, newEachTime = true, see
   return { width: side, height: side, steps: count, seed: newEachTime ? freshSeed(random) : fixed };
 }
 
+/**
+ * Create's picture size and steps for one picture engine (the catalogue's picture_engines entry):
+ * its own defaults, and more steps when the picture is the end product rather than a 3D source.
+ */
+export function pictureDefaults(engine, pictureOnly = false) {
+  const defaults = engine?.defaults || {};
+  return { size: defaults.width || 768, steps: (pictureOnly && engine?.picture_only_steps) || defaults.steps || 8 };
+}
+
+/**
+ * Whether Create offers a slot for your own back picture: a picture you upload, built by Pixal3D
+ * (the only engine that reads a back) once its multi-view weights are in. No drawing is needed,
+ * so it does not wait for a picture engine. Not for a prop sheet, which has no back.
+ */
+export function backSlotShown({ have, want, engine }, frontBack, steps) {
+  return have === 'picture' && engine === 'pixal3d' && want !== 'set' && Boolean(frontBack?.shape_ready) && steps.includes('model');
+}
+
 /** A new random seed, so trying again gives a different result. */
 export function freshSeed(random = Math.random) {
   return Math.floor(random() * 2147483647);
 }
 
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
-export function openCreate({ stage, recipes, engines, presets, frontBack = null, prefill = null, onStart }) {
+export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
+    backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 8, newEachTime: true, seed: 42 }, keep: false, hero: false,
+    pic: { size: 768, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
+    picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // the catalogue lists Flux first
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
+  // size and steps follow the picture engine and whether the picture is the end product, until you set them
+  const picEngine = () => pictureEngines.find((e) => e.id === state.picEngine) || null;
+  const fitPicture = (pictureOnly) => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), pictureOnly)); };
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
   // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
@@ -69,16 +92,30 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     state.file = file;
     state.preview = file && (file.type.startsWith('image/') || PICTURE_TYPES.test(file.name)) ? URL.createObjectURL(file) : null;
   };
+  const setBack = (file) => {
+    if (state.backPreview) URL.revokeObjectURL(state.backPreview);
+    state.backFile = file;
+    state.backPreview = file ? URL.createObjectURL(file) : null;
+  };
   // run by closeSheet too, so a sheet closed from outside (a Library click) leaves no listener behind
-  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); setFile(null); };
+  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); setFile(null); setBack(null); };
   const close = () => { sheet.onSheetClose(); sheet.remove(); };
 
   const render = () => {
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
+    const installedPictures = pictureEngines.filter((e) => e.installed);
     const pixal = state.engine === 'pixal3d';
-    const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) });
+    // your own back replaces the drawn one, so the plan has no "Back picture" step to run
+    const plan = planFor(state.have, state.want, { frontBack: state.frontBack && pixal && Boolean(frontBack?.ready) && !state.backFile });
     if (state.stop && !plan.includes(state.stop)) state.stop = null;
     const active = stopAfter(plan, state.stop);
+    fitPicture(!active.includes('model') && !active.includes('back'));   // as the server reads it: no 3D build after it
+    const backSlot = backSlotShown(state, frontBack, active);
+    if (!backSlot && state.backFile) setBack(null);
+    const back = backSlot ? `<div class="drop" data-backdrop tabindex="0" role="button">${state.backFile
+      ? `${state.backPreview ? `<img class="droppreview" src="${state.backPreview}" alt="Your back picture">` : ''}<b>Back: ${esc(state.backFile.name)}</b><br><span class="hint">${fileSizeText(state.backFile.size)} · click or drop another to replace</span> <button type="button" class="ghost" data-backclear>Remove</button>`
+      : '<b>Have a back view too?</b> Drop it here (optional).<br><span class="hint">Same pose, size and framing as the front, seen from directly behind. The 3D model is then built from both.</span>'}</div>
+      <input type="file" data-backfile hidden accept=".png,.jpg,.jpeg,.webp">` : '';
     const tipKey = state.have === 'idea' ? state.want : state.have === 'picture' ? 'upload' : null;
     const recipe = recipes?.goals?.[state.want];
     const quick = [['character', 'idea', 'Make a character'], ['prop', 'idea', 'Make props'], ['picture', 'idea', 'Make a picture'], ['character', 'model', 'Rig and animate my model']];
@@ -94,6 +131,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ${tipKey && state.tips ? `<div class="tipsbox"><b>${esc(recipes?.goals?.[tipKey]?.label || '')}</b><ul>${(recipes?.goals?.[tipKey]?.tips || []).map((t) => `<li>${t}</li>`).join('')}</ul><p class="meta"><a href="${FULL_GUIDE}" target="_blank" rel="noopener">The full step-by-step guide</a></p></div>` : ''}
       <div class="seg haves">${Object.entries(HAVES).map(([k, v]) => `<button type="button" aria-pressed="${k === state.have}" data-have="${k}">${v}</button>`).join('')}</div>
       ${source}
+      ${back}
       <input type="file" data-file hidden accept="${state.have === 'model' ? '.glb' : '.png,.jpg,.jpeg,.webp'}">
       <div class="q"><span class="qn">2</span><b>I want</b></div>
       <div class="wants">${Object.entries(WANTS).map(([k, v]) => { const ok = ALLOWED[state.have][k]; return `<button type="button" class="kind${ok === true ? '' : ' off'}" data-want="${k}" aria-pressed="${k === state.want}" ${ok === true ? '' : `disabled data-tip="${esc(ok)}"`}><b>${v.label}</b><small>${v.hint}</small></button>`; }).join('')}</div>
@@ -103,14 +141,15 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
       ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
         <div class="picset">
-          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768 (recommended)'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
-          <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">10 is a good start; each extra step adds the same time again.</span></label>
+          ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
+          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 768) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">Each extra step adds the same time again.</span></label>
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
         </div></details>` : ''}
-      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
+      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
       <p class="error" data-error hidden></p>
-      <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ' · the picture uses Qwen-Image, run on this machine' : ''}</span><button type="submit" class="primary">Make it</button></div>
+      <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ` · the picture uses ${esc(picEngine()?.label || 'the picture engine')}, run on this machine` : ''}</span><button type="submit" class="primary">Make it</button></div>
     </form>`;
     wire(active);
   };
@@ -147,12 +186,17 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
     q('[data-k="keep"]')?.addEventListener('change', (e) => { state.keep = e.target.checked; });
+    q('[data-k="picengine"]')?.addEventListener('change', (e) => {
+      state.picEngine = e.target.value; state.pic.touched = false; render();
+      sheet.querySelector('.picset').closest('details').open = true;
+    });
     sheet.querySelectorAll('[data-face]').forEach((b) => b.onclick = () => { state.hero = b.dataset.face === 'hero'; render(); });
     const reopen3d = () => { const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; };
     q('[data-k="frontback"]')?.addEventListener('change', (e) => { state.frontBack = e.target.checked; render(); reopen3d(); });
     sheet.querySelectorAll('[data-pic]').forEach((el) => el.addEventListener('change', () => {
       const key = el.dataset.pic;
       state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
+      if (key === 'size' || key === 'steps') state.pic.touched = true;
       if (key === 'newEachTime') { render(); sheet.querySelector('.picset').closest('details').open = true; }  // show or hide the seed box
     }));
     const picker = q('[data-file]'), drop = q('[data-drop]');
@@ -161,6 +205,15 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); } };
     }
     picker.onchange = () => takeFile(picker.files[0]);
+    const backPicker = q('[data-backfile]'), backDrop = q('[data-backdrop]');
+    if (backDrop) {
+      const takeBack = (file) => { if (file && PICTURE_TYPES.test(file.name)) { setBack(file); render(); } };
+      backDrop.onclick = (e) => { if (!e.target.closest('[data-backclear]')) backPicker.click(); };
+      backDrop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); backPicker.click(); } };
+      backDrop.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); takeBack(e.dataTransfer.files[0]); });
+      backPicker.onchange = () => takeBack(backPicker.files[0]);
+      q('[data-backclear]')?.addEventListener('click', (e) => { e.stopPropagation(); setBack(null); render(); });
+    }
     q('form').onsubmit = (event) => {
       event.preventDefault();
       const error = q('[data-error]');
@@ -168,10 +221,13 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       if (state.have === 'idea' && !state.text.trim()) return fail('Describe what you want first.');
       if (state.have !== 'idea' && !state.file) return fail(`Choose ${state.have === 'model' ? 'a GLB' : 'a picture'} first.`);
       const { file } = state;   // closing the sheet clears state.file, so take it first
+      const backFile = backSlotShown(state, frontBack, active) ? state.backFile : null;
       close();
       onStart({ have: state.have, want: state.want, steps: active, file, engine: state.engine, firstMove: state.firstMove,
         description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
+        pictureEngine: active.includes('picture') ? state.picEngine : null,
+        backFile,
         modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture
         keepEverything: active.includes('model') && state.keep,
         finishSettings: heroWanted(state, active, state.engine === 'pixal3d') ? { faces: 32000, hero: true } : null });
@@ -234,12 +290,15 @@ export function planForm(plan, made = {}) {
   if (plan.engine) form.append('engine', plan.engine);
   if (plan.firstMove) form.append('first_move', plan.firstMove);
   if (plan.pictureSettings) form.append('picture_settings', JSON.stringify(plan.pictureSettings));
+  if (plan.pictureEngine) form.append('picture_engine', plan.pictureEngine);
   if (plan.modelSeed != null) form.append('model_seed', String(plan.modelSeed));
   if (plan.keepEverything) form.append('keep_everything', '1');
   if (plan.finishSettings) form.append('finish_settings', JSON.stringify(plan.finishSettings));
   if (plan.moveSettings) form.append('move_settings', JSON.stringify(plan.moveSettings));
+  if (plan.backSettings) form.append('back_settings', JSON.stringify(plan.backSettings));
   form.append('made', JSON.stringify(made));
   if (plan.file) form.append('file', plan.file);
+  if (plan.backFile) form.append('back_file', plan.backFile);
   return form;
 }
 

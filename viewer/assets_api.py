@@ -41,6 +41,19 @@ TAKE_SUFFIX = re.compile(r"_[b-z]$")
 STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
 UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}   # pictures Create keeps in images/uploads/
+# A front's back and its working files: the back, its reference, a redraw in progress, a replaced one.
+BACK_FILE = re.compile(r"__back(_reference|_new|_prev_[\d-]+|_brush_[a-z]+)?$")   # any brush working file
+# A brushed picture's working files sit beside it: `<picture>_new`, `<picture>_brush_mask` and so on.
+# Only hidden when that picture is there too, so an upload that merely ends in "_new" still shows.
+WORKING_FILE = re.compile(r"^(?P<base>.+?)(_new|_brush_[a-z]+)$")
+
+
+def working_file(file: Path) -> bool:
+    """A file the brush or a redraw writes while it works, not a picture of its own."""
+    if BACK_FILE.search(file.stem):
+        return True
+    match = WORKING_FILE.match(file.stem)
+    return bool(match) and any(file.with_name(match["base"] + suffix).is_file() for suffix in UPLOAD_SUFFIXES)
 META_NAME = ".assets-meta.json"   # the user's own choices about assets, e.g. hidden ones
 ASSET_ID = re.compile(r"^[0-9a-f]{12}$")
 RECIPES = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "prompt_recipes.json"
@@ -77,6 +90,15 @@ def _prop_wording() -> str | None:
         return None
 
 
+def first_prompt(record: Any) -> str | None:
+    """What a picture was first drawn from. A brushed front carries the record of the picture it
+    replaced (`brush.replaced_record`), whose prompt is the one that still describes it."""
+    while isinstance(record, dict) and isinstance((record.get("brush") or {}).get("replaced_record"), dict):
+        record = record["brush"]["replaced_record"]
+    text = record.get("prompt") if isinstance(record, dict) else None
+    return text if isinstance(text, str) and text.strip() else None
+
+
 def _prompted_as_prop(picture: Path, wording: str | None) -> bool:
     """Before the history said what a chain wanted: Create added the prop wording to the
     prompt, and the picture's provenance record kept the prompt."""
@@ -86,7 +108,7 @@ def _prompted_as_prop(picture: Path, wording: str | None) -> bool:
         record = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return wording in str(record.get("prompt", ""))
+    return wording in str(first_prompt(record) or "")
 
 
 def _picture_prompt(picture: Path | None) -> str | None:
@@ -94,10 +116,9 @@ def _picture_prompt(picture: Path | None) -> str | None:
     if picture is None:
         return None
     try:
-        text = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")).get("prompt")
-    except (OSError, ValueError, AttributeError):
+        return first_prompt(json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
         return None
-    return text if isinstance(text, str) and text.strip() else None
 
 
 def friendly_name(stem: str) -> str:
@@ -175,7 +196,7 @@ def _pictures(output: Path) -> list[dict[str, Any]]:
     found = []
     for file in sorted(uploads.iterdir()) if uploads.is_dir() else ():
         if (file.is_file() and file.suffix.lower() in UPLOAD_SUFFIXES
-                and not file.stem.endswith(("__back", "__back_reference"))):
+                and not working_file(file)):
             found.append({"stem": file.stem, "file": file})
     for run in _dirs(output / "images"):
         png = run / f"{run.name}.png"

@@ -1,0 +1,145 @@
+// The back picture's brush: paint over the part to change, say what goes there, and only that
+// part is drawn again. The painted mask is kept at the picture's own size, so a stroke lands on
+// the same pixels whatever size the picture is shown at.
+
+/** A point on the shown canvas, in the picture's own pixels. */
+export function toPicture(x, y, shown, natural) {
+  return [x * natural.w / shown.w, y * natural.h / shown.h];
+}
+
+/** The request the server's /api/image/brush reads. */
+export function brushForm(picture, instruction, mask, seed, engine = '') {
+  const form = new FormData();
+  if (engine) form.append('engine', engine);   // empty: the engine that drew the back
+  form.append('picture', picture);
+  form.append('instruction', instruction);
+  form.append('seed', String(seed));
+  form.append('mask', mask, 'mask.png');
+  return form;
+}
+
+/** The size to show a `natural` picture at so all of it fits in `room`, never past its own size. */
+export function fitSize(natural, room) {
+  const scale = Math.min(room.w / natural.w, room.h / natural.h, 1);
+  return { w: Math.max(1, Math.round(natural.w * scale)), h: Math.max(1, Math.round(natural.h * scale)) };
+}
+
+/** The server takes pictures up to this many pixels a side (image_api.MAX_PICTURE_SIDE). */
+export const MAX_SIDE = 4096;
+
+/** Why a `natural`-sized picture cannot be brushed, or '' when it can. Checked before the
+ * full-size canvases exist: a huge, well-compressed picture would otherwise freeze the tab. */
+export function tooBig(natural, limit = MAX_SIDE) {
+  return natural.w > limit || natural.h > limit
+    ? `This picture is ${natural.w}x${natural.h}; the brush takes up to ${limit} pixels a side.` : '';
+}
+
+/** A layer over the big view to paint in (people reach for the big picture, not the side panel). */
+export function brushStage(stage) {
+  const layer = document.createElement('div');
+  layer.className = 'brushstage';
+  layer.innerHTML = '<p class="brushstage-hint">Paint over the part to change</p>';
+  stage.appendChild(layer);
+  return layer;
+}
+
+export function closeBrushStage(stage) {
+  stage?.querySelectorAll('.brushstage').forEach((layer) => layer.remove());
+}
+
+/**
+ * A paintable copy of the picture at `imageUrl`, put inside `box`. Returns `painted()` (any
+ * stroke yet), `clear()`, and `maskBlob()` (a PNG, white where painted, at the picture's size).
+ * `fit`: fill `box` (the big view) and follow its size, instead of a side-panel width.
+ */
+export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40, 0.5)', fit = false } = {}) {
+  const shown = document.createElement('canvas');
+  shown.className = 'brushcanvas';
+  shown.style.touchAction = 'none';
+  box.appendChild(shown);
+  const mask = document.createElement('canvas'), strokes = document.createElement('canvas');
+  const image = new Image();
+  let width = 0, painted = false, last = null, blocked = '';
+  const state = { size };
+
+  const redraw = () => {
+    const g = shown.getContext('2d');
+    g.clearRect(0, 0, shown.width, shown.height);
+    g.drawImage(image, 0, 0, shown.width, shown.height);
+    g.drawImage(strokes, 0, 0, shown.width, shown.height);
+  };
+  const place = () => {
+    const natural = { w: image.naturalWidth, h: image.naturalHeight };
+    if (fit) {
+      ({ w: shown.width, h: shown.height } = fitSize(natural, { w: box.clientWidth - 32, h: box.clientHeight - 72 }));
+    } else {
+      width = Math.min(box.clientWidth || 320, 420);
+      shown.width = width;
+      shown.height = Math.round(width * natural.h / natural.w);
+    }
+  };
+  image.onload = () => {
+    blocked = tooBig({ w: image.naturalWidth, h: image.naturalHeight });
+    if (blocked) {
+      shown.replaceWith(Object.assign(document.createElement('p'), { className: 'error', textContent: blocked }));
+      return;
+    }
+    place();
+    if (fit && typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { place(); redraw(); }).observe(box);
+    for (const c of [mask, strokes]) { c.width = image.naturalWidth; c.height = image.naturalHeight; }
+    const m = mask.getContext('2d');
+    m.fillStyle = '#000';
+    m.fillRect(0, 0, mask.width, mask.height);
+    redraw();
+  };
+  image.src = imageUrl;
+
+  const at = (event) => {
+    const rect = shown.getBoundingClientRect();
+    return toPicture(event.clientX - rect.left, event.clientY - rect.top, { w: rect.width, h: rect.height },
+      { w: mask.width, h: mask.height });
+  };
+  const line = (from, to) => {
+    for (const [c, colour] of [[mask, '#fff'], [strokes, tint]]) {
+      const g = c.getContext('2d');
+      g.strokeStyle = colour;
+      g.lineWidth = state.size * mask.width / 1024;
+      g.lineCap = g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(...from);
+      g.lineTo(...to);
+      g.stroke();
+    }
+    painted = true;
+    redraw();
+  };
+  shown.addEventListener('pointerdown', (event) => {
+    shown.setPointerCapture(event.pointerId);
+    last = at(event);
+    line(last, last);
+  });
+  shown.addEventListener('pointermove', (event) => {
+    if (!last) return;
+    const point = at(event);
+    line(last, point);
+    last = point;
+  });
+  const stop = () => { last = null; };
+  shown.addEventListener('pointerup', stop);
+  shown.addEventListener('pointercancel', stop);
+
+  return {
+    painted: () => painted,
+    blocked: () => blocked,   // why this picture cannot be brushed, or ''
+    setSize: (value) => { state.size = Number(value) || size; },
+    clear: () => {
+      painted = false;
+      const m = mask.getContext('2d');
+      m.fillStyle = '#000';
+      m.fillRect(0, 0, mask.width, mask.height);
+      strokes.getContext('2d').clearRect(0, 0, strokes.width, strokes.height);
+      redraw();
+    },
+    maskBlob: () => new Promise((resolve) => mask.toBlob(resolve, 'image/png')),
+  };
+}

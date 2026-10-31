@@ -424,7 +424,7 @@ def test_a_back_jobs_command_is_an_edit_from_its_reference(tmp_path):
 def test_a_back_job_without_the_vision_file_asks_for_setup(tmp_path, monkeypatch):
     manager = api.ImageJobManager(tmp_path)
     job = api.create_back_job(manager, _front(tmp_path), seed=3)
-    monkeypatch.setattr(api, "resolve_vision", lambda: None)
+    monkeypatch.setattr(api, "resolve_vision", lambda *a: None)
     api.run_job(job, manager, weights=WEIGHTS)
     assert job.status == "error" and job.events[-1].get("needs_setup")
     assert "mmproj" in job.error
@@ -443,3 +443,422 @@ def test_a_back_job_only_reads_pictures_inside_the_output_folder(tmp_path):
     for bad in ("../secrets.png", "/etc/passwd", "images/nope.png", f"images/{front.parent.name}"):
         with pytest.raises(ValueError):
             api.back_source(tmp_path, bad)
+
+
+# --- FLUX.2 klein, the default picture engine (2026-10-30) ---------------------------------
+
+def _ready_only(*ids):
+    return lambda engine: engine.id in ids
+
+
+def test_flux_is_preferred_when_installed_and_named_when_nothing_is():
+    assert api.pick_engine(ready=_ready_only("flux", "qwen")) is api.FLUX
+    assert api.pick_engine(ready=_ready_only("qwen")) is api.QWEN
+    # nothing set up: point at the smaller, Apache-licensed download
+    assert api.pick_engine(ready=_ready_only()) is api.FLUX
+    assert api.pick_engine("qwen", ready=_ready_only("flux")) is api.QWEN   # asked for is asked for
+    with pytest.raises(ValueError, match="no picture engine 'dalle'"):
+        api.pick_engine("dalle")
+
+
+def test_flux_draws_at_1024_in_4_steps_and_8_when_the_picture_is_the_end_product():
+    """Bake-off 2026-10-28: 4 steps ~62 s, 8 steps ~103 s for a near-identical picture."""
+    for_3d = api.clean_settings({}, api.FLUX)
+    alone = api.clean_settings({}, api.FLUX, picture_only=True)
+    assert (for_3d["width"], for_3d["height"], for_3d["steps"], for_3d["cfg_scale"]) == (1024, 1024, 4, 1.0)
+    assert alone["steps"] == 8
+    assert api.clean_settings({"steps": 6}, api.FLUX, picture_only=True)["steps"] == 6   # a choice wins
+    assert api.clean_settings({}, api.QWEN, picture_only=True)["steps"] == api.DEFAULTS["steps"]
+
+
+def test_a_flux_edit_reads_the_reference_without_a_vision_projector():
+    settings = api.clean_settings({}, api.FLUX)
+    command = api.build_command("its back", settings, Path("/out/b.png"), WEIGHTS,
+                                binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"), engine=api.FLUX)
+    assert command[command.index("-r") + 1] == "/in/front.png"
+    assert "--llm_vision" not in command
+    assert api.can_edit(api.FLUX)
+
+
+def test_a_qwen_edit_still_needs_its_vision_projector():
+    with pytest.raises(ValueError, match="vision projector"):
+        api.build_command("its back", api.clean_settings({}), Path("/out/b.png"), WEIGHTS,
+                          binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"))
+
+
+def test_a_flux_picture_records_its_apache_licence(tmp_path):
+    record = api.provenance("a fox", api.clean_settings({}, api.FLUX), 60.0, tmp_path / "x.png", api.FLUX)
+    assert record["model"]["id"] == "flux2-klein-4b"
+    assert record["license"]["name"] == "Apache-2.0" and record["license"]["classification"] == "commercial-clear"
+    assert record["license"]["attribution"] is None
+    assert "commercial" in record["license"]["inherited_by_derivatives"]
+    assert record["model"]["weights"]["llm"]["file"] == "Qwen3-4B-Q8_0.gguf"
+
+
+def test_a_missing_flux_install_says_flux_not_qwen(monkeypatch, tmp_path):
+    monkeypatch.setattr(api, "HF_HUB", tmp_path)
+    with pytest.raises(api.MissingWeights, match="FLUX.2"):
+        api.resolve_weights(api.FLUX)
+
+
+def test_a_flux_back_job_runs_flux_and_records_it(tmp_path):
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, _front(tmp_path), seed=3, engine=api.FLUX)
+    assert job.engine is api.FLUX and job.settings["width"] == 1024
+    assert "--llm_vision" not in api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert job.describe()["engine"] == "flux"
+
+
+def test_the_flux_files_are_the_ones_the_installer_fetches():
+    sys.path.insert(0, str(VIEWER.parent / "scripts"))
+    import bootstrap_flux_image as boot
+    fetched = {Path(name).name for _, name, _ in boot.WEIGHTS}
+    assert {name for _, name in api.FLUX.weight_files.values()} == fetched
+
+
+# --- Drawing the back again (2026-10-30) -----------------------------------------------------
+
+def test_a_redrawn_back_is_drawn_beside_the_old_and_swapped_in_only_when_done(tmp_path):
+    front = _front(tmp_path)
+    old = front.with_name(f"{front.stem}__back.png")
+    old.write_bytes(b"old back")
+    old.with_suffix(".provenance.json").write_text("{}")
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, front, seed=9, engine=api.FLUX, instruction="  a red   cloak ")
+    assert job.output_path.name.endswith("__back_new.png") and job.replaces == old
+    assert job.prompt.endswith(" a red cloak") and job.prompt.startswith(api.back_view.BACK_PROMPT)
+    job.output_path.write_bytes(b"new back")
+    kept = api.take_place(job.output_path, old, stamp="20261030-200000")
+    assert old.read_bytes() == b"new back" and kept.read_bytes() == b"old back"
+    assert kept.name.endswith("__back_prev_20261030-200000.png")
+    assert kept.with_suffix(".provenance.json").exists()   # the old back keeps its record
+
+
+def test_a_first_back_goes_straight_to_its_place(tmp_path):
+    job = api.create_back_job(api.ImageJobManager(tmp_path), _front(tmp_path), engine=api.FLUX)
+    assert job.output_path.name.endswith("__back.png") and job.replaces is None
+    assert job.prompt == api.back_view.BACK_PROMPT and job.instruction is None
+
+
+def test_a_failed_redraw_leaves_the_old_back_where_it_was(tmp_path, monkeypatch):
+    front = _front(tmp_path)
+    old = front.with_name(f"{front.stem}__back.png")
+    old.write_bytes(b"old back")
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_back_job(manager, front, engine=api.FLUX)
+
+    class Failed:
+        stdout = __import__("io").BytesIO(b"error: out of memory\n")
+        def wait(self): return 1
+        def poll(self): return 1
+    monkeypatch.setattr(api.subprocess, "Popen", lambda *a, **k: Failed())
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "error" and old.read_bytes() == b"old back"
+
+
+def test_the_instruction_is_trimmed_and_capped():
+    long = "word " * 400
+    assert len(api.back_prompt(long)) <= len(api.back_view.BACK_PROMPT) + 1 + api.MAX_INSTRUCTION
+    assert api.back_prompt("") == api.back_view.BACK_PROMPT
+
+
+# --- The back picture's brush (2026-10-30) ----------------------------------------------------
+
+def _back(tmp_path, colour=(60, 120, 60)):
+    from PIL import Image
+    front = _front(tmp_path)
+    back = front.with_name(f"{front.stem}__back.png")
+    Image.new("RGB", (64, 64), colour).save(back)
+    return back
+
+
+def _stroke(box=(20, 20, 40, 40), size=(64, 64)):
+    from PIL import Image, ImageDraw
+    stroke = Image.new("L", size, 0)
+    ImageDraw.Draw(stroke).rectangle(box, fill=255)
+    return stroke
+
+
+def test_the_paste_back_covers_everything_the_model_may_draw():
+    """Pasting back less than the model drew cut the new satchel off in a hard line (2026-10-30)."""
+    import numpy as np
+    grown, feathered = api.brush_masks(_stroke((160, 160, 320, 320), (512, 512)), (256, 256))  # any stroke size
+    assert grown.size == feathered.size == (256, 256)
+    drawn, pasted = np.asarray(grown) == 255, np.asarray(feathered)
+    assert (pasted[drawn] == 255).all()                                  # all of the drawn area, at full strength
+    assert grown.getpixel((80 - api.BRUSH_GROW, 120)) == 255 and grown.getpixel((40, 120)) == 0
+    assert 0 < feathered.getpixel((80 - api.BRUSH_GROW - 2, 120)) < 255  # soft just past it
+    assert feathered.getpixel((40, 120)) == 0
+
+
+def test_the_paste_back_keeps_every_pixel_outside_the_brush(tmp_path):
+    from PIL import Image
+    back = _back(tmp_path)
+    drawn = tmp_path / "drawn.png"
+    Image.new("RGB", (64, 64), (200, 30, 30)).save(drawn)        # the model changed everything, as it does
+    paste = tmp_path / "paste.png"
+    _stroke().save(paste)
+    api.paste_through(back, drawn, paste)
+    with Image.open(drawn) as out:
+        assert out.getpixel((2, 2)) == (60, 120, 60)              # outside: the original, exactly
+        assert out.getpixel((30, 30)) == (200, 30, 30)            # inside: the new paint
+
+
+def test_the_engine_is_shown_the_picture_with_the_painted_area_blanked(tmp_path):
+    """Shown the old pixels, Flux drew them again: a strap stayed bare skin (2026-10-30)."""
+    from PIL import Image
+    back = _back(tmp_path)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "a leather strap")
+    command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert command[command.index("-r") + 1] == str(job.reference) != str(job.init)
+    with Image.open(job.reference) as guide, Image.open(job.mask) as mask:
+        assert guide.size == mask.size == (256, 256)
+        grey = (api.BRUSH_GUIDE_GREY,) * 3
+        assert guide.getpixel((120, 120)) == grey                 # painted: blanked
+        assert guide.getpixel((4, 4)) == (60, 120, 60)            # the rest: the picture itself
+
+
+def test_a_brush_job_starts_from_the_back_with_its_mask_and_keeps_the_old(tmp_path):
+    back = _back(tmp_path)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "  a red   satchel. ", seed=5)
+    assert job.replaces == back and job.output_path.name.endswith("__back_new.png")
+    assert job.engine is api.FLUX and job.settings["steps"] == api.BRUSH_STEPS
+    # 64 px is below what the engine draws: it starts from a copy at 256, and pastes back at 64
+    assert (job.settings["width"], job.settings["height"]) == (256, 256)
+    assert job.init.name.endswith("__back_brush_init.png")
+    from PIL import Image
+    with Image.open(job.init) as init, Image.open(job.mask) as mask, Image.open(job.paste_mask) as paste:
+        assert init.size == mask.size == (256, 256) and paste.size == (64, 64)
+    assert job.prompt.startswith("a red satchel. Keep the style")
+    command = api.job_command(job, WEIGHTS, None, binary=Path("/bin/sd-cli"))
+    assert command[command.index("-i") + 1] == str(job.init)
+    assert command[command.index("--mask") + 1] == str(job.mask)
+    assert command[command.index("--strength") + 1] == str(api.BRUSH_STRENGTH)
+    assert command[command.index("-r") + 1] == str(job.reference)  # Flux sees the picture it repaints, blanked
+
+
+def test_an_empty_stroke_is_refused_before_anything_runs(tmp_path):
+    from PIL import Image
+    with pytest.raises(ValueError, match="paint over"):
+        api.create_brush_job(api.ImageJobManager(tmp_path), _back(tmp_path), Image.new("L", (64, 64), 0), "x")
+
+
+def test_a_finished_brush_swaps_in_only_the_painted_part(tmp_path, monkeypatch):
+    from PIL import Image
+    back = _back(tmp_path)
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_brush_job(manager, back, _stroke(), "a red satchel")
+
+    class Done:
+        def __init__(self, cmd, **k):
+            Image.new("RGB", (64, 64), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
+            self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
+        def wait(self): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(api.subprocess, "Popen", Done)
+    monkeypatch.setattr(api.usage_api, "count_done", lambda *a: None)
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "done" and job.output_path == back
+    with Image.open(back) as out:
+        assert out.getpixel((2, 2)) == (60, 120, 60) and out.getpixel((30, 30)) == (200, 30, 30)
+    kept = list(back.parent.glob("*__back_prev_*.png"))
+    assert len(kept) == 1
+    record = json.loads(back.with_suffix(".provenance.json").read_text())
+    assert record["brush"]["instruction"] == "a red satchel" and record["model"]["id"] == "flux2-klein-4b"
+
+
+
+def _finish_brush(job, manager, monkeypatch, colour=(200, 30, 30)):
+    from PIL import Image
+
+    class Done:
+        def __init__(self, cmd, **k):
+            Image.new("RGB", (256, 256), colour).save(cmd[cmd.index("-o") + 1])
+            self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
+        def wait(self): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(api.subprocess, "Popen", Done)
+    monkeypatch.setattr(api.usage_api, "count_done", lambda *a: None)
+    api.run_job(job, manager, weights=WEIGHTS)
+    assert job.status == "done", job.error
+
+
+def test_a_brushed_front_replaces_the_old_one_and_carries_its_record(tmp_path, monkeypatch):
+    """The fixed front becomes the picture (user, 2026-10-30), but where it came from, and under
+    which licence, must not go with the old file: the outside of the paint is still that picture."""
+    from PIL import Image
+    front = tmp_path / "orc" / "orc.png"
+    front.parent.mkdir()
+    Image.new("RGB", (64, 64), (60, 120, 60)).save(front)
+    first = {"prompt": "an orc blacksmith", "license": {"name": "Apache-2.0"}}
+    front.with_suffix(".provenance.json").write_text(json.dumps(first))
+    manager = api.ImageJobManager(tmp_path)
+    _finish_brush(api.create_brush_job(manager, front, _stroke(), "a leather strap", keep_old=False), manager, monkeypatch)
+    assert sorted(p.name for p in front.parent.glob("orc*.png") if "_brush_" not in p.name) == ["orc.png"]
+    with Image.open(front) as out:
+        assert out.getpixel((2, 2)) == (60, 120, 60) and out.getpixel((30, 30)) == (200, 30, 30)
+    record = json.loads(front.with_suffix(".provenance.json").read_text())
+    assert record["brush"]["replaced"] is None and record["brush"]["replaced_record"] == first
+    import assets_api
+    assert assets_api.first_prompt(record) == "an orc blacksmith"   # Draw another picture still knows it
+
+
+def test_a_brushed_jpeg_upload_is_still_a_jpeg(tmp_path, monkeypatch):
+    from PIL import Image
+    front = tmp_path / "up" / "orc.jpg"
+    front.parent.mkdir()
+    Image.new("RGB", (64, 64), (60, 120, 60)).save(front)
+    manager = api.ImageJobManager(tmp_path)
+    _finish_brush(api.create_brush_job(manager, front, _stroke(), "a strap", keep_old=False), manager, monkeypatch)
+    with Image.open(front) as out:
+        assert out.format == "JPEG"
+    assert not front.with_suffix(".provenance.json").read_text().count('"replaced_record": {')   # an upload had none
+
+
+def test_a_back_already_at_a_drawable_size_is_brushed_as_it_is(tmp_path):
+    from PIL import Image
+    back = _back(tmp_path)
+    Image.new("RGB", (512, 512), (60, 120, 60)).save(back)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(size=(512, 512)), "x")
+    assert job.init == back and (job.settings["width"], job.settings["height"]) == (512, 512)
+
+
+
+def test_a_see_through_back_is_brushed_on_grey_not_on_black(tmp_path):
+    """Converting an RGBA cut-out to RGB shows what hides under the alpha (often black)."""
+    from PIL import Image
+    back = _back(tmp_path)
+    cut = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+    cut.paste((60, 120, 60, 255), (100, 100, 400, 400))
+    cut.save(back)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(size=(512, 512)), "x")
+    with Image.open(job.init) as init:
+        assert init.mode == "RGB" and init.getpixel((5, 5)) == (api.back_view.GREY,) * 3
+    drawn = tmp_path / "drawn.png"
+    Image.new("RGB", (512, 512), (200, 30, 30)).save(drawn)
+    api.paste_through(back, drawn, job.paste_mask)
+    with Image.open(drawn) as out:
+        assert out.getpixel((5, 5)) == (api.back_view.GREY,) * 3      # outside: grey, not black
+
+
+def test_a_brush_refused_as_busy_leaves_the_running_brushs_files_alone(tmp_path):
+    back = _back(tmp_path)
+    manager = api.ImageJobManager(tmp_path)
+    running = api.create_brush_job(manager, back, _stroke(), "a red satchel")
+    paste_before = running.paste_mask.read_bytes()
+    with pytest.raises(RuntimeError, match="already being generated"):
+        api.create_brush_job(manager, back, _stroke((0, 0, 63, 63)), "a blue hat")
+    assert running.paste_mask.read_bytes() == paste_before
+
+
+def test_a_brushed_picture_names_the_one_it_replaced(tmp_path, monkeypatch):
+    from PIL import Image
+    back = _back(tmp_path)
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_brush_job(manager, back, _stroke(), "a red satchel")
+
+    class Done:
+        def __init__(self, cmd, **k):
+            Image.new("RGB", (256, 256), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
+            self.stdout = __import__("io").BytesIO(b"")
+        def wait(self): return 0
+        def poll(self): return 0
+    monkeypatch.setattr(api.subprocess, "Popen", Done)
+    monkeypatch.setattr(api.usage_api, "count_done", lambda *a: None)
+    api.run_job(job, manager, weights=WEIGHTS)
+    brush = json.loads(back.with_suffix(".provenance.json").read_text())["brush"]
+    assert brush["replaced"].startswith(back.stem + "_prev_") and brush["strength"] == api.BRUSH_STRENGTH
+
+
+
+def test_only_a_picture_file_in_output_can_be_a_back_source(tmp_path):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "notes.json").write_text("{}")
+    with pytest.raises(ValueError, match="not a picture in output"):
+        api.back_source(tmp_path, "a/notes.json")
+
+
+def test_an_oversized_picture_is_refused_before_it_is_decoded():
+    from PIL import Image
+    with pytest.raises(ValueError, match="largest taken"):
+        api.check_picture_size(Image.new("L", (api.MAX_PICTURE_SIDE + 1, 4)))
+    api.check_picture_size(Image.new("L", (api.MAX_PICTURE_SIDE, 4)))
+
+
+
+# --- Who redraws a back or brushes it (both engines, 2026-10-30) -------------------------------
+
+def _drawn_by(path, engine):
+    path.with_suffix(".provenance.json").write_text(json.dumps({"model": {"id": engine.licence_key}}))
+
+
+def test_the_engine_that_drew_a_picture_is_read_from_its_record(tmp_path):
+    picture = tmp_path / "p.png"
+    picture.write_bytes(b"x")
+    assert api.engine_of(picture) is None                       # an upload: no record
+    _drawn_by(picture, api.QWEN)
+    assert api.engine_of(picture) is api.QWEN
+
+
+def test_a_redraw_uses_the_engine_that_drew_the_picture_when_it_can(tmp_path, monkeypatch):
+    picture = tmp_path / "p.png"
+    picture.write_bytes(b"x")
+    _drawn_by(picture, api.QWEN)
+    ready = {"flux": True, "qwen": True}
+    monkeypatch.setattr(api, "usable", lambda engine, edit=False: ready[engine.id])
+    monkeypatch.setattr(api, "pick_engine", lambda name=None, edit=False, ready=None: (
+        api.ENGINES[name] if name else next(e for e in api.ENGINES.values() if ready_now[e.id])))
+    ready_now = ready
+    assert api.choose_engine(None, picture, edit=True) is api.QWEN             # the front's own
+    assert api.choose_engine("flux", picture, edit=True) is api.FLUX           # asked by name wins
+    assert api.choose_engine(None, picture, edit=True, prefer="flux") is api.FLUX
+    ready["qwen"] = False                                                      # Qwen can't draw backs here
+    assert api.choose_engine(None, picture, edit=True) is api.FLUX
+
+
+@pytest.mark.parametrize("projector, sees", [(Path("/w/mmproj.gguf"), True), (None, False)])
+def test_a_qwen_brush_sees_the_picture_when_its_projector_is_there(tmp_path, monkeypatch, projector, sees):
+    """Flux and Qwen brush the same way; Qwen without its projector falls back to the words."""
+    monkeypatch.setattr(api, "resolve_vision", lambda engine=api.QWEN: projector)
+    back = _back(tmp_path)
+    job = api.create_brush_job(api.ImageJobManager(tmp_path), back, _stroke(), "a red satchel", engine=api.QWEN)
+    command = api.job_command(job, WEIGHTS, projector, binary=Path("/bin/sd-cli"))
+    assert job.engine is api.QWEN and "--mask" in command
+    assert ("-r" in command) is sees and ("--llm_vision" in command) is sees
+
+@pytest.mark.parametrize("ends", ["done", "error"])
+def test_a_brush_leaves_no_working_files_however_it_ends(tmp_path, monkeypatch, ends):
+    """Review of #202 (2026-10-31): mask, paste, guide and init stayed beside the picture."""
+    from PIL import Image
+    front = tmp_path / "uploads" / "orc.png"
+    front.parent.mkdir()
+    Image.new("RGBA", (64, 64), (60, 120, 60, 255)).save(front)   # RGBA: an init copy is made too
+    manager = api.ImageJobManager(tmp_path)
+    job = api.create_brush_job(manager, front, _stroke(), "a leather strap", keep_old=False)
+    assert job.scratch and all(p.exists() for p in job.scratch)
+    if ends == "done":
+        _finish_brush(job, manager, monkeypatch)
+    else:
+        class Fails:
+            def __init__(self, cmd, **k):
+                self.stdout = __import__("io").BytesIO(b"boom\n")
+            def wait(self): return 1
+            def poll(self): return 1
+        monkeypatch.setattr(api.subprocess, "Popen", Fails)
+        api.run_job(job, manager, weights=WEIGHTS)
+        assert job.status == "error"
+    assert not any(p.exists() for p in job.scratch)
+    assert sorted(p.name for p in front.parent.iterdir() if p.suffix == ".png") == ["orc.png"]
+
+
+def test_two_swaps_in_one_second_keep_both_old_pictures(tmp_path):
+    """Review of #202: take_place named the kept copy by the second, so a second swap overwrote it."""
+    final = tmp_path / "orc__back.png"
+    final.write_bytes(b"first")
+    for content in (b"second", b"third"):
+        new = tmp_path / "orc__back_new.png"
+        new.write_bytes(content)
+        api.take_place(new, final, stamp="20261031-120000")
+    kept = sorted(p.read_bytes() for p in tmp_path.glob("orc__back_prev_*.png"))
+    assert kept == [b"first", b"second"] and final.read_bytes() == b"third"
+    assert len(api.back_versions(final)) == 2

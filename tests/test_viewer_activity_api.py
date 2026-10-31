@@ -524,3 +524,24 @@ def test_an_enormous_back_picture_is_refused_before_it_is_decoded(tmp_path):
                      upload=("x.png", _picture_bytes()), back_upload=("b.png", buffer.getvalue()))
     runner.submit(chain, background=False)
     assert chain.status == "error" and "largest taken" in chain.error
+
+
+@pytest.mark.parametrize("back", [_picture_bytes("JPEG"), b"not a picture"])
+def test_a_finished_run_lets_go_of_its_uploads(tmp_path, back):
+    """An upload can be near 1 GB; done or failed, the run must not hold it (security review 2026-10-31)."""
+    runner, _ = _runner(tmp_path)
+    chain = aa.Chain(title="orc", engine="pixal3d", steps=["back", "model"],
+                     upload=("orc.png", _picture_bytes()), back_upload=("orc back.jpg", back))
+    runner.submit(chain, background=False)
+    assert chain.status in {"done", "error"}
+    assert chain.upload is None and chain.back_upload is None
+
+
+def test_only_the_latest_runs_are_remembered(tmp_path):
+    runner, _ = _runner(tmp_path)
+    clock = iter(range(1000))
+    for i in range(aa.KEEP_CHAINS + 5):
+        chain = aa.Chain(title=f"r{i}", engine="pixal3d", steps=["picture"], prompt="x", started=float(next(clock)))
+        runner.submit(chain, background=False)
+    assert len(runner.chains) == aa.KEEP_CHAINS
+    assert {c.title for c in runner.chains.values()} == {f"r{i}" for i in range(5, aa.KEEP_CHAINS + 5)}

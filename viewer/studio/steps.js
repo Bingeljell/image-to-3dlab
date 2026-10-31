@@ -165,6 +165,7 @@ export function wireBrush(card, asset, ctx) {
     box.querySelector('[data-brush-clear]').onclick = () => brush?.clear();
     box.querySelector('[data-brush-run]').onclick = async () => {
       const words = box.querySelector('[data-brush-text]').value.trim();
+      if (brush?.blocked()) return fail(brush.blocked());
       if (!brush?.painted()) return fail('Paint over the part to change first.');
       if (!words) return fail('Say what goes in the painted part.');
       const mask = await brush.maskBlob();

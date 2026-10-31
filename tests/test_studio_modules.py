@@ -1246,3 +1246,13 @@ def test_every_back_version_thumbnail_can_be_shown_big():
       const html = m.versionsList({ current: { file: 'a__back.png' }, versions: [{ file: 'a__back_prev_1.png' }] }, (f) => f, 1);
       console.log(JSON.stringify([html.includes('data-show="a__back.png"'), html.includes('data-show="a__back_prev_1.png"')]));""")
     assert out == [True, True]
+
+
+def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing_it():
+    """Two full-size canvases for a huge picture froze the tab (security review 2026-10-31)."""
+    out = _run("brush.js", """console.log(JSON.stringify([
+      m.tooBig({ w: 4096, h: 4096 }), m.tooBig({ w: 4097, h: 10 }), m.tooBig({ w: 10, h: 20000 }), m.MAX_SIDE]));""")
+    fits, wide, tall, limit = out
+    assert fits == "" and "4097x10" in wide and "10x20000" in tall
+    from viewer import image_api
+    assert limit == image_api.MAX_PICTURE_SIDE

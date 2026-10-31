@@ -2098,3 +2098,47 @@ def test_only_a_kept_version_can_be_used_or_deleted(tmp_path, version):
         with pytest.raises(ValueError):
             api.change_back_version(action, {"back": "images/orc/orc__back.png", "version": version}, tmp_path)
     assert sorted(p.name for p in folder.iterdir()) == before
+
+
+@pytest.mark.parametrize("length, ok", [(-1, False), (0, False), (1, True), (100, True), (101, False)])
+def test_an_upload_length_must_be_something_and_under_the_limit(length, ok):
+    """A negative Content-Length made read() take everything (security review 2026-10-31)."""
+    assert api.upload_length_ok(length, 100) is ok
+
+
+def test_a_use_that_fails_halfway_puts_the_back_back(tmp_path, monkeypatch):
+    """A half swap left no back in use (security review 2026-10-31)."""
+    folder = _back_with_versions(tmp_path)
+    before = sorted(p.name for p in folder.iterdir())
+    real = Path.rename
+
+    def flaky(self, target):
+        if self.name == "orc__back_prev_20261030-200000.png":   # the second move: the old version in
+            raise OSError("disk went away")
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "rename", flaky)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    with pytest.raises(OSError):
+        api.change_back_version("use", body, tmp_path)
+    monkeypatch.setattr(Path, "rename", real)
+    assert sorted(p.name for p in folder.iterdir()) == before
+    assert (folder / "orc__back.png").read_bytes() == b"now"
+
+
+def test_back_version_changes_take_one_lock(tmp_path):
+    """A "use" and a "delete" that cross must not both pass their checks first."""
+    _back_with_versions(tmp_path)
+    body = {"back": "images/orc/orc__back.png", "version": "images/orc/orc__back_prev_20261030-200000.png"}
+    assert api.BACK_VERSIONS_LOCK.acquire(blocking=False)
+    try:
+        import threading
+        t = threading.Thread(target=api.change_back_version, args=("delete", body, tmp_path))
+        t.start()
+        t.join(0.3)
+        assert t.is_alive()                                                   # waiting its turn
+        assert (tmp_path / body["version"]).exists()
+    finally:
+        api.BACK_VERSIONS_LOCK.release()
+    t.join(2)
+    assert not (tmp_path / body["version"]).exists()

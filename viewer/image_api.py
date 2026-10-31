@@ -638,10 +638,17 @@ def use_back_version(back: Path, version: Path) -> Path:
         n += 1
         stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{n}"
     kept = archive_name(back, stamp)
-    for old, new in ((back, kept), (version, back)):   # each picture with its record
-        old.rename(new)
-        if old.with_suffix(".provenance.json").exists():
-            old.with_suffix(".provenance.json").rename(new.with_suffix(".provenance.json"))
+    done: list[tuple[Path, Path]] = []
+    try:
+        for old, new in ((back, kept), (version, back)):   # each picture with its record
+            for a, b in ((old, new), (old.with_suffix(".provenance.json"), new.with_suffix(".provenance.json"))):
+                if a.exists():
+                    a.rename(b)
+                    done.append((a, b))
+    except OSError:
+        for a, b in reversed(done):   # put everything back: a half swap would leave no back in use
+            b.rename(a)
+        raise
     return kept
 
 

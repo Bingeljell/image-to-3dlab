@@ -41,6 +41,7 @@ FRONT_BACK_ENGINES = {"pixal3d"}
 PICTURE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 # the largest back picture taken (image_api.MAX_PICTURE_SIDE): decoding a crafted file is the risk
 MAX_BACK_SIDE = 4096
+KEEP_CHAINS = 20   # finished runs remembered for the activity list
 # Steps that run headless Blender; a plan with one is checked for Blender before anything runs.
 NEEDS_BLENDER = {"finished", "split"}
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)
@@ -163,6 +164,8 @@ class ChainRunner:
             if bad or not chain.steps:
                 raise ValueError(f"unknown steps: {bad or 'none'}")
             self.chains[chain.id] = chain
+            for old in self.recent(limit=len(self.chains))[KEEP_CHAINS:]:
+                del self.chains[old.id]   # finished runs pile up otherwise; nothing running is ever dropped
         if background:
             threading.Thread(target=self.run, args=(chain,), daemon=True, name=f"chain-{chain.id[:8]}").start()
         else:
@@ -187,6 +190,13 @@ class ChainRunner:
 
     # ------------------------------------------------------------------ the run
     def run(self, chain: Chain) -> None:
+        try:
+            self._run_steps(chain)
+        finally:
+            # an upload can be near 1 GB: once the run ends, nothing reads it again
+            chain.upload = chain.back_upload = None
+
+    def _run_steps(self, chain: Chain) -> None:
         if self._picture_upload(chain) and not chain.made.get("picture"):
             try:
                 self._kept_upload(chain)   # kept from the start, so the Library shows it even on a front-only run

@@ -70,6 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Finish, Rig, Auto-rig and Props workers are terminated and reaped if their job errors after the worker
   process has started, so the active slot is not released while expensive work keeps running.
 
+### Security
+- The studio refuses an upload with an empty or broken size up front, and lets go of uploaded pictures
+  once a run ends. A picture too big for the brush is refused before the browser tries to open it.
+
 ## [0.5.3] - 2026-10-26
 
 ### Added

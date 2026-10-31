@@ -518,6 +518,15 @@ BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
 CHAIN_UPLOAD_LIMIT = 1024 * 1024 * 1024
 
 
+BACK_VERSIONS_LOCK = threading.Lock()   # "use" and "delete" of a kept back, one at a time
+
+
+def upload_length_ok(length: int, limit: int) -> bool:
+    """A request body we will read: something there, and no more than `limit`. A negative
+    Content-Length makes read() take everything, so it is refused as well."""
+    return 0 < length <= limit
+
+
 def _back_in_output(output_root: Path, relative: str) -> Path:
     back = image_api.back_source(output_root, relative)
     if not back.name.endswith("__back.png"):
@@ -536,15 +545,18 @@ def back_versions_payload(relative: str, output_root: Path | None = None) -> dic
 def change_back_version(action: str, body: dict[str, Any], output_root: Path | None = None) -> dict[str, Any]:
     """`use` a kept version of a back, or `delete` one. Returns the versions as they are now."""
     root = output_root or OUTPUT_ROOT
-    back = _back_in_output(root, str(body.get("back") or ""))
-    version = image_api.back_source(root, str(body.get("version") or ""))
-    if action == "use":
-        image_api.use_back_version(back, version)
-    elif action == "delete":
-        image_api.delete_back_version(back, version)
-    else:
-        raise ValueError(f"unknown action: {action}")
-    return back_versions_payload(str(body.get("back")), root)
+    # one change at a time, checked and done under the same lock: a "use" and a "delete" that
+    # cross could otherwise delete the very file being swapped in
+    with BACK_VERSIONS_LOCK:
+        back = _back_in_output(root, str(body.get("back") or ""))
+        version = image_api.back_source(root, str(body.get("version") or ""))
+        if action == "use":
+            image_api.use_back_version(back, version)
+        elif action == "delete":
+            image_api.delete_back_version(back, version)
+        else:
+            raise ValueError(f"unknown action: {action}")
+        return back_versions_payload(str(body.get("back")), root)
 
 
 def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = None):
@@ -2691,9 +2703,12 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "chains"]:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if length > CHAIN_UPLOAD_LIMIT:
-                    # refused before reading: an unbounded read let one request fill the memory
-                    self._send_json(413, {"error": "That upload is too large (over 1 GB)."})
+                if not upload_length_ok(length, CHAIN_UPLOAD_LIMIT):
+                    # refused before reading: an unbounded read (a negative length reads to the end)
+                    # let one request fill the memory
+                    self._send_json(413 if length > 0 else 400,
+                                    {"error": "That upload is too large (over 1 GB)." if length > 0
+                                     else "The request is empty."})
                     return
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
                 # Before the picture and the 3D model, not ten minutes later at Finish

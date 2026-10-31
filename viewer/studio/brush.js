@@ -24,6 +24,16 @@ export function fitSize(natural, room) {
   return { w: Math.max(1, Math.round(natural.w * scale)), h: Math.max(1, Math.round(natural.h * scale)) };
 }
 
+/** The server takes pictures up to this many pixels a side (image_api.MAX_PICTURE_SIDE). */
+export const MAX_SIDE = 4096;
+
+/** Why a `natural`-sized picture cannot be brushed, or '' when it can. Checked before the
+ * full-size canvases exist: a huge, well-compressed picture would otherwise freeze the tab. */
+export function tooBig(natural, limit = MAX_SIDE) {
+  return natural.w > limit || natural.h > limit
+    ? `This picture is ${natural.w}x${natural.h}; the brush takes up to ${limit} pixels a side.` : '';
+}
+
 /** A layer over the big view to paint in (people reach for the big picture, not the side panel). */
 export function brushStage(stage) {
   const layer = document.createElement('div');
@@ -49,7 +59,7 @@ export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40,
   box.appendChild(shown);
   const mask = document.createElement('canvas'), strokes = document.createElement('canvas');
   const image = new Image();
-  let width = 0, painted = false, last = null;
+  let width = 0, painted = false, last = null, blocked = '';
   const state = { size };
 
   const redraw = () => {
@@ -69,6 +79,11 @@ export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40,
     }
   };
   image.onload = () => {
+    blocked = tooBig({ w: image.naturalWidth, h: image.naturalHeight });
+    if (blocked) {
+      shown.replaceWith(Object.assign(document.createElement('p'), { className: 'error', textContent: blocked }));
+      return;
+    }
     place();
     if (fit && typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { place(); redraw(); }).observe(box);
     for (const c of [mask, strokes]) { c.width = image.naturalWidth; c.height = image.naturalHeight; }
@@ -115,6 +130,7 @@ export function mountBrush(box, imageUrl, { size = 48, tint = 'rgba(255, 60, 40,
 
   return {
     painted: () => painted,
+    blocked: () => blocked,   // why this picture cannot be brushed, or ''
     setSize: (value) => { state.size = Number(value) || size; },
     clear: () => {
       painted = false;

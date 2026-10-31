@@ -74,7 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The studio refuses an upload with an empty or broken size up front, and lets go of uploaded pictures
   once a run ends. A picture too big for the brush is refused before the browser tries to open it.
 - The picture engine download is checked against a fingerprint of the file we tested before it is
-  unpacked, and FLUX.2's files come from the exact versions we tested and are checked the same way.
+  unpacked, and the FLUX.2 and Qwen-Image files come from the exact versions we tested and are
+  checked the same way.
 - Setup names everything it downloads before you say yes: the picture engine with FLUX.2 or
   Qwen-Image, and Qwen's vision projector with Front + back, each with its size and licence.
 

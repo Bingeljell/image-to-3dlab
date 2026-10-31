@@ -97,6 +97,7 @@ def test_weights_come_from_the_tested_revision_and_are_checked(monkeypatch, tmp_
     monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
     with pytest.raises(SystemExit, match="not the file we tested"):
         REAL_INSTALL_WEIGHTS()
-    assert asked == [(boot.WEIGHTS[0][0], boot.PINS[boot.WEIGHTS[0][0]][0])]   # stopped at the first
-    assert set(boot.PINS) == {repo for repo, _, _ in boot.WEIGHTS}
+    repo, filename, _ = boot.WEIGHTS[0]
+    assert asked == [(repo, boot.PINS[(repo, filename)][0])]   # stopped at the first
+    assert set(boot.PINS) == {(repo, filename) for repo, filename, _ in boot.WEIGHTS}
     assert all(len(rev) == 40 and len(sha) == 64 for rev, sha in boot.PINS.values())

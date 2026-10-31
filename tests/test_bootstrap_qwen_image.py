@@ -536,3 +536,24 @@ def test_install_checks_the_fingerprint_before_unpacking(monkeypatch, tmp_path):
     with pytest.raises(SystemExit, match="does not match"):
         REAL_INSTALL_BINARY(dest)
     assert not (dest / "sd-cli").exists() and not (dest / "release.zip").exists()
+
+
+def test_every_qwen_file_is_pinned_and_a_swapped_one_stops_setup(monkeypatch, tmp_path):
+    """Every file setup fetches has a tested revision and SHA-256; a mismatch stops it."""
+    assert set(boot.PINS) == {(repo, name) for repo, name, _ in (*boot.WEIGHTS, boot.VISION)}
+    assert all(len(rev) == 40 and len(sha) == 64 for rev, sha in boot.PINS.values())
+    asked = []
+
+    def fake(repo_id, filename, revision=None):
+        asked.append(revision)
+        path = tmp_path / Path(filename).name
+        path.write_bytes(b"tested")
+        return str(path)
+
+    good = {("r", "f.gguf"): ("a" * 40, boot.hashlib.sha256(b"tested").hexdigest())}
+    assert boot.fetch_pinned(fake, "r", "f.gguf", 0.1, good).read_bytes() == b"tested"
+    bad = {("r", "f.gguf"): ("a" * 40, "0" * 64)}
+    with pytest.raises(SystemExit, match="not the file we tested"):
+        boot.fetch_pinned(fake, "r", "f.gguf", 0.1, bad)
+    assert asked == ["a" * 40] * 2
+    assert (tmp_path / "f.gguf").exists()          # a shared cache file is never deleted

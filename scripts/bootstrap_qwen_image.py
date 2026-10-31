@@ -104,6 +104,23 @@ WEIGHTS = [
 # from before it was.
 VISION = ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf", 0.75)
 
+# Each file at the revision we tested, and its SHA-256, checked once it is down (pinned
+# 2026-10-31 from the copies our pictures were made with). Keyed by (repo, file).
+PINS = {
+    ("leejet/Qwen-Image-2.1-GGUF", "qwen_image_2.1-Q8_0.gguf"): (
+        "cc11433936a06e9765f7c0c0b1f0436cfd2b9856",
+        "f8b244b00937f0e444a40dbf7866460871b89b30142594973b6012d1b471dc0a"),
+    ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "Qwen3VL-8B-Instruct-Q4_K_M.gguf"): (
+        "f982a07559d4a2f6c8744d840bf6fccab30eea96",
+        "67d1659bfe71b89d50b45a4ad1a9e5b997e5bb16ce5da66a6a6167abd569e9e2"),
+    ("Qwen/Qwen3-VL-8B-Instruct-GGUF", "mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf"): (
+        "f982a07559d4a2f6c8744d840bf6fccab30eea96",
+        "c6ba85508d82f42590e6eb77d5340369ab6fecf107a7561d809523d8aa5f3bfd"),
+    ("Comfy-Org/Qwen-Image-2.1", "vae/qwen_image_2.1_vae_bf16.safetensors"): (
+        "ace0edeb3791a594ddfa36ed5f41a178a394e921",
+        "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"),
+}
+
 LICENCE = (
     "Qwen Research License. The pictures you generate are yours (Qwen confirmed it);\n"
     "  the weights stay on this machine. Built with Qwen.\n"
@@ -171,9 +188,7 @@ def install_vision() -> None:
         raise SystemExit(
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
-    repo, filename, size = VISION
-    print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)
-    print(f"  {hf_hub_download(repo_id=repo, filename=filename)}")
+    fetch_pinned(hf_hub_download, *VISION, PINS)
 
 
 def binary_present() -> bool:
@@ -405,9 +420,22 @@ def install_weights() -> None:
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
     for repo, filename, size in (*WEIGHTS, VISION):
-        print(f"\nFetching {filename} ({size:.2f} GB) from {repo}...", flush=True)
-        path = hf_hub_download(repo_id=repo, filename=filename)
-        print(f"  {path}")
+        fetch_pinned(hf_hub_download, repo, filename, size, PINS)
+
+
+def fetch_pinned(download, repo: str, filename: str, size: float, pins: dict) -> Path:
+    """One file at its pinned revision, checked against its SHA-256. A cached copy that does
+    not match is never deleted (another tool may share the cache); the user is told instead.
+    Shared with bootstrap_flux_image.py."""
+    revision, expected = pins[(repo, filename)]
+    print(f"\nFetching {Path(filename).name} ({size:.2f} GB) from {repo}...", flush=True)
+    path = Path(download(repo_id=repo, filename=filename, revision=revision))
+    print(f"  {path}\n  Checking it is the file we tested...", flush=True)
+    actual = sha256_of(path)
+    if actual != expected:
+        raise SystemExit(f"{Path(filename).name} at {path} is not the file we tested (SHA-256 {actual}, "
+                         f"expected {expected}). Delete it and run setup again.")
+    return path
 
 
 def ensure_binary() -> bool:

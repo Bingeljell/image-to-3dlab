@@ -35,12 +35,15 @@ WEIGHTS = [
 # Each file at the revision we tested, and its SHA-256, checked once it is down: the files we
 # made our pictures with, whatever the repos serve later (pinned 2026-10-31).
 PINS = {
-    "leejet/FLUX.2-klein-4B-GGUF": ("3b1f5a9dc3abb32238b053aeb3d823c30afdacbd",
-                                    "0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28"),
-    "unsloth/Qwen3-4B-GGUF": ("22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
-                              "eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d"),
-    "Comfy-Org/Flux-2-Klein-4B": ("533c4cbc3d3b89af1743d9466c434e89810391c0",
-                                  "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"),
+    ("leejet/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q8_0.gguf"): (
+        "3b1f5a9dc3abb32238b053aeb3d823c30afdacbd",
+        "0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28"),
+    ("unsloth/Qwen3-4B-GGUF", "Qwen3-4B-Q8_0.gguf"): (
+        "22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+        "eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d"),
+    ("Comfy-Org/Flux-2-Klein-4B", "split_files/vae/flux2-vae.safetensors"): (
+        "533c4cbc3d3b89af1743d9466c434e89810391c0",
+        "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"),
 }
 
 LICENCE = (
@@ -81,20 +84,7 @@ def install_weights() -> None:
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
     for repo, filename, size in WEIGHTS:
-        revision, sha256 = PINS[repo]
-        print(f"\nFetching {Path(filename).name} ({size:.2f} GB) from {repo}...", flush=True)
-        path = Path(hf_hub_download(repo_id=repo, filename=filename, revision=revision))
-        print(f"  {path}\n  Checking it is the file we tested...", flush=True)
-        check_weight(path, sha256, Path(filename).name)
-
-
-def check_weight(path: Path, expected: str, what: str) -> None:
-    """Stop unless the file is the one we tested. A cached copy is never deleted: it may be
-    shared with another tool, so the user is told instead."""
-    actual = sdcpp.sha256_of(path)
-    if actual != expected:
-        raise SystemExit(f"{what} at {path} is not the file we tested (SHA-256 {actual}, expected "
-                         f"{expected}). Delete it and run setup again.")
+        sdcpp.fetch_pinned(hf_hub_download, repo, filename, size, PINS)
 
 
 def main(argv: list[str] | None = None) -> int:

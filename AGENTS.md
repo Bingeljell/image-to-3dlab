@@ -22,6 +22,9 @@ route) behind one CLI, with license provenance as a first-class concern.
    (ask first), *headless* ones start their own. A new `blender_*.py` needs a
    `Run (live|headless|internal): ...` line in its docstring; a test enforces it.
 
+4. **Local rules first.** If `AGENTS.local.md` exists, read it before anything else and follow it.
+   It is git-ignored on purpose: never commit it or quote it in commits, PRs or docs.
+
 ## Layout
 
 | Path | What lives here |

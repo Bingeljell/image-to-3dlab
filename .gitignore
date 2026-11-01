@@ -73,3 +73,7 @@ characters/
 # The template is the exception and stays tracked.
 manifests/*.json
 !manifests/example-trellis2.json
+
+# Private agent rules: never committed (AGENTS.md says to read them first)
+AGENTS.local.md
+CLAUDE.local.md

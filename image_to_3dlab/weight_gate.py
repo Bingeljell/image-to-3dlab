@@ -42,12 +42,19 @@ def snapshot_dir(repo_id: str, hub: Path | None = None) -> Path | None:
         return direct
     if "/" not in repo_id:
         return None
-    snapshots = hub_dir(hub) / f"models--{repo_id.replace('/', '--')}" / "snapshots"
+    model = hub_dir(hub) / f"models--{repo_id.replace('/', '--')}"
+    snapshots = model / "snapshots"
     if not snapshots.is_dir():
         return None
     found = [snap for snap in snapshots.iterdir()
              if snap.is_dir() and any(snap.rglob("*"))]
-    return found[-1] if found else None
+    ref = model / "refs" / "main"
+    if ref.is_file():
+        revision = ref.read_text().strip()
+        current = snapshots / revision
+        if current.parent == snapshots and current in found:
+            return current
+    return max(found, key=lambda snap: (snap.stat().st_mtime_ns, snap.name), default=None)
 
 
 def require_local(repo_id: str, *, backend: str, route: str, size: str,

@@ -527,3 +527,30 @@ def test_a_brushed_front_upload_leaves_no_ghost_pictures(output):
     pictures = [a.get("picture") or "" for a in aa.list_assets(output)]
     assert "images/uploads/my-orc__1a2b3c4d.png" in pictures and "images/uploads/brand_new.png" in pictures
     assert not [p for p in pictures if "_brush_" in p or p.endswith("__1a2b3c4d_new.png")]
+
+
+def test_two_finishes_of_a_second_model_get_different_ids(output):
+    # pic -> second 3D model -> Finish, then Finish again on that same second model (say, at Hero
+    # detail): both versions split off the original at the second model, but each needs its own id
+    again = f"{IMG}-cutout__pixal3d__20261006-120000"
+    _write(output / "commercial_conditional" / again / f"{again}.glb", b"GENERATED TWO", 7000)
+    for stamp, data, mtime in (("20261006-130000", b"FIN A", 7100), ("20261006-140000", b"FIN B", 7200)):
+        run = output / "finish" / f"a-chunky-knight-two__finish__{stamp}"
+        _write(run / "a-chunky-knight-two_20k.glb", data, mtime)
+        _write(run / "input" / "source.glb", b"GENERATED TWO", mtime)
+    knights = _knights(output)
+    assert [k["version"] for k in knights] == [1, 2, 3]
+    assert len({k["id"] for k in knights}) == 3
+
+
+def test_an_older_versions_id_stays_when_a_later_finish_would_have_clashed(output):
+    again = f"{IMG}-cutout__pixal3d__20261006-120000"
+    _write(output / "commercial_conditional" / again / f"{again}.glb", b"GENERATED TWO", 7000)
+    run = output / "finish" / "a-chunky-knight-two__finish__20261006-130000"
+    _write(run / "a-chunky-knight-two_20k.glb", b"FIN A", 7100)
+    _write(run / "input" / "source.glb", b"GENERATED TWO", 7100)
+    before = _knights(output)[1]["id"]
+    run = output / "finish" / "a-chunky-knight-two__finish__20261006-140000"
+    _write(run / "a-chunky-knight-two_20k.glb", b"FIN B", 7200)
+    _write(run / "input" / "source.glb", b"GENERATED TWO", 7200)
+    assert _knights(output)[1]["id"] == before

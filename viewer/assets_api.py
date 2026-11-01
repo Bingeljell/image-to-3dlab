@@ -348,12 +348,20 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             path.append(parent[path[-1]])
         return path[::-1]
 
+    def splits(path: list[int]) -> list[int]:
+        """Every node where this chain took a later fork, first to last (none for the original)."""
+        return [node for up, node in pairwise(path) if first_child[up] != node]
+
     def branch_start(path: list[int]) -> int | None:
         """The node where this chain split off the original, or None for the original itself."""
-        for up, node in pairwise(path):
-            if first_child[up] != node:
-                return node
-        return None
+        found = splits(path)
+        return found[0] if found else None
+
+    def split_order(path: list[int]) -> tuple[bool, list[tuple[float, str]]]:
+        """Older versions first: by when they split off, then by each later fork (a second Finish
+        of a second model splits off at the same model as the first, so the forks after it decide)."""
+        found = splits(path)
+        return bool(found), [born(n) for n in found]
 
     chains = [path_to(leaf) for leaf in leaves]
     shared = {i: sum(1 for c in chains if i in c) > 1 for i in range(len(nodes))}
@@ -367,12 +375,13 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
         family_chains.setdefault(chain[0], []).append(chain)
     version_of: dict[int, int] = {}
     for members in family_chains.values():
-        members.sort(key=lambda c: (branch_start(c) is not None,
-                                    born(branch_start(c)) if branch_start(c) is not None else (0.0, "")))
+        members.sort(key=split_order)
         for number, chain in enumerate(members, start=1):
             version_of[chain[-1]] = number
 
     assets = []
+    order_of: dict[int, tuple[bool, list[tuple[float, str]]]] = {}   # asset index -> split_order
+    deepest_of: dict[int, str] = {}                                    # asset index -> id from its last fork
     for chain in chains:
         by_kind: dict[str, dict[str, Any]] = {nodes[i][0]: nodes[i][1] for i in chain}
         picture, model, fin, rig = by_kind.get("picture"), by_kind.get("model"), by_kind.get("finished"), by_kind.get("rigged")
@@ -413,6 +422,9 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             split_node = nodes[split][1]
             split_file = split_node.get("file") or split_node.get("dir")
             asset_id = hashlib.sha1(rel(split_file).encode()).hexdigest()[:12]
+            last = nodes[splits(chain)[-1]][1]
+            deepest_of[len(assets)] = hashlib.sha1(rel(last.get("file") or last.get("dir")).encode()).hexdigest()[:12]
+        order_of[len(assets)] = split_order(chain)
         version = version_of[chain[-1]]
         assets.append({
             "id": asset_id,
@@ -438,6 +450,15 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             "updated": max((f.stat().st_mtime for f in files), default=0),
             **({"runs": [rel(run_dir(i)) for i in chain if not shared[i] and run_dir(i) is not None]} if with_runs else {}),
         })
+    # Two versions can split off at the same node (two Finishes of one second model): the older
+    # keeps the id it had, each later one takes its id from its own last fork, so no two share one.
+    by_id: dict[str, list[int]] = {}
+    for index, asset in enumerate(assets):
+        by_id.setdefault(asset["id"], []).append(index)
+    for indexes in by_id.values():
+        for index in sorted(indexes, key=lambda i: order_of[i])[1:]:
+            if index in deepest_of:
+                assets[index]["id"] = deepest_of[index]
     counts: dict[str, int] = {}
     for asset in assets:
         counts[asset["family"]] = counts.get(asset["family"], 0) + 1

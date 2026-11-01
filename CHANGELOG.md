@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Every version in the Library has its own id. Finishing a second 3D model again could give two versions the
+  same one, so the studio or an agent could pick up the wrong version.
+
 ## [0.5.4] - 2026-10-31
 
 ### Added

@@ -576,6 +576,7 @@ def test_a_failed_redraw_leaves_the_old_back_where_it_was(tmp_path, monkeypatch)
     job = api.create_back_job(manager, front, engine=api.FLUX)
 
     class Failed:
+        pid = 1
         stdout = __import__("io").BytesIO(b"error: out of memory\n")
         def wait(self): return 1
         def poll(self): return 1
@@ -679,6 +680,7 @@ def test_a_finished_brush_swaps_in_only_the_painted_part(tmp_path, monkeypatch):
 
     class Done:
         def __init__(self, cmd, **k):
+            self.pid = 1
             Image.new("RGB", (64, 64), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
             self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
         def wait(self): return 0
@@ -701,6 +703,7 @@ def _finish_brush(job, manager, monkeypatch, colour=(200, 30, 30)):
 
     class Done:
         def __init__(self, cmd, **k):
+            self.pid = 1
             Image.new("RGB", (256, 256), colour).save(cmd[cmd.index("-o") + 1])
             self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
         def wait(self): return 0
@@ -787,6 +790,7 @@ def test_a_brushed_picture_names_the_one_it_replaced(tmp_path, monkeypatch):
 
     class Done:
         def __init__(self, cmd, **k):
+            self.pid = 1
             Image.new("RGB", (256, 256), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
             self.stdout = __import__("io").BytesIO(b"")
         def wait(self): return 0
@@ -868,6 +872,7 @@ def test_a_brush_leaves_no_working_files_however_it_ends(tmp_path, monkeypatch, 
         _finish_brush(job, manager, monkeypatch)
     else:
         class Fails:
+            pid = 1
             def __init__(self, cmd, **k):
                 self.stdout = __import__("io").BytesIO(b"boom\n")
             def wait(self): return 1

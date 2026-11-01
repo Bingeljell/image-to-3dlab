@@ -3,7 +3,7 @@
 
 import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, canFixShown, fixBlockedNote, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
 import { createStudioViewer } from './viewer.js';
-import { readyEngines, readableLog, copyDetails } from './jobs.js';
+import { readyEngines, readableLog, copyDetails, logScroll, moveBox, resizeBox } from './jobs.js';
 import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
 import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
@@ -22,6 +22,7 @@ let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, pictureEngines = [], busy = false, playNext = null;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
+let cardPlace = null;  // where the user dragged or resized the progress card; null keeps it centred
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
 let viewingSkin = null;       // a skin id when the viewer shows one of the model's skins
@@ -527,17 +528,107 @@ function showMaking() {
   drawProgress();
 }
 
+function cardBounds(root) {
+  return { w: root.clientWidth, h: root.clientHeight };
+}
+
+function cardBox(card, root) {
+  const cardRect = card.getBoundingClientRect();
+  const rootRect = root.getBoundingClientRect();
+  return { x: cardRect.left - rootRect.left, y: cardRect.top - rootRect.top, w: cardRect.width, h: cardRect.height };
+}
+
+function applyCardPlace(card) {
+  if (!card || !cardPlace) return;
+  card.classList.add('placed');
+  card.style.left = `${cardPlace.x}px`;
+  card.style.top = `${cardPlace.y}px`;
+  card.style.width = `${cardPlace.w}px`;
+  card.style.height = `${cardPlace.h}px`;
+}
+
+function trackPointer(target, event, onMove) {
+  event.preventDefault();
+  event.stopPropagation();
+  const pointer = event.pointerId;
+  target.setPointerCapture(pointer);
+  const move = (e) => { if (e.pointerId === pointer) onMove(e); };
+  const end = (e) => {
+    if (e.pointerId !== pointer) return;
+    target.removeEventListener('pointermove', move);
+    target.removeEventListener('pointerup', end);
+    target.removeEventListener('pointercancel', end);
+  };
+  target.addEventListener('pointermove', move);
+  target.addEventListener('pointerup', end);
+  target.addEventListener('pointercancel', end);
+}
+
+function wireCard(card) {
+  if (!card || card.dataset.wired) return;
+  card.dataset.wired = '1';
+  const root = card.parentElement;
+  card.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.target.closest('.log, button, a, input, textarea')) return;
+    const start = { x: event.clientX, y: event.clientY, box: cardBox(card, root) };
+    cardPlace = start.box;
+    applyCardPlace(card);
+    trackPointer(card, event, (e) => {
+      cardPlace = moveBox(start.box, e.clientX - start.x, e.clientY - start.y, cardBounds(root));
+      applyCardPlace(card);
+    });
+  });
+  card.querySelector('.grip')?.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const start = { x: event.clientX, y: event.clientY, box: cardPlace || cardBox(card, root) };
+    cardPlace = start.box;
+    applyCardPlace(card);
+    trackPointer(card, event, (e) => {
+      cardPlace = resizeBox(start.box, e.clientX - start.x, e.clientY - start.y, cardBounds(root));
+      applyCardPlace(card);
+    });
+  });
+}
+
+function updateRunCard(card, { list, width, message, stall }) {
+  card.querySelector('.chain-steps').innerHTML = list;
+  const bar = card.querySelector('.bigbar span');
+  bar.style.width = `${width}%`;
+  bar.classList.toggle('busy', making.percent == null);
+  card.querySelector('.job-msg').textContent = message;
+  const note = card.querySelector('.stallnote');
+  if (stall) { if (!note) card.querySelector('.job-msg').insertAdjacentHTML('afterend', stall); }
+  else note?.remove();
+  let log = card.querySelector('.log');
+  if (making.log) {
+    if (!log) {
+      card.querySelector('.row.end').insertAdjacentHTML('beforebegin', '<pre class="log" aria-label="Live log"></pre>');
+      log = card.querySelector('.log');
+    }
+    if (log.textContent !== making.log) {
+      const kept = { scrollTop: log.scrollTop, clientHeight: log.clientHeight, scrollHeight: log.scrollHeight };
+      log.textContent = making.log;
+      log.scrollTop = logScroll(kept, log.scrollHeight);
+    }
+  } else log?.remove();
+}
+
 function drawProgress() {
   const box = $('progress');
   if (!making || !viewingMaking) { box.hidden = true; return; }
   const compact = !!(making.made.picture || making.made.model) && !making.failed && !making.finished;
   box.hidden = false;
   box.className = `progress${compact ? ' compact' : ''}${making.stalled ? ' stalled' : ''}${making.failed && !making.cancelled ? ' failed' : ''}`;
+  const kind = compact ? 'compact' : making.cancelled ? 'cancelled' : making.failed ? 'failed' : making.finished ? 'finished' : 'run';
   const list = making.plan.steps.map((s) => `<li class="${making.done.includes(s) ? 'done' : s === making.current && !making.cancelled ? (making.failed ? 'bad' : 'cur') : ''}"><b>${making.done.includes(s) ? '✓' : s === making.current ? (making.cancelled ? '–' : making.failed ? '■' : '●') : '○'}</b>${STEP_LABELS[s]}</li>`).join('');
   const width = making.finished ? 100 : making.percent ?? 0;
   const message = making.failed ? making.why : making.finished ? 'All done. It is in your Library.'
     : `${making.message || 'Starting…'} · ${clock(Date.now() - making.stepStarted)}`;
   const stall = making.stalled && !making.failed ? '<p class="stallnote">No news from this step for a few minutes. It may be stuck: keep waiting, or cancel.</p>' : '';
+  const sameRun = kind === 'run' && box.dataset.kind === 'run' && box.querySelector('.pcard');
+  if (sameRun) { updateRunCard(box.querySelector('.pcard'), { list, width, message, stall }); return; }
+  const previous = box.querySelector('.log');
+  box.dataset.kind = kind;
   const buttons = making.cancelled ? '<button class="ghost" data-close>Close</button>'
     : making.failed ? '<button class="ghost" data-report>Report this</button><button class="ghost" data-copy>Copy details</button><button class="ghost" data-close>Close</button>'
     : making.finished ? '<button class="ghost" data-close>Close</button>' : '<button class="ghost" data-x>Cancel</button>';
@@ -547,8 +638,13 @@ function drawProgress() {
         <ol class="chain-steps">${list}</ol>
         <div class="bigbar"><span class="${making.percent == null && !making.finished ? 'busy' : ''}" style="width:${width}%"></span></div>
         <p class="job-msg">${escape(message)}</p>${stall}
-        ${making.log ? `<pre class="log">${escape(making.log)}</pre>` : ''}
-        <div class="row end">${buttons}</div></div>`;
+        ${making.log ? `<pre class="log" aria-label="Live log">${escape(making.log)}</pre>` : ''}
+        <div class="row end">${buttons}</div>
+        <button type="button" class="grip" aria-label="Resize"></button></div>`;
+  const card = box.querySelector('.pcard');
+  if (card) { applyCardPlace(card); wireCard(card); }
+  const log = box.querySelector('.log');
+  if (log) log.scrollTop = logScroll(previous, log.scrollHeight);
   box.querySelector('[data-x]')?.addEventListener('click', (e) => { e.target.disabled = true; making.cancel?.(); });
   box.querySelector('[data-report]')?.addEventListener('click', () => openReport($('stage')));   // the newest failure is this one
   box.querySelector('[data-copy]')?.addEventListener('click', () => copyDetails(making.why, making.fullLog));
@@ -566,12 +662,12 @@ async function startChain(plan, attach = null) {
     step: (step) => { Object.assign(making, { current: step, percent: null, message: '', log: '', stepStarted: Date.now(), stalled: false }); renderLibrary(); if (viewingMaking) showMaking(); },
     cancelWith: (fn) => { making.cancel = fn; },
     progress: ({ event, percent, log, stalled }) => {
-      Object.assign(making, { percent, message: event.message || event.phase || 'Working…', log: readableLog(log), fullLog: log, stalled });
+      Object.assign(making, { percent, message: event.message || event.phase || 'Working…', log: readableLog(log, 80), fullLog: log, stalled });
       if (viewingMaking) drawProgress();
     },
     done: (step, made, seconds) => { making.done.push(step); making.made = made; making.seconds = seconds || {}; renderLibrary(); if (viewingMaking) showMaking(); },
     cancelled: () => { Object.assign(making, { failed: true, cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '', fullLog: '' }); renderLibrary(); if (viewingMaking) showMaking(); },
-    fail: (step, why, log) => { Object.assign(making, { failed: true, why, log: readableLog(log, 12), fullLog: log }); renderLibrary(); if (viewingMaking) showMaking(); },
+    fail: (step, why, log) => { Object.assign(making, { failed: true, why, log: readableLog(log, 80), fullLog: log }); renderLibrary(); if (viewingMaking) showMaking(); },
     finish: (mine) => {
       making.finished = true;
       making.result = assets.find(mine) ?? null;

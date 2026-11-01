@@ -26,6 +26,18 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def model_dir() -> str:
+    """The local TRELLIS.2 snapshot. A hub id is not passed to from_pretrained."""
+    from image_to_3dlab.weight_gate import require_local
+
+    return require_local(
+        "microsoft/TRELLIS.2-4B",
+        backend="TRELLIS.2",
+        route="NVIDIA probe",
+        size="about 16.5 GB",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", type=Path, required=True)
@@ -33,6 +45,7 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--texture-seed", type=int, default=42)
     args = parser.parse_args()
+    model = model_dir()
 
     os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "1")
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
@@ -64,7 +77,7 @@ def main() -> int:
     # background removal.  Avoid constructing gated RMBG-2.0 while leaving the official
     # TRELLIS pipeline, weights, preprocessing, and sampling implementation untouched.
     with patch.object(rembg, "BiRefNet", new=lambda **_kwargs: None):
-        pipeline = Trellis2ImageTo3DPipeline.from_pretrained("microsoft/TRELLIS.2-4B")
+        pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model)
     pipeline.cuda()
     pipeline_seconds = time.time() - started
 

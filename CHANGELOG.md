@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Front + back no longer needs Qwen-Image: any installed picture engine can draw the back.
   Qwen-Image's own setup now includes the small vision projector its skins and back views need.
+- A setup card names each download. The header and each file show the measured size when the bytes are here, and the advertised size when they are not. Two files from the same Qwen repo no longer look like one.
+- A setup card names each download. The header and each file show the measured size when the bytes are here, and the advertised size when they are not. Two files from the same Qwen repo no longer look like one.
+- The Hunyuan setup card links `docs/hunyuan-mlx-recipes.md` so the recipes open from the card.
 - Finish's "Full detail" now says what it is: Pixel Match on the raw model, its own mesh untouched.
 - The usage-counts notice is now a small card in the corner instead of a big block of text.
 - Runs with a non-default model (e.g. a custom `--sf3d-repo` or a ComfyUI workflow loading a foreign
@@ -44,6 +47,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default licence.
 
 ### Fixed
+- The progress card can be dragged and resized. Its log stays on the latest line, and a scroll up the log is kept.
+- Measuring a flat mesh no longer warns, and a colour pushed past the display range keeps its lightness without a conversion warning.
+- The setup docs match the tools. Weight downloads are asked for, BRIA stays unloaded, and a prop sheet's pictures are yours while the meshes carry the Pixal3D and DINOv3 licence.
+- The agent starts the studio the same way `./lab` does. On a RunPod pod that listens for the pod's web link and uses a key.
+- Stopping the studio also stops a picture, an animation, a skin build, and a weight download. Each of those leaves a process id so the next start can clear one the stop missed.
+- Growing a feature mask no longer wraps onto the opposite edge of the texture. Repair no longer treats a texture seam as a hole or drops the texture coordinates. A closed mesh split only along those seams is reported watertight.
+- Paint refuses a checkpoint that leaves a tensor out. A 15-step DDIM run steps back by 66. The small paint script is no longer a setup command.
+- The old Mac setup scripts hand off to the installers that ask first, and the Hunyuan setup stops when there is nobody to ask.
+- Importing a TRELLIS patch no longer edits a tree, and a missing remesh-checkpoint patch fails its check.
+- A pod install ref is checked and quoted, and the traffic history is replaced only after the new file is finished.
+- Headless Blender savers refuse to overwrite the blend file they were opened with. An action name with a quote stays inside the snippet.
+- The Windows updater keeps learned timings and no longer stops because it rewrote its own baseline file.
+- The agent refuses to open a skin picture that is not inside the output folder.
+- The ComfyUI download writes into the working folder under a new name, so it does not replace a mesh that is already there.
+- Hunyuan exports write a licence sidecar beside the mesh. A shape-only file does not claim paint, and two paint runs no longer share one output file.
+- `--model 2.1` refuses before downloading when the converter cannot import torch. The default 2.0 download does not need it.
+- The Hunyuan shape downloaders ask before they fetch, and a file that came up short is not treated as finished.
+- The AMD Hunyuan weight check looks in the models folder you chose. Turning the attention chunk off clears a leftover chunk setting.
+- Walk (woman) shows in the move list with the other primary moves.
+- Baking stiffness onto a textured mesh keeps its picture and its UVs, and adds the stiffness colours.
+- Compressing a texture that still has transparency labels it `image/png`. JPEG cannot store that transparency, so the file was PNG bytes with a JPEG label.
+- `audit_model_weights.py --apply` keeps a checkpoint when the matching safetensors file does not hold the tensor bytes. A header that only describes them is not a finished conversion.
+- A quality workflow with no reviewed checkpoint is refused, or recorded as unverified when the manifest allows it. It no longer inherits the Tencent licence. Manifests honour `commercial_intent` and `allow_research_only`, can name a `workflow`, and a bad TRELLIS material mode is rejected before generation.
+- The Mac TRELLIS patch no longer builds the BRIA background remover. An unpatched tree is refused before the model loads.
+- Generate no longer downloads model weights on its own. A route stays not ready until its weights are on disk, and the run cannot reach the hub. On a Mac, TRELLIS.2's Setup button downloads the weights after the port is built (it names the size and waits for yes) instead of fetching them on the first generate.
+- The generate commands (`pipeline.py --fast`, TRELLIS, Hunyuan, the input advisor) refuse when the weights are not already on disk. They name the backend, the route and the size, and they do not fetch.
+- Live Blender helpers (turntable, wind demo, normal fix, solidify bake, source comparison, staging, normal bake, light orbit, and region split) no longer delete every object in the open file. Comparison renders in its own background Blender. Marker spawn refuses to replace markers unless you pass `--yes`, and then it replaces only the markers. The agent import clears meshes, not rigs.
 - Every 3D engine that cuts out pictures now installs the background remover with it, and lists it on
   Setup & Status. If it is ever missing, the run says where to install it.
 - Rig picks free network ports for the auto-rigger on every run, so it starts on machines where

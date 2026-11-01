@@ -96,6 +96,18 @@ def moss_mask(
     return rasterise_face_values(mesh.visual.uv, mesh.faces, weights, size, blur)
 
 
+def _keep_lab_in_xyz(lab: np.ndarray) -> np.ndarray:
+    """Cap b so the LAB-to-RGB conversion does not clip a negative Z.
+
+    That conversion warns, then sets the bad Z to 0, when
+    b is above 200 * (L + 16) / 116. L and a stay as they are.
+    """
+    capped = np.array(lab, copy=True)
+    limit = 200.0 * (capped[..., 0] + 16.0) / 116.0
+    capped[..., 2] = np.minimum(capped[..., 2], limit)
+    return capped
+
+
 def colourise_preserving_lightness(
     rgb: np.ndarray,
     target: np.ndarray,
@@ -108,7 +120,7 @@ def colourise_preserving_lightness(
     if weight.ndim == 2:
         weight = weight[..., None]
     lab[..., 1:] += (target_lab[1:] - lab[..., 1:]) * weight
-    return np.clip(color.lab2rgb(lab), 0.0, 1.0)
+    return np.clip(color.lab2rgb(_keep_lab_in_xyz(lab)), 0.0, 1.0)
 
 
 def moss_chroma_evidence(
@@ -193,7 +205,7 @@ def apply_recipe(
     # Lift only iris midtones/highlights. The smooth gate leaves a dark pupil dark.
     iris_gate = smoothstep(10.0, 28.0, lab[..., 0]) * eye
     lab[..., 0] += iris_gate * eye_lightness * (1.0 - lab[..., 0] / 100.0)
-    finished = np.clip(color.lab2rgb(lab), 0.0, 1.0)
+    finished = np.clip(color.lab2rgb(_keep_lab_in_xyz(lab)), 0.0, 1.0)
     finished *= valid[..., None]
 
     output_rgba = np.dstack([finished, rgba[..., 3]])

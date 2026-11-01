@@ -12,6 +12,14 @@ from .provenance import (
     validate_run_policy,
 )
 
+# Manifest values for these keys use the same choices as the CLI flags.
+_MANIFEST_CHOICES = {
+    "remesh": ("none", "triangle", "quad"),
+    "pipeline_type": ("512", "1024", "1024_cascade"),
+    "texture_size": (512, 1024, 2048),
+    "material_mode": ("matte", "pbr"),
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -196,6 +204,12 @@ def main(argv: list[str] | None = None) -> int:
             if not (args.fast or args.quality or args.trellis):
                 raise ValueError(f"backend {backend!r} is not implemented yet")
             parameters = model.get("parameters", {})
+            for key, allowed in _MANIFEST_CHOICES.items():
+                if key in parameters and parameters[key] not in allowed:
+                    listed = ", ".join(str(item) for item in allowed)
+                    raise ValueError(
+                        f"{key} must be one of {listed}; got {parameters[key]!r}"
+                    )
             args.model = model.get("id", args.model)
             for key in (
                 "texture_resolution",
@@ -222,6 +236,11 @@ def main(argv: list[str] | None = None) -> int:
                 args.trellis_remesh = bool(parameters["trellis_remesh"])
             if "trellis_remesh_project" in parameters:
                 args.trellis_remesh_project = float(parameters["trellis_remesh_project"])
+            if "workflow" in manifest_data:
+                workflow = manifest_data["workflow"]
+                if not isinstance(workflow, str) or not workflow:
+                    raise ValueError("workflow must be a path")
+                args.workflow = source_manifest.parent / workflow
             args.output_dir = Path(
                 manifest_data.get("output", {}).get("directory", args.output_dir)
             )
@@ -267,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
             policy.get("allow_conditional", True),
             model_identity=model_identity,
             allow_unverified=policy.get("allow_unverified", False),
+            commercial_intent=bool(intent["commercial_intent"]),
+            allow_research_only=bool(policy.get("allow_research_only", True)),
         )
     except ValueError as exc:
         print(f"error: license policy: {exc}", file=sys.stderr)
@@ -340,7 +361,7 @@ def main(argv: list[str] | None = None) -> int:
             result = ComfyUIClient(args.comfy_url).generate(
                 image=image,
                 workflow_path=args.workflow,
-                output_dir=args.output_dir,
+                output_dir=working_output_dir,
                 image_node=args.image_node,
                 output_node=args.output_node,
                 timeout=args.timeout,

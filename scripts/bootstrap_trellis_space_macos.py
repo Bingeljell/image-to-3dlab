@@ -167,7 +167,70 @@ def bootstrap(root: Path, *, skip_install: bool, python: str) -> None:
         install(root, python)
 
 
-def main() -> int:
+def weight_announcement() -> str:
+    """Name the backend, the route and the size before anything is fetched."""
+    from bootstrap_trellis_cuda import WEIGHTS, total_gb
+
+    from image_to_3dlab import matte
+
+    lines = [
+        "",
+        "About to download:",
+        "",
+        "  backend: TRELLIS.2",
+        "  route:   Mac clean port (Metal)",
+        f"  weights: {total_gb():.1f} GB total -> Hugging Face cache",
+    ]
+    for repo, _, size in WEIGHTS:
+        lines.append(f"             {size:>6.2f} GB  {repo}")
+    lines.append(
+        f"  and:     BiRefNet-lite background remover, "
+        f"{matte.LITE_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LITE_MODEL)}"
+    )
+    lines += [
+        "",
+        "  licence: TRELLIS.2 is MIT. DINOv3 is gated: request access and sign in",
+        "           before this download, or that part is refused.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def install_mac_weights() -> None:
+    """Fetch the same files the NVIDIA bootstrap fetches. No clone, no compile."""
+    from bootstrap_trellis_cuda import (
+        GatedAccess,
+        check_access,
+        gated_help,
+        install_background_remover,
+        install_weights,
+    )
+
+    try:
+        check_access()
+        install_weights()
+        install_background_remover()
+    except GatedAccess as exc:
+        print(gated_help(str(exc)))
+        raise SystemExit(1) from exc
+
+
+def fetch_weights(*, yes: bool) -> int:
+    """Download the Mac route's weights. Refuse when nobody has agreed."""
+    print(weight_announcement(), flush=True)
+    if not yes:
+        if not sys.stdin or not sys.stdin.isatty():
+            print("Refusing to download without --yes when there is nobody to ask.")
+            return 1
+        if input("Continue? [y/N] ").strip().lower() not in {"y", "yes"}:
+            print("Nothing downloaded.")
+            return 1
+    install_mac_weights()
+    print("\nDone. The weights are on disk. Pick TRELLIS.2 in the studio.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     problem = wrong_machine()
     if problem:
         print(problem)
@@ -177,7 +240,13 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--python", default="python3.11")
     parser.add_argument("--skip-install", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--yes", action="store_true",
+                        help="Skip the confirmation. The Setup page passes this after it asks.")
+    parser.add_argument("--weights-only", action="store_true",
+                        help="Fetch the weights only. Does not clone or compile.")
+    args = parser.parse_args(argv)
+    if args.weights_only:
+        return fetch_weights(yes=args.yes)
     bootstrap(args.root.resolve(), skip_install=args.skip_install, python=args.python)
     return 0
 

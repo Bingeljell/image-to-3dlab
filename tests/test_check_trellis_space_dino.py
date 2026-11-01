@@ -1,8 +1,17 @@
 """Static contract for the DINO conditioning capture."""
 
+import os
 from pathlib import Path
 
+import check_trellis_space_dino as dino
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check_trellis_space_dino.py"
+
+
+def test_offline_wins_even_when_the_shell_says_zero(monkeypatch):
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    dino.pin_hub_offline()
+    assert os.environ["HF_HUB_OFFLINE"] == "1"
 
 
 def test_capture_records_preprocessing_and_full_feature_tensor():

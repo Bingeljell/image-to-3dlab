@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 import urllib.request
@@ -66,11 +67,13 @@ def read_csv(path: Path) -> dict[str, dict]:
 
 def write_csv(path: Path, rows: dict[str, dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=FIELDS)
-        w.writeheader()
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FIELDS)
+        writer.writeheader()
         for day in sorted(rows):
-            w.writerow({"date": day, **rows[day]})
+            writer.writerow({"date": day, **rows[day]})
+    os.replace(temporary, path)
 
 
 def last_days(rows: dict[str, dict], n: int = 7) -> dict[str, int]:

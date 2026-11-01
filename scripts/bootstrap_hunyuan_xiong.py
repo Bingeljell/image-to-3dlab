@@ -57,21 +57,33 @@ def announcement(steps: list[tuple[list[str], Path]]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--yes", action="store_true", help="do not ask (the caller already did)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     uv = host.find_uv()
     if uv is None:
         raise SystemExit("uv is required: https://docs.astral.sh/uv/")
     steps = plan(REPO, uv)
     print(announcement(steps), flush=True)
-    if not args.yes and input("Go ahead? [y/N] ").strip().lower() not in {"y", "yes"}:
-        raise SystemExit("Nothing done.")
+    if not args.yes:
+        # Non-interactive without --yes must not hang, and must not fetch.
+        if not sys.stdin or not sys.stdin.isatty():
+            print("Refusing to download without --yes when there is nobody to ask.", flush=True)
+            return 1
+        try:
+            answer = input("Go ahead? [y/N] ")
+        except EOFError:
+            print("Refusing to download without --yes when there is nobody to ask.", flush=True)
+            return 1
+        if answer.strip().lower() not in {"y", "yes"}:
+            print("Nothing done.", flush=True)
+            return 1
     for command, cwd in steps:
         print(f"$ {' '.join(command)}  (in {cwd})", flush=True)
         subprocess.run(command, cwd=cwd, check=True)
     install_background_remover()
+    return 0
 
 
 def install_background_remover(target: Path | None = None, download=None) -> None:
@@ -85,4 +97,4 @@ def install_background_remover(target: Path | None = None, download=None) -> Non
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -38,6 +38,40 @@ IMG = os.environ.get("PAINT_IMG", "reference/Hunyuan3D-2.1/hy3dpaint/assets/case
 SF = 0.18215
 
 
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+
+def _export_dir() -> str:
+    """This run's folder. A parent passes PAINT_OUT so two runs do not share one file."""
+    chosen = os.environ.get("PAINT_OUT")
+    if chosen:
+        os.makedirs(chosen, exist_ok=True)
+        return chosen
+    repo = _repo_root()
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from image_to_3dlab.provenance import hunyuan_paint_run_dir
+
+    path = hunyuan_paint_run_dir(os.path.join(os.getcwd(), "outputs"), "paint")
+    os.makedirs(path, exist_ok=True)
+    return str(path)
+
+
+def _write_sidecar(glb: str) -> None:
+    """Licence note for a standalone paint run. A parent writes the final one itself."""
+    if os.environ.get("PAINT_OUT"):
+        return
+    repo = _repo_root()
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from image_to_3dlab.provenance import write_hunyuan_sidecar
+
+    write_hunyuan_sidecar(
+        glb, IMG, backend="hunyuan-mlx-paint", paint=True, paint_weights=W,
+    )
+
+
 def prep_img(pil, size):
     pil = pil.resize((size, size))
     if pil.mode == "RGBA":
@@ -46,6 +80,7 @@ def prep_img(pil, size):
 
 
 def main():
+    out_dir = _export_dir()
     t0 = time.time()
     print(f"res={R} steps={STEPS} guidance={GUID}")
     vae = AutoencoderKL.from_config(json.load(open(f"{W}/vae/config.json")))
@@ -68,7 +103,7 @@ def main():
     ctrl = [rend.render_control(e, a, R) for e, a in zip(ELEVS, AZIMS)]
     normals = [c[0] for c in ctrl]; positions = [c[1] for c in ctrl]
     ref_img = prep_img(Image.open(IMG), R)
-    Image.fromarray((np.concatenate(normals, 1) * 255).astype(np.uint8)).save("outputs/paint_normals.png")
+    Image.fromarray((np.concatenate(normals, 1) * 255).astype(np.uint8)).save(os.path.join(out_dir, "paint_normals.png"))
 
     def enc(imgs):  # list of [H,W,3] in [0,1] -> [N,h,w,4] latents
         x = mx.array(np.stack(imgs)) * 2 - 1
@@ -106,7 +141,7 @@ def main():
     dec = vae.decode(latents[0] / SF)      # [N,H,W,3]
     imgs = np.clip((np.asarray(dec) + 1) / 2, 0, 1)
     grid = np.concatenate([imgs[k] for k in range(N)], axis=1)
-    Image.fromarray((grid * 255).astype(np.uint8)).save("outputs/paint_views.png")
+    Image.fromarray((grid * 255).astype(np.uint8)).save(os.path.join(out_dir, "paint_views.png"))
     print(f"views done {time.time()-t0:.0f}s")
 
     # ---- bake the 6 views into a UV texture, inpaint, export GLB ----
@@ -120,7 +155,7 @@ def main():
         print(f"super-res x4 ({time.time()-t0:.0f}s, views -> {views[0].shape[0]}px)")
     texture, covered = rend.bake(views, ELEVS, AZIMS, texture_size=TEX, weights=view_weights)
     texture = rend.inpaint(texture, covered)
-    Image.fromarray((texture * 255).astype(np.uint8)).save("outputs/paint_texture.png")
+    Image.fromarray((texture * 255).astype(np.uint8)).save(os.path.join(out_dir, "paint_texture.png"))
 
     tex_img = Image.fromarray((np.clip(texture, 0, 1) * 255).astype(np.uint8))
     uv_exp = rend.vtx_uv.copy(); uv_exp[:, 1] = 1.0 - uv_exp[:, 1]   # v-up (OpenGL) UVs for common viewers
@@ -128,8 +163,10 @@ def main():
     # Y<->Z axis swap inverts face winding (would show inside-out / see-through in viewers)
     out = trimesh.Trimesh(vertices=V, faces=F, process=False,
                           visual=trimesh.visual.TextureVisuals(uv=uv_exp, image=tex_img))
-    out.export("outputs/textured_mesh.glb")
-    print(f"DONE {time.time()-t0:.0f}s -> outputs/textured_mesh.glb (+ paint_texture.png)")
+    glb = os.path.join(out_dir, "textured_mesh.glb")
+    out.export(glb)
+    _write_sidecar(glb)
+    print(f"DONE {time.time()-t0:.0f}s -> {glb} (+ paint_texture.png)")
 
     # textured preview render (rasterize + sample texture) for a couple views
     previews = []
@@ -143,8 +180,8 @@ def main():
         col = tnp[vi, ui]
         col[fi == 0] = 1.0
         previews.append((col * 255).astype(np.uint8))
-    Image.fromarray(np.concatenate(previews, 1)).save("outputs/textured_preview.png")
-    print("preview -> outputs/textured_preview.png")
+    Image.fromarray(np.concatenate(previews, 1)).save(os.path.join(out_dir, "textured_preview.png"))
+    print(f"preview -> {os.path.join(out_dir, 'textured_preview.png')}")
 
 
 if __name__ == "__main__":

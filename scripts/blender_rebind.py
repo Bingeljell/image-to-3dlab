@@ -22,6 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from blender_quadruped_pipeline import refuse_open_blend
 from blender_rebind_weights import transfer_weights
 
 from image_to_3dlab.rig_sidecar import (
@@ -193,6 +194,7 @@ def main() -> int:
     import bpy
 
     opened_scene = Path(bpy.data.filepath).resolve()
+    refuse_open_blend(output_blend, bpy.data.filepath)
     sidecar = load_sidecar(sidecar_path)
     verify_asset(sidecar, source_glb)
     verify_scene(sidecar, opened_scene)

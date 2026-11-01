@@ -112,14 +112,14 @@ it uses.
   organisation (3D runs still sort by licence class, generated images all go to
   `output/images/`). `output/` is git-ignored: it holds our own work, not the product.
 - `validate_run_policy` gates generation on declared intent — keep it ahead of model work.
-- **BRIA RMBG-2.0 must never be loaded by this repo's own generation pipeline** (the vendored
-  `trellis-mac`/`trellis-space-mac` backends) — the TRELLIS backend **refuses to run** unless
-  the BRIA-disable patch is present. This is a license guardrail; never bypass it there.
+- **BRIA RMBG-2.0 stays unloaded in this repo's generation pipeline.** The Linux routes
+  refuse an unpatched tree. The Mac route refuses unless `rembg_model = None` is the only
+  assignment (`scripts/patch_trellis_space_core.py`). This is a licence guardrail.
   It does **not** block unrelated work that happens to touch BRIA-adjacent code: a one-off
   CUDA control run against the pristine upstream TRELLIS.2 repo (never shipped, never
-  redistributed) is fine as long as BRIA itself is never actually downloaded/loaded/used —
-  stub the eager constructor instead of requesting gated access, rather than treating "BRIA"
-  as a word that halts all work near it.
+  redistributed) is fine as long as BRIA itself is never actually downloaded, loaded, or
+  used — stub the eager constructor instead of requesting gated access, rather than
+  treating "BRIA" as a word that halts all work near it.
 
 ### Weights are never downloaded without an explicit choice
 

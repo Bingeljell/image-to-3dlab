@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-11-02
+
 ### Added
 - **FLUX.2 klein Light**, the same picture model in smaller files: about 5 GB of memory while drawing instead of
   about 9, for machines with 16 GB or less. Setup & Status suggests the one that suits your machine, and you can

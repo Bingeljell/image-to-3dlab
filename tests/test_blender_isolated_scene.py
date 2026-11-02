@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import re
 import sys
 from pathlib import Path
 
@@ -32,6 +33,10 @@ def _assert_private(code: str, scene_name: str) -> None:
     assert restore_previous_scene() in code
     assert "for obj in list(bpy.data.objects)" not in code
     assert "orphans_purge" not in code
+    # bpy.data.objects spans every scene in the file. Picking, selecting or deselecting
+    # from it reaches the user's own objects (select_set even raises for objects in
+    # another scene), so loops must walk the private scene instead.
+    assert not re.search(r"for \w+ in bpy\.data\.objects\b", code), code
 
 
 def test_turntable_uses_a_private_scene():

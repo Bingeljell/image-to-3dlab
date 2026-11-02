@@ -53,7 +53,7 @@ RES = {res}
 
 {prelude}
 bpy.ops.import_scene.gltf(filepath=ASSET)
-meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+meshes = [o for o in render_scene.objects if o.type == "MESH"]
 if not meshes:
     raise RuntimeError("no mesh imported from " + ASSET)
 

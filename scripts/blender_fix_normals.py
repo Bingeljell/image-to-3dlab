@@ -43,8 +43,8 @@ import numpy as np
 {prelude}
 
 bpy.ops.import_scene.gltf(filepath={str(asset)!r})
-meshes = [o for o in bpy.data.objects if o.type == "MESH"]
-for o in bpy.data.objects:
+meshes = [o for o in render_scene.objects if o.type == "MESH"]
+for o in render_scene.objects:
     o.select_set(False)
 for o in meshes:
     o.select_set(True)

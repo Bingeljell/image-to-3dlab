@@ -48,11 +48,11 @@ min_component_verts = {min_component_verts}
 
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=asset_path)
-imported = [o for o in bpy.data.objects if o not in before]
+imported = [o for o in render_scene.objects if o not in before]
 meshes = [o for o in imported if o.type == "MESH"]
 
 # The importer may split the asset across objects; bake wants a single source.
-for o in bpy.data.objects:
+for o in render_scene.objects:
     o.select_set(False)
 for o in meshes:
     o.select_set(True)
@@ -76,7 +76,7 @@ target.data = source.data.copy()
 bpy.context.scene.collection.objects.link(target)
 target.name = "TARGET"
 
-for o in bpy.data.objects:
+for o in render_scene.objects:
     o.select_set(False)
 target.select_set(True)
 bpy.context.view_layer.objects.active = target
@@ -166,7 +166,7 @@ scene.render.bake.use_selected_to_active = True
 scene.render.bake.cage_extrusion = extrusion if extrusion > 0 else voxel_size * 6.0
 scene.render.bake.max_ray_distance = (extrusion if extrusion > 0 else voxel_size * 6.0) * 2.0
 
-for o in bpy.data.objects:
+for o in render_scene.objects:
     o.select_set(False)
 source.select_set(True)
 target.select_set(True)
@@ -179,7 +179,7 @@ if bsdf is not None:
     material.node_tree.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
 
 bpy.data.objects.remove(source, do_unlink=True)
-for o in bpy.data.objects:
+for o in render_scene.objects:
     o.select_set(False)
 target.select_set(True)
 bpy.context.view_layer.objects.active = target

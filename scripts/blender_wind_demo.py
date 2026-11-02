@@ -76,9 +76,9 @@ frames = {frames}
 def load(path):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
-    added = [o for o in bpy.data.objects if o not in before]
+    added = [o for o in render_scene.objects if o not in before]
     meshes = [o for o in added if o.type == "MESH"]
-    for o in bpy.data.objects:
+    for o in render_scene.objects:
         o.select_set(False)
     for o in meshes:
         o.select_set(True)

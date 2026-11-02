@@ -138,12 +138,12 @@ t0 = time.time()
 {prelude}
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=LOW)
-low = [o for o in bpy.data.objects if o not in before and o.type == "MESH"][0]
+low = [o for o in render_scene.objects if o not in before and o.type == "MESH"][0]
 low.name = "LOWPOLY"
 
 before = set(bpy.data.objects)
 bpy.ops.wm.ply_import(filepath=HIGH)
-high = [o for o in bpy.data.objects if o not in before and o.type == "MESH"][0]
+high = [o for o in render_scene.objects if o not in before and o.type == "MESH"][0]
 high.name = "HIGHPOLY"
 high_tris_in = len(high.data.polygons)
 

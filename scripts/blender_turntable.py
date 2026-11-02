@@ -54,7 +54,7 @@ bpy.context.scene.collection.children.link(collection)
 
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=asset_path)
-imported = [obj for obj in bpy.data.objects if obj not in before]
+imported = [obj for obj in render_scene.objects if obj not in before]
 for obj in imported:
     for owner in list(obj.users_collection):
         owner.objects.unlink(obj)

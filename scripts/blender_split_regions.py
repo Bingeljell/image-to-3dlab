@@ -84,7 +84,7 @@ def _is_precious(o):
     return o.name.startswith("JOINT_") or o.type == "ARMATURE"
 
 bpy.ops.import_scene.gltf(filepath=ASSET)
-mesh = [o for o in bpy.data.objects if o.type == "MESH" and not _is_precious(o)][0]
+mesh = [o for o in render_scene.objects if o.type == "MESH" and not _is_precious(o)][0]
 bpy.context.view_layer.objects.active = mesh
 me = mesh.data
 

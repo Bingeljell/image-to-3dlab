@@ -36,3 +36,17 @@ for directory in ("viewer", "scripts"):
 
 # The suite never counts or sends usage from a real install (tests of it pass their own env).
 os.environ["I3D_NO_USAGE"] = "1"
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _private_model_folder(tmp_path_factory, monkeypatch):
+    """Every test sees an empty background-remover folder, never the real ~/.u2net.
+
+    Two installer tests used to pass only because this machine already had the remover in
+    ~/.u2net, so their "install it if missing" step quietly skipped a real download. On a
+    clean machine, or after the remover file changed, they reached the internet instead.
+    """
+    monkeypatch.setenv("U2NET_HOME", str(tmp_path_factory.mktemp("u2net")))

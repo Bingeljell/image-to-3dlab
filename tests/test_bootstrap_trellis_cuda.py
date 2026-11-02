@@ -166,6 +166,8 @@ def linux_nvidia(monkeypatch):
     monkeypatch.setattr(boot, "check_access", lambda *a: calls.append("access"))
     monkeypatch.setattr(boot, "install_code", lambda *a: calls.append("code"))
     monkeypatch.setattr(boot, "install_weights", lambda: calls.append("weights"))
+    # the remover download has its own test; here it must never reach the network
+    monkeypatch.setattr(boot, "install_background_remover", lambda *a, **k: None)
     return calls
 
 

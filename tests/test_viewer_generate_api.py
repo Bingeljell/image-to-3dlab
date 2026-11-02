@@ -2071,7 +2071,7 @@ def test_front_back_is_ready_only_with_the_shape_weights_and_a_back_drawer():
 
 def test_flux_alone_can_draw_backs_but_qwen_needs_its_vision_projector(monkeypatch):
     """Flux reads the front by itself; a Flux-only machine must not be told to fetch Qwen's projector."""
-    installed = {"flux": False, "qwen": True}
+    installed = {"flux": False, "flux-light": False, "qwen": True}
     monkeypatch.setattr(api.image_api, "resolve_weights", lambda engine=None: (
         {} if installed[engine.id] else (_ for _ in ()).throw(api.image_api.MissingWeights(["x"], engine))))
     monkeypatch.setattr(api.image_api, "resolve_vision", lambda engine=None: None)

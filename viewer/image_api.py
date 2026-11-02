@@ -53,6 +53,7 @@ if str(REPO) not in sys.path:
 import usage_api
 
 from image_to_3dlab import back_view, matte, processes
+from image_to_3dlab import host as _host
 from image_to_3dlab.host import APPLE, executable, host_platform, with_rocm_libraries
 from image_to_3dlab.provenance import FLUX_OUTPUT_RIGHTS, LICENSES, QWEN_OUTPUT_RIGHTS
 from image_to_3dlab.sdcpp import BackendWatch, no_gpu_help
@@ -172,8 +173,31 @@ FLUX = PictureEngine(
     picture_only_steps=8,
 )
 
+# The same Flux at 4 bits, for machines with less memory: one picture peaks at 5.2 GB instead of
+# 8.7 (measured 2026-11-02 on six subjects and three back views, no visible loss; the 8-bit
+# files keep a little more fine detail, so they stay the default where memory allows).
+FLUX_LIGHT = PictureEngine(
+    id="flux-light", label="FLUX.2 [klein] 4B Light", setup_id="flux-image-light",
+    licence_key="flux2-klein-4b", attribution=None, output_rights=FLUX_OUTPUT_RIGHTS,
+    weight_files={
+        "diffusion_model": ("models--leejet--FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q4_0.gguf"),
+        "llm": ("models--unsloth--Qwen3-4B-GGUF", "Qwen3-4B-Q4_K_M.gguf"),
+        "vae": ("models--Comfy-Org--Flux-2-Klein-4B", "flux2-vae.safetensors"),
+    },
+    defaults=FLUX.defaults,
+    picture_only_steps=FLUX.picture_only_steps,
+)
+
 # Flux first: the default when it is installed, and the one a fresh machine is pointed at.
-ENGINES = {engine.id: engine for engine in (FLUX, QWEN)}
+ENGINES = {engine.id: engine for engine in (FLUX, FLUX_LIGHT, QWEN)}
+
+
+def suggested_order(low: bool | None = None) -> list[PictureEngine]:
+    """The engines in the order we suggest them on this machine: Light first when memory is
+    low (16 GB or less), Flux first otherwise. A suggestion only; any engine can be picked."""
+    low = _host.low_memory() if low is None else low
+    first = (FLUX_LIGHT, FLUX) if low else (FLUX, FLUX_LIGHT)
+    return [*first, *(e for e in ENGINES.values() if e not in first)]
 
 
 class MissingWeights(RuntimeError):
@@ -229,8 +253,12 @@ def engine_of(picture: Path) -> PictureEngine | None:
         record = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    model = ((record or {}).get("model") or {}).get("id") if isinstance(record, dict) else None
-    return next((e for e in ENGINES.values() if e.licence_key == model), None)
+    model = ((record or {}).get("model") or {}) if isinstance(record, dict) else {}
+    drawn_with = ((model.get("weights") or {}).get("diffusion_model") or {}).get("file")
+    same_licence = [e for e in ENGINES.values() if e.licence_key == model.get("id")]
+    # Flux and Flux Light share a licence; the file that drew the picture tells them apart.
+    exact = [e for e in same_licence if e.weight_files["diffusion_model"][1] == drawn_with]
+    return (exact or same_licence or [None])[0]
 
 
 def usable(engine: PictureEngine, *, edit: bool = False) -> bool:
@@ -275,8 +303,9 @@ def pick_engine(requested: str | None = None, *, edit: bool = False,
                 ready: Callable[[PictureEngine], bool] | None = None) -> PictureEngine:
     """The engine to draw with: the one asked for, else the first in `ENGINES` that is set up.
 
-    With nothing set up it answers Flux, so the "not set up" message points at the smaller,
-    Apache-licensed download. `edit` asks for an engine that can redraw a reference.
+    With nothing set up it answers the one we suggest for this machine (Light at 16 GB or less,
+    else Flux), so the "not set up" message points at that download. `edit` asks for an engine
+    that can redraw a reference.
     """
     if requested:
         if requested not in ENGINES:
@@ -289,7 +318,8 @@ def pick_engine(requested: str | None = None, *, edit: bool = False,
             except MissingWeights:
                 return False
             return True
-    return next((engine for engine in ENGINES.values() if ready(engine)), FLUX)
+    order = suggested_order()
+    return next((engine for engine in order if ready(engine)), order[0])
 
 
 def clean_settings(raw: dict[str, Any], engine: PictureEngine = QWEN,

@@ -410,8 +410,10 @@ def options() -> dict[str, Any]:
             "engine": "A ready 3D engine id (list_engines). Default: the best ready one.",
             "front_and_back": "Also draw a back picture so the 3D model is fuller. Default: on when installed.",
             "back_image_path": "create only: your own back view to go with image_path; Pixal3D builds from both.",
-            "picture_engine": "create only: flux (FLUX.2 klein, Apache-2.0, fast; default when installed) | qwen "
-                              "(Qwen-Image, Qwen Research License, follows long prompts more closely).",
+            "picture_engine": "create only: flux (FLUX.2 klein, Apache-2.0, fast) | flux-light (the same model "
+                              "in smaller files, about 5 GB of memory instead of about 9; suggested on machines "
+                              "with 16 GB or less) | qwen (Qwen-Image, Qwen Research License, follows long prompts "
+                              "more closely). Default: the suggested one for this machine that is installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
             "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
                              "full (every triangle, for stills; not for rigging).",
@@ -1174,9 +1176,11 @@ def build_server(studio: Studio | None = None):
         1000 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
         triangles; the sharpest look, for renders and stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
-        picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast;
-            the default when installed) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
-            more closely). Back pictures prefer Flux whichever drew the front.
+        picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast),
+            "flux-light" (the same model in smaller files: about 5 GB of memory instead of about 9, suggested
+            on machines with 16 GB or less) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
+            more closely). Default: the suggested installed one for this machine. A back picture prefers the
+            engine that drew the front.
         back_image_path: your own back view to go with image_path (same pose, size and framing, seen from
             directly behind). Pixal3D then builds from both and nothing is drawn. Needs Front + back installed.
         """
@@ -1200,7 +1204,7 @@ def build_server(studio: Studio | None = None):
         (run_status gives it when the run is done): continue from that id to work on it, since the
         family id is the original. finish_detail, pixel_match and advanced: as in create (options lists
         every advanced knob). Back picture you don't like: up_to="back", again=True, and optionally
-        back_change="what to change" (say what you want to see), picture_engine="flux"|"qwen" (default: the
+        back_change="what to change" (say what you want to see), picture_engine="flux"|"flux-light"|"qwen" (default: the
         engine that drew the front); then make the model again from it."""
         return safe(lambda: continue_asset(studio, asset_id=asset_id, up_to=up_to, want=want, move=move,
                                            engine=engine, again=again, finish_detail=finish_detail,
@@ -1237,7 +1241,7 @@ def build_server(studio: Studio | None = None):
         scaled), white where to repaint, black elsewhere. change: what goes there ("a dark red leather satchel").
         Only the white area is redrawn; the rest stays pixel for pixel. Paint close around the part:
         everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True).
-        picture_engine: "flux" or "qwen"; default the engine that drew the back.
+        picture_engine: "flux", "flux-light" or "qwen"; default the engine that drew the back.
         which="front" fixes the picture itself instead, only before a 3D model is made from it; the fixed
         picture replaces the old one. Describe what should be there, not the change."""
         return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change,

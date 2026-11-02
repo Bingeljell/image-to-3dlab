@@ -50,7 +50,7 @@ def test_a_yes_fetches_the_projector_only_when_qwen_must_draw_the_back(monkeypat
 
 def test_needs_vision_only_when_qwen_alone_is_set_up(monkeypatch):
     api = boot.image_api
-    installed = {"flux": False, "qwen": True}
+    installed = {"flux": False, "flux-light": False, "qwen": True}
     monkeypatch.setattr(api, "is_installed", lambda engine=api.QWEN: installed[engine.id])
     monkeypatch.setattr(api, "resolve_vision", lambda engine=api.QWEN: None)
     assert boot.needs_vision() is True

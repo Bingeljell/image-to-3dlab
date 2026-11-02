@@ -150,6 +150,11 @@ class WeightSet:
     # downloaded" on the machine that built it. Whichever location holds the most bytes
     # wins, so a cache that is partly populated still counts for what it has.
     alt_paths: tuple[Path, ...] = ()
+    # With `pattern`: the file's SHA-256. Hugging Face writes a download to
+    # blobs/<sha256>[.<random>].incomplete and links it into snapshots/ only once it is
+    # finished (huggingface_hub 2.x adds the random part), so without this a 4 GB file reads
+    # 0 bytes until the end and the download looks stalled.
+    blob: str | None = None
 
     def files(self) -> list[Path]:
         return sorted(self.path.glob(self.pattern)) if self.pattern and self.path.is_dir() else []
@@ -179,11 +184,21 @@ class WeightSet:
     def _pattern_state(self) -> tuple[bool, int]:
         """A glob under a folder: presence, progress and Remove see only those files."""
         total = 0
-        for item in self.files():
+        files = self.files()
+        for item in files:
             try:
                 total += item.stat().st_size  # follows the snapshot link to its blob
             except OSError:
                 continue
+        if not files and self.blob and self.path.is_dir():
+            sizes = []  # still arriving: count it, but it is not there yet
+            for part in (self.path / "blobs").glob(f"{self.blob}*.incomplete"):
+                try:
+                    sizes.append(part.stat().st_size)
+                except OSError:
+                    continue
+            if sizes:
+                return False, max(sizes)
         return total > 0, total
 
     def describe(self) -> dict[str, Any]:
@@ -238,6 +253,9 @@ class Backend:
     # already-applied patches (hit for real 2026-09-21).
     build_probes: tuple[Path, ...] = ()
     extra_steps: tuple[str, ...] = field(default_factory=tuple)
+    # "low_memory" / "plenty_memory": the card gets the start-here pill on machines with 16 GB
+    # or less / more than that (host.low_memory). A suggestion only; every card stays usable.
+    suggested_when: str | None = None
     # The machines this route works on. Default rather than per-entry because every route
     # is Apple-only today; the day one of them runs on CUDA, it says so here.
     runs_on: tuple[str, ...] = (APPLE,)
@@ -383,8 +401,19 @@ class Backend:
         return (f"{self.label} was installed here and is no longer: {listed} is missing. "
                 f"Setup will rebuild it.")
 
+    def suggested_here(self, low: bool | None = None) -> bool:
+        """Whether this card is the one we suggest for this machine's memory."""
+        if self.suggested_when is None:
+            return False
+        low = _host.low_memory() if low is None else low
+        return low if self.suggested_when == "low_memory" else not low
+
     def describe(self, host: str | None = None) -> dict[str, Any]:
         weights = [w.describe() for w in self.weights]
+        # A file another card also uses (Flux's VAE) does not make this card "partly
+        # downloaded": with none of its own files here, it is judged on its own files alone.
+        own = [d for d, w in zip(weights, self.weights) if not is_shared(self, w)]
+        judged = weights if not own or any(d["bytes_present"] > 0 for d in own) else own
         present = _total_present(weights)
         built = self.built_on(host)
         supported = self.runs_here(host)
@@ -404,7 +433,7 @@ class Backend:
             "label": said.get("label", self.label),
             "kind": self.kind,
             "rank": self.rank,
-            "recommended": self.rank == 1,
+            "recommended": self.rank == 1 or self.suggested_here(),
             "best_for": self.best_for,
             "tradeoff": said.get("tradeoff", self.tradeoff),
             "license": {"name": self.license_name, "url": self.license_url},
@@ -424,9 +453,9 @@ class Backend:
                                    if not is_shared(self, w)),
             "automated_setup": self.automated_setup,
             "state": "unsupported" if not supported else
-                     _state(weights, built, fetches),
+                     _state(judged, built, fetches),
             "action": "none" if not supported else
-                      _action(weights, built, fetches,
+                      _action(judged, built, fetches,
                               self.automated_setup),
             "percent_present": _percent(present, self.bytes_expected),
         }
@@ -785,15 +814,51 @@ CATALOG: tuple[Backend, ...] = (
         runs_on=(APPLE, NVIDIA, AMD),
         setup_minutes=10,
         build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
+        suggested_when="plenty_memory",
         weights=(
             WeightSet("FLUX.2 klein 4B diffusion model (Q8_0)", "leejet/FLUX.2-klein-4B-GGUF",
-                      4_300_629_440, HF_HUB_DIR / "models--leejet--FLUX.2-klein-4B-GGUF"),
+                      4_300_629_440, HF_HUB_DIR / "models--leejet--FLUX.2-klein-4B-GGUF",
+                      pattern="snapshots/*/flux-2-klein-4b-Q8_0.gguf",
+                      blob="0bba6951258ec8f92d51114a8fa13e66828297bfff58a738f52729b3ef66fa28"),
             WeightSet("Qwen3-4B text encoder (Q8_0)", "unsloth/Qwen3-4B-GGUF", 4_280_405_792,
                       HF_HUB_DIR / "models--unsloth--Qwen3-4B-GGUF",
-                      note="Reads your prompt. Plain Qwen3, Apache-2.0: not Qwen-Image's licence."),
+                      note="Reads your prompt. Plain Qwen3, Apache-2.0: not Qwen-Image's licence.",
+                      pattern="snapshots/*/Qwen3-4B-Q8_0.gguf",
+                      blob="eed555233267a33c7e8ee31682762cc7751b3f6d224039086e0e846f05fffa5d"),
             WeightSet("FLUX.2 VAE", "Comfy-Org/Flux-2-Klein-4B", 336_211_292,
                       HF_HUB_DIR / "models--Comfy-Org--Flux-2-Klein-4B",
                       note="Turns the generated latent back into pixels."),
+        ),
+    ),
+    Backend(
+        id="flux-image-light",
+        label="FLUX.2 klein 4B Light (text to image, less memory)",
+        kind="image",
+        best_for=("The same pictures for machines with 16 GB of memory or less: about 5 GB "
+                  "while drawing instead of about 9."),
+        tradeoff=("Smaller files of the same model. Pictures look the same in our tests; the "
+                  "standard files keep a little more fine detail. Apache-2.0: the pictures are "
+                  "yours for any use."),
+        license_name="Apache-2.0",
+        license_url="https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+        install="scripts/bootstrap_flux_image.py --light",
+        runs_on=(APPLE, NVIDIA, AMD),
+        setup_minutes=8,
+        build_probes=(_host.executable(REPO / "vendor" / "sdcpp", "sd-cli"),),
+        suggested_when="low_memory",
+        weights=(
+            WeightSet("FLUX.2 klein 4B diffusion model (Q4_0)", "leejet/FLUX.2-klein-4B-GGUF",
+                      2_460_378_560, HF_HUB_DIR / "models--leejet--FLUX.2-klein-4B-GGUF",
+                      pattern="snapshots/*/flux-2-klein-4b-Q4_0.gguf",
+                      blob="d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4"),
+            WeightSet("Qwen3-4B text encoder (Q4_K_M)", "unsloth/Qwen3-4B-GGUF", 2_497_281_312,
+                      HF_HUB_DIR / "models--unsloth--Qwen3-4B-GGUF",
+                      note="Reads your prompt. Plain Qwen3, Apache-2.0.",
+                      pattern="snapshots/*/Qwen3-4B-Q4_K_M.gguf",
+                      blob="f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"),
+            WeightSet("FLUX.2 VAE", "Comfy-Org/Flux-2-Klein-4B", 336_211_292,
+                      HF_HUB_DIR / "models--Comfy-Org--Flux-2-Klein-4B",
+                      note="Shared with the standard Flux card."),
         ),
     ),
     Backend(

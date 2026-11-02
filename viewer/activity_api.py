@@ -101,7 +101,7 @@ class Chain:
     engine: str | None = None
     first_move: str | None = None
     picture_settings: dict[str, Any] = field(default_factory=dict)  # size, steps, seed (the image job checks them)
-    picture_engine: str | None = None                                # "flux" / "qwen"; None = the studio's default
+    picture_engine: str | None = None                                # "flux" / "flux-light" / "qwen"; None = the default
     back_settings: dict[str, Any] = field(default_factory=dict)      # a back redraw: seed, what to change
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches

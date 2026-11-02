@@ -335,6 +335,18 @@ def total_memory() -> int | None:
         return None
 
 
+# At or under this much memory, the lighter picture model is the one we suggest. Measured
+# 2026-11-02: Flux at 8 bits peaks at 8.7 GB drawing one picture, at 4 bits 5.2 GB.
+LOW_MEMORY_BYTES = 16 * 1024 ** 3
+
+
+def low_memory(total: int | None = None) -> bool:
+    """True on a machine with 16 GB or less. Unknown memory counts as not low: a suggestion,
+    never a block, and the user can always pick the other model."""
+    total = total_memory() if total is None else total
+    return total is not None and total <= LOW_MEMORY_BYTES
+
+
 def patient_downloads(env: dict[str, str]) -> dict[str, str]:
     """`env` with uv told to wait for slow downloads instead of giving up.
 

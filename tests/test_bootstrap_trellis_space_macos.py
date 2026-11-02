@@ -115,3 +115,13 @@ def test_it_refuses_a_mac_older_than_macos_26_before_downloading():
     problem = bootstrap.wrong_machine("macos-arm64", macos=15)
     assert "macOS 26" in problem and "macOS 15" in problem and "Pixal3D" in problem
     assert "Nothing downloaded" in problem
+
+
+def test_the_weight_prompt_names_the_remover_file_setup_installs():
+    """The consent screen must state the size and path of what is actually fetched."""
+    from image_to_3dlab import matte
+
+    text = bootstrap.weight_announcement()
+    assert f"{matte.LEAN_BYTES / 1e6:.0f} MB" in text
+    assert str(matte.model_file(matte.LEAN_MODEL)) in text
+    assert str(matte.model_file(matte.LITE_MODEL)) not in text

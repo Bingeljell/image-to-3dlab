@@ -185,7 +185,7 @@ def weight_announcement() -> str:
         lines.append(f"             {size:>6.2f} GB  {repo}")
     lines.append(
         f"  and:     BiRefNet-lite background remover, "
-        f"{matte.LITE_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LITE_MODEL)}"
+        f"{matte.LEAN_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LEAN_MODEL)}"
     )
     lines += [
         "",

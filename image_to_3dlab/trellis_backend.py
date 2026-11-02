@@ -239,8 +239,9 @@ def generate_trellis(
     generator = repo / "generate.py"
     if not python.is_file() or not generator.is_file():
         raise RuntimeError(
-            f"TRELLIS Mac environment not found at {repo}. "
-            "Run scripts/bootstrap_trellis_macos.sh first."
+            f"TRELLIS Mac environment not found at {repo}. This older --trellis route "
+            "runs a manual clone of shivampkumar/trellis-mac. For TRELLIS on a Mac, use "
+            "the studio's TRELLIS.2 route (Setup & Status)."
         )
     patched_pipeline = (
         repo / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"

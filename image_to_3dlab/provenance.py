@@ -40,6 +40,7 @@ FLUX_OUTPUT_RIGHTS = (
 
 # Whichever remover this machine runs (image_to_3dlab/matte.py picks it); both are MIT.
 MATTE_LICENSES = {
+    "birefnet-lite-lean": "MIT (BiRefNet)",
     "birefnet-general-lite": "MIT (BiRefNet)",
     "u2net": "MIT code / Apache-2.0 U-2-Net",
 }

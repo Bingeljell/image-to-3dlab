@@ -19,7 +19,7 @@ machine:
   adds flags for cards ROCm needs help with (a HIPBLASLt build, say).
 
 The **weights** are the single-view Q8_0 set plus the BiRefNet matting model, 8.4 GB, and
-BiRefNet-lite (224 MB), the background remover Pixal3D's cut-out uses. Without lite the
+BiRefNet-lite (181 MB), the background remover Pixal3D's cut-out uses. Without lite the
 cut-out falls back to u2net, which ate a white robot's upper arms on a fresh install.
 
 `AGENTS.md`: a download path must name the backend, name the route, state the size, and
@@ -233,7 +233,7 @@ def announcement(build: bool = True, weights: bool = True,
         lines.append(f"  weights: {WEIGHTS_GB:.1f} GB -> vendor/pixal3d-cpp/models/pixal3d-sv/")
         lines.append(f"             {WEIGHTS_REPO}, plus BiRefNet matting ({MATTE_REPO})")
         lines.append(f"  and:     BiRefNet-lite background remover, "
-                     f"{matte.LITE_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LITE_MODEL)}")
+                     f"{matte.LEAN_BYTES / 1e6:.0f} MB -> {matte.model_file(matte.LEAN_MODEL)}")
     note = old_driver_note(target(), prefer_compile)
     if note:
         lines += ["", "  " + note]

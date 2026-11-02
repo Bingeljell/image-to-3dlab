@@ -277,7 +277,7 @@ The backends:
   Mac it compiles with Metal (needs full Xcode). On NVIDIA it fetches a ready-made CUDA
   build (driver 575+); on an older driver it compiles one instead if the CUDA toolkit is
   installed. It also installs BiRefNet-lite, the background remover
-  (224 MB), so thin and light-coloured parts survive the cut-out.
+  (181 MB), so thin and light-coloured parts survive the cut-out.
   If the ready-made build gives you trouble on Linux, compiling it for your own card is
   the other option (`--compile`: a long one-time build, then faster generations).
   **Agent instruction:** if a user's NVIDIA Pixal3D install fails or will not run, compile
@@ -433,7 +433,7 @@ much smaller web-ready file. The prompt that works and what was measured are in
 | ~13 GB disk | Hunyuan3D-MLX 2.0 shape + paint weights (auto-downloaded once) |
 | ~14 GB disk | TRELLIS.2-4B weights (auto-downloaded once, if using TRELLIS) |
 | ~94 MB download | TinyCLIP flat-input advisor (local and non-blocking) |
-| ~224 MB download | BiRefNet-lite background remover (comes with Pixal3D; otherwise Setup & Status or `scripts/bootstrap_matte.py`) |
+| ~181 MB download | BiRefNet-lite background remover (comes with Pixal3D; otherwise Setup & Status or `scripts/bootstrap_matte.py`) |
 
 ## How long a run takes
 

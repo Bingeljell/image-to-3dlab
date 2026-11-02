@@ -35,6 +35,20 @@ def is_matted(image) -> bool:
 #
 # Nothing here downloads lite: AGENTS.md forbids fetching weights without an explicit
 # choice, so it arrives only through scripts/bootstrap_matte.py / Setup & Status.
+#
+# LEAN is the same BiRefNet-lite weights, exported with ONNX's own DeformConv layer. rembg's
+# file spells every deformable convolution out as thousands of gather/scatter steps, and
+# those steps are what made one 1024 px cut-out peak at 9.5 GB on a Mac. The lean file
+# peaks at 4.0 GB, runs ~2.5x faster and gives the same mask (IoU >= 0.998 on our test
+# pictures). It has its own name because rembg checks its file's hash on every load and
+# silently re-downloads its own copy on a mismatch; we run the lean file ourselves.
+
+LEAN_MODEL = "birefnet-lite-lean"
+LEAN_URL = ("https://huggingface.co/AssetFurnace/birefnet-lite-onnx/resolve/main/"
+            "birefnet-lite-1024.onnx")
+LEAN_BYTES = 180_666_557
+LEAN_SHA256 = "a97176abb6fe55525b11113bf5bead5a9b5866b2c0d4ac058186cabb86cadfff"
+LEAN_SIZE = 1024  # the square input the file was exported at
 
 LITE_MODEL = "birefnet-general-lite"
 FALLBACK_MODEL = "u2net"
@@ -55,18 +69,21 @@ def model_file(name: str):
 
 
 def matte_model() -> str:
-    """The best remover this machine has: lite once installed, else u2net."""
-    return LITE_MODEL if model_file(LITE_MODEL).is_file() else FALLBACK_MODEL
+    """The best remover this machine has: the lean file, then rembg's lite, then u2net."""
+    for name in (LEAN_MODEL, LITE_MODEL):
+        if model_file(name).is_file():
+            return name
+    return FALLBACK_MODEL
 
 
 def _ensure_model(model: str, allow_download: bool) -> None:
     """Raise a helpful RuntimeError if the model file is missing and downloads are disabled."""
-    if allow_download or model_file(model).is_file():
+    if (allow_download and model != LEAN_MODEL) or model_file(model).is_file():
         return
     # Whichever model was missing, the fix is the one Setup installs.
     raise RuntimeError(
         "The background remover is not installed. Install \"Background remover "
-        f"(BiRefNet-lite)\" on Setup & Status ({LITE_BYTES / 1e6:.0f} MB), "
+        f"(BiRefNet-lite)\" on Setup & Status ({LEAN_BYTES / 1e6:.0f} MB), "
         "or run scripts/bootstrap_matte.py."
     )
 
@@ -76,7 +93,42 @@ def fallback_note(model: str) -> str | None:
     if model != FALLBACK_MODEL:
         return None
     return ("using u2net, which can eat thin or light-coloured parts; install "
-            "BiRefNet-lite (224 MB) from Setup & Status or scripts/bootstrap_matte.py")
+            f"BiRefNet-lite ({LEAN_BYTES / 1e6:.0f} MB) from Setup & Status or "
+            "scripts/bootstrap_matte.py")
+
+
+class LeanSession:
+    """The lean BiRefNet-lite file, run with onnxruntime directly (rembg would re-download).
+
+    Same steps as rembg's BiRefNet session: resize to the export size, ImageNet-normalise,
+    sigmoid the raw scores, stretch to 0-1, resize the mask back to the picture.
+    """
+
+    model_name = LEAN_MODEL
+    MEAN = (0.485, 0.456, 0.406)
+    STD = (0.229, 0.224, 0.225)
+
+    def __init__(self, path, inner=None):
+        if inner is None:
+            import onnxruntime as ort
+
+            inner = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        self.inner = inner
+
+    def mask(self, image):
+        """A PIL 'L' mask the size of `image` (a PIL RGB picture)."""
+        import numpy as np
+        from PIL import Image
+
+        small = image.convert("RGB").resize((LEAN_SIZE, LEAN_SIZE), Image.Resampling.LANCZOS)
+        x = (np.asarray(small, dtype=np.float32) / 255.0 - self.MEAN) / self.STD
+        x = x.transpose(2, 0, 1)[None].astype(np.float32)
+        scores = self.inner.run(None, {"input_image": x})[0][0, 0]
+        pred = 1.0 / (1.0 + np.exp(-scores))
+        span = float(pred.max() - pred.min()) or 1.0
+        pred = (pred - pred.min()) / span
+        mask = Image.fromarray((pred * 255).astype("uint8"), mode="L")
+        return mask.resize(image.size, Image.Resampling.LANCZOS)
 
 
 def clean_edges(rgba, solid: int = 250, reach: int = 4):
@@ -122,16 +174,30 @@ def new_session(model: str | None = None, *, allow_download: bool = False):
 
     model = model or matte_model()
     _ensure_model(model, allow_download)
+    if model == LEAN_MODEL:
+        try:
+            return LeanSession(model_file(LEAN_MODEL))
+        except Exception as error:  # an onnxruntime too old for DeformConv, say
+            fallback = LITE_MODEL if model_file(LITE_MODEL).is_file() else FALLBACK_MODEL
+            print(f"[matte] lean remover would not load ({error}); using {fallback}", flush=True)
+            model = fallback
+            _ensure_model(model, allow_download)
     return rembg.new_session(model)
 
 
 def cut_out(image, session=None, *, allow_download: bool = False):
     """Remove the background from a PIL image; returns (RGBA image, model name used)."""
     import numpy as np
-    import rembg
     from PIL import Image
 
-    model = matte_model() if session is None else getattr(session, "model_name", "custom")
-    session = session or new_session(model, allow_download=allow_download)
-    cut = rembg.remove(image.convert("RGB"), session=session).convert("RGBA")
+    session = session or new_session(allow_download=allow_download)
+    model = getattr(session, "model_name", "custom")
+    rgb = image.convert("RGB")
+    if isinstance(session, LeanSession):
+        # rembg's naive cut-out: picture where the mask is, fully transparent elsewhere
+        cut = Image.composite(rgb.convert("RGBA"), Image.new("RGBA", rgb.size, 0), session.mask(rgb))
+    else:
+        import rembg
+
+        cut = rembg.remove(rgb, session=session).convert("RGBA")
     return Image.fromarray(clean_edges(np.asarray(cut))), model

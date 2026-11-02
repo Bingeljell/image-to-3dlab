@@ -61,6 +61,8 @@ def test_no_yes_and_no_terminal_means_no_download(monkeypatch, new_driver):
 def test_rerun_on_an_installed_tree_does_not_rebuild(monkeypatch, capsys, new_driver):
     monkeypatch.setattr(boot, "target", lambda: "linux-nvidia")
     monkeypatch.setattr(boot, "build_present", lambda: True)
+    # a current tree, decided here: the real check reads vendor/ and fails on a fresh clone
+    monkeypatch.setattr(boot, "build_stale", lambda: False)
     monkeypatch.setattr(boot, "install_build", lambda *a: pytest.fail("rebuilt"))
     fetched = []
     monkeypatch.setattr(boot, "install_weights", lambda *a: fetched.append(1))

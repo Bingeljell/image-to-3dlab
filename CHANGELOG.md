@@ -11,8 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cutting the subject out of a picture uses less than half the memory (about 4 GB instead of 9.5 GB) and is
   faster, with the same result. Same background remover, a leaner file (181 MB). Existing installs keep
   working; Setup & Status offers the new file.
+- Setup cards show one clear size per download, and two files from the same place no longer look like one.
+- The progress card can be moved and resized, and its log stays on the latest line unless you scroll up.
 
 ### Fixed
+- Nothing downloads model weights on its own any more. Generate, the command line and the setup scripts say
+  which backend, route and size they need, and wait for you to install it. Older Mac TRELLIS installs keep
+  working.
+- Stopping the studio also stops a picture, an animation, a skin build or a download that was still running.
+- Live Blender helpers (turntable, light orbit, normal fix and the bakes) work in their own scene and leave
+  the rest of your open file alone.
+- Mesh repair no longer treats a texture seam as a hole, and textures with transparency are saved as PNG.
+- Every Hunyuan export carries its licence record.
 - Every version in the Library has its own id. Finishing a second 3D model again could give two versions the
   same one, so the studio or an agent could pick up the wrong version.
 

@@ -71,7 +71,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
     pic: { size: 768, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
-    picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // the catalogue lists Flux first
+    picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // size and steps follow the picture engine and whether the picture is the end product, until you set them
   const picEngine = () => pictureEngines.find((e) => e.id === state.picEngine) || null;
@@ -141,7 +141,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
       ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
         <div class="picset">
-          ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
+          ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
           <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 768) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
           <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">Each extra step adds the same time again.</span></label>
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>

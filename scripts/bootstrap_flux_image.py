@@ -12,6 +12,8 @@ for non-interactive use. Defaulting to yes is not allowed, so it does not.
 
     python scripts/bootstrap_flux_image.py            # says what it wants, then asks
     python scripts/bootstrap_flux_image.py --yes      # for the studio and for agents
+    python scripts/bootstrap_flux_image.py --light    # the 4-bit files, about 5.3 GB: for
+                                                      # machines with 16 GB of memory or less
 """
 
 from __future__ import annotations
@@ -32,6 +34,12 @@ WEIGHTS = [
     ("unsloth/Qwen3-4B-GGUF", "Qwen3-4B-Q8_0.gguf", 4.28),
     ("Comfy-Org/Flux-2-Klein-4B", "split_files/vae/flux2-vae.safetensors", 0.34),
 ]
+# The same model at 4 bits: one picture peaks at ~5.2 GB instead of ~8.7 (measured 2026-11-02).
+LIGHT_WEIGHTS = [
+    ("leejet/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q4_0.gguf", 2.46),
+    ("unsloth/Qwen3-4B-GGUF", "Qwen3-4B-Q4_K_M.gguf", 2.50),
+    ("Comfy-Org/Flux-2-Klein-4B", "split_files/vae/flux2-vae.safetensors", 0.34),
+]
 # Each file at the revision we tested, and its SHA-256, checked once it is down: the files we
 # made our pictures with, whatever the repos serve later (pinned 2026-10-31).
 PINS = {
@@ -44,6 +52,12 @@ PINS = {
     ("Comfy-Org/Flux-2-Klein-4B", "split_files/vae/flux2-vae.safetensors"): (
         "533c4cbc3d3b89af1743d9466c434e89810391c0",
         "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"),
+    ("leejet/FLUX.2-klein-4B-GGUF", "flux-2-klein-4b-Q4_0.gguf"): (
+        "3b1f5a9dc3abb32238b053aeb3d823c30afdacbd",
+        "d1023499ef3f2f82ff7c50e6778495195c1b6cc34835741778868428111f9ff4"),
+    ("unsloth/Qwen3-4B-GGUF", "Qwen3-4B-Q4_K_M.gguf"): (
+        "22c9fc8a8c7700b76a1789366280a6a5a1ad1120",
+        "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a"),
 }
 
 LICENCE = (
@@ -53,15 +67,20 @@ LICENCE = (
 )
 
 
-def total_gb() -> float:
-    return sum(size for _, _, size in WEIGHTS)
+def weights_for(light: bool = False) -> list[tuple[str, str, float]]:
+    return LIGHT_WEIGHTS if light else WEIGHTS
 
 
-def announcement(build: bool = True) -> str:
+def total_gb(light: bool = False) -> float:
+    return sum(size for _, _, size in weights_for(light))
+
+
+def announcement(build: bool = True, light: bool = False) -> str:
     """Exactly what is about to be fetched, before anything is."""
     build_for = sdcpp.BUILDS.get(sdcpp.target())
     route = build_for.route if build_for else "no prebuilt build for this machine"
-    lines = ["", "About to install:", "", "  backend: FLUX.2 [klein] 4B (text to image)",
+    name = "FLUX.2 [klein] 4B Light (4-bit, less memory)" if light else "FLUX.2 [klein] 4B"
+    lines = ["", "About to install:", "", f"  backend: {name} (text to image)",
              f"  route:   GGUF via stable-diffusion.cpp, {route}"]
     if build and build_for and not sdcpp.binary_present():
         lines.append(f"  build:   prebuilt sd-cli release ({build_for.size}) -> vendor/sdcpp/")
@@ -69,21 +88,21 @@ def announcement(build: bool = True) -> str:
         # ensure_binary updates an older engine: say so before the yes, not after
         lines.append(f"  build:   update sd-cli to {sdcpp.PINNED[sdcpp.target()]} ({build_for.size}) "
                      "-> vendor/sdcpp/")
-    lines.append(f"  weights: {total_gb():.1f} GB total ->  Hugging Face cache")
-    for repo, filename, size in WEIGHTS:
+    lines.append(f"  weights: {total_gb(light):.1f} GB total ->  Hugging Face cache")
+    for repo, filename, size in weights_for(light):
         lines.append(f"             {size:>5.2f} GB  {Path(filename).name}  ({repo})")
     lines += ["", "  licence: " + LICENCE, ""]
     return "\n".join(lines)
 
 
-def install_weights() -> None:
+def install_weights(light: bool = False) -> None:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise SystemExit(
             "huggingface_hub is not installed. pip install -r requirements-dev.txt"
         ) from exc
-    for repo, filename, size in WEIGHTS:
+    for repo, filename, size in weights_for(light):
         sdcpp.fetch_pinned(hf_hub_download, repo, filename, size, PINS)
 
 
@@ -92,8 +111,10 @@ def main(argv: list[str] | None = None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--yes", action="store_true",
                         help="Skip the confirmation. For the studio and for scripts.")
+    parser.add_argument("--light", action="store_true",
+                        help="The 4-bit files (about 5.3 GB), for machines with 16 GB or less.")
     args = parser.parse_args(argv)
-    print(announcement())
+    print(announcement(light=args.light))
     if not args.yes:
         # Non-interactive without --yes must not silently proceed, and must not hang
         # waiting on a stdin nobody is attached to.
@@ -105,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if not sdcpp.ensure_binary():
         return 1
-    install_weights()
+    install_weights(light=args.light)
     print("\nDone. In the studio, press + Create and start from an idea.")
     return 0
 

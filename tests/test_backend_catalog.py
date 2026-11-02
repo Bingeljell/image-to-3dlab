@@ -157,9 +157,13 @@ def test_backends_are_listed_best_first():
 
 
 def test_an_unranked_backend_is_never_the_recommendation():
+    # except a card suggested for this machine's memory (the two Flux cards), and only one of those
     for backend in bc.catalog_status()["backends"]:
-        if backend["rank"] is None:
+        if backend["rank"] is None and bc.BY_ID[backend["id"]].suggested_when is None:
             assert backend["recommended"] is False
+    flux = [b["recommended"] for b in bc.catalog_status()["backends"]
+            if b["id"] in ("flux-image", "flux-image-light")]
+    assert sorted(flux) == [False, True]
 
 
 def test_image_and_3d_routes_are_distinguishable():

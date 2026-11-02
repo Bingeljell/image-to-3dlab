@@ -61,7 +61,7 @@ def test_a_typed_no_downloads_nothing(monkeypatch):
 def test_a_yes_installs_the_engine_then_the_weights(monkeypatch):
     done = []
     monkeypatch.setattr(boot.sdcpp, "ensure_binary", lambda: done.append("engine") or True)
-    monkeypatch.setattr(boot, "install_weights", lambda: done.append("weights"))
+    monkeypatch.setattr(boot, "install_weights", lambda light=False: done.append("weights"))
     assert boot.main(["--yes"]) == 0 and done == ["engine", "weights"]
 
 
@@ -99,5 +99,5 @@ def test_weights_come_from_the_tested_revision_and_are_checked(monkeypatch, tmp_
         REAL_INSTALL_WEIGHTS()
     repo, filename, _ = boot.WEIGHTS[0]
     assert asked == [(repo, boot.PINS[(repo, filename)][0])]   # stopped at the first
-    assert set(boot.PINS) == {(repo, filename) for repo, filename, _ in boot.WEIGHTS}
+    assert set(boot.PINS) == {(repo, filename) for repo, filename, _ in boot.WEIGHTS + boot.LIGHT_WEIGHTS}
     assert all(len(rev) == 40 and len(sha) == 64 for rev, sha in boot.PINS.values())

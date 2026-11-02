@@ -672,12 +672,17 @@ def back_drawer_ready() -> bool:
 
 
 def picture_engines_payload() -> list[dict[str, Any]]:
-    """The picture engines, in the order Create offers them, with what each can do here."""
+    """The picture engines, in the order Create offers them, with what each can do here.
+
+    The order is the one we suggest for this machine's memory (Light first at 16 GB or less);
+    `suggested` marks the one we would pick. Every engine stays choosable."""
     out = []
-    for engine in image_api.ENGINES.values():
+    order = image_api.suggested_order()
+    for engine in order:
         installed = image_api.is_installed(engine)
         out.append({
             "id": engine.id, "label": engine.label, "setup_id": engine.setup_id,
+            "suggested": engine is order[0],
             "installed": installed, "can_draw_backs": installed and image_api.can_edit(engine),
             "defaults": engine.defaults, "picture_only_steps": engine.picture_only_steps,
             "license": {"name": engine.licence_name, "url": engine.licence_url,

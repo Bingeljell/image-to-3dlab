@@ -65,6 +65,8 @@ COMMANDS: dict[str, list[str]] = {
     "qwen-image": [sys.executable, str(REPO / "scripts" / "bootstrap_qwen_image.py"),
                    "--yes"],
     "flux-image": [sys.executable, str(REPO / "scripts" / "bootstrap_flux_image.py"), "--yes"],
+    "flux-image-light": [sys.executable, str(REPO / "scripts" / "bootstrap_flux_image.py"),
+                         "--light", "--yes"],
     "matte": [sys.executable, str(REPO / "scripts" / "bootstrap_matte.py"), "--yes"],
     "upscaler": [sys.executable, str(REPO / "scripts" / "bootstrap_upscaler.py"), "--yes"],
     "autorig": [sys.executable, str(REPO / "scripts" / "bootstrap_autorig.py"), "--yes"],
@@ -182,7 +184,7 @@ def also_fetches(backend_id: str) -> list[dict[str, str]]:
     is the only engine set up and nothing can draw a back yet."""
     sys.path.insert(0, str(REPO / "scripts"))
     extra: list[dict[str, str]] = []
-    if backend_id in {"flux-image", "qwen-image"}:
+    if backend_id in {"flux-image", "flux-image-light", "qwen-image"}:
         import bootstrap_qwen_image as sdcpp
 
         build = sdcpp.BUILDS.get(sdcpp.target())

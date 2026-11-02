@@ -303,8 +303,9 @@ def pick_engine(requested: str | None = None, *, edit: bool = False,
                 ready: Callable[[PictureEngine], bool] | None = None) -> PictureEngine:
     """The engine to draw with: the one asked for, else the first in `ENGINES` that is set up.
 
-    With nothing set up it answers Flux, so the "not set up" message points at the smaller,
-    Apache-licensed download. `edit` asks for an engine that can redraw a reference.
+    With nothing set up it answers the one we suggest for this machine (Light at 16 GB or less,
+    else Flux), so the "not set up" message points at that download. `edit` asks for an engine
+    that can redraw a reference.
     """
     if requested:
         if requested not in ENGINES:

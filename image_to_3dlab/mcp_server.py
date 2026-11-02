@@ -1179,8 +1179,8 @@ def build_server(studio: Studio | None = None):
         picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast),
             "flux-light" (the same model in smaller files: about 5 GB of memory instead of about 9, suggested
             on machines with 16 GB or less) or "qwen" (Qwen-Image, Qwen Research License, follows long prompts
-            more closely). Default: the suggested installed one for this machine. Back pictures prefer Flux
-            whichever drew the front.
+            more closely). Default: the suggested installed one for this machine. A back picture prefers the
+            engine that drew the front.
         back_image_path: your own back view to go with image_path (same pose, size and framing, seen from
             directly behind). Pixal3D then builds from both and nothing is drawn. Needs Front + back installed.
         """
@@ -1241,7 +1241,7 @@ def build_server(studio: Studio | None = None):
         scaled), white where to repaint, black elsewhere. change: what goes there ("a dark red leather satchel").
         Only the white area is redrawn; the rest stays pixel for pixel. Paint close around the part:
         everything inside is redrawn. Then make the 3D model again (continue_asset up_to='model', again=True).
-        picture_engine: "flux" or "qwen"; default the engine that drew the back.
+        picture_engine: "flux", "flux-light" or "qwen"; default the engine that drew the back.
         which="front" fixes the picture itself instead, only before a 3D model is made from it; the fixed
         picture replaces the old one. Describe what should be there, not the change."""
         return safe(lambda: brush_back(studio, asset_id=asset_id, mask_path=mask_path, change=change,

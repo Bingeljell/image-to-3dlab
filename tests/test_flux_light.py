@@ -133,3 +133,103 @@ def test_the_setup_button_for_light_runs_the_light_install():
 
     command = download_api.COMMANDS["flux-image-light"]
     assert command[-2:] == ["--light", "--yes"] and command[1].endswith("bootstrap_flux_image.py")
+
+
+# --- the two Flux cards share Hugging Face folders: check them against a real (fake) cache ---
+
+import dataclasses
+
+REV = "3b1f5a9dc3abb32238b053aeb3d823c30afdacbd"
+
+
+def _cards_in(hub, monkeypatch):
+    """Both Flux cards, with every weight pointed into `hub` (same layout as the real cache)."""
+    def move(card):
+        return dataclasses.replace(card, weights=tuple(
+            dataclasses.replace(w, path=hub / w.path.name) for w in card.weights))
+
+    cards = {cid: move(bc.BY_ID[cid]) for cid in ("flux-image", "flux-image-light")}
+    monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
+    return cards
+
+
+def _cache_file(weight, size):
+    """Put one weight's file into the cache the way Hugging Face does: a blob plus a link."""
+    name = weight.pattern.split("/")[-1] if weight.pattern else "flux2-vae.safetensors"
+    blob = weight.path / "blobs" / (weight.blob or "vae")
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    blob.write_bytes(b"\0" * size)
+    link = weight.path / "snapshots" / REV / name
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if not link.exists():           # the VAE is shared: both cards may lay it down
+        link.symlink_to(blob)
+
+
+def _shrunk(card):
+    """The same card expecting 1000 bytes a file, so a fake cache can read as ready."""
+    return dataclasses.replace(card, weights=tuple(
+        dataclasses.replace(w, bytes_expected=1000) for w in card.weights))
+
+
+def test_with_only_light_installed_the_standard_card_reads_not_installed(tmp_path, monkeypatch):
+    cards = {k: _shrunk(v) for k, v in _cards_in(tmp_path, monkeypatch).items()}
+    monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
+    for w in cards["flux-image-light"].weights:
+        _cache_file(w, 1000)
+    light, standard = cards["flux-image-light"].describe(), cards["flux-image"].describe()
+    assert light["state"] in ("ready", "missing")    # "missing" only if the engine build is absent
+    assert standard["state"] != "partial", "the shared VAE must not make it look half-downloaded"
+    assert standard["action"] != "resume"
+
+
+def test_with_only_standard_installed_the_light_card_reads_not_installed(tmp_path, monkeypatch):
+    cards = {k: _shrunk(v) for k, v in _cards_in(tmp_path, monkeypatch).items()}
+    monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
+    for w in cards["flux-image"].weights:
+        _cache_file(w, 1000)
+    assert cards["flux-image-light"].describe()["state"] != "partial"
+
+
+def test_each_card_counts_only_its_own_files_in_a_shared_cache(tmp_path, monkeypatch):
+    cards = _cards_in(tmp_path, monkeypatch)
+    for w in cards["flux-image-light"].weights:
+        _cache_file(w, 1000)
+    standard_big = [w for w in cards["flux-image"].weights if w.pattern]
+    assert all(w.state()[1] == 0 for w in standard_big)
+
+
+@pytest.mark.parametrize("suffix", [".incomplete", ".1a2b3c4d.incomplete"])  # 1.x, and 2.x's per-process name
+def test_a_file_still_downloading_counts_so_progress_moves(tmp_path, monkeypatch, suffix):
+    cards = _cards_in(tmp_path, monkeypatch)
+    weight = cards["flux-image-light"].weights[0]
+    blobs = weight.path / "blobs"
+    blobs.mkdir(parents=True)
+    (blobs / f"{weight.blob}{suffix}").write_bytes(b"\0" * 1234)
+    present, size, _ = weight.state()
+    assert (present, size) == (False, 1234)          # counted, but not "there" yet
+
+
+def test_remove_on_one_flux_card_leaves_the_other_and_the_shared_vae(tmp_path, monkeypatch):
+    import download_api
+
+    cards = _cards_in(tmp_path, monkeypatch)
+    monkeypatch.setattr(download_api, "BY_ID", bc.BY_ID)
+    monkeypatch.setattr(download_api, "_inside_known_roots", lambda path: True)
+    for card in cards.values():
+        for w in card.weights:
+            _cache_file(w, 1000)
+    download_api.remove("flux-image-light")
+    light_big = [w for w in cards["flux-image-light"].weights if w.pattern]
+    standard = cards["flux-image"].weights
+    assert all(w.state()[1] == 0 for w in light_big)                 # Light's own files went
+    assert all(w.state()[1] == 1000 for w in standard if w.pattern)  # standard Flux untouched
+    assert any((w.path / "snapshots" / REV / "flux2-vae.safetensors").exists()
+               for w in standard if not w.pattern)                   # the shared VAE stayed
+
+
+def test_the_cards_know_the_same_file_fingerprints_the_installer_pins():
+    pins = {f: sha for (_, f), (_, sha) in boot.PINS.items()}
+    for card in ("flux-image", "flux-image-light"):
+        for w in bc.BY_ID[card].weights:
+            if w.pattern:
+                assert w.blob == pins[w.pattern.split("/")[-1]]

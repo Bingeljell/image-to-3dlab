@@ -263,6 +263,15 @@ def is_patched(root: Path) -> bool:
     return _CALL not in text and DISABLED in text
 
 
+def has_old_optional_form(root: Path) -> bool:
+    """True when the tree carries the constructor behind `if load_rembg`, which an earlier
+    version of this patch wrote. Such a tree is ours to upgrade, not a pristine checkout."""
+    try:
+        return TERNARY in pipeline_path(root).read_text()
+    except OSError:
+        return False
+
+
 def bria_refusal(root: Path) -> str | None:
     """Why this Space checkout may not run, or None. The licence guardrail."""
     if is_patched(root):

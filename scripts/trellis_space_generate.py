@@ -290,8 +290,18 @@ def require_flex_gemm() -> None:
 
 
 def bria_refusal(vendor_root: Path) -> str | None:
-    """Why this checkout may not run, or None."""
-    return space_patch.bria_refusal(vendor_root / "TRELLIS.2")
+    """Why this checkout may not run, or None.
+
+    A tree patched before the guardrail tightened still holds the constructor behind
+    `if load_rembg`. That form is this repo's own earlier patch, so it is upgraded in place
+    (a local edit, the one Setup makes; nothing is downloaded) rather than refusing every
+    run on a Mac that was working. A pristine upstream tree is still refused.
+    """
+    root = vendor_root / "TRELLIS.2"
+    if not space_patch.is_patched(root) and space_patch.has_old_optional_form(root):
+        space_patch.patch_optional_rembg(root)
+        print("[trellis] upgraded the background-remover guardrail in this install", flush=True)
+    return space_patch.bria_refusal(root)
 
 
 def verify_paths(vendor_root: Path) -> list[str]:

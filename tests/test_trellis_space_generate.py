@@ -595,3 +595,30 @@ def test_manifest_records_our_matte_and_never_bria():
 def test_wrapper_no_longer_offers_bria():
     source = Path(gen.__file__).read_text()
     assert "--allow-rembg" not in source and "--matted-with" in source
+
+
+def test_an_install_with_the_older_patch_is_upgraded_not_refused(tmp_path, capsys):
+    """Macs patched before the guardrail tightened kept BRIA behind `if load_rembg`.
+    Refusing them stopped every TRELLIS run while Setup still said ready."""
+    vendor = _space_tree(tmp_path, patched=True)
+    pipeline = vendor / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    pipeline.write_text(
+        '    def from_pretrained(path: str, *, load_rembg: bool = True) '
+        '-> "Trellis2ImageTo3DPipeline":\n'
+        "        new_pipeline.rembg_model = (\n"
+        "            getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])\n"
+        "            if load_rembg else None\n"
+        "        )\n"
+    )
+    assert gen.bria_refusal(vendor) is None
+    text = pipeline.read_text()
+    assert "new_pipeline.rembg_model = None" in text and "getattr(rembg" not in text
+    assert "upgraded" in capsys.readouterr().out
+
+
+def test_a_pristine_tree_is_still_refused_not_patched_behind_the_users_back(tmp_path):
+    vendor = _space_tree(tmp_path, patched=False)
+    pipeline = vendor / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    before = pipeline.read_text()
+    assert "BRIA RMBG-2.0" in gen.bria_refusal(vendor)
+    assert pipeline.read_text() == before

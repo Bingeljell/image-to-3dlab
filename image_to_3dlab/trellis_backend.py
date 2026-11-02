@@ -249,6 +249,13 @@ def generate_trellis(
     if "pipeline.rembg_model = None" not in patched_pipeline.read_text():
         raise RuntimeError("TRELLIS BRIA-disable patch is missing; refusing to run")
 
+    # Generation never fetches weights: refuse unless TRELLIS.2 is already on disk, and pin
+    # the run offline so the vendored generate.py cannot fetch the rest either.
+    from image_to_3dlab.weight_gate import require_local
+
+    require_local("microsoft/TRELLIS.2-4B", backend="TRELLIS.2",
+                  route="--trellis (vendor/trellis-mac)", size="about 16.5 GB")
+
     # One image, or several views of the same subject in the same pose. Extra views
     # replace guessing: single-view runs invent whatever they cannot see, which is
     # where the three-handled mug and the missing back of a head came from.

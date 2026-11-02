@@ -226,10 +226,11 @@ class Backend:
     # The gated Hugging Face repo the caveat warns about, if that is what it warns about.
     # The Setup page drops the caveat once the sign-in check says the account has access.
     gated_repo: str | None = None
-    # Whether running this backend's setup actually fetches the weights. TRELLIS's
-    # bootstrap does not: it clones, patches and builds the Metal port, and the weights
-    # arrive lazily on the first generation run. The distinction changes what the
-    # confirmation says and whether byte progress means anything.
+    # Whether the code bootstrap itself fetches the weights. The Mac TRELLIS bootstrap
+    # does not: it clones, patches and builds the port. Once that build exists, Setup's
+    # download button fetches the weights on its own. The flag keeps the build
+    # confirmation from promising a download, and it keeps a compile from being judged
+    # by byte progress.
     setup_fetches_weights: bool = True
     # Files that prove the code side is installed: a compiled binary, a venv interpreter.
     # Weights and build are independent, and conflating them offers "Set up" to someone
@@ -953,9 +954,8 @@ def readiness(backend_id: str, host: str | None = None) -> dict[str, Any] | None
     Hunyuan checkpoints is present, how many of nine GGUF files); everything else, and
     every image route, is served from here alone.
 
-    ``ready`` means "a run can start", not "everything is downloaded". TRELLIS fetches its
-    weights lazily on first use, so gating generation on a full cache would refuse a
-    working install.
+    ``ready`` means a run can start from files already on disk. A missing weight is not
+    ready: generation does not fetch it.
     """
     backend = resolve(backend_id)
     if backend is None:
@@ -966,6 +966,7 @@ def readiness(backend_id: str, host: str | None = None) -> dict[str, Any] | None
         for w in described["weights"]
     }
     missing = [w["label"] for w in described["weights"] if not w["present"]]
+    blocking = [w["label"] for w in described["weights"] if _blocks_run(w)]
     supported = described["supported_here"]
     built = described["build_present"]
     hint = None
@@ -979,9 +980,12 @@ def readiness(backend_id: str, host: str | None = None) -> dict[str, Any] | None
         "build": {"present": built, "hint": hint},
         "weights": weights,
         "missing_weights": missing,
-        "ready": bool(supported and built),
-        "warning": ("first use will download missing weights" if missing and built
-                    else None),
+        "ready": bool(supported and built and not blocking),
+        "warning": (
+            f"{backend.label} needs its weights ({described['human_expected']}) before a run. "
+            "Download them from Setup & Status. Generation does not fetch them."
+            if blocking and built and supported else None
+        ),
         "supported_here": supported,
         "platform_note": described["platform_note"],
     }
@@ -1080,30 +1084,50 @@ def _weights_state(weights: list[dict[str, Any]]) -> str:
     return "missing"
 
 
+def _blocks_run(weight: dict[str, Any]) -> bool:
+    """True when this weight would have to be fetched before a run.
+
+    A note that says the file is advisory (TinyCLIP) does not block. The 85% floor is
+    the same one ``_weights_state`` uses, so a short file and a missing file agree.
+    """
+    if "Advisory only" in (weight.get("note") or ""):
+        return False
+    expected = weight.get("bytes_expected") or 0
+    if expected <= 0:
+        return not weight.get("present")
+    return weight.get("bytes_present", 0) < expected * 0.85
+
+
 def _state(weights: list[dict[str, Any]], built: bool, setup_fetches: bool) -> str:
     """The backend's state, which is the build and the weights together.
 
-    The subtlety is TRELLIS: its bootstrap installs the code and fetches nothing, so a
-    built TRELLIS with no weights is *usable* -- the weights download on the first
-    generation run. Reporting that as "missing" sent someone to a Set up button that
-    re-ran a completed bootstrap.
+    A built tree with no weights is not ready. Generation does not fetch them.
+    ``setup_fetches`` is still passed by callers; it no longer skips this check.
+    Offering "build" for a finished tree re-ran the bootstrap onto its own patches
+    (hit for real 2026-09-21). That choice lives in ``_action``.
     """
+    del setup_fetches
     if not built:
         return "missing"
-    if not setup_fetches:
-        return "ready"
     return _weights_state(weights)
 
 
 def _action(weights: list[dict[str, Any]], built: bool, setup_fetches: bool,
             automated: bool = True) -> str:
-    """What the button should offer: build, fetch, resume, nothing, or a command to run."""
+    """What the button should offer: build, fetch, resume, nothing, or a command to run.
+
+    Once the code is built, missing weights are a download. They are not another build.
+    A route the viewer cannot install shows the command instead of a button.
+    """
+    del setup_fetches
     if not built:
         return "build" if automated else "manual"
-    if not setup_fetches:
-        return "none"
     state = _weights_state(weights)
-    return {"ready": "none", "partial": "resume"}.get(state, "download")
+    if state == "ready":
+        return "none"
+    if not automated:
+        return "manual"
+    return "resume" if state == "partial" else "download"
 
 
 def _percent(present: int, expected: int) -> int:

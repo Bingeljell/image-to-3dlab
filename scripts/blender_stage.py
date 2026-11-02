@@ -22,7 +22,9 @@ What it guarantees:
   and that is exactly the defect that went unnoticed here for weeks
 * nothing selected, so no orange highlight is mistaken for a property of the mesh
 
-This drives the live GUI over the socket on 9876. It replaces whatever is in the scene.
+This drives the live GUI over the socket on 9876. The lineup goes in a private scene,
+so the objects already in the file stay where they are. The window is left on that
+scene so you can look at it.
 """
 
 from __future__ import annotations
@@ -30,7 +32,11 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from blender_scene import isolated_scene_prelude
 
 
 def spread_offsets(count: int, gap: float = 1.25) -> list[float]:
@@ -67,6 +73,7 @@ def build_code(assets: list[str], names: list[str], offsets: list[float], culled
         [{"path": str(Path(a).expanduser().resolve()), "name": n, "dy": d}
          for a, n, d in zip(assets, names, offsets)]
     )
+    prelude = isolated_scene_prelude("IMG3D stage")
     return f'''
 import bpy, json
 from mathutils import Vector
@@ -74,15 +81,7 @@ from mathutils import Vector
 items = json.loads({payload!r})
 culled = {culled!r}
 
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-for collection in list(bpy.data.collections):
-    bpy.data.collections.remove(collection)
-try:
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
-except RuntimeError:
-    pass
-
+{prelude}
 for item in items:
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=item["path"])

@@ -37,4 +37,5 @@ If you need both, generate at 1024 and repaint it on the **Finish** page.
 
 When you pick a picture for TRELLIS.2, a small local check (TinyCLIP) says whether it
 looks flat. It is a hint, not a verdict: it never blocks a run, and your own eye is the
-better judge. The picture never leaves your machine.
+better judge. The checkpoint is already on disk; the check does not fetch one. The
+picture never leaves your machine.

@@ -328,6 +328,25 @@ def test_forced_render_ignores_unknown_tool_names():
     assert not agent.needs_forced_render(["sculpt_a_dragon"])
 
 
+def test_default_import_clears_meshes_only():
+    """A default import used to delete armatures and joint-marker empties too."""
+    code = agent.build_import_asset("/tmp/a.glb")
+    assert '"MESH"' in code
+    assert '"ARMATURE"' not in code
+    assert '"EMPTY"' not in code
+
+
+def test_clear_scene_removes_only_meshes_and_lights():
+    """The tool text says meshes and lights. Cameras, rigs and markers stay."""
+    code = agent.build_clear_scene()
+    assert '"MESH"' in code
+    assert '"LIGHT"' in code
+    assert '"ARMATURE"' not in code
+    assert '"EMPTY"' not in code
+    assert '"CAMERA"' not in code
+    compile(code, "<clear>", "exec")
+
+
 def test_clear_scene_keeps_the_camera():
     """Deleting the camera mid-run leaves the model unable to render, and it has no verb
     to make a new one except set_camera, which it may not think to call."""

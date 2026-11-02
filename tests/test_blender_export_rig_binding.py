@@ -42,6 +42,15 @@ def test_parse_args_rejects_ambiguous_artifacts(args):
         load_module().parse_args(args)
 
 
+def test_refuses_to_save_over_the_opened_blend(tmp_path):
+    module = load_module()
+    opened = tmp_path / "source.blend"
+    opened.write_bytes(b"blend")
+    with pytest.raises(SystemExit, match="opened"):
+        module.refuse_open_blend(opened, str(opened))
+    module.refuse_open_blend(tmp_path / "prepared.blend", str(opened))
+
+
 def test_exporter_stamps_persistent_scene_and_bone_ids():
     source = MODULE.read_text()
 

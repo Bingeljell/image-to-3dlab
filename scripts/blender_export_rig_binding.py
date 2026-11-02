@@ -21,7 +21,10 @@ import uuid
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(REPO))
+
+from blender_quadruped_pipeline import refuse_open_blend
 
 from image_to_3dlab.rig_profile import load_rig_profile
 from image_to_3dlab.rig_sidecar import asset_fingerprint
@@ -134,6 +137,8 @@ def main() -> int:
     if not asset_path.is_file():
         raise SystemExit(f"source GLB does not exist: {asset_path}")
     import bpy
+
+    refuse_open_blend(scene_path, bpy.data.filepath)
 
     profile = load_rig_profile(adapter)
     installed = ".".join(str(value) for value in bpy.app.version[:2])

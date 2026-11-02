@@ -239,14 +239,22 @@ def generate_trellis(
     generator = repo / "generate.py"
     if not python.is_file() or not generator.is_file():
         raise RuntimeError(
-            f"TRELLIS Mac environment not found at {repo}. "
-            "Run scripts/bootstrap_trellis_macos.sh first."
+            f"TRELLIS Mac environment not found at {repo}. This older --trellis route "
+            "runs a manual clone of shivampkumar/trellis-mac. For TRELLIS on a Mac, use "
+            "the studio's TRELLIS.2 route (Setup & Status)."
         )
     patched_pipeline = (
         repo / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
     )
     if "pipeline.rembg_model = None" not in patched_pipeline.read_text():
         raise RuntimeError("TRELLIS BRIA-disable patch is missing; refusing to run")
+
+    # Generation never fetches weights: refuse unless TRELLIS.2 is already on disk, and pin
+    # the run offline so the vendored generate.py cannot fetch the rest either.
+    from image_to_3dlab.weight_gate import require_local
+
+    require_local("microsoft/TRELLIS.2-4B", backend="TRELLIS.2",
+                  route="--trellis (vendor/trellis-mac)", size="about 16.5 GB")
 
     # One image, or several views of the same subject in the same pose. Extra views
     # replace guessing: single-view runs invent whatever they cannot see, which is

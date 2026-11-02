@@ -49,20 +49,26 @@ if arm.animation_data is None:
 action = bpy.data.actions.get({action_name!r})
 if action is None:
     raise RuntimeError("no action named {action_name!r} in this file")
+previous_action = arm.animation_data.action
 arm.animation_data.action = action
 
 target = bpy.data.objects.get("CAM_TARGET")
 if target is None:
     raise RuntimeError("no CAM_TARGET empty in this file")
+previous_target_rotation = tuple(target.rotation_euler)
 target.rotation_euler = (math.radians({el}), 0.0, math.radians({az}))
 
 cam = bpy.data.objects.get("QuickCam2") or bpy.data.objects.get("Camera")
 if cam is None or cam.data.type != "ORTHO":
     raise RuntimeError("no ortho camera parented to CAM_TARGET found (expected 'QuickCam2')")
 {"cam.data.ortho_scale = " + repr(ortho_scale) if ortho_scale is not None else "# ortho_scale left as authored in the file"}
+previous_camera = bpy.context.scene.camera
 bpy.context.scene.camera = cam
 
 scene = bpy.context.scene
+previous_resolution = (scene.render.resolution_x, scene.render.resolution_y)
+previous_film = scene.render.film_transparent
+previous_view = scene.view_settings.view_transform
 scene.render.resolution_x = {resolution}
 scene.render.resolution_y = {resolution}
 scene.render.film_transparent = True
@@ -91,6 +97,12 @@ print("STAGE_BAKE " + json.dumps({{
     "native_range": [native_start, native_end], "step": step,
     "frame_count": len(rendered), "frames": rendered,
 }}))
+arm.animation_data.action = previous_action
+target.rotation_euler = previous_target_rotation
+scene.camera = previous_camera
+scene.render.resolution_x, scene.render.resolution_y = previous_resolution
+scene.render.film_transparent = previous_film
+scene.view_settings.view_transform = previous_view
 '''
 
 

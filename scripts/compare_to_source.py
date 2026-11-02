@@ -36,9 +36,10 @@ eye, with ``--sweep``, and then recorded in the manifest.
 from __future__ import annotations
 
 import argparse
-import json
 import math
-import socket
+import os
+import subprocess
+import tempfile
 from pathlib import Path
 
 # Pillow is imported lazily by the compositing helpers so the geometry functions -- and
@@ -249,14 +250,9 @@ angles = {angles!r}
 elevation_deg = {elevation!r}
 collection_name = "IMG3D_CMP_" + label
 
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-for prior in list(bpy.data.collections):
-    bpy.data.collections.remove(prior)
-try:
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
-except RuntimeError:
-    pass
+# Headless Blender, factory-empty. This used to wipe whatever file was open on the
+# GUI socket, which is how a day of unsaved work disappeared.
+bpy.ops.wm.read_factory_settings(use_empty=True)
 
 collection = bpy.data.collections.new(collection_name)
 bpy.context.scene.collection.children.link(collection)
@@ -375,27 +371,27 @@ result = {{"renders": written, "size": size}}
 '''
 
 
-def send_to_blender(code: str, host: str, port: int, timeout: int = 600) -> str:
-    """Execute code in the running Blender via its socket. Not an MCP tool."""
-    request = {"type": "execute_code", "params": {"code": code}}
-    with socket.create_connection((host, port), timeout=10) as connection:
-        connection.settimeout(timeout)
-        connection.sendall(json.dumps(request).encode("utf-8"))
-        chunks: list[bytes] = []
-        while True:
-            try:
-                chunk = connection.recv(65536)
-            except TimeoutError:
-                break
-            if not chunk:
-                break
-            chunks.append(chunk)
-            try:
-                json.loads(b"".join(chunks))
-                break
-            except json.JSONDecodeError:
-                continue
-    return b"".join(chunks).decode("utf-8", errors="replace")
+def headless_argv(code_path: Path) -> list[str]:
+    """Blender command that runs `code_path` in its own process, not the open GUI."""
+    blender = os.environ.get("BLENDER", "blender")
+    return [blender, "--background", "--python-exit-code", "1", "--python", str(code_path)]
+
+
+def render_headless(code: str) -> str:
+    """Run generated Blender code in a background process and return its output."""
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".py", delete=False, encoding="utf-8"
+    ) as handle:
+        handle.write(code)
+        path = Path(handle.name)
+    try:
+        done = subprocess.run(headless_argv(path), capture_output=True, text=True, check=False)
+    finally:
+        path.unlink(missing_ok=True)
+    output = (done.stdout or "") + (done.stderr or "")
+    if done.returncode != 0:
+        raise SystemExit(output)
+    return output
 
 
 def main() -> int:
@@ -435,10 +431,8 @@ def main() -> int:
 
     if args.sweep:
         angles = [float(value) for value in args.sweep.split(",")]
-        print(send_to_blender(
+        print(render_headless(
             blender_code(asset, output_dir, args.label, angles, args.elevation, args.env, grey=False),
-            args.host,
-            args.port,
         ))
         panels = [(source, "source")]
         for azimuth in angles:
@@ -451,10 +445,8 @@ def main() -> int:
         return 0
 
     for grey in (False, True):
-        print(send_to_blender(
+        print(render_headless(
             blender_code(asset, output_dir, args.label, [args.azimuth], args.elevation, args.env, grey=grey),
-            args.host,
-            args.port,
         ))
 
     tag = round(args.azimuth)

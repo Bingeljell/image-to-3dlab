@@ -44,6 +44,29 @@ def test_the_announcement_names_route_size_and_licence(tmp_path):
     assert "default route" in text and "GB" in text and "EU" in text
 
 
+def test_nobody_to_ask_refuses_before_any_download(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["bootstrap_hunyuan_xiong.py"])
+    monkeypatch.setattr(bx.host, "find_uv", lambda: "uv")
+    monkeypatch.setattr(bx.sys.stdin, "isatty", lambda: False)
+    monkeypatch.setattr(bx.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("downloaded")))
+    assert bx.main() == 1
+    assert "nobody to ask" in capsys.readouterr().out
+
+
+def test_end_of_input_refuses_before_any_download(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["bootstrap_hunyuan_xiong.py"])
+    monkeypatch.setattr(bx.host, "find_uv", lambda: "uv")
+    monkeypatch.setattr(bx.sys.stdin, "isatty", lambda: True)
+
+    def eof(_prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    monkeypatch.setattr(bx.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("downloaded")))
+    assert bx.main() == 1
+    assert "nobody to ask" in capsys.readouterr().out
+
+
 def test_the_downloader_is_not_asked_twice(tmp_path):
     # The bootstrap's own prompt (or the studio's) is the consent; the downloader's second
     # prompt has nobody to answer it inside the studio and would refuse.

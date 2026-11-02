@@ -65,6 +65,24 @@ def test_transition_schedule():
         assert 0 <= g <= p <= 1
 
 
+def test_same_file_follows_a_link(tmp_path):
+    source = tmp_path / "input.blend"
+    source.write_text("keep")
+    alias = tmp_path / "alias.blend"
+    alias.symlink_to(source)
+    assert pipeline.same_file(alias, source)
+    assert not pipeline.same_file(tmp_path / "other.blend", source)
+
+
+def test_refuse_open_blend_stops_on_the_opened_file(tmp_path):
+    opened = tmp_path / "in.blend"
+    opened.write_text("keep")
+    with pytest.raises(SystemExit, match="opened"):
+        pipeline.refuse_open_blend(opened, opened)
+    pipeline.refuse_open_blend(tmp_path / "out.blend", opened)
+    pipeline.refuse_open_blend(tmp_path / "out.blend", "")
+
+
 def test_no_overwrite_or_input_alias(tmp_path):
     source = tmp_path / "input.blend"
     source.write_text("keep")

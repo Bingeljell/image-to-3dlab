@@ -106,7 +106,7 @@ def main() -> int:
             target.write_text(patch(source))
             states.append(f"PATCHED {target}")
     print("\n".join(states))
-    return 0 if all(not state.startswith("MISSING") for state in states) else 2
+    return 0 if all(not state.startswith(("MISSING", "ABSENT")) for state in states) else 2
 
 
 if __name__ == "__main__":

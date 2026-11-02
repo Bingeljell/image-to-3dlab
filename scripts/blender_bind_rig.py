@@ -38,6 +38,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from blender_quadruped_pipeline import refuse_open_blend
+
 PROXY_PREFIX = "I2L_WEIGHT_PROXY_"
 WIDGET_PREFIX = "WGT-"
 
@@ -157,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         {group.name for group in mesh.vertex_groups} - set(bones))
 
     out = Path(args.out).expanduser().resolve()
+    refuse_open_blend(out, bpy.data.filepath)
     out.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(out))
     report["saved"] = str(out)

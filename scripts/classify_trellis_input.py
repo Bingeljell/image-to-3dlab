@@ -77,7 +77,7 @@ def summarize_logits(flat_logits: list[float], dimensional_logits: list[float]) 
     }
 
 
-def classify(image_path: Path, *, local_files_only: bool = False) -> dict:
+def classify(image_path: Path, *, local_files_only: bool = True) -> dict:
     """Run the pinned TinyCLIP checkpoint on one local image."""
     import torch
     from transformers import CLIPModel, CLIPProcessor
@@ -118,12 +118,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
     parser.add_argument(
-        "--local-files-only",
+        "--allow-download",
         action="store_true",
-        help="fail instead of downloading the pinned TinyCLIP checkpoint",
+        help="allow the pinned TinyCLIP checkpoint to be fetched (off unless you pass this)",
     )
     args = parser.parse_args()
-    print(json.dumps(classify(args.image.resolve(), local_files_only=args.local_files_only)))
+    print(json.dumps(classify(args.image.resolve(), local_files_only=not args.allow_download)))
     return 0
 
 

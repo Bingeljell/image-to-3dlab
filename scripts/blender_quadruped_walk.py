@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from blender_quadruped_pipeline import refuse_open_blend
 from quadruped_gait import (
     BODY_CHAIN,
     FOOT_IK,
@@ -589,6 +590,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.out:
         out = Path(args.out).expanduser().resolve()
+        refuse_open_blend(out, bpy.data.filepath)
         out.parent.mkdir(parents=True, exist_ok=True)
         bpy.ops.wm.save_as_mainfile(filepath=str(out))
         report["saved"] = str(out)

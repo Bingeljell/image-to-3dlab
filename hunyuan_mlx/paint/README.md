@@ -77,9 +77,9 @@ Run (no PyTorch in the inference path):
 uv sync --group dev
 bash oracle/cr_cpu/build.sh                      # CUDA-equivalent parity oracle (no torch/CUDA)
 uv run pytest tests/ -q                           # all parity gates
-uv run python scripts/run_paint.py                # small (2.0 RGB) -> outputs/textured_mesh.glb
 uv run python scripts/run_paint_pbr.py            # large (2.1 PBR) -> outputs/textured_mesh_pbr.glb (albedo+MR)
 ```
+`scripts/run_paint.py` (small RGB, `weights/hunyuan3d-paint-v2-0`) is not a setup command. `download_weights.py` fetches the large paint set only.
 Env knobs: `PAINT_RES`, `PAINT_STEPS`, `PAINT_TEX`, `PAINT_MESH`, `PAINT_IMG`.
 
 ### Torch oracle venv (for the parity tests)

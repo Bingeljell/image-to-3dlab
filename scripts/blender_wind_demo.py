@@ -32,6 +32,7 @@ import sys
 from pathlib import Path
 
 from blender_render_asset import ENVIRONMENTS
+from blender_scene import isolated_scene_prelude, restore_previous_scene
 
 
 def blender_code(
@@ -55,6 +56,8 @@ def blender_code(
     flutter: float,
 ) -> str:
     settings = ENVIRONMENTS[env]
+    prelude = isolated_scene_prelude("IMG3D wind")
+    restore = restore_previous_scene()
     return f'''
 import bpy, math
 import numpy as np
@@ -67,22 +70,15 @@ frame_dir = {str(frame_dir)!r}
 label = {label!r}
 frames = {frames}
 
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-for coll in list(bpy.data.collections):
-    bpy.data.collections.remove(coll)
-try:
-    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_recursive=True)
-except RuntimeError:
-    pass
+{prelude}
 
 
 def load(path):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
-    added = [o for o in bpy.data.objects if o not in before]
+    added = [o for o in render_scene.objects if o not in before]
     meshes = [o for o in added if o.type == "MESH"]
-    for o in bpy.data.objects:
+    for o in render_scene.objects:
         o.select_set(False)
     for o in meshes:
         o.select_set(True)
@@ -285,7 +281,7 @@ for index in range(frames):
     written.append(path)
 
 result = {{"frames": len(written)}}
-'''
+{restore}'''
 
 
 def send(host: str, port: int, code: str, timeout: float) -> str:

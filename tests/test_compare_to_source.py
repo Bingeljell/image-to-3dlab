@@ -17,6 +17,12 @@ from pathlib import Path
 
 import pytest
 
+
+def _colours(image):
+    """Pixel values. Pillow 13 deprecates ``getdata``; older Pillow lacks the replacement."""
+    read = getattr(image, "get_flattened_data", None)
+    return set(read() if read is not None else image.getdata())
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "compare_to_source.py"
 
 
@@ -141,7 +147,7 @@ def test_identical_shapes_overlay_as_agreement_only():
     """A perfect match must show no magenta and no green anywhere."""
     blob = _blob()
     overlay = compare.silhouette_overlay(blob, blob, height=120)
-    present = {pixel for pixel in overlay.getdata()}
+    present = _colours(overlay)
     assert compare.SOURCE_ONLY not in present
     assert compare.RENDER_ONLY not in present
     assert compare.BOTH in present
@@ -152,7 +158,7 @@ def test_a_narrower_render_shows_source_only_colour():
     broad = _blob(size=(200, 200), box=(40, 20, 160, 180))
     narrow = _blob(size=(200, 200), box=(85, 20, 115, 180))
     overlay = compare.silhouette_overlay(broad, narrow, height=200)
-    assert compare.SOURCE_ONLY in set(overlay.getdata())
+    assert compare.SOURCE_ONLY in _colours(overlay)
 
 
 def test_a_wider_render_shows_render_only_colour():
@@ -160,7 +166,7 @@ def test_a_wider_render_shows_render_only_colour():
     narrow = _blob(size=(200, 200), box=(85, 20, 115, 180))
     broad = _blob(size=(200, 200), box=(40, 20, 160, 180))
     overlay = compare.silhouette_overlay(narrow, broad, height=200)
-    assert compare.RENDER_ONLY in set(overlay.getdata())
+    assert compare.RENDER_ONLY in _colours(overlay)
 
 
 def test_uniform_scale_is_normalised_away_so_only_proportion_is_judged():

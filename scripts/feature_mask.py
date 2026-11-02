@@ -43,6 +43,40 @@ def select_faces(
     return inside
 
 
+def _shifted(arr: np.ndarray, shift: int, axis: int) -> np.ndarray:
+    """Move `arr` along `axis`, filling the edge that comes into view with 0.
+
+    `np.roll` would wrap a texel off one side of the atlas onto the other.
+    """
+    if shift == 0:
+        return arr
+    pad = [(0, 0), (0, 0)]
+    if shift > 0:
+        pad[axis] = (shift, 0)
+        moved = np.pad(arr, pad, mode="constant")
+        window = [slice(None), slice(None)]
+        window[axis] = slice(0, arr.shape[axis])
+        return moved[tuple(window)]
+    shift = -shift
+    pad[axis] = (0, shift)
+    moved = np.pad(arr, pad, mode="constant")
+    window = [slice(None), slice(None)]
+    window[axis] = slice(shift, shift + arr.shape[axis])
+    return moved[tuple(window)]
+
+
+def dilate_mask(arr: np.ndarray, radius: int) -> np.ndarray:
+    """Widen a mask by `radius` texels along rows and columns, without wrapping."""
+    if radius <= 0:
+        return arr
+    grown = arr.copy()
+    for shift in range(1, radius + 1):
+        for axis in (0, 1):
+            grown = np.maximum(grown, _shifted(arr, shift, axis))
+            grown = np.maximum(grown, _shifted(arr, -shift, axis))
+    return grown
+
+
 def rasterise_uv(
     uv: np.ndarray, faces: np.ndarray, selected: np.ndarray, size: int, dilate: int = 2
 ) -> Image.Image:
@@ -61,13 +95,7 @@ def rasterise_uv(
         ]
         draw.polygon(pts, fill=255)
     if dilate > 0:
-        arr = np.asarray(img)
-        grown = arr.copy()
-        for shift in range(1, dilate + 1):
-            for axis in (0, 1):
-                grown = np.maximum(grown, np.roll(arr, shift, axis=axis))
-                grown = np.maximum(grown, np.roll(arr, -shift, axis=axis))
-        img = Image.fromarray(grown, mode="L")
+        img = Image.fromarray(dilate_mask(np.asarray(img), dilate), mode="L")
     return img
 
 

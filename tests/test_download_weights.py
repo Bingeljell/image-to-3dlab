@@ -182,6 +182,36 @@ def test_main_downloads_on_interactive_yes(monkeypatch):
     assert "paint" in calls
 
 
+def test_model_2_1_refuses_before_download_when_the_converter_cannot_import_torch(
+    monkeypatch, capsys
+):
+    calls = []
+    monkeypatch.setattr(dw, "download_shape", lambda model: calls.append(model))
+    monkeypatch.setattr(dw, "download_paint", lambda: calls.append("paint"))
+    monkeypatch.setattr(dw, "converter_can_run", lambda: False)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--yes", "--model", "2.1", "--skip-paint"])
+
+    assert dw.main() == 1
+    assert calls == []
+    captured = capsys.readouterr()
+    assert "convert_v21_ckpt.py" in captured.out + captured.err
+
+
+def test_the_default_model_does_not_need_the_converter(monkeypatch):
+    calls = []
+
+    def boom():
+        raise AssertionError("2.0 must not probe torch")
+
+    monkeypatch.setattr(dw, "download_shape", lambda model: calls.append(model))
+    monkeypatch.setattr(dw, "download_paint", lambda: calls.append("paint"))
+    monkeypatch.setattr(dw, "converter_can_run", boom)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--yes", "--skip-paint"])
+
+    assert dw.main() == 0
+    assert calls == [dw.DEFAULT_MODEL]
+
+
 def test_main_refuses_on_eof_without_yes(monkeypatch, capsys):
     """Non-interactive pipes have nobody to ask; --yes is required."""
     calls = []

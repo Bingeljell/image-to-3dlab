@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -29,9 +30,11 @@ def test_colourise_preserves_lab_lightness():
 
     pixels = np.array([[[0.12, 0.18, 0.08], [0.6, 0.4, 0.2]]], dtype=np.float32)
     before = color.rgb2lab(pixels)[..., 0]
-    result = mod.colourise_preserving_lightness(
-        pixels, mod.parse_colour("#d98208"), np.ones((1, 2), dtype=np.float32)
-    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        result = mod.colourise_preserving_lightness(
+            pixels, mod.parse_colour("#d98208"), np.ones((1, 2), dtype=np.float32)
+        )
     after = color.rgb2lab(result)[..., 0]
     # A saturated target can clip at the sRGB gamut boundary; allow the sub-one-L-unit
     # round-trip drift while still rejecting an actual brightness grade.

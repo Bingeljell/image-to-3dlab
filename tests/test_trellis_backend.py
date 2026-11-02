@@ -219,3 +219,59 @@ def test_cli_defines_pre_simplify_cap_so_the_attr_always_exists():
         ["img.png", "--trellis", "--trellis-pre-simplify-cap", "4000000"]
     )
     assert args.trellis_pre_simplify_cap == 4_000_000
+
+
+def _legacy_repo(tmp_path):
+    repo = tmp_path / "trellis-mac"
+    for rel in (".venv/bin/python", "generate.py"):
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("")
+    pipe = repo / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+    pipe.parent.mkdir(parents=True)
+    pipe.write_text("        new_pipeline.rembg_model = None\n")
+    return repo
+
+
+def test_the_legacy_route_refuses_without_weights_and_never_runs(tmp_path, monkeypatch):
+    import pytest
+
+    from image_to_3dlab import trellis_backend as tb
+
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty-hub"))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr(tb.subprocess, "run", lambda *a, **k: pytest.fail("ran generate.py"))
+    with pytest.raises(SystemExit, match="does not fetch"):
+        tb.generate_trellis(tmp_path / "in.png", tmp_path / "out",
+                            tb.TrellisOptions(repo=_legacy_repo(tmp_path)))
+
+
+def test_the_legacy_route_runs_offline_when_the_weights_are_there(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    from image_to_3dlab import trellis_backend as tb
+
+    hub = tmp_path / "hub"
+    snap = hub / "models--microsoft--TRELLIS.2-4B" / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    (snap / "pipeline.json").write_text("{}")
+    monkeypatch.setenv("HF_HUB_CACHE", str(hub))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def fake_run(command, cwd=None, env=None, check=None):
+        seen["offline"] = env.get("HF_HUB_OFFLINE")
+        raise Stop
+
+    monkeypatch.setattr(tb.subprocess, "run", fake_run)
+    monkeypatch.setattr(tb, "_prepare_rgba", lambda image, destination: destination)
+    with pytest.raises(Stop):
+        tb.generate_trellis(tmp_path / "in.png", tmp_path / "out",
+                            tb.TrellisOptions(repo=_legacy_repo(tmp_path)))
+    assert seen["offline"] == "1"
+    os.environ.pop("HF_HUB_OFFLINE", None)

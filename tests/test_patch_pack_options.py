@@ -41,7 +41,7 @@ def ovoxel():
 
 @pytest.fixture(scope="module")
 def quality():
-    return _load(QUALITY_PATCH, "patch_quality", "patch(GENERATOR)")
+    return _load(QUALITY_PATCH, "patch_quality", 'if __name__ == "__main__":')
 
 
 # --- the two sides must name the same keyword ------------------------------------

@@ -96,6 +96,43 @@ def measure(mesh: trimesh.Trimesh) -> dict:
     }
 
 
+def repair_mesh(mesh: trimesh.Trimesh, weld_fraction: float = 0.0) -> trimesh.Trimesh:
+    """Weld by position, close small holes, and keep the texture coordinates.
+
+    `merge_vertices` leaves a texture seam split, so hole filling treats the
+    seam as a hole. Exporting the position-welded mesh instead would drop one
+    coordinate per seam. A mesh that carries UVs is patched with `fill_holes`,
+    which welds only to find the real boundary and appends to the original
+    vertices. The cutoff is that tool's own: 0.15 of the asset's size.
+    """
+    repaired = mesh.copy()
+    if weld_fraction > 0:
+        scale = float(np.ptp(repaired.vertices, axis=0).max())
+        if scale > 0:
+            step = scale * weld_fraction
+            repaired.vertices = np.round(repaired.vertices / step) * step
+
+    uv = getattr(getattr(repaired, "visual", None), "uv", None)
+    if uv is not None and len(np.asarray(uv)):
+        import sys
+
+        script_dir = str(Path(__file__).resolve().parent)
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        from fill_holes import fill
+
+        return fill(repaired, max_perimeter=0.15)
+
+    welded = weld_by_position(repaired)
+    welded.update_faces(welded.nondegenerate_faces())
+    welded.remove_unreferenced_vertices()
+    trimesh.repair.fix_winding(welded)
+    trimesh.repair.fix_inversion(welded)
+    trimesh.repair.fix_normals(welded)
+    trimesh.repair.fill_holes(welded)
+    return welded
+
+
 def report(name: str, stats: dict) -> None:
     print(f"=== {name}")
     print(f"  vertices            {stats['vertices']:>10,}")
@@ -135,9 +172,8 @@ def main() -> int:
     before = measure(mesh)
     report(args.mesh.name, before)
 
-    scale = float(np.ptp(mesh.vertices, axis=0).max())
-
     if args.weld_sweep:
+        scale = float(np.ptp(mesh.vertices, axis=0).max())
         print()
         print("=== weld sweep (tolerance as fraction of asset size)")
         print(f"  {'tolerance':>10}  {'components':>12}  {'boundary':>12}  {'faces':>10}")
@@ -157,17 +193,7 @@ def main() -> int:
             )
 
     if args.repair:
-        repaired = mesh.copy()
-        if args.weld > 0:
-            step = scale * args.weld
-            repaired.vertices = np.round(repaired.vertices / step) * step
-        repaired.merge_vertices()
-        repaired.update_faces(repaired.nondegenerate_faces())
-        repaired.remove_unreferenced_vertices()
-        trimesh.repair.fix_winding(repaired)
-        trimesh.repair.fix_inversion(repaired)
-        trimesh.repair.fix_normals(repaired)
-        trimesh.repair.fill_holes(repaired)
+        repaired = repair_mesh(mesh, args.weld)
 
         print()
         report("repaired", measure(repaired))

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from scripts.feature_mask import rasterise_uv, select_faces
+from scripts.feature_mask import dilate_mask, rasterise_uv, select_faces
 
 
 @pytest.fixture
@@ -60,6 +60,16 @@ def test_nothing_selected_gives_an_empty_mask():
     faces = np.array([[0, 1, 2]])
     mask = np.asarray(rasterise_uv(uv, faces, np.array([False]), size=32, dilate=2))
     assert mask.max() == 0
+
+
+def test_dilation_does_not_wrap_the_atlas():
+    """A lit texel on the left edge must not reappear on the right."""
+    arr = np.zeros((8, 8), dtype=np.uint8)
+    arr[3, 0] = 255
+    grown = dilate_mask(arr, 2)
+    assert grown[3, 0] == 255
+    assert grown[3, 1] == 255 and grown[3, 2] == 255
+    assert grown[:, -1].max() == 0
 
 
 def test_dilate_grows_the_mask_without_shrinking_it():

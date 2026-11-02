@@ -158,8 +158,11 @@ class ComfyUIClient:
             response.raise_for_status()
         except self._requests.RequestException as exc:
             raise RuntimeError(f"could not download ComfyUI output: {exc}") from exc
-        destination = output_dir.resolve() / Path(record["filename"]).name
-        with destination.open("wb") as handle:
+        source_name = Path(record["filename"]).name
+        directory = output_dir.resolve()
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = directory / f"{uuid.uuid4().hex}-{source_name}"
+        with destination.open("xb") as handle:
             for chunk in response.iter_content(1024 * 1024):
                 handle.write(chunk)
         return destination

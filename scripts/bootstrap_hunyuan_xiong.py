@@ -51,8 +51,8 @@ def announcement(steps: list[tuple[list[str], Path]]) -> str:
     if builds:
         lines.append(f"  build   uv sync in {', '.join(builds)}")
     lines.append(f"  fetch   about {WEIGHTS_GB} GB of weights from Hugging Face (skips what is there)")
-    lines.append(f"  and     BiRefNet-lite background remover, {matte.LITE_BYTES / 1e6:.0f} MB "
-                 f"-> {matte.model_file(matte.LITE_MODEL)}")
+    lines.append(f"  and     BiRefNet-lite background remover, {matte.LEAN_BYTES / 1e6:.0f} MB "
+                 f"-> {matte.model_file(matte.LEAN_MODEL)}")
     lines.append("  licence Tencent Hunyuan Community License: not licensed in the EU, UK or South Korea")
     return "\n".join(lines)
 

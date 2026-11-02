@@ -175,9 +175,9 @@ def test_image_and_3d_routes_are_distinguishable():
 def test_the_background_remover_is_one_announced_file(tmp_path, monkeypatch):
     entry = next(b for b in bc.catalog_status()["backends"] if b["id"] == "matte")
     (weights,) = entry["weights"]
-    assert weights["bytes_expected"] == 224_005_088
-    assert weights["source_url"].startswith("https://github.com/danielgatis/rembg/")
-    assert weights["path"].endswith("birefnet-general-lite.onnx")
+    assert weights["bytes_expected"] == 180_666_557
+    assert weights["source_url"].startswith("https://huggingface.co/AssetFurnace/birefnet-lite-onnx/")
+    assert weights["path"].endswith("birefnet-lite-lean.onnx")
 
 
 def test_a_single_file_counts_as_present_by_its_own_size(tmp_path):
@@ -474,7 +474,7 @@ def test_every_gated_repo_is_one_the_sign_in_check_asks_about():
 
 def test_pixal3d_setup_counts_the_background_remover_it_now_installs():
     sources = [w.source for w in bc.BY_ID["pixal3d"].weights]
-    assert any("BiRefNet" in s for s in sources)
+    assert bc._matte.LEAN_URL in sources
 
 
 def test_trellis_on_nvidia_is_described_as_what_it_is():
@@ -836,7 +836,7 @@ def test_the_amd_tab_names_hip_and_not_cuda():
 def test_a_routes_removable_bytes_leave_out_shared_files():
     # Pixal3D's Remove button counted the shared background remover as its own.
     pixal = bc.BY_ID["pixal3d"]
-    lite = next(w for w in pixal.weights if "BiRefNet" in w.source)
+    lite = next(w for w in pixal.weights if w.source == bc._matte.LEAN_URL)
     assert bc.is_shared(pixal, lite) is True
     assert bc.is_shared(bc.BY_ID["matte"], bc.BY_ID["matte"].weights[0]) is False
     assert "bytes_removable" in pixal.describe(bc.NVIDIA)

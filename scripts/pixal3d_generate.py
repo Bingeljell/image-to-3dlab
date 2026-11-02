@@ -102,6 +102,7 @@ BANNER_STAGES = {1: "views", 2: "ss", 3: "shape", 4: "decode", 5: "texture", 6: 
 # The remover that did the cut, recorded in the manifest. Chosen by image_to_3dlab/matte.py:
 # BiRefNet-lite when installed, u2net otherwise. Never BRIA RMBG -- a licence guardrail.
 MATTE_LICENSES = {
+    "birefnet-lite-lean": "MIT (BiRefNet)",
     "birefnet-general-lite": "MIT (BiRefNet)",
     "u2net": "MIT code / Apache-2.0 U-2-Net",
 }

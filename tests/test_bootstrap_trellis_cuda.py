@@ -241,7 +241,7 @@ def test_setup_fetches_every_weight_the_setup_card_counts():
     # finished setup read "partial" and Generate said TRELLIS was not installed.
     fetched = {repo for repo, _, _ in boot.WEIGHTS}
     listed = {w.source for w in backend_catalog.BY_ID["trellis"].weights}
-    assert fetched | {boot.matte.LITE_URL} == listed  # the remover comes from GitHub
+    assert fetched | {boot.matte.LEAN_URL} == listed  # the remover is a plain file download
 
 
 def test_nvidia_setup_installs_the_background_remover(tmp_path):

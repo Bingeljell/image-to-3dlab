@@ -7,9 +7,13 @@
 
 Without it, runs fall back to u2net, which ate a white robot's arms on a light backdrop, an
 axe handle and a sword + shield in a side-by-side test (2026-09-28); BiRefNet-lite kept
-all of them and matched full BiRefNet. One file, 224 MB, MIT licensed, from rembg's own
-release, saved where rembg looks (`~/.u2net`, or `$U2NET_HOME`) and checked against
-rembg's published MD5 before it is kept.
+all of them and matched full BiRefNet. One file, 181 MB, MIT licensed: BiRefNet-lite's own
+weights exported with ONNX's built-in DeformConv layer, which needs about 4 GB of memory per
+cut-out where rembg's copy of the same model needed 9.5 GB. Saved where rembg looks
+(`~/.u2net`, or `$U2NET_HOME`) and checked against its SHA-256 before it is kept.
+
+A machine that already has rembg's copy keeps working with it; `--check` reports it as not
+installed, so Setup & Status offers the lighter file.
 
 Nothing is fetched without an explicit yes: AGENTS.md forbids weight downloads the user
 has not chosen.
@@ -30,13 +34,13 @@ from image_to_3dlab import matte
 
 
 def announcement() -> str:
-    return (f"Background remover: BiRefNet-lite ({matte.LITE_BYTES / 1e6:.0f} MB, MIT)\n"
-            f"  from   {matte.LITE_URL}\n"
-            f"  to     {matte.model_file(matte.LITE_MODEL)}")
+    return (f"Background remover: BiRefNet-lite ({matte.LEAN_BYTES / 1e6:.0f} MB, MIT)\n"
+            f"  from   {matte.LEAN_URL}\n"
+            f"  to     {matte.model_file(matte.LEAN_MODEL)}")
 
 
-def md5_of(path: Path) -> str:
-    digest = hashlib.md5()
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
@@ -46,11 +50,11 @@ def md5_of(path: Path) -> str:
 def install_if_missing(target: Path | None = None, download=None) -> None:
     """BiRefNet-lite, unless it is already there. Setups that cut out pictures call this
     so a first generation never fetches a remover nobody agreed to."""
-    target = target or matte.model_file(matte.LITE_MODEL)
+    target = target or matte.model_file(matte.LEAN_MODEL)
     if target.is_file():
         return
     download = download or globals()["download"]
-    print(f"\nFetching BiRefNet-lite ({matte.LITE_BYTES / 1e6:.0f} MB)...", flush=True)
+    print(f"\nFetching BiRefNet-lite ({matte.LEAN_BYTES / 1e6:.0f} MB)...", flush=True)
     download(target)
     print(f"  background remover in {target}")
 
@@ -59,11 +63,11 @@ def download(target: Path, opener=urllib.request.urlopen) -> Path:
     """Fetch to a temporary name, verify, then move into place. A bad file is never kept."""
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_suffix(".part")
-    with opener(matte.LITE_URL) as response, partial.open("wb") as out:
+    with opener(matte.LEAN_URL) as response, partial.open("wb") as out:
         while block := response.read(1 << 20):
             out.write(block)
-    actual = md5_of(partial)
-    if actual != matte.LITE_MD5:
+    actual = sha256_of(partial)
+    if actual != matte.LEAN_SHA256:
         partial.unlink(missing_ok=True)
         raise SystemExit(f"checksum mismatch ({actual}); nothing was installed")
     partial.replace(target)
@@ -76,7 +80,7 @@ def main(argv: list[str] | None = None, ask=input) -> int:
     parser.add_argument("--check", action="store_true", help="report only")
     args = parser.parse_args(argv)
 
-    target = matte.model_file(matte.LITE_MODEL)
+    target = matte.model_file(matte.LEAN_MODEL)
     if target.is_file():
         print(f"BiRefNet-lite is installed: {target}")
         return 0

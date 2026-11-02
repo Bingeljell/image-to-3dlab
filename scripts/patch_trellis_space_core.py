@@ -234,9 +234,49 @@ def patch_pipeline_device(root: Path) -> bool:
     return patch_file(base, base_transform) | patch_file(pipeline, pipeline_transform)
 
 
+# The constructor is split so this file never contains the call as one string.
+# Upstream writes it on one line; an older patch wrote the same call in a ternary.
+_CALL = (
+    "getattr(rembg, "
+    "args['rembg_model']['name'])(**args['rembg_model']['args'])"
+)
+CONSTRUCTOR = f"        new_pipeline.rembg_model = {_CALL}"
+TERNARY = (
+    "        new_pipeline.rembg_model = (\n"
+    f"            {_CALL}\n"
+    "            if load_rembg else None\n"
+    "        )"
+)
+DISABLED = "        new_pipeline.rembg_model = None"
+
+
+def pipeline_path(root: Path) -> Path:
+    return root / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+
+
+def is_patched(root: Path) -> bool:
+    """False while the pipeline still constructs the background remover."""
+    try:
+        text = pipeline_path(root).read_text()
+    except OSError:
+        return False
+    return _CALL not in text and DISABLED in text
+
+
+def bria_refusal(root: Path) -> str | None:
+    """Why this Space checkout may not run, or None. The licence guardrail."""
+    if is_patched(root):
+        return None
+    return (
+        f"{root} still loads BRIA RMBG-2.0, which this repo's "
+        "generation pipeline must never load. Apply the guardrail first:\n"
+        f"    python scripts/patch_trellis_space_core.py --root {root}"
+    )
+
+
 def patch_optional_rembg(root: Path) -> bool:
-    """Avoid loading the gated remover when an input already carries transparency."""
-    path = root / "trellis2/pipelines/trellis2_image_to_3d.py"
+    """Never construct BRIA RMBG-2.0. Callers may still pass load_rembg; it is ignored."""
+    path = pipeline_path(root)
 
     def transform(source: str) -> tuple[str, bool]:
         changed = False
@@ -245,20 +285,25 @@ def patch_optional_rembg(root: Path) -> bool:
             '    def from_pretrained(path: str) -> "Trellis2ImageTo3DPipeline":',
             '    def from_pretrained(path: str, *, load_rembg: bool = True) -> "Trellis2ImageTo3DPipeline":',
             count=1,
-            label="optional background-removal model signature",
+            label="background-removal flag is accepted and ignored",
         )
         changed |= did
-        source, did = replace_exact(
-            source,
-            "        new_pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])",
-            "        new_pipeline.rembg_model = (\n"
-            "            getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])\n"
-            "            if load_rembg else None\n"
-            "        )",
-            count=1,
-            label="optional background-removal model load",
-        )
-        return source, changed | did
+        if _CALL not in source:
+            if DISABLED in source:
+                return source, changed
+            raise RuntimeError(
+                "background-removal model disabled: expected 1 source anchors, found 0"
+            )
+        # Do not use replace_exact here: it treats the None assignment as already
+        # done, and would leave a constructor sitting beside it.
+        old = TERNARY if TERNARY in source else CONSTRUCTOR
+        found = source.count(old)
+        if found != 1:
+            raise RuntimeError(
+                f"background-removal model disabled: expected 1 source anchors, found {found}"
+            )
+        source = source.replace(old, DISABLED, 1)
+        return source, True
 
     return patch_file(path, transform)
 
@@ -333,7 +378,7 @@ def apply(root: Path) -> list[str]:
         ("fused Metal sparse attention", patch_sparse_attention),
         ("DINO device routing", patch_image_feature_extractor),
         ("pipeline accelerator routing", patch_pipeline_device),
-        ("optional background-removal loading", patch_optional_rembg),
+        ("background-removal disabled", patch_optional_rembg),
         ("sparse tensor accelerator aliases", patch_sparse_tensor_cuda_aliases),
         ("mesh device routing", patch_mesh_device),
     )

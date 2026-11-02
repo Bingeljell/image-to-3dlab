@@ -30,16 +30,17 @@ import json
 import socket
 from pathlib import Path
 
+from blender_scene import isolated_scene_prelude, restore_previous_scene
+
 
 def blender_code(asset: Path, output: Path) -> str:
+    prelude = isolated_scene_prelude("IMG3D normals")
+    restore = restore_previous_scene()
     return f'''
 import bpy
 import numpy as np
 
-for obj in list(bpy.data.objects):
-    bpy.data.objects.remove(obj, do_unlink=True)
-for coll in list(bpy.data.collections):
-    bpy.data.collections.remove(coll)
+{prelude}
 
 bpy.ops.import_scene.gltf(filepath={str(asset)!r})
 meshes = [o for o in bpy.data.objects if o.type == "MESH"]
@@ -82,7 +83,7 @@ bpy.ops.export_scene.gltf(
 )
 print("NORMALS:: inward area %.1f%% -> %.1f%%" % (before, after))
 result = {{"before": before, "after": after}}
-'''
+{restore}'''
 
 
 def main() -> int:

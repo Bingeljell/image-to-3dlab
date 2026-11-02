@@ -452,6 +452,8 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
                 **processes.group_popen_kwargs(),
             )
+            job.directory.joinpath("pid").write_text(
+                processes.pid_record(job.process.pid), encoding="utf-8")
             assert job.process.stdout is not None
             for raw in job.process.stdout:
                 line = raw.rstrip("\n")
@@ -492,6 +494,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         job.emit({"phase": "error", "message": str(exc)})
     finally:
         stop.set()
+        job.directory.joinpath("pid").unlink(missing_ok=True)
         if job.process is not None and job.process.poll() is None:
             try:
                 processes.terminate_group(job.process.pid)

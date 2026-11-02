@@ -161,5 +161,10 @@ def patch(path: Path) -> None:
     path.write_text(source)
 
 
-patch(GENERATOR)
-print("Patched TRELLIS to expose remesh, UV clustering, and unrestricted texture size.")
+def main() -> None:
+    patch(GENERATOR)
+    print("Patched TRELLIS to expose remesh, UV clustering, and unrestricted texture size.")
+
+
+if __name__ == "__main__":
+    main()

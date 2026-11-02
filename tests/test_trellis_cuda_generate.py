@@ -62,6 +62,18 @@ def test_generate_refuses_before_touching_the_image(tmp_path, monkeypatch):
                      save_latents=False)
 
 
+def test_load_pipeline_refuses_a_hub_id_when_nothing_is_cached(tmp_path, monkeypatch):
+    vendor = _vendor(tmp_path)
+    monkeypatch.setattr(gen.trellis_route.Route, "model_path",
+                        lambda self: "microsoft/TRELLIS.2-4B")
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
+    monkeypatch.delenv("I2L_TRELLIS_MODEL_PATH", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    with pytest.raises(SystemExit, match="about 16.5 GB") as raised:
+        gen.load_pipeline(vendor)
+    assert "trellis-cuda" in str(raised.value)
+
+
 def test_load_pipeline_refuses_an_unpatched_checkout_before_importing_torch(tmp_path,
                                                                              monkeypatch):
     vendor = _vendor(tmp_path, patched=False)

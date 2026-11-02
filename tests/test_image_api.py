@@ -436,6 +436,34 @@ def test_a_plain_jobs_command_has_no_reference(tmp_path):
     assert "-r" not in api.job_command(job, WEIGHTS, vision=None, binary=Path("/bin/sd-cli"))
 
 
+def test_a_picture_run_records_its_pid_and_starts_its_own_group(tmp_path, monkeypatch):
+    from image_to_3dlab import processes
+
+    manager = api.ImageJobManager(tmp_path)
+    job = manager.create("a fox", api.clean_settings({}))
+    seen = {}
+    script = (
+        "import time\n"
+        "from pathlib import Path\n"
+        f"time.sleep(0.2)\nprint(Path({str(job.directory / 'pid')!r}).read_text().strip())\n"
+    )
+    real_popen = api.subprocess.Popen
+
+    def popen(*args, **kwargs):
+        seen["group"] = kwargs.get("start_new_session")
+        return real_popen(*args, **kwargs)
+
+    monkeypatch.setattr(api.subprocess, "Popen", popen)
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_APPLE)
+    monkeypatch.setattr(api, "build_command", lambda *_a, **_k: [sys.executable, "-c", script])
+
+    api.run_job(job, manager, weights=WEIGHTS)
+
+    assert processes.pid_record(job.process.pid) in job.log_lines
+    assert seen["group"] is True
+    assert not (job.directory / "pid").exists()
+
+
 def test_a_back_job_only_reads_pictures_inside_the_output_folder(tmp_path):
     images = tmp_path / "images"
     front = _front(images)
@@ -548,6 +576,7 @@ def test_a_failed_redraw_leaves_the_old_back_where_it_was(tmp_path, monkeypatch)
     job = api.create_back_job(manager, front, engine=api.FLUX)
 
     class Failed:
+        pid = 1
         stdout = __import__("io").BytesIO(b"error: out of memory\n")
         def wait(self): return 1
         def poll(self): return 1
@@ -651,6 +680,7 @@ def test_a_finished_brush_swaps_in_only_the_painted_part(tmp_path, monkeypatch):
 
     class Done:
         def __init__(self, cmd, **k):
+            self.pid = 1
             Image.new("RGB", (64, 64), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
             self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
         def wait(self): return 0
@@ -673,6 +703,7 @@ def _finish_brush(job, manager, monkeypatch, colour=(200, 30, 30)):
 
     class Done:
         def __init__(self, cmd, **k):
+            self.pid = 1
             Image.new("RGB", (256, 256), colour).save(cmd[cmd.index("-o") + 1])
             self.stdout = __import__("io").BytesIO(b"generate_image completed in 1.0s\n")
         def wait(self): return 0
@@ -759,6 +790,7 @@ def test_a_brushed_picture_names_the_one_it_replaced(tmp_path, monkeypatch):
 
     class Done:
         def __init__(self, cmd, **k):
+            self.pid = 1
             Image.new("RGB", (256, 256), (200, 30, 30)).save(cmd[cmd.index("-o") + 1])
             self.stdout = __import__("io").BytesIO(b"")
         def wait(self): return 0
@@ -840,6 +872,7 @@ def test_a_brush_leaves_no_working_files_however_it_ends(tmp_path, monkeypatch, 
         _finish_brush(job, manager, monkeypatch)
     else:
         class Fails:
+            pid = 1
             def __init__(self, cmd, **k):
                 self.stdout = __import__("io").BytesIO(b"boom\n")
             def wait(self): return 1

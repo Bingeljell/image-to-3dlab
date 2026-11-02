@@ -122,8 +122,7 @@ def test_onboarding_is_needed_only_when_nothing_is_ready(monkeypatch, tmp_path):
     status = bc.catalog_status()
     assert status["needs_onboarding"] is (status["ready_count"] == 0)
 
-    # A fresh clone: no weights *and* nothing built. Weights alone are not enough to
-    # decide this, since a built TRELLIS with no weights is usable.
+    # A fresh clone: no weights and nothing built. Either one missing means not ready.
     import dataclasses
     absent = tmp_path / "nothing-here"
     monkeypatch.setattr(bc, "_dir_state", lambda path: (False, 0))
@@ -208,10 +207,11 @@ def test_human_bytes_reads_like_a_download_dialog():
 
 
 def test_trellis_setup_is_a_build_not_a_download():
-    """Its bootstrap clones, patches and compiles; the weights come on first generation.
+    """The Mac bootstrap clones, patches and compiles. It does not fetch the weights.
 
     Calling that a download makes the confirmation lie and makes byte progress meaningless
     — a healthy hour-long compile reported no growth and would have read as stalled.
+    The weights are a separate download once the build is there.
     """
     assert bc.BY_ID["trellis"].setup_fetches_weights is False
     assert bc.BY_ID["pixal3d"].setup_fetches_weights is True
@@ -230,16 +230,24 @@ def test_the_flag_reaches_the_browser():
     assert flag_for(bc.AMD) is True
 
 
-def test_a_built_trellis_with_no_weights_is_ready_not_missing():
-    """Its bootstrap installs the code and fetches nothing; the weights come on first run.
+def test_a_built_trellis_with_no_weights_is_not_ready():
+    """A built Mac port with an empty weight cache is not ready to generate.
 
-    Reporting it as missing offered a Set up button that re-ran a finished bootstrap,
-    which then died on its own already-applied patches (hit for real 2026-09-21 while
-    testing against an empty HF_HOME).
+    The first run used to call the hub. Missing weights are missing, the same way the
+    NVIDIA route reports them. The button offers a download. It does not offer to build
+    again: re-running a finished bootstrap dies on its own patches (hit 2026-09-21).
     """
     none_present = [{"bytes_present": 0, "bytes_expected": 10 * bc.GB}]
-    assert bc._state(none_present, built=True, setup_fetches=False) == "ready"
-    assert bc._action(none_present, built=True, setup_fetches=False) == "none"
+    half = [{"bytes_present": 5 * bc.GB, "bytes_expected": 10 * bc.GB}]
+    full = [{"bytes_present": 10 * bc.GB, "bytes_expected": 10 * bc.GB}]
+    assert bc._state(none_present, built=True, setup_fetches=False) == "missing"
+    assert bc._action(none_present, built=True, setup_fetches=False) == "download"
+    assert bc._action(half, built=True, setup_fetches=False) == "resume"
+    assert bc._state(full, built=True, setup_fetches=False) == "ready"
+    assert bc._action(full, built=True, setup_fetches=False) == "none"
+    # A route the viewer cannot install (the dgrauet shape clone) still shows the
+    # command instead of a download button the server has nothing to run.
+    assert bc._action(none_present, built=True, setup_fetches=False, automated=False) == "manual"
 
 
 def test_an_unbuilt_backend_is_offered_a_build_whatever_its_weights():

@@ -196,6 +196,21 @@ def test_it_never_mentions_downloading_weights_itself():
     assert "bootstrap_" not in text
 
 
+def test_windows_updater_sets_its_baseline_aside_before_the_dirty_check():
+    """Viewers up to 0.3.6 rewrote viewer/generate_baseline.json, and the Windows
+    updater treated that as a dirty tree. install.ps1 cannot run here. The shell
+    installer does this for real in the update test below. This checks the same
+    steps are in the PowerShell source, and that the repair comes first."""
+    ps1 = (REPO / "install.ps1").read_text()
+    assert "viewer/generate_baseline.json" in ps1
+    assert ".generate_baseline.json" in ps1
+    assert "checkout --quiet --" in ps1
+    save = ps1.index(".generate_baseline.json")
+    restore = ps1.index("checkout --quiet --")
+    refuse = ps1.index("has local edits to tracked files")
+    assert save < restore < refuse
+
+
 def test_windows_installer_keeps_step_with_the_shell_one():
     """install.ps1 cannot run here, so check what can be checked: it picks releases by the
     same rule, never fetches weights, and says it is untested."""

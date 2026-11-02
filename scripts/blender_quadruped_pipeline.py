@@ -133,9 +133,23 @@ def envelope(frame, cfg):
     return posture, gait, 1 + (frame - hold - 2 * blend) % period
 
 
+def same_file(output: Path, opened: Path) -> bool:
+    """True when both paths are the same file once links and .. are resolved."""
+    return Path(output).expanduser().resolve() == Path(opened).expanduser().resolve()
+
+
+def refuse_open_blend(output: Path, opened: str | Path | None) -> None:
+    """Stop before a headless save replaces the blend Blender was opened with."""
+    if not opened:
+        return
+    if same_file(output, opened):
+        path = Path(output).expanduser().resolve()
+        raise SystemExit(f"Refusing to overwrite {path}; it is the blend Blender opened")
+
+
 def new_path(path, source=None):
     path = Path(path).expanduser().resolve()
-    if path.exists() or (source and path == Path(source).resolve()):
+    if path.exists() or (source and same_file(path, source)):
         raise ValueError(f"Refusing to overwrite {path}; choose a new output")
     return path
 

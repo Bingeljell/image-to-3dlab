@@ -239,10 +239,26 @@ def test_trellis_on_nvidia_runs_the_cuda_bootstrap_with_yes():
     assert command[-1] == "--yes"
 
 
-def test_trellis_on_a_mac_still_runs_the_metal_bootstrap():
+def test_trellis_on_a_mac_still_runs_the_metal_bootstrap(monkeypatch):
+    """Nothing built yet: the button compiles the port. It does not pretend to download."""
+    import backend_catalog
+
+    monkeypatch.setattr(backend_catalog.Backend, "built_on", lambda self, host=None: False)
     command = dl.command_for("trellis", host="apple-silicon")
-    assert command == dl.COMMANDS["trellis"]
     assert command[1].endswith("bootstrap_trellis_space_macos.py")
+    assert "--weights-only" not in command
+
+
+def test_a_built_mac_trellis_downloads_weights_instead_of_rebuilding(monkeypatch):
+    """The code is already there. Setup fetches the weights, and it passes --yes because
+    the page already asked. Re-running the plain bootstrap dies on its own patches."""
+    import backend_catalog
+
+    monkeypatch.setattr(backend_catalog.Backend, "built_on", lambda self, host=None: True)
+    command = dl.command_for("trellis", host="apple-silicon")
+    assert command[1].endswith("bootstrap_trellis_space_macos.py")
+    assert "--weights-only" in command
+    assert "--yes" in command
 
 
 def test_trellis_on_amd_runs_the_rocm_bootstrap():
@@ -493,7 +509,9 @@ def test_finished_nvidia_trellis_setup_does_not_promise_a_later_download(monkeyp
     monkeypatch.setattr(dl, "_this_host", lambda: dl.NVIDIA)
     assert dl.done_detail(dl.BY_ID["trellis"], present=16 * 1024 ** 3).startswith("done ·")
     monkeypatch.setattr(dl, "_this_host", lambda: "apple")
-    assert "first generation run" in dl.done_detail(dl.BY_ID["trellis"], present=0)
+    detail = dl.done_detail(dl.BY_ID["trellis"], present=0)
+    assert "first generation" not in detail
+    assert "before a run" in detail
 
 
 def test_hunyuan_cuda_sets_up_with_its_own_bootstrap_and_says_cuda():
@@ -613,15 +631,28 @@ def test_a_patterned_weight_does_not_make_its_whole_folder_shared(tmp_path):
         backend_catalog.BY_ID.pop("q-test"), backend_catalog.BY_ID.pop("x-test")
 
 
-def test_trellis_on_a_linux_card_shows_bytes_not_a_clock():
+def test_trellis_on_a_linux_card_shows_bytes_not_a_clock(monkeypatch):
     """TRELLIS.2's setup on NVIDIA and AMD fetches 16 GB after the build. The size watcher
-    was chosen from the Mac's answer (fetches nothing), so that download showed only
-    "minutes elapsed"."""
+    was chosen from the Mac's answer (the code build fetches nothing), so that compile
+    showed only "minutes elapsed"."""
+    import backend_catalog
+
+    monkeypatch.setattr(backend_catalog.Backend, "built_on", lambda self, host=None: False)
     run = dl.DownloadRun(dl.BY_ID["trellis"])
     assert dl.measures_bytes(run, dl.AMD)
     assert dl.measures_bytes(run, dl.NVIDIA)
     assert not dl.measures_bytes(run, "apple-silicon")
     assert not dl.measures_bytes(dl.DownloadRun(dl.BY_ID["pixal3d"], rebuild=True), dl.AMD)
+
+
+def test_a_mac_weight_download_is_measured_in_bytes(monkeypatch):
+    import backend_catalog
+
+    monkeypatch.setattr(backend_catalog.Backend, "built_on", lambda self, host=None: True)
+    monkeypatch.setattr(dl, "_this_host", lambda: "apple-silicon")
+    run = dl.DownloadRun(dl.BY_ID["trellis"])
+    assert "--weights-only" in run.command
+    assert dl.measures_bytes(run, "apple-silicon")
 
 
 def test_a_compile_error_is_not_mistaken_for_a_sign_in_problem():

@@ -6,7 +6,9 @@ from image_to_3dlab.provenance import LICENSES, finalize_output, validate_run_po
 
 
 def test_sf3d_is_allowed_when_conditionals_are_enabled():
-    profile = validate_run_policy("sf3d", "game", "worldwide", True)
+    profile = validate_run_policy(
+        "sf3d", "game", "worldwide", True, model_identity="stabilityai/stable-fast-3d"
+    )
     assert profile.classification == "commercial-conditional"
 
 
@@ -16,7 +18,9 @@ def test_hunyuan_is_blocked_for_worldwide_game():
 
 
 def test_trellis_inherits_dinov3_conditional_classification():
-    profile = validate_run_policy("trellis2", "game", "worldwide", True)
+    profile = validate_run_policy(
+        "trellis2", "game", "worldwide", True, model_identity="microsoft/TRELLIS.2-4B"
+    )
     assert profile.classification == "commercial-conditional"
 
 
@@ -32,7 +36,10 @@ def test_qwen_image_is_conditional_not_research_only():
     profile = LICENSES["qwen-image-2.1"]
     assert profile.classification == "commercial-conditional"
     assert profile.folder == "conditional"
-    assert validate_run_policy("qwen-image-2.1", "game", "worldwide", allow_conditional=True) is profile
+    assert validate_run_policy(
+        "qwen-image-2.1", "game", "worldwide", allow_conditional=True,
+        model_identity="Qwen/Qwen-Image-2.1",
+    ) is profile
     with pytest.raises(ValueError, match="disallows conditional"):
         validate_run_policy("qwen-image-2.1", "game", "worldwide", allow_conditional=False)
     assert any("Built with Qwen" in c for c in profile.conditions)
@@ -74,8 +81,10 @@ def test_research_only_is_refused_for_public_distribution(research_model):
 
 
 def test_research_only_is_allowed_for_a_private_showcase(research_model):
-    profile = validate_run_policy(research_model, use_case="showcase", distribution="private",
-                                  allow_conditional=True)
+    profile = validate_run_policy(
+        research_model, use_case="showcase", distribution="private",
+        allow_conditional=True, model_identity="Qwen/Qwen-Image-2.1",
+    )
     assert profile.classification == "research-only"
 
 
@@ -105,6 +114,62 @@ def test_validate_run_policy_rejects_unknown_identity():
         validate_run_policy(
             "sf3d", "game", "worldwide", True, model_identity="someone/unknown-repo"
         )
+
+
+def test_missing_identity_is_refused_unless_unverified_is_allowed():
+    with pytest.raises(ValueError, match="no reviewed model identity"):
+        validate_run_policy(
+            "hunyuan-comfyui", "showcase", "private", True, model_identity=None
+        )
+    profile = validate_run_policy(
+        "hunyuan-comfyui", "showcase", "private", True,
+        model_identity=None, allow_unverified=True,
+    )
+    assert profile is LICENSES["hunyuan-comfyui"]
+
+
+def test_commercial_intent_refuses_a_conditional_backend():
+    with pytest.raises(ValueError, match="commercial_intent"):
+        validate_run_policy(
+            "sf3d", "showcase", "private", True,
+            model_identity="stabilityai/stable-fast-3d",
+            commercial_intent=True,
+        )
+
+
+def test_allow_research_only_false_refuses_a_private_showcase(research_model):
+    with pytest.raises(ValueError, match="allow_research_only"):
+        validate_run_policy(
+            research_model, use_case="showcase", distribution="private",
+            allow_conditional=True,
+            model_identity="Qwen/Qwen-Image-2.1",
+            allow_research_only=False,
+        )
+
+
+def test_finalize_output_does_not_give_a_missing_identity_the_default_licence(tmp_path):
+    image = tmp_path / "input.png"
+    generated = tmp_path / "out.glb"
+    image.write_bytes(b"image")
+    generated.write_bytes(b"glb")
+    profile = LICENSES["hunyuan-comfyui"]
+
+    _, sidecar = finalize_output(
+        generated=generated,
+        image=image,
+        output_root=tmp_path,
+        backend="hunyuan-comfyui",
+        profile=profile,
+        intent={"use_case": "showcase", "distribution": "private", "commercial_intent": False},
+        parameters={},
+        source_manifest=None,
+        model_identity=None,
+    )
+
+    record = json.loads(sidecar.read_text())
+    assert record["output"]["classification"] == "unverified"
+    assert record["license"]["verified"] is False
+    assert "Tencent" not in record["license"]["name"]
 
 
 def test_validate_run_policy_allows_unknown_identity_when_unverified_allowed():

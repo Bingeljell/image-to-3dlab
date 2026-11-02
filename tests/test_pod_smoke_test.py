@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import json
 import os
+import shlex
 import signal
 import subprocess
 import threading
@@ -84,10 +85,27 @@ def test_curl_speed_is_megabytes_per_second(output, expected):
     assert smoke.mb_per_s(output) == pytest.approx(expected)
 
 
+def _shell_tokens(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";")
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
 def test_install_never_starts_the_lab_in_the_foreground():
     command = smoke.install_command("feat/x")
     assert "--ref feat/x" in command and "--yes" in command and "--no-start" in command
     assert "/feat/x/install.sh" in command  # the branch's installer, not main's
+
+
+def test_a_semicolon_in_the_ref_is_not_a_shell_separator():
+    tokens = _shell_tokens(smoke.install_command("feat;id"))
+    assert ";" not in tokens
+    assert any("feat;id" in token for token in tokens)
+
+
+def test_a_ref_git_rejects_is_not_sent():
+    with pytest.raises(ValueError):
+        smoke.install_command("feat..x")
 
 
 def test_the_lab_listens_for_runpods_proxy():

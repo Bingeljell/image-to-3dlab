@@ -35,7 +35,7 @@ REPO = Path(__file__).resolve().parents[1]
 # directly from the shape venv.
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab.provenance import sha256_file
+from image_to_3dlab.provenance import LICENSES, write_hunyuan_sidecar
 
 SHAPE_ROOT = REPO / "hunyuan_mlx" / "shape"
 SHAPE_MODELS = {
@@ -51,12 +51,10 @@ PAINT_SCRIPT = PAINT_ROOT / "scripts" / "run_paint_pbr.py"
 # Hunyuan3D-2/2.1 weights (shape and the MLX-ready paint conversion) carry the Tencent
 # community licence with its EU/UK/Korea territory restriction.
 # See hunyuan_mlx/LICENSE and docs/hunyuan-mlx-recipes.md.
-TENCENT_LICENSE_NAME = "Tencent Hunyuan 3D 2.1 Community License"
-TENCENT_LICENSE_URL = "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1/blob/main/LICENSE"
-TENCENT_CONDITIONS = (
-    "Use and outputs are not licensed in the EU, UK, or South Korea.",
-    "Additional distribution, attribution, and commercial conditions apply.",
-)
+_HUNYUAN = LICENSES["hunyuan-comfyui"]
+TENCENT_LICENSE_NAME = _HUNYUAN.license_name
+TENCENT_LICENSE_URL = _HUNYUAN.license_url
+TENCENT_CONDITIONS = _HUNYUAN.conditions
 MIT_LICENSE_PATH = "hunyuan_mlx/LICENSE"
 
 sys.path.insert(0, str(SHAPE_ROOT))
@@ -131,15 +129,19 @@ def run_remesh(mesh, decimation_target: int, t0: float) -> tuple[object, bool]:
 
 def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint_res: int,
               paint_steps: int, paint_tex: int, t0: float) -> None:
+    from image_to_3dlab.provenance import hunyuan_paint_run_dir
+
+    # One folder per run, same as hunyuan_mlx_generate.py. The paint script used to
+    # write a single outputs/textured_mesh_pbr.glb.
+    out_dir = hunyuan_paint_run_dir(PAINT_ROOT / "outputs", output.stem)
+    out_dir.mkdir(parents=True, exist_ok=True)
     env = {
         **os.environ, "PYTHONUNBUFFERED": "1",
         "PAINT_MESH": str(mesh_path.resolve()), "PAINT_IMG": str(image.resolve()),
         "PAINT_SEED": str(paint_seed), "PAINT_RES": str(paint_res),
         "PAINT_STEPS": str(paint_steps), "PAINT_TEX": str(paint_tex),
+        "PAINT_OUT": str(out_dir),
     }
-    # Same self-sufficiency fix as hunyuan_mlx_generate.py: run_paint_pbr.py's bare
-    # Image.save("outputs/...") calls crash post-diffusion on a fresh outputs/ dir.
-    (PAINT_ROOT / "outputs").mkdir(parents=True, exist_ok=True)
     print(f"starting paint stage ({time.time() - t0:.0f}s)", flush=True)
     proc = subprocess.run(
         [str(PAINT_PYTHON), "-u", str(PAINT_SCRIPT)], cwd=str(PAINT_ROOT), env=env,
@@ -148,72 +150,37 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
     if proc.returncode != 0:
         raise RuntimeError(f"paint stage exited with code {proc.returncode}")
 
-    result = PAINT_ROOT / "outputs" / "textured_mesh_pbr.glb"
+    result = out_dir / "textured_mesh_pbr.glb"
     if not result.is_file():
         raise RuntimeError(f"paint stage did not produce {result}")
     output.parent.mkdir(parents=True, exist_ok=True)
     result.replace(output)
+    temp_sidecar = out_dir / "textured_mesh_pbr.provenance.json"
+    if temp_sidecar.is_file():
+        temp_sidecar.unlink()
     for name in ("pbr_albedo_texture.png", "pbr_albedo_views.png",
                  "pbr_mr_texture.png", "pbr_mr_views.png"):
-        src = PAINT_ROOT / "outputs" / name
+        src = out_dir / name
         if src.is_file():
             src.replace(output.with_name(f"{output.stem}_{name}"))
     print(f"paint stage done ({time.time() - t0:.0f}s) -> {output}", flush=True)
 
 
 def write_provenance(output: Path, image: Path, manifest: dict) -> Path:
-    """Write the `.provenance.json` licence sidecar beside the generated GLB."""
-    sidecar = output.with_suffix(".provenance.json")
-    record = {
-        "schema_version": 1,
-        "backend": "hunyuan-mlx-xiong",
-        "input": {
-            "path": str(image),
-            "sha256": sha256_file(image),
-            "source": "user-provided",
-        },
-        "output": {
-            "path": str(output),
-            "sha256": sha256_file(output),
-            "classification": "territory-restricted",
-        },
-        "model": {
-            "backend": "hunyuan-mlx-xiong",
-            "parameters": manifest.get("parameters", {}),
-        },
-        "license": {
-            "name": TENCENT_LICENSE_NAME,
-            "url": TENCENT_LICENSE_URL,
-            "conditions": list(TENCENT_CONDITIONS),
-        },
-        "components": [
-            {
-                "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
-                "purpose": "MLX generation code tracked in this repository",
-                "license": "MIT",
-                "license_url": MIT_LICENSE_PATH,
-                "commercial_status": "commercial-clear",
-            },
-            {
-                "component": "Tencent Hunyuan3D-2/2.1 shape weights",
-                "purpose": "shape-stage diffusion model",
-                "license": TENCENT_LICENSE_NAME,
-                "license_url": TENCENT_LICENSE_URL,
-                "commercial_status": "territory-restricted",
-                "conditions": list(TENCENT_CONDITIONS),
-            },
-            {
-                "component": "Tencent Hunyuan3D-2/2.1 paint weights (MLX-ready conversion)",
-                "purpose": "paint-stage texture generation model",
-                "license": TENCENT_LICENSE_NAME,
-                "license_url": TENCENT_LICENSE_URL,
-                "commercial_status": "territory-restricted",
-                "conditions": list(TENCENT_CONDITIONS),
-            },
-        ],
-    }
-    sidecar.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    return sidecar
+    """Write the `.provenance.json` licence sidecar beside the generated GLB.
+
+    This run loads both stages, so the record names shape and paint. The shared
+    writer lives in image_to_3dlab.provenance and does not load a model.
+    """
+    return write_hunyuan_sidecar(
+        output,
+        image,
+        backend="hunyuan-mlx-xiong",
+        parameters=manifest.get("parameters", {}),
+        shape=True,
+        paint=True,
+        include_code=True,
+    )
 
 
 def main() -> None:

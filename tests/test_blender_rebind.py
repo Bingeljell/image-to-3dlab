@@ -28,6 +28,15 @@ def test_parse_args_keeps_inputs_and_outputs_distinct(tmp_path):
     assert load_module().parse_args(["blender", "--", *map(str, values)]) == tuple(values)
 
 
+def test_refuses_to_save_over_the_opened_blend(tmp_path):
+    module = load_module()
+    opened = tmp_path / "prepared.blend"
+    opened.write_bytes(b"blend")
+    with pytest.raises(SystemExit, match="opened"):
+        module.refuse_open_blend(opened, str(opened))
+    module.refuse_open_blend(tmp_path / "result.blend", str(opened))
+
+
 def test_parse_args_refuses_overwriting_an_input(tmp_path):
     source = tmp_path / "same.glb"
     with pytest.raises(SystemExit, match="distinct"):

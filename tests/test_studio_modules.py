@@ -239,6 +239,81 @@ def test_a_cancelled_step_shows_no_log_and_a_failed_one_keeps_it():
 
 
 @needs_node
+def test_a_live_log_stays_where_the_reader_left_it():
+    out = _run("jobs.js", """
+      const bottom = { scrollTop: 300, clientHeight: 100, scrollHeight: 400 };
+      const reading = { scrollTop: 10, clientHeight: 100, scrollHeight: 400 };
+      console.log(JSON.stringify([
+        m.logScroll(null, 400),
+        m.logScroll(bottom, 500),
+        m.logScroll(reading, 500),
+      ]));""")
+    assert out == [400, 500, 10]
+
+
+@needs_node
+def test_a_setup_card_header_shows_one_size():
+    out = _run("setup.js", """
+      const here = { human_expected: '8.6 GB', human_present: '9.4 GB', bytes_present: 1 };
+      const missing = { human_expected: '8.6 GB', human_present: '0 B', bytes_present: 0 };
+      const partial = { human_expected: '8.6 GB', human_present: '4.0 GB', bytes_present: 1 };
+      console.log(JSON.stringify([
+        m.cardSize(here),
+        m.cardSize(missing),
+        m.cardSize(partial),
+        m.cardSize(here, { readOnly: true }),
+      ]));""")
+    assert out == ["9.4 GB", "8.6 GB", "4.0 GB", "8.6 GB"]
+
+
+@needs_node
+def test_a_shared_repo_names_each_file_on_the_setup_card():
+    out = _run("setup.js", """
+      console.log(JSON.stringify([
+        m.weightRow({ label: 'Qwen3-VL vision projector (Q8_0)', source: 'Qwen/Qwen3-VL-8B-Instruct-GGUF',
+          source_url: 'https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF', human_expected: '717.4 MB', present: false }),
+        m.weightRow({ label: 'Qwen3-VL-8B text encoder (Q4_K_M)', source: 'Qwen/Qwen3-VL-8B-Instruct-GGUF',
+          source_url: 'https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF', human_expected: '5.0 GB',
+          present: true, human_present: '4.7 GB' }),
+      ]));""")
+    assert "Qwen3-VL vision projector (Q8_0)" in out[0]
+    assert "Qwen3-VL-8B text encoder (Q4_K_M)" in out[1]
+    assert "717.4 MB" in out[0] and "on disk" not in out[0]
+    assert "4.7 GB" in out[1] and "5.0 GB" not in out[1] and "on disk" not in out[1]
+    assert out[0] != out[1]
+
+
+@needs_node
+def test_the_hunyuan_recipes_path_is_a_link_on_the_setup_card():
+    out = _run("setup.js", """
+      console.log(JSON.stringify(m.linkRepoPaths(
+        'See docs/hunyuan-mlx-recipes.md. Other text stays.')));""")
+    assert out == (
+        'See <a href="/docs/hunyuan-mlx-recipes.md" target="_blank" rel="noopener">'
+        'docs/hunyuan-mlx-recipes.md</a>. Other text stays.'
+    )
+
+
+@needs_node
+def test_a_progress_card_stays_inside_the_viewer_when_moved_or_resized():
+    out = _run("jobs.js", """
+      const bounds = { w: 800, h: 600 };
+      const box = { x: 100, y: 80, w: 400, h: 300 };
+      console.log(JSON.stringify([
+        m.moveBox(box, 50, -20, bounds),
+        m.moveBox(box, -500, 900, bounds),
+        m.resizeBox(box, -300, -200, bounds),
+        m.resizeBox({ x: 700, y: 500, w: 400, h: 300 }, 50, 50, bounds),
+      ]));""")
+    assert out == [
+        {"x": 150, "y": 60, "w": 400, "h": 300},
+        {"x": 0, "y": 300, "w": 400, "h": 300},
+        {"x": 100, "y": 80, "w": 280, "h": 220},
+        {"x": 350, "y": 250, "w": 450, "h": 350},
+    ]
+
+
+@needs_node
 def test_the_log_drops_the_picture_models_tokenizer_chatter():
     log = "\n".join([
         "<|im_start|>user",

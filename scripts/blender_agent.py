@@ -164,7 +164,7 @@ def build_import_asset(path: str, clear_scene: bool = True) -> str:
 clear = {bool(clear_scene)!r}
 if clear:
     for obj in list(bpy.data.objects):
-        if obj.type in {{"MESH", "ARMATURE", "EMPTY"}}:
+        if obj.type == "MESH":
             bpy.data.objects.remove(obj, do_unlink=True)
 before = set(bpy.data.objects.keys())
 bpy.ops.import_scene.gltf(filepath={path!r})
@@ -364,7 +364,7 @@ def build_clear_scene(keep_lights: bool = False) -> str:
     """
     return _preamble() + f'''
 keep_lights = {bool(keep_lights)!r}
-removable = {{"MESH", "ARMATURE", "EMPTY", "CURVE", "SURFACE", "META", "FONT"}}
+removable = {{"MESH"}}
 if not keep_lights:
     removable = removable | {{"LIGHT"}}
 removed = []

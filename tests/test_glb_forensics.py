@@ -12,6 +12,7 @@ silently counting flipped faces.
 from __future__ import annotations
 
 import importlib.util
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -110,7 +111,11 @@ def test_single_triangle_has_three_boundary_edges():
         faces=np.array([[0, 1, 2]]),
         process=False,
     )
-    assert gf.geometry_summary(mesh)["boundary_edges"] == 3
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        summary = gf.geometry_summary(mesh)
+    assert summary["boundary_edges"] == 3
+    assert summary["volume"] == 0
 
 
 def test_boundary_count_ignores_uv_seam_splits():
@@ -145,8 +150,12 @@ def test_boundary_count_ignores_seams_on_a_UV_TEXTURED_mesh():
     )
 
     summary = gf.geometry_summary(split)
+    closed = gf.geometry_summary(box)
     assert summary["boundary_edges"] == 0, "UV seams must not be counted as holes"
-    assert summary["watertight"] is False  # the un-merged copy itself is still split
+    assert summary["watertight"] is True
+    assert summary["winding_consistent"] is closed["winding_consistent"]
+    assert summary["euler_number"] == closed["euler_number"]
+    assert summary["volume"] == pytest.approx(closed["volume"])
     assert summary["vertices_merged"] == len(box.vertices)
 
 

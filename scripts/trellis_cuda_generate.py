@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -249,6 +250,15 @@ def load_pipeline(vendor_root: Path, route: trellis_route.Route = ROUTE):
     refusal = bria_refusal(vendor_root) or aule_patch_refusal(vendor_root, route)
     if refusal:
         raise SystemExit(refusal)
+    model = route.model_path()
+    if not Path(model).is_dir():
+        from image_to_3dlab.weight_gate import require_local
+
+        model = require_local(
+            model, backend="TRELLIS.2", route=route.name, size="about 16.5 GB",
+        )
+    else:
+        os.environ["HF_HUB_OFFLINE"] = "1"
     configure_environment(route=route)
     sys.path.insert(0, str(checkout(vendor_root)))
 
@@ -259,7 +269,6 @@ def load_pipeline(vendor_root: Path, route: trellis_route.Route = ROUTE):
     if not torch.cuda.is_available():
         raise SystemExit("torch cannot see a CUDA device; check the driver and the venv")
     forbid_bria(rembg)
-    model = route.model_path()
     print(f"Loading TRELLIS.2 pipeline ({route.provenance_route}, weights from {model}, "
           "BRIA disabled)...", flush=True)
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained(model)

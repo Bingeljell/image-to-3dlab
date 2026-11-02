@@ -72,12 +72,15 @@ def patch_cpu_bake_budget(path: Path) -> None:
     path.write_text(source)
 
 
-for filename in ("trellis2_image_to_3d.py", "trellis2_texturing.py"):
-    patch(PIPELINES / filename)
+def main() -> None:
+    for filename in ("trellis2_image_to_3d.py", "trellis2_texturing.py"):
+        patch(PIPELINES / filename)
+    patch_cpu_bake_budget(ROOT / "vendor" / "trellis-mac" / "generate.py")
+    print(
+        "Patched TRELLIS for pre-matted RGBA inputs and a practical CPU bake budget; "
+        "BRIA will not load."
+    )
 
-patch_cpu_bake_budget(ROOT / "vendor" / "trellis-mac" / "generate.py")
 
-print(
-    "Patched TRELLIS for pre-matted RGBA inputs and a practical CPU bake budget; "
-    "BRIA will not load."
-)
+if __name__ == "__main__":
+    main()

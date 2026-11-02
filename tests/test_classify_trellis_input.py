@@ -53,6 +53,10 @@ def test_summarize_logits_marks_flat_dimensional_and_uncertain():
     }
 
 
+def test_classify_defaults_to_local_files():
+    assert advisor.classify.__kwdefaults__["local_files_only"] is True
+
+
 def test_model_revision_is_pinned():
     assert advisor.MODEL_ID == "wkcn/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M"
     assert len(advisor.MODEL_REVISION) == 40

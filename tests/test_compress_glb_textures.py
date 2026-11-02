@@ -188,10 +188,26 @@ def test_webp_is_declared_used_but_never_required():
 def test_jpeg_keeps_alpha_by_falling_back_to_png():
     """Silently dropping alpha would turn a cutout opaque."""
     with Image.open(io.BytesIO(_png((64, 64), mode="RGBA"))) as image:
-        encoded = cg.encode(image, "jpeg", 90, None)
+        encoded, used = cg.encode(image, "jpeg", 90, None)
+    assert used == "png"
     with Image.open(io.BytesIO(encoded)) as result:
         assert result.format == "PNG"
         assert result.mode in ("RGBA", "LA", "P")
+
+
+def test_an_alpha_albedo_stays_labelled_png_when_jpeg_was_asked():
+    image = Image.new("RGBA", (128, 128), (10, 20, 30, 128))
+    blob = io.BytesIO()
+    image.save(blob, "PNG", compress_level=0)
+    data, _ = _glb([blob.getvalue()])
+    out, report = cg.compress(data, fmt="jpeg")
+    assert report[0]["skipped"] is False
+    document, binary = cg.parse_glb(out)
+    assert document["images"][0]["mimeType"] == "image/png"
+    view = document["bufferViews"][0]
+    payload = binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]]
+    with Image.open(io.BytesIO(payload)) as result:
+        assert result.format == "PNG"
 
 
 def test_a_texture_that_would_grow_is_left_alone():

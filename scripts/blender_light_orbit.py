@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_joint_markers import send
+from blender_scene import isolated_scene_prelude, restore_previous_scene
 
 
 def key_light_rotation(frame: int, frames: int, elevation: float) -> tuple[float, float, float]:
@@ -50,19 +51,7 @@ FRAMES = {frames}
 ELEV = {elevation}
 RES = {res}
 
-# Preserve anything that represents manual work. Joint markers are hand-placed and
-# exist nowhere but the scene until saved, and the armature is built from them; clearing
-# either has already destroyed ~40 minutes of placement once, unrecoverably.
-def _is_precious(o):
-    return o.name.startswith("JOINT_") or o.type == "ARMATURE"
-
-for obj in list(bpy.data.objects):
-    if not _is_precious(obj):
-        bpy.data.objects.remove(obj, do_unlink=True)
-for coll in list(bpy.data.collections):
-    if coll.name != "JOINT_MARKERS" and not coll.objects:
-        bpy.data.collections.remove(coll)
-
+{prelude}
 bpy.ops.import_scene.gltf(filepath=ASSET)
 meshes = [o for o in bpy.data.objects if o.type == "MESH"]
 if not meshes:
@@ -102,7 +91,27 @@ for i, rot in enumerate(rotations, start=1):
     bpy.ops.render.render(write_still=True)
 
 print(json.dumps({{"asset": ASSET, "frames": len(rotations), "written_to": OUT}}))
-'''
+{restore}'''
+
+
+def blender_code(
+    asset: Path,
+    out: Path,
+    frames: int,
+    elevation: float,
+    res: int,
+    rotations: str,
+) -> str:
+    return TEMPLATE.format(
+        prelude=isolated_scene_prelude("IMG3D light orbit"),
+        restore=restore_previous_scene(),
+        asset=str(asset),
+        out=str(out),
+        frames=frames,
+        elevation=elevation,
+        res=res,
+        rotations=rotations,
+    )
 
 
 def main() -> int:
@@ -123,11 +132,10 @@ def main() -> int:
     ]
     import json as _json
 
-    code = TEMPLATE.format(
-        asset=str(args.asset.expanduser().resolve()),
-        out=str(args.out_prefix.expanduser().resolve()),
-        frames=args.frames, elevation=args.elevation, res=args.res,
-        rotations=_json.dumps(rotations),
+    code = blender_code(
+        args.asset.expanduser().resolve(),
+        args.out_prefix.expanduser().resolve(),
+        args.frames, args.elevation, args.res, _json.dumps(rotations),
     )
     print(send(code, args.host, args.port))
     return 0

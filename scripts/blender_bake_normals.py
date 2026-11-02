@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_joint_markers import send
+from blender_scene import isolated_scene_prelude, restore_previous_scene
 
 # glTF is Y-up and Blender is Z-up, so the importer maps (x, y, z) -> (x, -z, y). The
 # high-poly PLY never goes through that: it is written straight out of the generator and
@@ -134,19 +135,7 @@ DEVICE = {device!r}
 MAX_RAY = {max_ray}
 
 t0 = time.time()
-# Preserve anything that represents manual work. Joint markers are hand-placed and
-# exist nowhere but the scene until saved, and the armature is built from them; clearing
-# either has already destroyed ~40 minutes of placement once, unrecoverably.
-def _is_precious(o):
-    return o.name.startswith("JOINT_") or o.type == "ARMATURE"
-
-for obj in list(bpy.data.objects):
-    if not _is_precious(obj):
-        bpy.data.objects.remove(obj, do_unlink=True)
-for coll in list(bpy.data.collections):
-    if coll.name != "JOINT_MARKERS" and not coll.objects:
-        bpy.data.collections.remove(coll)
-
+{prelude}
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=LOW)
 low = [o for o in bpy.data.objects if o not in before and o.type == "MESH"][0]
@@ -273,7 +262,37 @@ print(json.dumps({{
     "written": None if err else OUT,
     "seconds": round(time.time() - t0, 1),
 }}, indent=2))
-'''
+{restore}'''
+
+
+def blender_code(
+    low: Path,
+    high: Path,
+    out: Path,
+    size: int,
+    ray: float,
+    smooth_source: bool,
+    device: str,
+    max_ray: float,
+    decimate_to: int,
+    samples: int,
+    rot_x: bool = False,
+) -> str:
+    return TEMPLATE.format(
+        prelude=isolated_scene_prelude("IMG3D normal bake"),
+        restore=restore_previous_scene(),
+        rot_x=rot_x,
+        low=str(low),
+        high=str(high),
+        out=str(out),
+        size=size,
+        ray=ray,
+        smooth_source=smooth_source,
+        device=device,
+        max_ray=max_ray,
+        decimate_to=decimate_to,
+        samples=samples,
+    )
 
 
 def main() -> int:
@@ -326,14 +345,12 @@ def main() -> int:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     perm_name = args.permutation
-    code = TEMPLATE.format(
-        rot_x=(perm_name == "gltf_to_blender"),
-        low=str(args.low.expanduser().resolve()),
-        high=str(args.high.expanduser().resolve()),
-        out=str(args.out.expanduser().resolve()),
-        size=args.size, ray=args.ray, smooth_source=not args.flat_source,
-        device=args.device, max_ray=args.max_ray,
-        decimate_to=args.decimate_to, samples=args.samples,
+    code = blender_code(
+        args.low.expanduser().resolve(),
+        args.high.expanduser().resolve(),
+        args.out.expanduser().resolve(),
+        args.size, args.ray, not args.flat_source, args.device, args.max_ray,
+        args.decimate_to, args.samples, rot_x=(perm_name == "gltf_to_blender"),
     )
     print(send(code, args.host, args.port))
 

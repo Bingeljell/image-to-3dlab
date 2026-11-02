@@ -68,15 +68,28 @@ def _load_sf3d(repo: Path):
     return SF3D, remove_background, resize_foreground
 
 
+def local_model(model: str) -> str:
+    """A directory of SF3D weights. A hub id is refused when it is not already cached."""
+    from image_to_3dlab import host
+    from image_to_3dlab.weight_gate import require_local
+
+    if Path(model).is_dir():
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        return model
+    route = "AMD" if host.host_platform() == host.AMD else "Mac"
+    return require_local(model, backend="Stable Fast 3D", route=route, size="about 4.9 GB")
+
+
 def _run(
     image_path: Path, output_path: Path, options: SF3DOptions, device: str
 ) -> Path:
+    model_id = local_model(options.model)
     import torch
     from PIL import Image
 
     SF3D, remove_background, resize_foreground = _load_sf3d(options.repo)
     model = SF3D.from_pretrained(
-        options.model, config_name="config.yaml", weight_name="model.safetensors"
+        model_id, config_name="config.yaml", weight_name="model.safetensors"
     ).to(device)
     model.eval()
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Download Hunyuan3D-MLX weights from Hugging Face.
 
-Fetches shape-stage weights (2.1, 2.0, 2.0-turbo -- pick one with --model, or omit for
-all three) into shape/weights/, and paint-stage weights into paint/weights/. Same source
-repos Xiong's own dl_any.py/dl_modelscope.py pull from ModelScope, just via Hugging Face
-Hub instead -- ModelScope was a region workaround for the original author, not something
+The default fetch is shape model 2.0 plus the paint weights, into shape/weights/ and
+paint/weights/. Pass --model to pick 2.1 or 2.0-turbo instead. --all fetches the rest.
+Same source repos as Xiong's dl_any.py and dl_modelscope.py, via Hugging Face
+Hub instead. ModelScope was a region workaround for the original author, not something
 needed here; verified 2026-08-19 that both tencent/Hunyuan3D-2 and tencent/Hunyuan3D-2.1
 are directly reachable.
 
@@ -18,7 +18,7 @@ weights, converted: UNet, VAE, DINOv2-giant and RealESRGAN, in the layout the pa
 code loads.
 
 Usage:
-    shape/.venv/bin/python download_weights.py [--model 2.0] [--skip-paint]
+    shape/.venv/bin/python download_weights.py [--model 2.0] [--skip-paint] [--all]
 """
 
 from __future__ import annotations
@@ -65,6 +65,16 @@ PAINT_FILES = (
     "scheduler/scheduler_config.json",
     "realesrgan/rrdbnet_mlx.safetensors",
 )
+
+
+def converter_can_run() -> bool:
+    """True when this interpreter can run the 2.1 converter, which imports torch."""
+    probe = subprocess.run(
+        [sys.executable, "-c", "import torch"],
+        capture_output=True,
+        check=False,
+    )
+    return probe.returncode == 0
 
 
 def download_shape(model: str) -> None:
@@ -210,6 +220,15 @@ def main() -> int:
     # Nobody chose that, and the extra two models go unused by the default route.
     models = sorted(SHAPE_HF_SOURCES) if args.all else [args.model]
     paint = not args.skip_paint
+
+    if "2.1" in models and not converter_can_run():
+        converter = REPO / "shape" / "scripts" / "convert_v21_ckpt.py"
+        print(
+            f"error: {converter.name} cannot run: {sys.executable} cannot import torch. "
+            "--model 2.1 is not downloaded.",
+            file=sys.stderr,
+        )
+        return 1
 
     if args.yes:
         announce(models, paint=paint)

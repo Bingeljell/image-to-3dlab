@@ -17,7 +17,7 @@ def load_torch_weights(module, sd, renames=(), verbose=False):
     """Load a torch state_dict (dict of mx.array or numpy) into an MLX module.
 
     sd: {torch_key: array}. renames: iterable of (old_substr, new_substr).
-    Raises on missing/extra keys (strict), so shape/name mismatches fail loud.
+    After the update, a parameter the checkpoint left out raises KeyError.
     """
     flat = []
     for k, v in sd.items():
@@ -29,6 +29,32 @@ def load_torch_weights(module, sd, renames=(), verbose=False):
         flat.append((k, arr))
     module.update(tree_unflatten(flat))
     mx.eval(module.parameters())
+    loaded = {key for key, _value in flat}
+    missing = sorted(set(parameter_names(module.parameters())) - loaded)
+    if missing:
+        raise KeyError(f"{len(missing)} missing parameter names, e.g. {missing[:6]}")
     if verbose:
         print(f"loaded {len(flat)} tensors")
     return module
+
+
+def parameter_names(tree):
+    """Dotted names of every leaf in a parameter tree."""
+    names = []
+
+    def walk(node, prefix):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                path = f"{prefix}.{key}" if prefix else str(key)
+                walk(value, path)
+            return
+        if isinstance(node, (list, tuple)):
+            for index, value in enumerate(node):
+                path = f"{prefix}.{index}" if prefix else str(index)
+                walk(value, path)
+            return
+        if prefix:
+            names.append(prefix)
+
+    walk(tree, "")
+    return names

@@ -36,6 +36,15 @@ class Armature(Obj):
         self.data = type("Data", (), {"bones": bones})()
 
 
+def test_refuses_to_save_over_the_opened_blend(tmp_path):
+    module = load_module()
+    opened = tmp_path / "in.blend"
+    opened.write_bytes(b"blend")
+    with pytest.raises(SystemExit, match="opened"):
+        module.refuse_open_blend(opened, str(opened))
+    module.refuse_open_blend(tmp_path / "out.blend", str(opened))
+
+
 def test_resolves_the_single_mesh_and_armature():
     module = load_module()
     scene = [Obj("Camera", "CAMERA"), Obj("geometry_0", "MESH"),

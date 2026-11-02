@@ -69,6 +69,22 @@ def material_summary(gltf: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def signed_volume(mesh) -> float:
+    """Signed volume of the triangle fan.
+
+    Matches trimesh on a closed box, including a reversed winding. A flat
+    mesh is 0. trimesh's own volume divides by this number and warns then.
+    """
+    import numpy as np
+
+    triangles = np.asarray(mesh.triangles, dtype=np.float64)
+    if len(triangles) == 0:
+        return 0.0
+    v0 = triangles[:, 0]
+    crossed = np.cross(triangles[:, 1], triangles[:, 2])
+    return float(np.einsum("ij,ij->i", v0, crossed).sum() / 6.0)
+
+
 def geometry_summary(mesh) -> dict[str, Any]:
     """Topology and shape statistics for one trimesh geometry.
 
@@ -95,7 +111,10 @@ def geometry_summary(mesh) -> dict[str, Any]:
     lengths = np.linalg.norm(verts[mesh.edges[:, 0]] - verts[mesh.edges[:, 1]], axis=1)
 
     # Degenerate or open meshes can yield a nan/inf "volume" rather than raising.
-    volume = float(mesh.volume)
+    # These four describe the position-merged surface. The file's own vertex
+    # list is still split at every texture seam, and reading them from that
+    # copy reports a closed shape as open.
+    volume = signed_volume(merged)
     if not np.isfinite(volume):
         volume = None
 
@@ -105,9 +124,9 @@ def geometry_summary(mesh) -> dict[str, Any]:
         "vertices_merged": len(merged.vertices),
         "boundary_edges": int((counts == 1).sum()),
         "nonmanifold_edges": int((counts > 2).sum()),
-        "watertight": bool(mesh.is_watertight),
-        "winding_consistent": bool(mesh.is_winding_consistent),
-        "euler_number": int(mesh.euler_number),
+        "watertight": bool(merged.is_watertight),
+        "winding_consistent": bool(merged.is_winding_consistent),
+        "euler_number": int(merged.euler_number),
         "volume": volume,
         "face_area_ratio": float(areas.max() / np.median(areas)) if np.median(areas) else None,
         "edge_length_cv": float(lengths.std() / lengths.mean()),

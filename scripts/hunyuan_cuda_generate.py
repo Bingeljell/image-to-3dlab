@@ -329,13 +329,44 @@ def generate_paint(image: Path, mesh_path: Path, output: Path, settings: dict[st
     return seconds
 
 
+def missing_weights(vendor_root: Path, hub: Path | None = None,
+                    shape_only: bool = False) -> list[str]:
+    """Weights the run would otherwise fetch. Same idea as the AMD route's check."""
+    from image_to_3dlab.weight_gate import snapshot_dir
+
+    shape = bootstrap.MODELS / bootstrap.HUNYUAN_REPO
+    checks = {
+        "Hunyuan3D-2.1 shape model": (shape / "hunyuan3d-dit-v2-1").is_dir(),
+        "Hunyuan3D-2.1 shape VAE": (shape / "hunyuan3d-vae-v2-1").is_dir(),
+    }
+    if not shape_only:
+        paint = snapshot_dir(bootstrap.HUNYUAN_REPO, hub)
+        dino = snapshot_dir(bootstrap.DINO_REPO, hub)
+        checks.update({
+            "Hunyuan3D-2.1 PBR paint": paint is not None and (paint / "hunyuan3d-paintpbr-v2-1").exists(),
+            "DINOv2-giant image encoder": dino is not None and (dino / "model.safetensors").is_file(),
+            "RealESRGAN upscaler": realesrgan_path(vendor_root).is_file(),
+        })
+    return [f"missing weights: {name}" for name, present in checks.items() if not present]
+
+
 def generate(image_path: Path, output: Path, vendor_root: Path, settings: dict[str, Any], *,
              shape_only: bool = False, force_matte: bool = False) -> None:
+    from image_to_3dlab.weight_gate import refuse_hub_download
+
     settings = validate(settings)
     problems = verify_paths(vendor_root)
     if problems:
         raise SystemExit("Hunyuan3D-2.1 is not installed:\n  " + "\n  ".join(problems) +
                          "\nRun: python scripts/bootstrap_hunyuan_cuda.py")
+    absent = missing_weights(vendor_root, shape_only=shape_only)
+    if absent:
+        refuse_hub_download(
+            backend="Hunyuan3D-2.1",
+            route="NVIDIA / CUDA",
+            size="about 19.5 GB",
+            detail="\n".join(absent) + "\npython scripts/bootstrap_hunyuan_cuda.py --weights-only",
+        )
     prepared, matte_model = prepare_image(image_path, output, force_matte=force_matte)
     _enter_upstream(vendor_root)
     import torch

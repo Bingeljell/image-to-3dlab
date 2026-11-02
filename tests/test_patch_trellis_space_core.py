@@ -56,7 +56,62 @@ def test_core_patch_does_not_change_model_or_sampler_equations():
         assert target not in source
 
 
-def test_transparent_inputs_can_skip_the_unused_gated_remover():
+def test_the_patch_assigns_none_and_never_names_the_constructor():
+    """The patcher source itself must not be able to spell the remover call."""
     source = SCRIPT.read_text()
-    assert "load_rembg: bool = True" in source
-    assert "if load_rembg else None" in source
+    assert "new_pipeline.rembg_model = None" in source
+    assert "getattr(rembg, args['rembg_model']['name'])" not in source
+
+
+UPSTREAM = (
+    '    def from_pretrained(path: str) -> "Trellis2ImageTo3DPipeline":\n'
+    "        new_pipeline.rembg_model = getattr(rembg, "
+    "args['rembg_model']['name'])(**args['rembg_model']['args'])\n"
+)
+OLD_OPTIONAL = (
+    '    def from_pretrained(path: str, *, load_rembg: bool = True) '
+    '-> "Trellis2ImageTo3DPipeline":\n'
+    "        new_pipeline.rembg_model = (\n"
+    "            getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])\n"
+    "            if load_rembg else None\n"
+    "        )\n"
+)
+
+
+def _pipeline(root: Path) -> Path:
+    return root / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
+
+
+def _tree(tmp_path: Path, source: str) -> Path:
+    root = tmp_path / "TRELLIS.2"
+    path = _pipeline(root)
+    path.parent.mkdir(parents=True)
+    path.write_text(source)
+    return root
+
+
+def test_patch_disables_the_remover_and_is_idempotent(tmp_path):
+    root = _tree(tmp_path, UPSTREAM)
+    assert patcher.is_patched(root) is False
+    assert patcher.patch_optional_rembg(root) is True
+    text = _pipeline(root).read_text()
+    assert "new_pipeline.rembg_model = None" in text
+    assert "getattr(rembg, args['rembg_model']['name'])" not in text
+    assert patcher.is_patched(root) is True
+    assert patcher.patch_optional_rembg(root) is False
+
+
+def test_old_optional_form_is_rewritten_to_none(tmp_path):
+    root = _tree(tmp_path, OLD_OPTIONAL)
+    assert patcher.is_patched(root) is False
+    assert patcher.patch_optional_rembg(root) is True
+    text = _pipeline(root).read_text()
+    assert "new_pipeline.rembg_model = None" in text
+    assert "getattr(rembg, args['rembg_model']['name'])" not in text
+    assert patcher.is_patched(root) is True
+
+
+def test_is_patched_is_false_while_the_constructor_remains(tmp_path):
+    both = UPSTREAM + "        new_pipeline.rembg_model = None\n"
+    root = _tree(tmp_path, both)
+    assert patcher.is_patched(root) is False

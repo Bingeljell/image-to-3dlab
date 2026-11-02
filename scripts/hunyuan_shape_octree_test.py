@@ -15,7 +15,21 @@ import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HUNYUAN_MLX = os.path.join(REPO_ROOT, "vendor", "hunyuan-mlx")
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(HUNYUAN_MLX, "hy3dshape"))
+
+
+def shape_repo() -> str:
+    """The dgrauet shape snapshot on disk. Never the hub id."""
+    from image_to_3dlab.weight_gate import require_local
+
+    return require_local(
+        "dgrauet/hunyuan3d-2.1-mlx",
+        backend="Hunyuan3D-MLX",
+        route="dgrauet shape",
+        size="about 13 GB",
+    )
 
 
 def main() -> None:
@@ -30,10 +44,11 @@ def main() -> None:
     t0 = time.time()
     print(f"[shape octree={octree_resolution}] image={image_path}", flush=True)
 
+    repo = shape_repo()
     from hy3dshape.pipeline_mlx import ShapePipeline
 
     print(f"loading pipeline... ({time.time() - t0:.0f}s)", flush=True)
-    shape_pipe = ShapePipeline.from_pretrained("dgrauet/hunyuan3d-2.1-mlx")
+    shape_pipe = ShapePipeline.from_pretrained(repo)
     print(f"pipeline ready ({time.time() - t0:.0f}s)", flush=True)
 
     print(f"running denoise + marching cubes at octree={octree_resolution}... ({time.time() - t0:.0f}s)", flush=True)

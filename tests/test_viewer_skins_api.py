@@ -84,7 +84,9 @@ def test_a_model_that_cannot_take_a_skin_says_why(output, change, words):
         sk.base_from_asset(output, _asset(**change))
 
 
-def test_a_model_from_before_skins_is_told_to_make_it_again(output):
+def test_a_model_from_before_skins_is_told_to_make_it_again(output, monkeypatch):
+    # an install that keeps shapes, decided here: the real check reads vendor/
+    monkeypatch.setattr(sk, "install_keeps_shapes", lambda: True)
     (output / GEN / f"{GEN}.shape.bin").unlink()
     with pytest.raises(sk.SkinError, match="made before skins"):
         sk.base_from_asset(output, _asset())

@@ -13,6 +13,8 @@ import { STEP_LABELS, stoppedLine, stoppedStep } from './plan.js';
 import { mountSkins } from './skins.js';
 import { installTooltips } from './tooltips.js';
 import { setLibraryLoading, showLibraryError, showLibraryLoadError, runLibraryLoad } from './library-loading.js';
+import { createLibraryPictureLoader } from './library-picture.js';
+import { libraryRowSelection, libraryFamilyOpen } from './library-selection.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
@@ -29,6 +31,8 @@ let libraryReady = false;
 let libraryLoadToken = 0;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
+let createHandle = null;
+let libraryInputId = null;
 let cardPlace = null;  // where the user dragged or resized the progress card; null keeps it centred
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
@@ -70,7 +74,7 @@ function assetButton(asset, { sub = false } = {}) {
   const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
   const when = new Date(asset.updated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const name = sub ? `v${asset.version} · ${statusText(asset)}` : asset.name;
-  return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${!viewingMaking && asset === current}">
+  return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${libraryRowSelection(asset, { current, inputId: libraryInputId, viewingMaking })}">
       <span class="thumb">${thumb}</span>
       <span style="min-width:0"><span class="nm">${asset.main ? '<b class="star" title="Main version">★</b> ' : ''}${escape(name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${sub ? escape(when) : escape(statusText(asset))}</span></span>
     </button>`;
@@ -89,7 +93,7 @@ function renderLibrary() {
   const { rows: list, more, hiddenCount } = visibleFamilies(assets, { filter, query, showHidden, limit, stage: stageFilter, engine: engineFilter, starred: starredOnly, sort: sortBy });
   $('assetList').innerHTML = makingRow() + (list.length ? list.map(({ key, shown, members }) => {
     if (members.length < 2) return `<li>${assetButton(shown)}</li>`;
-    const open = openFamilies.has(key) || members.includes(current);
+    const open = libraryFamilyOpen(members, { key, openFamilies, current, inputId: libraryInputId });
     return `<li class="family">${assetButton(shown)}
       <button type="button" class="vers" data-family="${escape(key)}" aria-expanded="${open}">${members.length} versions <span aria-hidden="true">${open ? '▾' : '▸'}</span></button>
       ${open ? `<ul class="versions">${members.map((m) => `<li>${assetButton(m, { sub: true })}</li>`).join('')}</ul>` : ''}</li>`;
@@ -279,6 +283,13 @@ $('copyPathBtn').addEventListener('click', async (event) => {
 
 // A picture redrawn, brushed or swapped keeps its file name: ask past the browser's copy
 const fresh = (relative) => `${url(relative)}?v=${Date.now()}`;
+const libraryPictureLoader = createLibraryPictureLoader({
+  fetchPicture: (picture) => fetch(picture),
+  freshUrl: fresh,
+  getTarget: () => createHandle,
+  makeFile: (parts, name, options) => new File(parts, name, options),
+  onUsed: (asset) => { libraryInputId = asset.id; renderLibrary(); },
+});
 
 // what the step actions need from the page
 const ctx = {
@@ -368,6 +379,7 @@ $('assetList').addEventListener('click', (event) => {
   if (!button) return;  // the "Show more" row has its own handler
   if (button.dataset.making != null) { showMaking(); return; }
   const asset = assets.find((a) => a.id === button.dataset.id);
+  if (asset?.picture && createHandle?.canUseLibraryPicture()) { useLibraryPicture(asset); return; }
   if (asset && (asset !== current || viewingMaking)) show(asset);
 });
 
@@ -503,7 +515,12 @@ async function loadTools() {
 // ------------------------------------------------------------------ Create
 function openCreateSheet(prefill = null) {
   closeSheet($('stage'));
-  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, pictureEngines, prefill, onStart: (plan) => startChain(plan) });
+  createHandle = openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, pictureEngines, prefill,
+    onSourceChange: () => { libraryInputId = null; renderLibrary(); }, onStart: (plan) => startChain(plan) });
+}
+
+async function useLibraryPicture(asset) {
+  return libraryPictureLoader.load(asset);
 }
 
 $('createBtn').addEventListener('click', () => {

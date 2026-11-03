@@ -817,18 +817,133 @@ def test_create_picture_toggle_preserves_each_advanced_section_open_state():
       globalThis.ResizeObserver = undefined; globalThis.URL = { createObjectURL: () => 'blob:test', revokeObjectURL() {} };
       globalThis.scrollTop = 0;
       const stage = new Node();
-      m.openCreate({ stage, recipes: { goals: { character: {} }, trouble: [] }, engines: [{ id: 'pixal3d', label: 'Pixal3D' }], presets: [], pictureEngines: [], onStart() {} });
+      const handle = m.openCreate({ stage, recipes: { goals: { character: {} }, trouble: [] }, engines: [{ id: 'pixal3d', label: 'Pixal3D' }], presets: [], pictureEngines: [], onStart() {} });
       const sheet = stage.children[0]; const picture = () => sheet.querySelector('[data-detail="picture"]');
       const model = () => sheet.querySelector('[data-detail="model"]');
+      const sourceDrop = sheet.querySelector('[data-drop]');
       const toggle = () => sheet.querySelector('[data-pic="newEachTime"]').dispatch('change');
       picture().open = true; model().open = false; toggle();
       const closed = model().open; const pictureWhileModelClosed = picture().open;
       model().open = true; toggle();
+      const reopened = model().open;
+      sheet.querySelector('[data-have="picture"]').onclick();
+      const pendingSource = handle.sourceRevision();
+      const used = await handle.usePicture({ name: 'library source.png', type: 'image/png', size: 1 });
       console.log(JSON.stringify({ hasPicture: Boolean(picture()), hasModel: Boolean(model()), closed,
-        pictureWhileModelClosed, reopened: model().open, pictureReopened: picture().open }));
+        pictureWhileModelClosed, reopened, source: handle.pictureName(), used,
+        pendingSourceStillCurrent: handle.isSourceCurrent(pendingSource), sourceDropPreserved: sourceDrop === sheet.querySelector('[data-drop]'),
+        modelPreserved: model() === sheet.querySelector('[data-detail="model"]') }));
     """)
-    assert out == {"hasPicture": True, "hasModel": True, "closed": False, "pictureWhileModelClosed": True,
-                   "reopened": True, "pictureReopened": True}
+    assert out == {"hasPicture": False, "hasModel": True, "closed": False, "pictureWhileModelClosed": True,
+                   "reopened": True, "source": "library source.png", "used": True,
+                   "pendingSourceStillCurrent": False, "sourceDropPreserved": True, "modelPreserved": True}
+
+
+@needs_node
+def test_picture_preview_waits_for_decode_before_resolving():
+    out = _run("create.js", """
+      let finish;
+      class FakeImage {
+        set src(value) { this.url = value; }
+        decode() { return new Promise((resolve) => { finish = resolve; }); }
+      }
+      let ready = false;
+      const pending = m.preloadPicture('blob:new', FakeImage).then(() => { ready = true; });
+      await Promise.resolve();
+      const before = ready;
+      finish();
+      await pending;
+      console.log(JSON.stringify({ before, after: ready }));
+    """)
+    assert out == {"before": False, "after": True}
+
+
+@needs_node
+def test_library_picture_loader_ignores_stale_success_and_error_after_source_change():
+    out = _run("library-picture.js", """
+      let pending;
+      const errors = []; const used = [];
+      const selected = [];
+      const target = { revision: 0, sourceRevision() { return this.revision; }, canUseLibraryPicture() { return true; },
+        isSourceCurrent(revision) { return this.revision === revision; },
+        usePicture(file) { used.push(file.name); return true; }, showError(message) { errors.push(message); } };
+      const loader = m.createLibraryPictureLoader({
+        fetchPicture: () => new Promise((resolve, reject) => { pending = { resolve, reject }; }),
+        freshUrl: (picture) => picture, getTarget: () => target,
+        makeFile: (parts, name) => ({ parts, name }),
+        onUsed: (asset) => selected.push(asset.picture),
+      });
+      const first = loader.load({ picture: 'images/old.png' });
+      target.revision = 1;
+      pending.resolve({ ok: true, blob: async () => ({ type: 'image/png' }) });
+      await first;
+      const second = loader.load({ picture: 'images/old.png' });
+      target.revision = 2;
+      pending.reject(new Error('old request failed'));
+      await second;
+      console.log(JSON.stringify({ used, errors, selected }));
+    """)
+    assert out == {"used": [], "errors": [], "selected": []}
+
+
+@needs_node
+def test_library_picture_loader_marks_only_a_successful_source_as_selected():
+    out = _run("library-picture.js", """
+      let resolveFetch;
+      const selected = []; const target = { sourceRevision: () => 0, canUseLibraryPicture: () => true,
+        isSourceCurrent: () => true, usePicture: () => true, showError() {} };
+      const loader = m.createLibraryPictureLoader({
+        fetchPicture: () => new Promise((resolve) => { resolveFetch = resolve; }),
+        freshUrl: (picture) => picture, getTarget: () => target,
+        makeFile: (parts, name) => ({ parts, name }), onUsed: (asset) => selected.push(asset.id),
+      });
+      const pending = loader.load({ id: 'library-1', picture: 'images/one.png' });
+      resolveFetch({ ok: true, blob: async () => ({ type: 'image/png' }) });
+      await pending;
+      console.log(JSON.stringify(selected));
+    """)
+    assert out == ["library-1"]
+
+
+@needs_node
+def test_library_input_selection_renders_the_input_version_and_opens_its_family():
+    out = _run("library-selection.js", """
+      const viewerAsset = { id: 'viewer', family: 'family' };
+      const inputAsset = { id: 'input-version', family: 'family' };
+      const members = [viewerAsset, inputAsset];
+      const options = { current: viewerAsset, inputId: inputAsset.id, viewingMaking: false };
+      console.log(JSON.stringify({
+        inputRow: { className: 'asset', ariaCurrent: String(m.libraryRowSelection(inputAsset, options)) },
+        viewerRow: { className: 'asset', ariaCurrent: String(m.libraryRowSelection(viewerAsset, options)) },
+        familyOpen: m.libraryFamilyOpen(members, { key: 'family', openFamilies: new Set(), current: viewerAsset, inputId: inputAsset.id }),
+      }));
+    """)
+    assert out == {"inputRow": {"className": "asset", "ariaCurrent": "true"},
+                   "viewerRow": {"className": "asset", "ariaCurrent": "false"}, "familyOpen": True}
+
+
+@needs_node
+def test_library_picture_loader_ignores_old_request_after_create_reopens():
+    out = _run("library-picture.js", """
+      let pending;
+      const used = [];
+      const oldTarget = { sourceRevision: () => 0, canUseLibraryPicture: () => true,
+        isSourceCurrent: () => true, usePicture: () => used.push('old'), showError() {} };
+      const newTarget = { sourceRevision: () => 0, canUseLibraryPicture: () => true,
+        isSourceCurrent: () => true, usePicture: () => used.push('new'), showError() {} };
+      let target = oldTarget;
+      const loader = m.createLibraryPictureLoader({
+        fetchPicture: () => new Promise((resolve) => { pending = resolve; }),
+        freshUrl: (picture) => picture, getTarget: () => target,
+        makeFile: (parts, name) => ({ parts, name }),
+      });
+      const old = loader.load({ picture: 'images/old.png' });
+      target = newTarget;
+      pending({ ok: true, blob: async () => ({ type: 'image/png' }) });
+      await old;
+      console.log(JSON.stringify(used));
+    """)
+    assert out == []
 
 
 @needs_node

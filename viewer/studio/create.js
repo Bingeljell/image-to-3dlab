@@ -75,6 +75,19 @@ export function freshSeed(random = Math.random) {
   return Math.floor(random() * 2147483647);
 }
 
+export function preloadPicture(url, ImageCtor = globalThis.Image) {
+  if (!ImageCtor) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const image = new ImageCtor();
+    let settled = false;
+    const done = (error) => { if (settled) return; settled = true; error ? reject(error) : resolve(); };
+    image.onload = () => done();
+    image.onerror = () => done(new Error('The picture preview could not be loaded.'));
+    image.src = url;
+    image.decode?.().then(() => done(), () => {});
+  });
+}
+
 export function fitTextarea(textarea) {
   textarea.style.height = 'auto';
   const border = Math.max(0, (textarea.offsetHeight || 0) - (textarea.clientHeight || 0));
@@ -93,12 +106,13 @@ export function detailStates(details) {
 }
 
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
-export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart }) {
+export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart, onSourceChange = null }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
   let textResize = null;
   let firstRender = true;
+  let sourceRevision = 0;
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
     backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
@@ -122,10 +136,14 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   };
   document.addEventListener('paste', onPaste);
   // the chosen picture, shown back so you can tell it is the right one; the URL is released when it changes
-  const setFile = (file) => {
-    if (state.preview) URL.revokeObjectURL(state.preview);
+  const setFile = (file, { deferPreviewRevoke = false } = {}) => {
+    const previousPreview = state.preview;
     state.file = file;
+    sourceRevision += 1;
+    onSourceChange?.(file);
     state.preview = file && (file.type.startsWith('image/') || PICTURE_TYPES.test(file.name)) ? URL.createObjectURL(file) : null;
+    if (previousPreview && !deferPreviewRevoke) URL.revokeObjectURL(previousPreview);
+    return previousPreview;
   };
   const setBack = (file) => {
     if (state.backPreview) URL.revokeObjectURL(state.backPreview);
@@ -162,7 +180,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ? `<label class="field">Describe it<textarea data-k="text" rows="3" placeholder="${state.want === 'character' ? 'A stylised orc blacksmith with short tusks, a braided beard and heavy boots' : state.want === 'picture' ? 'Concept art of an orc blacksmith at a glowing forge' : 'A weathered wooden tavern barrel with iron bands'}">${esc(state.text)}</textarea></label>
          ${recipe?.wording ? `<label class="check addline"><input type="checkbox" data-k="recipe" ${state.useRecipe ? 'checked' : ''}><span><b>We add:</b> ${esc(recipe.wording)}</span></label>` : ''}
          <div class="warnings" aria-live="polite"></div>`
-      : `<div class="drop" data-drop tabindex="0" role="button">${state.file ? `${state.preview ? `<img class="droppreview" src="${state.preview}" alt="The picture you chose">` : ''}<b>${esc(state.file.name)}</b><br><span class="hint">${fileSizeText(state.file.size)} · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>` : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`}</div>`;
+      : `<div class="drop" data-drop tabindex="0" role="button">${sourceDropContent()}</div>`;
     sheet.innerHTML = `<form class="sheet-card" novalidate>
       <div class="sheet-top"><h2>What should we <span>make?</span></h2><button type="button" class="ghost" data-close>Cancel</button></div>
       <div class="quick">${quick.map(([w, h, t]) => `<button type="button" class="qs${w === state.want && h === state.have ? ' on' : ''}" data-w="${w}" data-h="${h}">${t}</button>`).join('')}</div>
@@ -191,6 +209,24 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ` · the picture uses ${esc(picEngine()?.label || 'the picture engine')}, run on this machine` : ''}</span><button type="submit" class="primary">Make it</button></div>
     </form>`;
     wire(active);
+  };
+
+  const sourceDropContent = () => state.file
+    ? `${state.preview ? `<img class="droppreview" data-source-preview src="${state.preview}" alt="The picture you chose">` : ''}<b data-source-name>${esc(state.file.name)}</b><br><span class="hint"><span data-source-size>${fileSizeText(state.file.size)}</span> · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>`
+    : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`;
+
+  const updateSourcePreview = () => {
+    const drop = sheet.querySelector('[data-drop]');
+    if (!drop) return true;
+    const image = drop.querySelector('[data-source-preview]');
+    const name = drop.querySelector('[data-source-name]');
+    const size = drop.querySelector('[data-source-size]');
+    if (image && state.preview && name && size) {
+      image.src = state.preview;
+      name.textContent = state.file.name;
+      size.textContent = fileSizeText(state.file.size);
+    } else drop.innerHTML = sourceDropContent();
+    return true;
   };
 
   const warn = () => {
@@ -299,6 +335,36 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   sheet.addEventListener('drop', (e) => { e.preventDefault(); takeFile(e.dataTransfer.files[0]); });
   sheet.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   render();
+  return {
+    canUseLibraryPicture: () => state.have === 'picture' && sheet.isConnected !== false,
+    sourceRevision: () => sourceRevision,
+    isSourceCurrent: (revision) => sourceRevision === revision && sheet.isConnected !== false,
+    usePicture: async (file) => {
+      if (!file || sheet.isConnected === false) return false;
+      state.have = 'picture';
+      const previousPreview = setFile(file, { deferPreviewRevoke: true });
+      const revision = sourceRevision;
+      const nextPreview = state.preview;
+      try {
+        await preloadPicture(nextPreview);
+      } catch {
+        if (nextPreview && state.preview === nextPreview) URL.revokeObjectURL(nextPreview);
+        return false;
+      }
+      if (sourceRevision !== revision || sheet.isConnected === false) {
+        if (nextPreview && state.preview === nextPreview) URL.revokeObjectURL(nextPreview);
+        return false;
+      }
+      updateSourcePreview();
+      if (previousPreview) URL.revokeObjectURL(previousPreview);
+      return true;
+    },
+    pictureName: () => state.file?.name || null,
+    showError: (message) => {
+      const error = sheet.querySelector('[data-error]');
+      if (error) { error.textContent = message; error.hidden = false; }
+    },
+  };
 }
 
 /**

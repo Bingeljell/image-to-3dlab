@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Setup scripts say `uv sync` instead of pointing at the requirements files this release
   removed.
 - A run that dies before its first step says Stopped. It used to say "Stopped at undefined". When the step is known, the library names it.
+- Clicking a Library picture while Create starts from a picture now fills the picture source instead of closing Create.
 - Library filter dropdowns now wrap when the sidebar is narrow, so their selected labels and arrows stay readable.
 - The Library shows a compact loading state before its search and filters appear, and offers a retry if loading fails.
 - Tooltips at the edge of the studio now flip or clamp into the browser window instead of being clipped.

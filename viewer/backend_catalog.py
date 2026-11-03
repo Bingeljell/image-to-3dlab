@@ -907,7 +907,8 @@ CATALOG: tuple[Backend, ...] = (
         best_for=("Cuts the subject out before every generator, keeping the thin and "
                   "light-coloured parts the built-in u2net loses."),
         tradeoff=("Comes with every 3D engine that needs it. Install it here if a run "
-                  "says it is missing."),
+                  "says it is missing. Have the older, heavier copy? This lighter file "
+                  "replaces it: half the memory per cut-out, and the old file is removed."),
         license_name="MIT",
         license_url="https://github.com/ZhengPeng7/BiRefNet",
         install="scripts/bootstrap_matte.py",

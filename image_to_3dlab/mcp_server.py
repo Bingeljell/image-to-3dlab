@@ -541,7 +541,19 @@ def status(studio: Studio) -> dict[str, Any]:
         "usage_counts": usage_question(studio),
         "news": news_for_agent(studio),
         "models_folder": models_folder(studio),
+        "tip": remover_tip(catalog),
     }
+
+
+def remover_tip(catalog: dict[str, Any]) -> str | None:
+    """Suggest the lighter background remover when an engine is running on the older one."""
+    cards = {b.get("id"): b for b in catalog.get("backends", [])}
+    remover = cards.get("matte")
+    if not remover or remover.get("state") == "ready" or not ready_engines(catalog):
+        return None
+    return ("A lighter background remover is available (BiRefNet-lite, MIT): about half the memory per "
+            "cut-out, and it replaces the older file if one is there. Offer it to the user; install_backend('matte') "
+            "says the size and asks first.")
 
 
 def models_folder(studio: Studio) -> str | None:

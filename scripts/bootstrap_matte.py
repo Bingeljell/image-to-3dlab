@@ -12,8 +12,9 @@ weights exported with ONNX's built-in DeformConv layer, which needs about 4 GB o
 cut-out where rembg's copy of the same model needed 9.5 GB. Saved where rembg looks
 (`~/.u2net`, or `$U2NET_HOME`) and checked against its SHA-256 before it is kept.
 
-A machine that already has rembg's copy keeps working with it; `--check` reports it as not
-installed, so Setup & Status offers the lighter file.
+A machine that already has rembg's copy (224 MB) keeps working with it; `--check` reports it
+as not installed, so Setup & Status offers the lighter file. Installing the lighter file
+removes the older copy once the new one loads, and running this again removes a leftover one.
 
 Nothing is fetched without an explicit yes: AGENTS.md forbids weight downloads the user
 has not chosen.
@@ -34,9 +35,20 @@ from image_to_3dlab import matte
 
 
 def announcement() -> str:
-    return (f"Background remover: BiRefNet-lite ({matte.LEAN_BYTES / 1e6:.0f} MB, MIT)\n"
+    text = (f"Background remover: BiRefNet-lite ({matte.LEAN_BYTES / 1e6:.0f} MB, MIT)\n"
             f"  from   {matte.LEAN_URL}\n"
             f"  to     {matte.model_file(matte.LEAN_MODEL)}")
+    older = matte.model_file(matte.LITE_MODEL)
+    if older.is_file():
+        text += (f"\n  then removes the older copy it replaces ({matte.LITE_BYTES / 1e6:.0f} MB)"
+                 f"\n         {older}")
+    return text
+
+
+def retire_older_copy() -> None:
+    removed = matte.retire_older_copy()
+    if removed:
+        print(f"  removed the older remover file {removed} ({matte.LITE_BYTES / 1e6:.0f} MB)")
 
 
 def sha256_of(path: Path) -> str:
@@ -57,6 +69,7 @@ def install_if_missing(target: Path | None = None, download=None) -> None:
     print(f"\nFetching BiRefNet-lite ({matte.LEAN_BYTES / 1e6:.0f} MB)...", flush=True)
     download(target)
     print(f"  background remover in {target}")
+    retire_older_copy()
 
 
 def download(target: Path, opener=urllib.request.urlopen) -> Path:
@@ -83,6 +96,8 @@ def main(argv: list[str] | None = None, ask=input) -> int:
     target = matte.model_file(matte.LEAN_MODEL)
     if target.is_file():
         print(f"BiRefNet-lite is installed: {target}")
+        if not args.check:
+            retire_older_copy()
         return 0
     if args.check:
         print("BiRefNet-lite is not installed")
@@ -100,6 +115,7 @@ def main(argv: list[str] | None = None, ask=input) -> int:
             return 1
     download(target)
     print(f"Installed {target}")
+    retire_older_copy()
     return 0
 
 

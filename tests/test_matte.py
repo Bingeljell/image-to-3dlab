@@ -51,7 +51,7 @@ def test_lite_is_used_once_installed(tmp_path, monkeypatch):
 
 def test_falling_back_says_how_to_get_lite():
     assert "Setup & Status" in mt.fallback_note("u2net")
-    assert mt.fallback_note("birefnet-general-lite") is None
+    assert mt.fallback_note(mt.LEAN_MODEL) is None
 
 
 def test_edge_pixels_take_the_subjects_colour_not_the_backdrops():
@@ -242,3 +242,33 @@ def test_a_lean_file_that_will_not_load_falls_back_instead_of_failing(tmp_path, 
     session = mt.new_session()
     assert session.model_name == "birefnet-general-lite"
     assert "lean remover would not load" in capsys.readouterr().out
+
+
+def test_the_older_file_stays_when_the_lighter_one_will_not_load(tmp_path, monkeypatch):
+    """The older file is the fallback for an onnxruntime too old for the lean file."""
+    monkeypatch.setenv("U2NET_HOME", str(tmp_path))
+    older = mt.model_file(mt.LITE_MODEL)
+    older.write_bytes(b"x")
+    mt.model_file(mt.LEAN_MODEL).write_bytes(b"lean")
+
+    def broken(path):
+        raise RuntimeError("no DeformConv")
+
+    assert mt.retire_older_copy(loads=broken) is None
+    assert older.exists()
+    assert mt.retire_older_copy(loads=lambda path: object()) == older
+    assert not older.exists()
+
+
+def test_nothing_is_removed_without_the_lighter_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("U2NET_HOME", str(tmp_path))
+    older = mt.model_file(mt.LITE_MODEL)
+    older.write_bytes(b"x")
+    assert mt.retire_older_copy(loads=lambda path: object()) is None
+    assert older.exists()
+
+
+def test_a_run_on_the_older_file_points_to_the_lighter_one():
+    note = mt.fallback_note(mt.LITE_MODEL)
+    assert "Setup & Status" in note and "181 MB" in note and "removed" in note
+    assert mt.fallback_note(mt.LEAN_MODEL) is None

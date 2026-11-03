@@ -7,8 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- Long steps, such as Hero's head build, no longer show as stalled while they are still working.
+## [0.5.7] - 2026-11-03
 
 ### Changed
 - Installing the lighter background remover now removes the older, heavier copy it replaces (224 MB), once
@@ -17,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - 3D engines no longer show as "partly downloaded", or get refused when an agent asks for them, on installs
   from before 0.5.5. The background remover you already have counts again.
+- Long steps, such as Hero's head build, no longer show as stalled while they are still working.
 
 ## [0.5.6] - 2026-11-02
 

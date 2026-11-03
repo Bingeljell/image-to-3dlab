@@ -62,13 +62,28 @@ def test_a_rotated_or_different_mesh_is_refused():
     """The orc bake on 2026-09-27 read a spread of 2.06 and baked garbage without complaint."""
     fit = bd.fit(high_size=(0.906, 0.876, 0.612), low_size=(0.908, 0.611, 0.879))
     assert not fit.ok
-    assert fit.spread > 1.4
+    assert fit.spread > 1.4 and fit.mismatch > 0.25
 
 
 def test_the_real_orc_pair_is_accepted():
     """Axis ratios measured on the aligned orc bake: 1.0021, 0.9986, 1.0035."""
     fit = bd.fit(high_size=(1.0, 1.0, 1.0), low_size=(1.0021, 0.9986, 1.0035))
     assert fit.ok
+
+
+def test_a_thin_figure_trimmed_by_a_low_triangle_count_still_bakes():
+    """Fencehand at 5k, 2026-11-03: 1.5 cm off a 19 cm-deep, 88 cm-tall figure read as an
+    8% spread on the depth and the bake was refused. Against the figure it is under 2%."""
+    fit = bd.fit(high_size=(0.637, 0.884, 0.190), low_size=(0.629, 0.870, 0.175))
+    assert fit.spread > 1.05          # what the old per-axis check refused
+    assert fit.ok and fit.mismatch < 0.02
+    assert fit.scale == pytest.approx(0.870 / 0.884)   # from the tallest side, not an average
+
+
+def test_a_missing_chunk_of_the_figure_is_still_refused():
+    """A low mesh that lost a whole limb's width is not the same shape."""
+    fit = bd.fit(high_size=(0.637, 0.884, 0.190), low_size=(0.55, 0.870, 0.175))
+    assert not fit.ok
 
 
 def test_a_degenerate_mesh_is_refused_rather_than_divided_by():

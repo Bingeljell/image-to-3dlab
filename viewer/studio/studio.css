@@ -41,6 +41,10 @@ a { color: inherit; }
 }
 .tip-left[data-tip]:hover::after, .tip-left[data-tip]:focus-visible::after { left: auto; right: 0; transform: none; }
 .tip-up[data-tip]:hover::after, .tip-up[data-tip]:focus-visible::after { top: auto; bottom: calc(100% + 8px); }
+[data-tip][data-tip-v="down"]:hover::after, [data-tip][data-tip-v="down"]:focus-visible::after { top: calc(100% + 8px); bottom: auto; }
+[data-tip][data-tip-v="up"]:hover::after, [data-tip][data-tip-v="up"]:focus-visible::after { top: auto; bottom: calc(100% + 8px); }
+[data-tip][data-tip-h="left"]:hover::after, [data-tip][data-tip-h="left"]:focus-visible::after { left: 0; right: auto; transform: none; }
+[data-tip][data-tip-h="right"]:hover::after, [data-tip][data-tip-h="right"]:focus-visible::after { left: auto; right: 0; transform: none; }
 
 /* top bar */
 .bar { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }

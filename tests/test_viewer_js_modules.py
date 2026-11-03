@@ -529,6 +529,31 @@ def test_picture_overlay_leaves_room_for_stage_heading():
     assert "var(--sv-picture-max-height, 78vh)" in css
 
 
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_tooltip_placement_flips_and_clamps_at_viewport_edges():
+    """The shared tooltip geometry keeps top, bottom, left and right edge tips visible."""
+    module_url = (REPO / "viewer" / "studio" / "tooltips.js").as_uri()
+    program = f"""
+      const {{ tooltipPlacement }} = await import({json.dumps(module_url)});
+      const viewport = {{ width: 800, height: 600 }};
+      console.log(JSON.stringify([
+        tooltipPlacement({{ top: 20, bottom: 70, left: 300, right: 400 }}, viewport, 'up'),
+        tooltipPlacement({{ top: 500, bottom: 580, left: 300, right: 400 }}, viewport, 'down'),
+        tooltipPlacement({{ top: 200, bottom: 250, left: 10, right: 90 }}, viewport, 'down'),
+        tooltipPlacement({{ top: 200, bottom: 250, left: 750, right: 790 }}, viewport, 'down'),
+        tooltipPlacement({{ top: 200, bottom: 250, left: 300, right: 400 }}, viewport, 'down'),
+      ]));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [
+        {"vertical": "down", "horizontal": ""},
+        {"vertical": "up", "horizontal": ""},
+        {"vertical": "down", "horizontal": "left"},
+        {"vertical": "down", "horizontal": "right"},
+        {"vertical": "down", "horizontal": ""},
+    ]
+
+
 def viewer_scripts() -> list[Path]:
     """Every first-party viewer script; vendored libraries are someone else's to parse."""
     viewer = REPO / "viewer"

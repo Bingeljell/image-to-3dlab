@@ -11,9 +11,11 @@ import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
 import { STEP_LABELS, stoppedLine, stoppedStep } from './plan.js';
 import { mountSkins } from './skins.js';
+import { installTooltips } from './tooltips.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
+installTooltips();
 
 let base = '/output/';
 let assets = [];

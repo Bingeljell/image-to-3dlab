@@ -250,7 +250,9 @@ class ChainRunner:
                 self.sleep(self.poll)
                 continue
             event = payload.get("last_event") or {}
-            key = json.dumps(event, sort_keys=True) + str(len(payload.get("log_tail") or ""))
+            # The tail's words, not its length: the tail is capped, so once a log outgrows it
+            # the length never changes again and every long step looked stalled.
+            key = json.dumps(event, sort_keys=True) + (payload.get("log_tail") or "")[-500:]
             if key != last_key:
                 last_key, chain.last_change = key, self.now()
             chain.percent = _percent(event)

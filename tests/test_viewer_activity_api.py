@@ -545,3 +545,29 @@ def test_only_the_latest_runs_are_remembered(tmp_path):
         runner.submit(chain, background=False)
     assert len(runner.chains) == aa.KEEP_CHAINS
     assert {c.title for c in runner.chains.values()} == {f"r{i}" for i in range(5, aa.KEEP_CHAINS + 5)}
+
+
+def test_new_lines_in_a_full_log_tail_count_as_progress(tmp_path):
+    """The tail is capped (4000 characters), so its length stops changing on a long step.
+    New lines must still count, or every long Hero head build read as stalled."""
+    tails = iter(["a" * 3990 + "line one\n", "a" * 3981 + "line one\nline two\n"])
+    polls = {"n": 0}
+
+    def request(method, path, body, content_type):
+        if method == "POST":
+            return 202, {"job_id": "j", "status_url": "/api/finish/j/status"}
+        polls["n"] += 1
+        if polls["n"] <= 2:
+            return 200, {"status": "running", "last_event": {"phase": "head"}, "log_tail": next(tails)}
+        return 200, {"status": "error", "error": "stop here", "log_tail": ""}
+
+    for name in ("m.glb", "p.png"):
+        (tmp_path / name).write_bytes(b"x")
+    clock = iter(range(0, 1000, 100))
+    changes = []
+    chain = aa.Chain(title="x", steps=["finished"], made={"model": "m.glb", "picture": "p.png"})
+    runner = aa.ChainRunner(tmp_path, request, poll=0, now=lambda: float(next(clock)),
+                            sleep=lambda s: changes.append(chain.last_change))
+    runner.submit(chain, background=False)
+    assert polls["n"] == 3, chain.error
+    assert len(set(changes[:2])) == 2   # the second poll's new line moved the clock on

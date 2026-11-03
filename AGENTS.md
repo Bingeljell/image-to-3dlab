@@ -71,6 +71,7 @@ Follow **[Keep a Changelog](https://keepachangelog.com)** in `CHANGELOG.md`.
 
 ```bash
 python -m pip install -r requirements-dev.txt
+pre-commit install            # once: git commit then runs ruff
 PYTHONPATH=. pytest -q
 ruff check .
 python pipeline.py --help

@@ -1,0 +1,20 @@
+# Official hooks: ruff-pre-commit (Astral) and pre-commit-hooks.
+# ruff rev matches requirements-dev.txt (ruff==0.16.1) so `ruff check` and git commit agree.
+# No ruff-format: the lab has never been through the formatter.
+exclude: ^(hunyuan_mlx/|vendor/|characters/|journal/|output/|videos/|assets_to_test/)
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        types_or: [python, pyi]

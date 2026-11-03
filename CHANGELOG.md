@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- pre-commit: `ruff check` at the pinned Ruff, plus YAML/TOML, merge markers, huge files and
+  private keys. Install once with `pre-commit install`.
+
 ### Fixed
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 

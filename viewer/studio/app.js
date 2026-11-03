@@ -5,6 +5,7 @@ import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFi
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails, logScroll, moveBox, resizeBox } from './jobs.js';
 import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
+import { retryWant } from './plan.js';
 import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
@@ -128,7 +129,10 @@ function renderSteps(asset) {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
     wireBrush(card, asset, ctx);
     wireVersions(card, asset, ctx);
-    card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({ text: asset.prompt, want: asset.kind === 'prop' ? 'prop' : 'character' }));
+    card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({
+      text: asset.prompt, want: retryWant(asset.picture_want, asset.kind),
+      pictureSettings: asset.picture_settings,
+    }));
   });
   $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
     if (viewingPictures) { show(asset); return; }

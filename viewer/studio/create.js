@@ -1,7 +1,7 @@
 // Create: one sheet that asks "start from" and "I want", then a runner that carries one
 // thing through every step it needs, using the same job APIs as the Steps panel.
 
-import { HAVES, WANTS, ALLOWED, STEP_LABELS, FULL_GUIDE, planFor, stopAfter, composePrompt, troubleFor } from './plan.js';
+import { HAVES, WANTS, ALLOWED, STEP_LABELS, FULL_GUIDE, planFor, stopAfter, composePrompt, normalizePromptText, troubleFor } from './plan.js';
 import { plainError } from './jobs.js';
 import { openPromptGuide, isGuideLink } from './guide.js';
 
@@ -32,11 +32,24 @@ export function pastedPicture(clipboard, now = Date.now) {
  * The picture job's settings from Create's choices. A new seed each time by default, so the
  * same prompt gives fresh tries; a fixed seed gives the same picture back.
  */
-export function pictureSettings({ size = 768, steps = 8, newEachTime = true, seed = 42 } = {}, random = Math.random) {
-  const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 768;
+export function pictureSettings({ size = 1024, steps = 8, newEachTime = true, seed = 42 } = {}, random = Math.random) {
+  const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 1024;
   const count = Math.max(1, Math.min(50, Math.round(Number(steps)) || 10));
   const fixed = Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : 42;
   return { width: side, height: side, steps: count, seed: newEachTime ? freshSeed(random) : fixed };
+}
+
+/** The saved controls to offer when drawing a Library picture again, or nothing for older pictures. */
+export function retryPictureSettings(settings) {
+  if (!settings || typeof settings !== 'object') return null;
+  const steps = Number(settings.steps);
+  const seed = Number(settings.seed);
+  if (!Number.isFinite(steps) || !Number.isSafeInteger(seed)) return null;
+  const restored = { steps: Math.max(1, Math.min(50, Math.round(steps))), seed, touched: true };
+  const width = Number(settings.width), height = Number(settings.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) restored.size = 1024;
+  else if (width === height && [512, 768, 1024].includes(width)) restored.size = width;
+  return restored;
 }
 
 /**
@@ -45,7 +58,7 @@ export function pictureSettings({ size = 768, steps = 8, newEachTime = true, see
  */
 export function pictureDefaults(engine, pictureOnly = false) {
   const defaults = engine?.defaults || {};
-  return { size: defaults.width || 768, steps: (pictureOnly && engine?.picture_only_steps) || defaults.steps || 8 };
+  return { size: defaults.width || 1024, steps: (pictureOnly && engine?.picture_only_steps) || defaults.steps || 8 };
 }
 
 /**
@@ -62,15 +75,23 @@ export function freshSeed(random = Math.random) {
   return Math.floor(random() * 2147483647);
 }
 
+export function fitTextarea(textarea) {
+  textarea.style.height = 'auto';
+  const border = Math.max(0, (textarea.offsetHeight || 0) - (textarea.clientHeight || 0));
+  textarea.style.height = textarea.scrollHeight + border + 'px';
+  textarea.style.overflowY = 'hidden';
+}
+
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
 export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
+  let textResize = null;
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
     backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
+    pic: { size: 1024, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
     picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // size and steps follow the picture engine and whether the picture is the end product, until you set them
@@ -78,6 +99,8 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   const fitPicture = (pictureOnly) => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), pictureOnly)); };
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
+  const retryPicture = retryPictureSettings(prefill?.pictureSettings);
+  if (retryPicture) Object.assign(state.pic, retryPicture);
   // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
   const onPaste = (e) => {
     const picture = pastedPicture(e.clipboardData);
@@ -98,10 +121,12 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     state.backPreview = file ? URL.createObjectURL(file) : null;
   };
   // run by closeSheet too, so a sheet closed from outside (a Library click) leaves no listener behind
-  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); setFile(null); setBack(null); };
+  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); textResize?.disconnect(); setFile(null); setBack(null); };
   const close = () => { sheet.onSheetClose(); sheet.remove(); };
 
   const render = () => {
+    textResize?.disconnect();
+    textResize = null;
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
     const installedPictures = pictureEngines.filter((e) => e.installed);
     const pixal = state.engine === 'pixal3d';
@@ -142,7 +167,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
         <div class="picset">
           ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
-          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 768) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 1024) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
           <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">Each extra step adds the same time again.</span></label>
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
@@ -181,7 +206,20 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       if (link && isGuideLink(link.href)) { e.preventDefault(); openPromptGuide(); }
     });
     const text = q('[data-k="text"]');
-    if (text) { text.oninput = () => { state.text = text.value; warn(); }; warn(); }
+    if (text) {
+      fitTextarea(text);
+      text.oninput = () => { state.text = text.value; fitTextarea(text); warn(); };
+      if (typeof ResizeObserver !== 'undefined') {
+        let width = text.clientWidth;
+        textResize = new ResizeObserver(() => {
+          if (text.clientWidth === width) return;
+          width = text.clientWidth;
+          fitTextarea(text);
+        });
+        textResize.observe(text);
+      }
+      warn();
+    }
     q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
@@ -224,7 +262,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       const backFile = backSlotShown(state, frontBack, active) ? state.backFile : null;
       close();
       onStart({ have: state.have, want: state.want, steps: active, file, engine: state.engine, firstMove: state.firstMove,
-        description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
+        description: normalizePromptText(state.text), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
         pictureEngine: active.includes('picture') ? state.picEngine : null,
         backFile,

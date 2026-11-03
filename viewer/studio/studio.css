@@ -245,6 +245,7 @@ body.busy .step .body [data-run] { opacity: .5; pointer-events: none; }
 .tipsbox > b { color: var(--flame); font-weight: 600; }
 .haves { grid-template-columns: repeat(3, 1fr); }
 textarea { width: 100%; background: #110d0b; border: 1px solid var(--line); border-radius: 9px; padding: 10px; color: var(--bone); resize: vertical; line-height: 1.45; }
+textarea[data-k="text"] { overflow-y: hidden; resize: none; }
 .addline { color: var(--ash); font-size: 12.5px; } .addline b { color: var(--bone); font-weight: 600; }
 .warning { margin: 0; font-size: 12.5px; color: #f6dfa4; background: rgb(242 193 78 / .08); border: 1px solid rgb(242 193 78 / .3); border-radius: 8px; padding: 7px 10px; }
 .warnings { display: grid; gap: 6px; }

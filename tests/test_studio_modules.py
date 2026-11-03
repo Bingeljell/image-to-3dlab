@@ -532,13 +532,36 @@ def test_the_prompt_gets_the_goals_wording_and_warnings_for_trouble_words():
         propCape: m.troubleFor('a cape on a hook', 'prop', r).length,
         notInside: m.troubleFor('a landscaper gnome', 'character', r).length,
       }}));""")
-    assert out["added"].startswith("An orc blacksmith with short tusks, full body, front view, "
+    assert out["added"].startswith("An orc blacksmith with short tusks. full body, front view, "
                                    "standing in an A-pose")
     assert out["off"] == "An orc blacksmith"
     assert out["picture"] == "A sunset over hills"
     assert out["warnCape"] == ["cape", "holding"]
     assert out["propCape"] == 0            # capes are fine on a prop
     assert out["notInside"] == 0           # "landscaper" is not "landscape"
+
+
+@needs_node
+def test_prompt_text_flattens_line_breaks_without_losing_punctuation():
+    text = "A brass robot.\r\n  Its boots are blue,\rwith a red scarf."
+    period = "A brass robot.\n"
+    comma = "A brass robot,\r"
+    out = _run("plan.js", f"""
+      const r = {json.dumps(RECIPES)};
+      const text = {json.dumps(text)};
+      console.log(JSON.stringify({{
+        plain: m.normalizePromptText(text),
+        withoutRecipe: m.composePrompt(text, 'character', r, false),
+        withPeriod: m.composePrompt({json.dumps(period)}, 'character', r),
+        withComma: m.composePrompt({json.dumps(comma)}, 'character', r),
+        withoutPunctuation: m.composePrompt('A brass robot', 'character', r),
+      }}));""")
+    assert out["plain"] == "A brass robot. Its boots are blue, with a red scarf."
+    assert out["withoutRecipe"] == out["plain"]
+    wording = RECIPES["goals"]["character"]["wording"]
+    assert out["withPeriod"] == f"A brass robot. {wording}"
+    assert out["withComma"] == f"A brass robot, {wording}"
+    assert out["withoutPunctuation"] == f"A brass robot, {wording}"
 
 
 @needs_node
@@ -664,11 +687,71 @@ def test_create_makes_a_fresh_picture_each_time_unless_a_seed_is_kept():
     out = _run("create.js", """
       const fresh = m.pictureSettings({ size: 1024, steps: 16 }, () => 0.5);
       const kept = m.pictureSettings({ newEachTime: false, seed: 7, size: 999, steps: 900 });
+      const defaulted = m.pictureSettings({}, () => 0.5);
       const form = m.planForm({ steps: ['picture'], description: 'x', pictureSettings: kept });
-      console.log(JSON.stringify({ fresh, kept, sent: JSON.parse(form.get('picture_settings')) }));""")
+      console.log(JSON.stringify({ fresh, kept, defaulted, sent: JSON.parse(form.get('picture_settings')) }));""")
     assert out["fresh"] == {"width": 1024, "height": 1024, "steps": 16, "seed": 1073741823}
-    assert out["kept"] == {"width": 768, "height": 768, "steps": 50, "seed": 7}  # odd sizes fall back, steps are capped
+    assert out["kept"] == {"width": 1024, "height": 1024, "steps": 50, "seed": 7}  # odd sizes fall back, steps are capped
+    assert out["defaulted"]["width"] == out["defaulted"]["height"] == 1024
     assert out["sent"] == out["kept"]
+
+
+@needs_node
+def test_retry_picture_settings_keep_the_previous_steps_and_seed_when_unchecked():
+    out = _run("create.js", """
+      const retry = m.retryPictureSettings({ width: 1024, height: 1024, steps: 17, seed: 447606998181262 });
+      const zero = m.retryPictureSettings({ steps: 6, seed: 0 });
+      const rectangle = m.retryPictureSettings({ width: 1024, height: 768, steps: 6, seed: 9 });
+      console.log(JSON.stringify({
+        retry,
+        zero,
+        rectangle,
+        fresh: m.pictureSettings(retry, () => 0.5),
+        kept: m.pictureSettings({ ...retry, newEachTime: false }),
+        zeroKept: m.pictureSettings({ ...zero, newEachTime: false }),
+        missing: m.retryPictureSettings(null),
+      }));""")
+    assert out["retry"] == {"size": 1024, "steps": 17, "seed": 447606998181262, "touched": True}
+    assert out["zero"] == {"size": 1024, "steps": 6, "seed": 0, "touched": True}
+    assert out["rectangle"] == {"steps": 6, "seed": 9, "touched": True}
+    assert out["fresh"]["seed"] == 1073741823  # retry still starts with a new picture by default
+    assert out["kept"] == {"width": 1024, "height": 1024, "steps": 17, "seed": 447606998181262}
+    assert out["zeroKept"]["seed"] == 0
+    assert out["missing"] is None
+
+
+@needs_node
+def test_retry_goal_keeps_a_supported_previous_choice_or_uses_the_asset_category():
+    out = _run("plan.js", """
+      console.log(JSON.stringify({
+        savedPicture: m.retryWant('picture', 'character'),
+        character: m.retryWant(null, 'character'),
+        prop: m.retryWant(null, 'prop'),
+        picture: m.retryWant(null, 'picture'),
+        set: m.retryWant(null, 'prop set'),
+        unknown: m.retryWant('not-a-goal', 'not-a-category'),
+        picturePlan: m.planFor('idea', m.retryWant('picture', 'character')),
+      }));""")
+    assert out["savedPicture"] == "picture"
+    assert out["character"] == "character"
+    assert out["prop"] == "prop"
+    assert out["picture"] == "picture"
+    assert out["set"] == "set"
+    assert out["unknown"] == "character"
+    assert out["picturePlan"] == ["picture"]
+
+
+@needs_node
+def test_describe_textarea_fits_its_full_content_after_prefill_and_edits():
+    out = _run("create.js", """
+      const box = { style: {}, scrollHeight: 312, clientHeight: 312, offsetHeight: 314 };
+      m.fitTextarea(box);
+      const prefilled = box.style.height;
+      box.scrollHeight = box.clientHeight = 74;
+      box.offsetHeight = 76;
+      m.fitTextarea(box);
+      console.log(JSON.stringify({ prefilled, shrunk: box.style.height, overflow: box.style.overflowY }));""")
+    assert out == {"prefilled": "314px", "shrunk": "76px", "overflow": "hidden"}
 
 
 @needs_node
@@ -1207,7 +1290,7 @@ def test_create_takes_each_picture_engines_own_size_and_steps():
       console.log(JSON.stringify([m.pictureDefaults(flux), m.pictureDefaults(flux, true), m.pictureDefaults(qwen, true),
         m.pictureDefaults(null), form.get('picture_engine'), m.planForm({{ steps: ['picture'] }}).get('picture_engine')]));""")
     assert out == [{"size": 1024, "steps": 4}, {"size": 1024, "steps": 8}, {"size": 768, "steps": 8},
-                   {"size": 768, "steps": 8}, "qwen", None]
+                   {"size": 1024, "steps": 8}, "qwen", None]
 
 
 @needs_node

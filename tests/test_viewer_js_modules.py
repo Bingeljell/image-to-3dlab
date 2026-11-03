@@ -554,6 +554,78 @@ def test_tooltip_placement_flips_and_clamps_at_viewport_edges():
     ]
 
 
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_library_loading_state_reveals_controls_and_offers_safe_retry():
+    """The real loading helpers hide filters only while pending and make failures retryable."""
+    module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()
+    program = f"""
+      const {{ setLibraryLoading, showLibraryError }} = await import({json.dumps(module_url)});
+      const controls = {{ hidden: true, inert: true }};
+      const indicator = {{ hidden: false }};
+      const footer = {{ textContent: '', children: [], append(...nodes) {{ this.children.push(...nodes); }} }};
+      const root = {{ ownerDocument: {{ createElement: () => ({{ textContent: '', className: '', type: '', onclick: null }}) }},
+        querySelector: (selector) => ({{ '#libControls': controls, '#libLoad': indicator, '#libFoot': footer }})[selector] }};
+      setLibraryLoading(root, false);
+      let retried = false;
+      showLibraryError(root, '<offline>', () => {{ retried = true; }});
+      footer.children[1].onclick();
+      console.log(JSON.stringify({{ controls, indicator, footer: [footer.children[0].textContent, footer.children[1].textContent], retried }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "controls": {"hidden": False, "inert": False}, "indicator": {"hidden": True},
+        "footer": ["The Library didn't load: <offline>", "Try again"], "retried": True,
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_initial_library_failure_keeps_controls_hidden_and_retries_in_loader():
+    module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()
+    program = f"""
+      const {{ setLibraryLoading, showLibraryLoadError }} = await import({json.dumps(module_url)});
+      const controls = {{ hidden: false, inert: false }};
+      const indicator = {{ hidden: true, _text: '', children: [], get textContent() {{ return this._text; }}, set textContent(value) {{ this._text = value; this.children = []; }}, append(...nodes) {{ this.children.push(...nodes); }} }};
+      const root = {{ ownerDocument: {{ createElement: () => ({{ textContent: '', className: '', type: '', onclick: null, setAttribute() {{}} }}) }},
+        querySelector: (selector) => ({{ '#libControls': controls, '#libLoad': indicator }})[selector] }};
+      setLibraryLoading(root, true);
+      let retried = false;
+      showLibraryLoadError(root, '<offline>', () => {{ retried = true; }});
+      indicator.children[1].onclick();
+      console.log(JSON.stringify({{ controls, indicator: [indicator.hidden, indicator.children[0].textContent, indicator.children[1].textContent], retried }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "controls": {"hidden": True, "inert": True},
+        "indicator": [False, "The Library didn't load: <offline>", "Try again"], "retried": True,
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_library_load_runner_ignores_stale_success_and_failure():
+    """A late response from an older real load cannot overwrite the newest result or error."""
+    module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()
+    program = f"""
+      const {{ runLibraryLoad }} = await import({json.dumps(module_url)});
+      const pending = [];
+      const committed = [], failed = [];
+      let latest = 0;
+      const start = (id) => runLibraryLoad({{
+        requestId: id, isCurrent: () => id === latest,
+        fetchAssets: () => new Promise((resolve, reject) => pending.push({{ id, resolve, reject }})),
+        onSuccess: (value) => committed.push(value), onError: (error) => failed.push(error.message),
+      }});
+      latest = 1; const old = start(1);
+      latest = 2; const current = start(2);
+      pending.find((p) => p.id === 2).resolve('new');
+      await current;
+      pending.find((p) => p.id === 1).reject(new Error('old failure'));
+      await old;
+      console.log(JSON.stringify({{ committed, failed }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {"committed": ["new"], "failed": []}
+
+
 def viewer_scripts() -> list[Path]:
     """Every first-party viewer script; vendored libraries are someone else's to parse."""
     viewer = REPO / "viewer"

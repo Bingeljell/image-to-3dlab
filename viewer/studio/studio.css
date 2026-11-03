@@ -76,6 +76,11 @@ a { color: inherit; }
 
 /* library */
 .lib-head { padding: 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
+.lib-controls { display: grid; gap: 10px; }
+.lib-load { min-height: 92px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--ash); font-size: 13px; }
+.loader { width: 15px; height: 15px; border: 2px solid var(--line-hi); border-top-color: var(--ember); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.lib-foot .linkish { margin-left: 8px; padding: 0; border: 0; background: none; color: var(--flame); text-decoration: underline; cursor: pointer; }
 .seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--raise); border-radius: 9px; padding: 3px; gap: 3px; }
 .seg button { border: 0; background: transparent; border-radius: 7px; padding: 5px 0; color: var(--ash); font-size: 13px; }
 .seg button[aria-pressed="true"] { background: #33271f; color: var(--bone); }

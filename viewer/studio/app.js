@@ -12,10 +12,12 @@ import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice
 import { STEP_LABELS, stoppedLine, stoppedStep } from './plan.js';
 import { mountSkins } from './skins.js';
 import { installTooltips } from './tooltips.js';
+import { setLibraryLoading, showLibraryError, showLibraryLoadError, runLibraryLoad } from './library-loading.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
 installTooltips();
+const libraryRoot = document.querySelector('.lib');
 
 let base = '/output/';
 let assets = [];
@@ -23,6 +25,8 @@ let filter = 'all', query = '', showHidden = false, limit = 30;
 let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, pictureEngines = [], busy = false, playNext = null;
+let libraryReady = false;
+let libraryLoadToken = 0;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
 let cardPlace = null;  // where the user dragged or resized the progress card; null keeps it centred
@@ -80,6 +84,7 @@ function renderEngineChoices() {
 }
 
 function renderLibrary() {
+  if (!libraryReady) return;
   renderEngineChoices();
   const { rows: list, more, hiddenCount } = visibleFamilies(assets, { filter, query, showHidden, limit, stage: stageFilter, engine: engineFilter, starred: starredOnly, sort: sortBy });
   $('assetList').innerHTML = makingRow() + (list.length ? list.map(({ key, shown, members }) => {
@@ -439,17 +444,36 @@ document.querySelectorAll('.seg [data-filter]').forEach((button) => {
 });
 
 async function loadLibrary(keepId = null, { pick = true } = {}) {
-  try {
-    const response = await fetch('/api/assets');
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || response.statusText);
+  const requestId = ++libraryLoadToken;
+  if (!libraryReady) setLibraryLoading(libraryRoot, true);
+  await runLibraryLoad({
+    requestId,
+    isCurrent: () => requestId === libraryLoadToken,
+    fetchAssets: async () => {
+      const response = await fetch('/api/assets');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || response.statusText);
+      return payload;
+    },
+    onSuccess: (payload) => {
     base = payload.base;
     assets = payload.assets;
+    libraryReady = true;
+    setLibraryLoading(libraryRoot, false);
     show(pick ? assets.find((a) => a.id === keepId) ?? assets[0] ?? null : null);
-  } catch (error) {
-    $('libFoot').textContent = `The Library didn't load: ${error.message}`;
+    },
+    onError: (error) => {
+    if (libraryReady) {
+      showLibraryError(libraryRoot, error.message, () => {
+        $('libFoot').textContent = 'Trying again…';
+        loadLibrary(null, { pick: false });
+      });
+    } else {
+      showLibraryLoadError(libraryRoot, error.message, () => loadLibrary(null, { pick: false }));
+    }
     viewer.showEmpty('The Library did not load. Is the viewer server running?');
-  }
+    },
+  });
 }
 
 async function refreshAssets() {

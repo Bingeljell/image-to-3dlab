@@ -89,12 +89,36 @@ def _ensure_model(model: str, allow_download: bool) -> None:
 
 
 def fallback_note(model: str) -> str | None:
-    """What to tell the user when a run falls back to u2net, or None."""
+    """What to tell the user when a run used something other than the lean file, or None."""
+    if model == LITE_MODEL:
+        return (f"using the older background remover file, which needs about twice the memory; "
+                f"install the lighter BiRefNet-lite ({LEAN_BYTES / 1e6:.0f} MB) from Setup & Status "
+                f"or scripts/bootstrap_matte.py, and the old file ({LITE_BYTES / 1e6:.0f} MB) is removed")
     if model != FALLBACK_MODEL:
         return None
     return ("using u2net, which can eat thin or light-coloured parts; install "
             f"BiRefNet-lite ({LEAN_BYTES / 1e6:.0f} MB) from Setup & Status or "
             "scripts/bootstrap_matte.py")
+
+
+def retire_older_copy(loads=None):
+    """Delete rembg's older BiRefNet-lite file once the lean one is here and loads.
+
+    Returns the removed path, or None. The older file is the fallback when the lean one
+    will not load (an onnxruntime too old for DeformConv), so it goes only after the lean
+    file has opened in this environment.
+    """
+    older, lean = model_file(LITE_MODEL), model_file(LEAN_MODEL)
+    if not (older.is_file() and lean.is_file()):
+        return None
+    try:
+        (loads or LeanSession)(lean)
+    except Exception as error:
+        print(f"[matte] kept the older remover file: the lighter one would not load ({error})",
+              flush=True)
+        return None
+    older.unlink()
+    return older
 
 
 class LeanSession:

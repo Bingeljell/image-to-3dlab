@@ -38,6 +38,12 @@ from image_to_3dlab import models_home as _models_home
 from image_to_3dlab import upscale as _upscale
 from image_to_3dlab.host import AMD, APPLE, NVIDIA
 
+# rembg's own BiRefNet-lite file, which every install before 0.5.5 has. It cuts out just as
+# well as the lean file (it only takes more memory), so an engine card counts it as
+# installed rather than calling a working engine "partly downloaded". The remover's own
+# card still looks for the lean file only, so Setup & Status keeps offering the upgrade.
+_OLDER_REMOVER = (_matte.model_file(_matte.LITE_MODEL),)
+
 _models_home.apply()   # a chosen models folder moves HF_HOME, so before reading it
 HF_HUB_DIR = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
 
@@ -499,7 +505,7 @@ CATALOG: tuple[Backend, ...] = (
             # Installed with Pixal3D since 0.3.5: without it the cut-out falls back to
             # u2net, which ate a white robot's upper arms on a fresh Linux install.
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
-                      _matte.model_file(_matte.LEAN_MODEL),
+                      _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts the subject out before generation, keeping thin and "
                            "light-coloured parts. Shared with the other routes."),
         ),
@@ -536,7 +542,7 @@ CATALOG: tuple[Backend, ...] = (
                       "zimengxiong/hunyuan3d-mlx-paint-large", int(8.7 * GB),
                       REPO / "hunyuan_mlx" / "paint" / "weights"),
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
-                      _matte.model_file(_matte.LEAN_MODEL),
+                      _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts the subject out before generation. Shared with the other routes."),
         ),
     ),
@@ -582,7 +588,7 @@ CATALOG: tuple[Backend, ...] = (
                       int(0.067 * GB),
                       REPO / "vendor" / "hunyuan-cuda" / "ckpt" / "RealESRGAN_x4plus.pth"),
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
-                      _matte.model_file(_matte.LEAN_MODEL),
+                      _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts out pictures without alpha. Shared with the other routes."),
         ),
     ),
@@ -624,7 +630,7 @@ CATALOG: tuple[Backend, ...] = (
                       int(0.067 * GB),
                       REPO / "vendor" / "hunyuan-rocm" / "ckpt" / "RealESRGAN_x4plus.pth"),
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
-                      _matte.model_file(_matte.LEAN_MODEL),
+                      _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts out pictures without alpha. Shared with the other routes."),
         ),
     ),
@@ -707,7 +713,7 @@ CATALOG: tuple[Backend, ...] = (
                       note="SF3D reads the picture with it. Without this entry it was "
                            "fetched unannounced on the first run."),
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
-                      _matte.model_file(_matte.LEAN_MODEL),
+                      _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts the subject out before generation. Shared with the other routes."),
         ),
     ),
@@ -795,7 +801,7 @@ CATALOG: tuple[Backend, ...] = (
                       HF_HUB_DIR / "models--wkcn--TinyCLIP-ViT-8M-16-Text-3M-YFCC15M",
                       note="Advisory only. Generation works without it."),
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
-                      _matte.model_file(_matte.LEAN_MODEL),
+                      _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts out pictures without alpha on NVIDIA and AMD. Fetched by "
                            "those setups; the Mac port wants pre-masked images."),
         ),
@@ -901,7 +907,8 @@ CATALOG: tuple[Backend, ...] = (
         best_for=("Cuts the subject out before every generator, keeping the thin and "
                   "light-coloured parts the built-in u2net loses."),
         tradeoff=("Comes with every 3D engine that needs it. Install it here if a run "
-                  "says it is missing."),
+                  "says it is missing. Have the older, heavier copy? This lighter file "
+                  "replaces it: half the memory per cut-out, and the old file is removed."),
         license_name="MIT",
         license_url="https://github.com/ZhengPeng7/BiRefNet",
         install="scripts/bootstrap_matte.py",

@@ -947,3 +947,13 @@ def test_install_plan_names_what_setup_fetches_beyond_the_weights(studio):
     finally:
         CATALOG["backends"].pop()
     assert engine in plan["downloads"] and studio.http.posts == []
+
+
+def test_the_agent_hears_about_the_lighter_remover_only_when_it_is_missing():
+    engine = {"id": "pixal3d", "kind": "3d", "state": "ready"}
+    older = {"backends": [engine, {"id": "matte", "state": "missing"}]}
+    assert "install_backend('matte')" in ms.remover_tip(older)
+    assert "asks first" in ms.remover_tip(older)
+    assert ms.remover_tip({"backends": [engine, {"id": "matte", "state": "ready"}]}) is None
+    # Nothing ready yet: setup is the conversation to have, not a lighter file.
+    assert ms.remover_tip({"backends": [{"id": "matte", "state": "missing"}]}) is None

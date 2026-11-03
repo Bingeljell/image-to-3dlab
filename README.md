@@ -43,6 +43,7 @@ $1 to reserve, locked for 6 months. The app stays free and open source.</p>
 
 ## News
 
+- **2026-11-03 · 0.5.7** 3D engines work again on installs from before 0.5.5, and the lighter background remover replaces the old one.
 - **2026-11-02 · 0.5.6** FLUX.2 klein Light: the same pictures in about 5 GB of memory instead of 9, suggested on machines with 16 GB or less.
 - **2026-11-02 · 0.5.5** Cutting a picture out now takes less than half the memory, and nothing downloads model weights without asking.
 - **2026-10-31 · 0.5.4** FLUX.2 draws your pictures (faster, yours for any use), bring your own back picture, and a brush to fix the picture before it goes 3D.

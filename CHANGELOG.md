@@ -32,15 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Picture headings now have their own space above the image, and the picture keeps its caption and zoom controls inside the viewer.
 - Clicking a picture at its zoom-in cursor now zooms to 200% toward that spot; dragging still pans without an accidental zoom.
 - Picture and empty views no longer show the 3D toolbar or orientation gizmo.
-- Drawing a Library picture again keeps its previous picture size and steps, and
-  keeps its seed ready when “New picture each time” is unticked.
-- Drawing a Library picture again keeps its original goal, or its asset category
-  when older records do not say what was chosen.
-- New pictures start at 1024×1024 unless you choose another available size.
+- Drawing a Library picture again keeps its original goal (or its asset category
+  for older records), picture size, steps and seed settings; new pictures start
+  at 1024×1024 unless you choose another available size.
 - Create expands a long description instead of hiding part of it in the text box.
-- Changing a Create control no longer sends a long form back to the top.
+- Changing a Create control keeps the form's scroll position and open advanced sections.
 - Create turns pasted prompt line breaks into spaces and keeps ending
   punctuation when it redraws a picture.
+- A stale Library refresh can no longer replace newer results after a retry.
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 
 ## [0.5.7] - 2026-11-03

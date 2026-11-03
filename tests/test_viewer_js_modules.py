@@ -601,6 +601,12 @@ def test_initial_library_failure_keeps_controls_hidden_and_retries_in_loader():
 
 
 @pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_library_filters_wrap_before_select_labels_are_clipped():
+    """The filter row's columns have room for their native select arrows and labels."""
+    css = (REPO / "viewer" / "studio" / "studio.css").read_text()
+    assert "grid-template-columns: repeat(auto-fit, minmax(112px, 1fr))" in css
+
+
 def test_library_load_runner_ignores_stale_success_and_failure():
     """A late response from an older real load cannot overwrite the newest result or error."""
     module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()

@@ -755,6 +755,83 @@ def test_describe_textarea_fits_its_full_content_after_prefill_and_edits():
 
 
 @needs_node
+def test_create_rerender_keeps_its_scroll_position():
+    out = _run("create.js", """
+      const sheet = { scrollTop: 612 };
+      m.rerenderKeepingScroll(sheet, () => { sheet.scrollTop = 0; });
+      console.log(JSON.stringify({ scrollTop: sheet.scrollTop }));""")
+    assert out == {"scrollTop": 612}
+
+
+@needs_node
+def test_create_remembers_open_and_closed_advanced_sections():
+    out = _run("create.js", """
+      console.log(JSON.stringify(m.detailStates([
+        { dataset: { detail: 'picture' }, open: true },
+        { dataset: { detail: 'model' }, open: false },
+      ])));""")
+    assert out == {"picture": True, "model": False}
+
+
+@needs_node
+def test_create_picture_toggle_preserves_each_advanced_section_open_state():
+    """Changing picture settings rerenders the real Create template, preserving details."""
+    out = _run("create.js", """
+      class Node {
+        constructor(tag = 'div', attrs = {}) {
+          this.tagName = tag; this.attrs = attrs; this.dataset = {};
+          for (const [key, value] of Object.entries(attrs)) if (key.startsWith('data-')) this.dataset[key.slice(5)] = value;
+          this.children = []; this.listeners = {}; this.style = {}; this.open = 'open' in attrs;
+          this.checked = 'checked' in attrs; this.value = attrs.value || ''; this.type = attrs.type || '';
+          this.textContent = ''; this.scrollTop = 0;
+        }
+        addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+        dispatch(type) { const e = { target: this, preventDefault() {}, stopPropagation() {} };
+          for (const fn of this.listeners[type] || []) fn(e); this['on' + type]?.(e); }
+        appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
+        remove() { this.removed = true; }
+        focus() {}
+        closest(selector) { return selector === 'details' && this.parentNode?.tagName === 'DETAILS' ? this.parentNode : null; }
+        querySelectorAll(selector) { const found = []; const visit = (n) => { for (const c of n.children) { if (matches(c, selector)) found.push(c); visit(c); } }; visit(this); return found; }
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+        set innerHTML(html) { this.children = []; parse(this, html); }
+      }
+      const matches = (n, selector) => {
+        if (selector === 'form' || selector === 'textarea' || selector === 'select') return n.tagName.toLowerCase() === selector;
+        if (selector.startsWith('.')) return (n.attrs.class || '').split(' ').includes(selector.slice(1));
+        if (selector === 'details[data-detail]') return n.tagName === 'DETAILS' && n.dataset.detail !== undefined;
+        const d = selector.match(/^\\[data-([^=\\]]+)(?:="([^"]*)")?\\]$/);
+        return Boolean(d && Object.prototype.hasOwnProperty.call(n.dataset, d[1]) && (d[2] === undefined || n.dataset[d[1]] === d[2]));
+      };
+      const attrsOf = (s) => Object.fromEntries([...s.matchAll(/([\\w-]+)(?:="([^"]*)")?/g)].map((x) => [x[1], x[2] ?? '']));
+      const parseInputs = (parent, html) => { for (const x of html.matchAll(/<(input|button|select|textarea)\\b([^>]*)>/g)) parent.appendChild(new Node(x[1].toUpperCase(), attrsOf(x[2]))); };
+      const parse = (parent, html) => {
+        for (const x of html.matchAll(/<details\\b([^>]*)>([\\s\\S]*?)<\\/details>/g)) {
+          const d = new Node('DETAILS', attrsOf(x[1])); const s = /<summary>([\\s\\S]*?)<\\/summary>/.exec(x[2]);
+          if (s) { const summary = new Node('SUMMARY'); summary.textContent = s[1]; d.appendChild(summary); }
+          parseInputs(d, x[2]); parent.appendChild(d);
+        }
+        const form = new Node('FORM'); parent.appendChild(form); parseInputs(form, html);
+      };
+      globalThis.document = { createElement: () => new Node(), addEventListener() {}, removeEventListener() {} };
+      globalThis.ResizeObserver = undefined; globalThis.URL = { createObjectURL: () => 'blob:test', revokeObjectURL() {} };
+      globalThis.scrollTop = 0;
+      const stage = new Node();
+      m.openCreate({ stage, recipes: { goals: { character: {} }, trouble: [] }, engines: [{ id: 'pixal3d', label: 'Pixal3D' }], presets: [], pictureEngines: [], onStart() {} });
+      const sheet = stage.children[0]; const picture = () => sheet.querySelector('[data-detail="picture"]');
+      const model = () => sheet.querySelector('[data-detail="model"]');
+      const toggle = () => sheet.querySelector('[data-pic="newEachTime"]').dispatch('change');
+      picture().open = true; model().open = false; toggle();
+      const closed = model().open; const pictureWhileModelClosed = picture().open;
+      model().open = true; toggle();
+      console.log(JSON.stringify({ hasPicture: Boolean(picture()), hasModel: Boolean(model()), closed,
+        pictureWhileModelClosed, reopened: model().open, pictureReopened: picture().open }));
+    """)
+    assert out == {"hasPicture": True, "hasModel": True, "closed": False, "pictureWhileModelClosed": True,
+                   "reopened": True, "pictureReopened": True}
+
+
+@needs_node
 def test_create_asks_for_the_same_picture_steps_the_server_defaults_to():
     """Create sends its own steps, so a default changed only on the server never reaches the studio."""
     from viewer import image_api

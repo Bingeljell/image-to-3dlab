@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when older records do not say what was chosen.
 - New pictures start at 1024×1024 unless you choose another available size.
 - Create expands a long description instead of hiding part of it in the text box.
+- Changing a Create control no longer sends a long form back to the top.
 - Create turns pasted prompt line breaks into spaces and keeps ending
   punctuation when it redraws a picture.
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.

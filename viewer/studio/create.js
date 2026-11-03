@@ -82,16 +82,28 @@ export function fitTextarea(textarea) {
   textarea.style.overflowY = 'hidden';
 }
 
+export function rerenderKeepingScroll(container, render) {
+  const scrollTop = container.scrollTop;
+  render();
+  container.scrollTop = scrollTop;
+}
+
+export function detailStates(details) {
+  return Object.fromEntries([...details].map((detail) => [detail.dataset.detail, detail.open]));
+}
+
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
 export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
   let textResize = null;
+  let firstRender = true;
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
     backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
     pic: { size: 1024, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
+    details: {},
     picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // size and steps follow the picture engine and whether the picture is the end product, until you set them
@@ -125,6 +137,8 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   const close = () => { sheet.onSheetClose(); sheet.remove(); };
 
   const render = () => {
+    const scrollTop = sheet.scrollTop;
+    Object.assign(state.details, detailStates(sheet.querySelectorAll('details[data-detail]')));
     textResize?.disconnect();
     textResize = null;
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
@@ -164,7 +178,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       <div class="path">${plan.map((s, i) => `${i ? '<span class="arr">→</span>' : ''}<button type="button" class="pstep${active.includes(s) ? '' : ' skip'}" data-stop="${s}">${STEP_LABELS[s]}</button>`).join('')}</div>
       ${heroChoice(state, active, pixal)}
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
-      ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
+      ${active.includes('picture') ? `<details class="adv" data-detail="picture" ${state.details.picture ? 'open' : ''}><summary>Advanced: picture settings</summary>
         <div class="picset">
           ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
           <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 1024) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -172,7 +186,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
         </div></details>` : ''}
-      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
+      ${active.includes('model') ? `<details class="adv" data-detail="model" ${state.details.model ? 'open' : ''}><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
       <p class="error" data-error hidden></p>
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ` · the picture uses ${esc(picEngine()?.label || 'the picture engine')}, run on this machine` : ''}</span><button type="submit" class="primary">Make it</button></div>
     </form>`;
@@ -235,7 +249,12 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       const key = el.dataset.pic;
       state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
       if (key === 'size' || key === 'steps') state.pic.touched = true;
-      if (key === 'newEachTime') { render(); sheet.querySelector('.picset').closest('details').open = true; }  // show or hide the seed box
+      if (key === 'newEachTime') {
+        const scrollTop = sheet.scrollTop;
+        rerenderKeepingScroll(sheet, render);
+        sheet.querySelector('[data-pic="newEachTime"]').focus({ preventScroll: true });
+        sheet.scrollTop = scrollTop;
+      }  // show or hide the seed box
     }));
     const picker = q('[data-file]'), drop = q('[data-drop]');
     if (drop) {
@@ -270,7 +289,9 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
         keepEverything: active.includes('model') && state.keep,
         finishSettings: heroWanted(state, active, state.engine === 'pixal3d') ? { faces: 32000, hero: true } : null });
     };
-    text?.focus();
+    if (firstRender) text?.focus();
+    if (!firstRender) sheet.scrollTop = scrollTop;
+    firstRender = false;
   }
 
   // drop a file anywhere on the sheet

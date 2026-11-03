@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Long steps, such as Hero's head build, no longer show as stalled while they are still working.
+
 ### Changed
 - Installing the lighter background remover now removes the older, heavier copy it replaces (224 MB), once
   the new one loads. Runs still on the older copy say where to get the lighter one, and so do agents.

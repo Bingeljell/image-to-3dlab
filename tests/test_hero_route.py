@@ -201,3 +201,12 @@ def test_the_measuring_rig_gets_free_ports_like_the_rig_tab(monkeypatch, tmp_pat
     hero_route.measure_rig(hero_route.Run(tmp_path), tmp_path / "body.glb", tmp_path / "rig.glb")
     port, bpy_port = seen.read_text().split()
     assert port != bpy_port
+
+
+def test_a_long_step_passes_on_a_line_now_and_then(capsys, tmp_path, monkeypatch):
+    """The head build runs for many minutes; total silence read as a stalled run."""
+    import sys
+
+    monkeypatch.setattr(hero_route, "ECHO_SECONDS", 0)
+    hero_route.Run(tmp_path).run([sys.executable, "-u", "-c", "print('[2/6] SS flow')"])
+    assert any(line.endswith("[2/6] SS flow") for line in capsys.readouterr().out.splitlines())

@@ -52,6 +52,10 @@ BODY_FACES = 32000
 HEAD_FACES = 16000
 #: How much of a failed step's own output is echoed, so a bug report carries the real error.
 FAIL_TAIL_LINES = 15
+# A step's own output goes to run.log only, so the studio's log stays readable. The head's
+# Pixal3D build runs for many minutes, though, and silence there read as a stalled run
+# (the studio flags one after 3 quiet minutes). So the latest line is passed on now and then.
+ECHO_SECONDS = 60
 SEED = 42
 #: Finish settings shared with the studio's defaults, Pixel Match only (no repaint).
 FINISH_FLAGS = ["--atlas", "2048", "--angle", "89.0", "--voxel", "0.004", "--metallic", "0.25",
@@ -103,9 +107,13 @@ class Run:
             process = subprocess.Popen([str(c) for c in command], cwd=cwd, env=env, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT, encoding="utf-8", errors="replace")
             tail: deque[str] = deque(maxlen=FAIL_TAIL_LINES)
+            echoed = time.time()
             for line in process.stdout:
                 self.log.write(line)
                 tail.append(line.rstrip("\n"))
+                if line.strip() and time.time() - echoed >= ECHO_SECONDS:
+                    echoed = time.time()
+                    print(f"[hero {echoed - self.started:6.0f}s]   {line.strip()[:160]}", flush=True)
             if not process.wait():
                 return True
             if attempt < tries:

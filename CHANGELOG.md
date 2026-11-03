@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Setup scripts say `uv sync` instead of pointing at the requirements files this release
   removed.
 - A run that dies before its first step says Stopped. It used to say "Stopped at undefined". When the step is known, the library names it.
+- Picture headings now have their own space above the image, and the picture keeps its caption and zoom controls inside the viewer.
+- Clicking a picture at its zoom-in cursor now zooms to 200% toward that spot; dragging still pans without an accidental zoom.
+- Picture and empty views no longer show the 3D toolbar or orientation gizmo.
 - Drawing a Library picture again keeps its previous picture size and steps, and
   keeps its seed ready when “New picture each time” is unticked.
 - Drawing a Library picture again keeps its original goal, or its asset category

@@ -426,6 +426,109 @@ def test_model_load_error_is_rendered_as_text_not_markup():
     assert out["htmlContains"] is False
 
 
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_studio_viewer_3d_tools_follow_real_picture_and_empty_mode_switches():
+    """Toolbar/gizmo are inert for pictures and empty stages, but return for 3D models."""
+    module_url = (REPO / "viewer" / "studio" / "viewer.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    stubs = {
+        "../components/model-viewport.js": "export function createModelViewport() { return { renderer: { domElement: { remove() {} } } }; } export function disposeModelViewport() {}",
+        "../components/camera-view-controls.js": "export function setCameraView() { return false; }",
+        "../animation/player.js": "export class AnimationPlayer {}",
+        "./gizmo.js": "export const AXES = []; export function projectAxes() { return []; }",
+        "./bones.js": "export function createBoneDisplay() { return null; }",
+        "./floor.js": "export function createFloor() { return {}; } export function standOnFloor() { return 1; } export function homeView() { return { target: [0, 0, 0], position: [0, 0, 1] }; } export function facingAngle() { return 0; }",
+        "./looks.js": "export function applyLook() {} export function meshesOf() { return []; } export function faceLabel(s) { return s; }",
+        "./zoom.js": "export function attachZoom(overlay) { overlay.zoomAttached = true; }",
+    }
+    stub_urls = {key: "data:text/javascript," + quote(value, safe="") for key, value in stubs.items()}
+    resolve_cases = "".join(
+        f"if (s === {json.dumps(spec)} && c.parentURL === {json.dumps(module_url)}) return {{ url: {json.dumps(url)}, shortCircuit: true }};"
+        for spec, url in stub_urls.items()
+    )
+    program = f"""
+      import {{ register }} from 'node:module';
+      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{
+        if (s === 'three') return {{ url: {json.dumps(three_url)}, shortCircuit: true }};
+        {resolve_cases}
+        return n(s, c);
+      }}`));
+      const make = () => {{
+        const node = {{ nodeType: 1, className: '', hidden: false, inert: false, style: {{}}, children: [], _html: '', zoomAttached: false,
+          get innerHTML() {{ return node._html; }}, set innerHTML(value) {{ node._html = value; node.children = []; }},
+          get textContent() {{ return ''; }}, set textContent(value) {{ node._text = String(value); }},
+          classList: {{ add() {{}}, remove() {{}}, toggle() {{}}, contains() {{ return false; }} }},
+          appendChild(child) {{ node.children.push(child); return child; }}, querySelector: () => make(), querySelectorAll: () => [],
+          addEventListener() {{}}, setAttribute(k, v) {{ node[k] = String(v); }}, getAttribute(k) {{ return node[k] ?? null; }},
+          remove() {{}}, closest: () => null }};
+        return node;
+      }};
+      globalThis.document = {{ createElement: make }}; globalThis.window = globalThis;
+      globalThis.addEventListener = () => {{}}; globalThis.removeEventListener = () => {{}};
+      globalThis.ResizeObserver = class {{ observe() {{}} disconnect() {{}} }};
+      globalThis.requestAnimationFrame = () => 0; globalThis.devicePixelRatio = 1;
+      const {{ createStudioViewer, pictureOverlayTop, pictureMaxHeight }} = await import({json.dumps(module_url)});
+      const stage = make(); const viewer = createStudioViewer({{ stage, logoUrl: 'logo.svg' }});
+      const tools = stage.children.find((node) => node.className === 'sv-tools');
+      const state = () => [tools.hidden, tools.inert];
+      viewer.load('model.glb'); const model = state();
+      viewer.showImage('picture.png', 'Picture'); const picture = state(); const zoom = stage.children.find((node) => node.className === 'sv-overlay').zoomAttached;
+      viewer.load('model-again.glb'); const modelAgain = state();
+      viewer.showEmpty('Nothing here'); const empty = state();
+      console.log(JSON.stringify({{ model, picture, modelAgain, empty, zoom,
+        pictureTop: pictureOverlayTop({{ top: 100 }}, {{ bottom: 180 }}),
+        pictureMax: [pictureMaxHeight({{ top: 0, height: 600 }}, {{ bottom: 180 }}, 40, 20),
+          pictureMaxHeight({{ top: 0, height: 100 }}, {{ bottom: 180 }}, 40, 20)] }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "model": [False, False], "picture": [True, True], "modelAgain": [False, False], "empty": [True, True], "zoom": True,
+        "pictureTop": 92,
+        "pictureMax": [316, 0],
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_picture_zoom_clicks_in_at_the_pointer_and_does_not_zoom_after_drag():
+    """The shipped zoom module makes its zoom-in cursor actionable without stealing pans."""
+    module_url = (REPO / "viewer" / "studio" / "zoom.js").as_uri()
+    program = f"""
+      const {{ attachZoom }} = await import({json.dumps(module_url)});
+      const listeners = {{}};
+      const box = {{
+        getBoundingClientRect: () => ({{ left: 0, top: 0, width: 400, height: 300 }}),
+        addEventListener: (name, fn) => {{ listeners[name] = fn; }},
+        setPointerCapture: () => {{}},
+      }};
+      const image = {{ style: {{}}, parentElement: box }};
+      const root = {{ querySelectorAll: () => [image], querySelector: () => null }};
+      attachZoom(root);
+      listeners.click({{ clientX: 100, clientY: 50 }});
+      const zoomed = [image.style.transform, image.style.cursor];
+      listeners.pointerdown({{ clientX: 100, clientY: 100, pointerId: 1 }});
+      listeners.pointermove({{ clientX: 130, clientY: 100 }});
+      listeners.pointerup();
+      listeners.click({{ clientX: 130, clientY: 100 }});
+      const afterDrag = [image.style.transform, image.style.cursor];
+      listeners.dblclick();
+      console.log(JSON.stringify({{ zoomed, afterDrag, reset: image.style.transform }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "zoomed": ["translate(-100px, -50px) scale(2)", "grab"],
+        "afterDrag": ["translate(-70px, -50px) scale(2)", "grab"],
+        "reset": "translate(0px, 0px) scale(1)",
+    }
+
+
+def test_picture_overlay_leaves_room_for_stage_heading():
+    """Picture mode starts below the absolute title instead of drawing underneath it."""
+    css = (REPO / "viewer" / "studio" / "studio.css").read_text()
+    assert ".stage:has(.sv-picture) .sv-overlay" in css
+    assert "align-items: start; padding: var(--sv-picture-top, 24px) 24px 24px" in css
+    assert "var(--sv-picture-max-height, 78vh)" in css
+
+
 def viewer_scripts() -> list[Path]:
     """Every first-party viewer script; vendored libraries are someone else's to parse."""
     viewer = REPO / "viewer"

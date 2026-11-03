@@ -23,6 +23,20 @@ const ICON = {
   pause: '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>',
 };
 
+export function set3dToolsMode(tools, is3d) {
+  tools.hidden = !is3d;
+  tools.inert = !is3d;
+}
+
+export function pictureOverlayTop(stageRect, headerRect, gap = 12) {
+  return Math.max(24, Math.ceil(headerRect.bottom - stageRect.top + gap));
+}
+
+export function pictureMaxHeight(stageRect, headerRect, controlsHeight, captionHeight, gap = 10, breathing = 12) {
+  const top = pictureOverlayTop(stageRect, headerRect);
+  return Math.max(0, Math.floor(stageRect.height - top - controlsHeight - captionHeight - gap * 2 - breathing));
+}
+
 export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = null }) {
   const pane = document.createElement('div');
   pane.className = 'sv-pane';
@@ -32,6 +46,20 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
   const overlay = document.createElement('div');
   overlay.className = 'sv-overlay';
   stage.appendChild(overlay);
+  const stageHeader = stage.querySelector?.('.hud.tl');
+  const resizePictureOverlay = () => {
+    if (!stageHeader?.getBoundingClientRect || !stage.getBoundingClientRect || !overlay.style?.setProperty) return;
+    const stageRect = stage.getBoundingClientRect();
+    const headerRect = stageHeader.getBoundingClientRect();
+    const top = pictureOverlayTop(stageRect, headerRect);
+    const controlsHeight = overlay.querySelector?.('.zoombar')?.getBoundingClientRect?.().height || 0;
+    const captionHeight = overlay.querySelector?.('figcaption')?.getBoundingClientRect?.().height || 0;
+    overlay.style.setProperty('--sv-picture-top', `${top}px`);
+    overlay.style.setProperty('--sv-picture-max-height', `${pictureMaxHeight(stageRect, headerRect, controlsHeight, captionHeight)}px`);
+  };
+  const pictureLayoutObserver = stageHeader && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resizePictureOverlay) : null;
+  pictureLayoutObserver?.observe(stageHeader);
+  pictureLayoutObserver?.observe(stage);
 
   const tools = document.createElement('div');
   tools.className = 'sv-tools';
@@ -47,6 +75,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
       <button class="tool" data-act="fix" aria-pressed="false" data-tip="Fix a spot: click a hole or a messy patch to smooth it over and repaint it from your picture. Size it with the slider or [ and ]. Saves a new version" aria-label="Fix a spot">${ICON.fix}</button>
     </div>`;
   stage.appendChild(tools);
+  tools.hidden = true;
 
   const clipBar = document.createElement('div');
   clipBar.className = 'sv-clips';
@@ -396,8 +425,13 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     }
   }
 
+  function setToolsMode(is3d) {
+    set3dToolsMode(tools, is3d);
+  }
+
   let currentUrl = null;
   function load(url, { label = '', autoplay = false, keepCamera = false } = {}) {
+    setToolsMode(true);
     const token = ++loadToken;
     const camera = keepCamera && view ? { position: view.camera.position.clone(), target: view.controls.target.clone() } : null;
     if (!keepCamera) endSession(false);
@@ -471,18 +505,22 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
   /** One picture, or a front and back pair side by side (`back` given). */
   // `labels` names the two pictures: front and back by default, original and new for a skin
   function showImage(url, caption, back = null, labels = ['Front', 'Back']) {
+    setToolsMode(false);
     ++loadToken;
     dispose();
     const pictures = back
       ? `<div class="pair"><div><div class="zoombox"><img src="${url}" alt="${labels[0]}"></div><span>${labels[0]}</span></div><div><div class="zoombox"><img src="${back}" alt="${labels[1]}"></div><span>${labels[1]}</span></div></div>`
       : `<div class="zoombox"><img src="${url}" alt=""></div>`;
     setOverlay(`<figure class="sv-picture${back ? ' two' : ''}">${pictures}<div class="zoombar" role="group" aria-label="Zoom"></div><figcaption>${caption} <span class="zoomhint">Pick a zoom, or scroll over a picture; drag to move, double-click to reset.</span></figcaption></figure>`);
+    resizePictureOverlay();
     attachZoom(overlay);
+    resizePictureOverlay();
     drawGizmo();
     clipBar.hidden = true;
   }
 
   function showEmpty(text) {
+    setToolsMode(false);
     ++loadToken;
     dispose();
     setOverlay(`<div class="ph"><img src="${logoUrl}" alt=""><span>${text}</span></div>`);

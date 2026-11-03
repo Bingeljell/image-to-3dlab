@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- 3D engines no longer show as "partly downloaded" or get refused (by agents) on installs from before 0.5.5.
+  The background remover you already have counts again; Setup & Status still offers the smaller file.
+
 ## [0.5.6] - 2026-11-02
 
 ### Added

@@ -746,7 +746,38 @@ def test_the_trellis_weights_all_look_in_the_local_places():
     # The other two are not part of the TRELLIS.2 tree: TinyCLIP is a separate advisory
     # model and the remover is a single file this repo fetches itself.
     assert not trellis["TinyCLIP input advisor"].alt_paths
-    assert not trellis["BiRefNet-lite background remover"].alt_paths
+    remover = trellis["BiRefNet-lite background remover"].alt_paths
+    assert not any("trellis" in str(p) for p in remover)
+
+
+def _engines_with_the_remover():
+    return [b for b in bc.CATALOG if b.id != "matte"
+            and any(w.label == "BiRefNet-lite background remover" for w in b.weights)]
+
+
+def test_an_engine_counts_the_older_remover_file_as_installed(tmp_path):
+    """Installs from before 0.5.5 have rembg's lite file, not the lean one. It still cuts
+    out, so the engine must not read "partly downloaded" and refuse to run."""
+    from image_to_3dlab import matte
+
+    engines = _engines_with_the_remover()
+    assert engines
+    for backend in engines:
+        weight = next(w for w in backend.weights if w.label == "BiRefNet-lite background remover")
+        older = tmp_path / f"{backend.id}-{matte.LITE_MODEL}.onnx"
+        with open(older, "wb") as handle:
+            handle.truncate(matte.LITE_BYTES)  # sparse: the size is what is measured
+        assert any(p.name == f"{matte.LITE_MODEL}.onnx" for p in weight.alt_paths), backend.id
+        moved = bc.WeightSet(weight.label, weight.source, weight.bytes_expected,
+                             tmp_path / "missing-lean.onnx", alt_paths=(older,))
+        assert bc._weights_state([moved.describe()]) == "ready", backend.id
+
+
+def test_the_remover_card_still_offers_the_lean_file():
+    """Only the engines accept the older file; the remover's own card keeps asking for the
+    lean one, so Setup & Status still offers the smaller, faster download."""
+    (weight,) = bc.BY_ID["matte"].weights
+    assert not weight.alt_paths
 
 
 def test_the_amd_note_does_not_leak_into_other_tabs():

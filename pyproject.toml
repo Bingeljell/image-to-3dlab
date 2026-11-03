@@ -1,0 +1,28 @@
+[project]
+name = "image-to-3dlab"
+version = "0.5.7"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "torch>=2.4",
+  "torchvision>=0.19",
+  "Pillow>=10.3",
+  "requests>=2.32",
+  # 2.0.69 is the newest that knows BiRefNet-lite and still installs beside numpy 1.x; newer
+  # releases pull numpy 2, which the rest of this environment has not been tested with.
+  "rembg==2.0.69",
+  "numpy<2",
+  "onnxruntime>=1.18",
+  "huggingface-hub>=0.24",
+  "trimesh>=4.0",
+  "scipy>=1.10",
+  "opencv-python-headless>=4.8",
+  "fast_simplification>=0.1.7",
+  "rtree>=1.2",
+  "mcp>=2.3,<3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.2", "ruff==0.16.1"]
+
+[tool.uv]
+package = false

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
+  `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still
+  use uv; they do not require mise.
+
 ### Fixed
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 

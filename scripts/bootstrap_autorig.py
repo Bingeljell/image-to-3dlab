@@ -239,7 +239,7 @@ def install_weights(root: Path = VENDOR) -> None:
         from huggingface_hub import hf_hub_download, snapshot_download
     except ImportError as missing:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from missing
     for checkpoint in CHECKPOINTS:
         print(f"\nFetching {checkpoint.path} ({checkpoint.bytes / 1e9:.2f} GB)...", flush=True)

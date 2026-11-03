@@ -186,7 +186,7 @@ def install_vision() -> None:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     fetch_pinned(hf_hub_download, *VISION, PINS)
 
@@ -417,7 +417,7 @@ def install_weights() -> None:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     for repo, filename, size in (*WEIGHTS, VISION):
         fetch_pinned(hf_hub_download, repo, filename, size, PINS)

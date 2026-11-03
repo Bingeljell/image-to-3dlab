@@ -615,7 +615,7 @@ def install_multiview(models: Path = MV_MODELS, single_view: Path = MODELS) -> N
         from huggingface_hub import snapshot_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     missing = link_shared(single_view, models)
     print(f"\nFetching {MV_REPO} flows ({MV_GB:.1f} GB, resumable)...", flush=True)
@@ -640,7 +640,7 @@ def install_weights(models: Path = MODELS) -> None:
         from huggingface_hub import hf_hub_download, snapshot_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     models.mkdir(parents=True, exist_ok=True)
     print(f"\nFetching {WEIGHTS_REPO} ({WEIGHTS_GB:.1f} GB, resumable)...", flush=True)

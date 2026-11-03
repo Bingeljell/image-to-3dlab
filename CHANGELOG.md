@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - 3D engines no longer show as "partly downloaded", or get refused when an agent asks for them, on installs
   from before 0.5.5. The background remover you already have counts again.
+- Long steps, such as Hero's head build, no longer show as stalled while they are still working.
 
 ## [0.5.6] - 2026-11-02
 

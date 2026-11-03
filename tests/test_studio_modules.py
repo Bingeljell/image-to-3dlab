@@ -484,6 +484,23 @@ def test_each_starting_point_gets_only_the_steps_it_needs():
 
 
 @needs_node
+def test_a_run_that_stops_before_it_starts_does_not_say_undefined():
+    out = _run("plan.js", """console.log(JSON.stringify({
+      named: m.stoppedLine(m.stoppedStep(null, 'model', ['picture', 'model'])),
+      unknown: m.stoppedLine(m.stoppedStep(null, null, ['picture', 'model'])),
+      kept: m.stoppedLine(m.stoppedStep('picture', 'nope', ['picture', 'model'])),
+      empty: m.stoppedLine(m.stoppedStep(null, undefined, [])),
+    }));""")
+    assert out == {
+        "named": "Stopped at 3D model",
+        "unknown": "Stopped",
+        "kept": "Stopped at Picture",
+        "empty": "Stopped",
+    }
+    assert "undefined" not in json.dumps(out)
+
+
+@needs_node
 def test_front_and_back_adds_a_back_picture_before_the_3d_model():
     out = _run("plan.js", """console.log(JSON.stringify({
       ideaChar: m.planFor('idea', 'character', { frontBack: true }),

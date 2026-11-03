@@ -56,9 +56,11 @@ from blender_bake_normals import axis_size_ratios, resolve_tangent_sign
 from compress_glb_textures import build_glb, parse_glb
 
 MIN_SIZE, MAX_SIZE = 256, 8192
-# How far the three axis ratios may disagree before the two meshes are treated as not the
-# same shape. The aligned orc read 1.0049; a 90-degree turn reads well above 1.4.
-MAX_SPREAD = 1.05
+# How far the two meshes' sizes may disagree, along any axis, as a share of the model's
+# biggest side. Measured against the biggest side, not that axis's own size: a 5k Finish
+# of a thin A-pose figure (19 cm deep, 88 cm tall) trims 1-2 cm of sash and boot toe, which
+# is 8% of the depth but under 2% of the figure. A 90-degree turn misses by 25% or more.
+MAX_MISMATCH = 0.05
 # Ray reach as a fraction of the asset's largest dimension. Same as the retopo transfer:
 # short enough not to hit the far side of a limb, long enough to find the old surface.
 RAY_FRACTION = 0.02
@@ -76,7 +78,8 @@ class Args(NamedTuple):
 class Fit(NamedTuple):
     ok: bool
     scale: float
-    spread: float
+    spread: float      # how far the per-axis ratios disagree (1.0 = the same shape), for the record
+    mismatch: float    # the worst axis's miss, as a share of the biggest side: what is judged
 
 
 def parse_args(argv: list[str]) -> Args:
@@ -112,9 +115,14 @@ def fit(high_size: tuple[float, float, float], low_size: tuple[float, float, flo
     """Uniform scale that maps the source onto the target, and whether to trust it."""
     ratios = axis_size_ratios(high_size, low_size, (0, 1, 2))
     if min(ratios) <= 0:
-        return Fit(False, 0.0, float("inf"))
+        return Fit(False, 0.0, float("inf"), float("inf"))
     spread = max(ratios) / min(ratios)
-    return Fit(spread <= MAX_SPREAD, sum(ratios) / 3.0, spread)
+    # Scale from the biggest side: it is the one a lower triangle count trims least, where
+    # an average let a trimmed thin axis shrink the whole fit.
+    big = max(range(3), key=lambda i: low_size[i])
+    scale = ratios[big]
+    mismatch = max(abs(high_size[i] * scale - low_size[i]) for i in range(3)) / low_size[big]
+    return Fit(mismatch <= MAX_MISMATCH, scale, spread, mismatch)
 
 
 def transfer_metallic_roughness(source_has_map: bool, target_has_map: bool) -> bool:
@@ -283,8 +291,8 @@ def main() -> int:
     llo, lhi = _bbox([target])
     shape = fit(tuple(hhi - hlo), tuple(lhi - llo))
     if not shape.ok:
-        raise SystemExit(f"source and target do not line up (axis spread {shape.spread:.3f}, "
-                         f"limit {MAX_SPREAD}); refusing to bake garbage")
+        raise SystemExit(f"source and target do not line up (sizes differ by {shape.mismatch:.1%} "
+                         f"of the biggest side, limit {MAX_MISMATCH:.0%}); refusing to bake garbage")
     offset = (llo + lhi) / 2 - (hlo + hhi) / 2 * shape.scale
     move = Matrix.Translation(offset) @ Matrix.Scale(shape.scale, 4)
     for obj in sources:
@@ -393,6 +401,7 @@ def main() -> int:
     print("BAKE_DETAIL::" + json.dumps({
         "source": args.source, "target": args.target, "output": args.output,
         "size": args.size, "scale": round(shape.scale, 5), "spread": round(shape.spread, 4),
+        "mismatch": round(shape.mismatch, 4),
         "normal_flipped_fraction": round(flipped, 4),
         "zero_tangents_repaired": repaired,
         "normal_faded_share": round(faded, 4),

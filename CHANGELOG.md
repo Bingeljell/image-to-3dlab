@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
+
 ## [0.5.7] - 2026-11-03
 
 ### Changed

@@ -129,6 +129,9 @@ a { color: inherit; }
 .hud.tl { top: 14px; left: 14px; right: 260px; display: grid; gap: 4px; pointer-events: none; }  /* clear of the tools and the axis widget */
 .hud.tl .title { pointer-events: auto; justify-self: start; max-width: 100%;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.model-switch { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; pointer-events: auto; justify-self: start; }
+.model-switch[hidden] { display: none; }
+.model-switch .chip { padding: 3px 10px; font-size: 12px; }
 .title { font: 800 18px/1.2 var(--f-display); letter-spacing: -.01em; }
 .title.long { font: 700 15px/1.3 var(--f-display); letter-spacing: 0; }  /* a whole description, not a name */
 .sv-tools { position: absolute; top: 14px; right: 14px; z-index: 5; display: grid; justify-items: end; gap: 8px; }

@@ -1634,3 +1634,108 @@ def test_the_setup_question_lists_what_comes_down_beyond_the_weights():
                                             capture_output=True, text=True).stdout)
     assert "Also downloads:" in lines and any("sd engine: ~35 MB, MIT" in x and "https://g" in x for x in lines)
     assert none == []
+
+
+# --- the viewer's model switcher, and Library thumbnails for picture-less models ----------
+
+@needs_node
+def test_the_switcher_lists_every_model_the_asset_has():
+    out = _run("model-switch.js", """console.log(JSON.stringify({
+      full: m.modelChoices({ model: 'a.glb', finished: 'b.glb', rigged: 'c.glb' }).map((c) => [c.step, c.label, c.file]),
+      rawOnly: m.modelChoices({ model: 'a.glb' }).map((c) => c.step),
+      pictureOnly: m.modelChoices({ kind: 'picture', picture: 'p.png' }),
+      propSet: m.modelChoices({ kind: 'prop set', model: 'a.glb' }),
+      missing: m.modelChoices(null),
+    }));""")
+    assert out == {
+        "full": [["model", "3D model", "a.glb"], ["finished", "Finished", "b.glb"], ["rigged", "Rigged", "c.glb"]],
+        "rawOnly": ["model"],
+        "pictureOnly": [],
+        "propSet": [],
+        "missing": [],
+    }
+
+
+@needs_node
+def test_the_switcher_marks_the_model_on_screen():
+    out = _run("model-switch.js", """const choices = m.modelChoices({ model: 'a.glb', finished: 'b.glb' });
+      console.log(JSON.stringify({
+        picked: m.activeChoice(choices, { step: 'model', latest: 'b.glb' }),
+        latest: m.activeChoice(choices, { latest: 'b.glb' }),
+        picture: m.activeChoice(choices, { latest: null }),
+        stale: m.activeChoice(choices, { step: 'rigged', latest: 'b.glb' }),
+      }));""")
+    assert out == {"picked": "model", "latest": "finished", "picture": None, "stale": None}
+
+
+@needs_node
+def test_a_row_without_a_picture_asks_for_a_model_thumbnail():
+    out = _run("model-thumbs.js", """console.log(JSON.stringify({
+      finished: m.thumbFile({ picture: null, model: 'a.glb', finished: 'b.glb', rigged: 'c.glb' }),
+      raw: m.thumbFile({ picture: null, model: 'a.glb' }),
+      rigged: m.thumbFile({ picture: null, rigged: 'c.glb' }),
+      pictured: m.thumbFile({ picture: 'p.png', model: 'a.glb' }),
+      nothing: m.thumbFile({ picture: null }),
+      key: m.thumbKey('b.glb'),
+    }));""")
+    assert out == {"finished": "b.glb", "raw": "a.glb", "rigged": "c.glb",
+                   "pictured": None, "nothing": None, "key": "af-thumb-v1:b.glb"}
+
+
+@needs_node
+def test_the_thumbnail_cache_keeps_the_newest_and_survives_a_blocked_store():
+    out = _run("model-thumbs.js", """const store = (() => {
+        const map = new Map();
+        return { getItem: (k) => map.has(k) ? map.get(k) : null,
+                 setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) };
+      })();
+      const cache = m.createThumbCache({ storage: store, limit: 2 });
+      cache.set('k1', 'one'); cache.set('k2', 'two'); cache.set('k3', 'three');
+      const blocked = { getItem() { throw new Error('no'); }, setItem() { throw new Error('no'); },
+                        removeItem() { throw new Error('no'); } };
+      const stubborn = m.createThumbCache({ storage: blocked });
+      stubborn.set('k', 'kept');
+      console.log(JSON.stringify({
+        evicted: cache.get('k1'), kept: cache.get('k2'), newest: cache.get('k3'),
+        persisted: store.getItem('k3'), stubborn: stubborn.get('k'),
+      }));""")
+    assert out == {"evicted": None, "kept": "two", "newest": "three",
+                   "persisted": "three", "stubborn": "kept"}
+
+
+@needs_node
+def test_the_thumbnail_queue_renders_one_at_a_time_and_respects_its_cap():
+    out = _run("model-thumbs.js", """const rendered = [], seen = [];
+      const queue = m.createThumbQueue({
+        cache: m.createThumbCache(), limit: 2, gap: 0, wait: () => Promise.resolve(),
+        render: async (file) => { rendered.push(file); return 'data:' + file; },
+        onThumb: (item, data) => seen.push([item.id, data]),
+      });
+      queue.enqueue({ id: 'a', file: 'a.glb' });
+      queue.enqueue({ id: 'a', file: 'a.glb' });
+      queue.enqueue({ id: 'b', file: 'b.glb' });
+      queue.enqueue({ id: 'c', file: 'c.glb' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const renderedSeen = seen.slice();   // offer() may apply a cached copy again, by design
+      const cached = queue.offer({ id: 'a', file: 'a.glb' });
+      const over = queue.offer({ id: 'c', file: 'c.glb' });
+      console.log(JSON.stringify({ rendered, seen: renderedSeen, cached, over, pending: queue.pending() }));""")
+    assert out == {"rendered": ["a.glb", "b.glb"], "seen": [["a", "data:a.glb"], ["b", "data:b.glb"]],
+                   "cached": "cached", "over": "wanted", "pending": 1}
+
+
+@needs_node
+def test_a_hidden_tab_renders_nothing_until_it_comes_back():
+    out = _run("model-thumbs.js", """let hidden = true; const rendered = [];
+      const queue = m.createThumbQueue({
+        cache: m.createThumbCache(), gap: 0, wait: () => Promise.resolve(),
+        render: async (file) => { rendered.push(file); return 'data:' + file; },
+        isHidden: () => hidden,
+      });
+      queue.enqueue({ id: 'a', file: 'a.glb' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const whileHidden = rendered.slice();
+      hidden = false; queue.resume();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      console.log(JSON.stringify({ whileHidden, after: rendered }));""")
+    assert out == {"whileHidden": [], "after": ["a.glb"]}

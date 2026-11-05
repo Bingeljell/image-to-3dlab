@@ -15,11 +15,51 @@ import { installTooltips } from './tooltips.js';
 import { setLibraryLoading, showLibraryError, showLibraryLoadError, runLibraryLoad } from './library-loading.js';
 import { createLibraryPictureLoader } from './library-picture.js';
 import { libraryRowSelection, libraryFamilyOpen } from './library-selection.js';
+import { modelChoices, activeChoice } from './model-switch.js';
+import { thumbFile, createThumbCache, createThumbQueue } from './model-thumbs.js';
+import { createThumbnailRenderer } from './model-thumb-renderer.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
 installTooltips();
 const libraryRoot = document.querySelector('.lib');
+
+// Rows with no picture get a thumbnail rendered from their model: one at a time, only when
+// the row is on screen, cached afterwards. A hidden tab renders nothing.
+const thumbRenderer = createThumbnailRenderer();
+const thumbCache = createThumbCache({ storage: (() => { try { return window.localStorage; } catch { return null; } })() });
+const thumbQueue = createThumbQueue({
+  render: (file) => thumbRenderer.render(url(file)),
+  cache: thumbCache,
+  onThumb: ({ id }, data) => {
+    const image = $('assetList').querySelector(`[data-thumb-id="${id}"]`);
+    if (!image) return;   // the row was re-rendered or filtered away
+    image.src = data;
+    image.classList.remove('mark');   // the logo's size and dimming belong to the logo
+  },
+  isHidden: () => document.hidden,
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden) thumbQueue.resume(); });
+const thumbItems = new WeakMap();
+let thumbObserver = null;
+
+function watchThumb(image, asset) {
+  const item = { id: asset.id, file: thumbFile(asset) };
+  if (!item.file) return;
+  if (thumbQueue.offer(item) === 'cached') return;
+  if (typeof IntersectionObserver === 'undefined') { thumbQueue.enqueue(item); return; }
+  if (!thumbObserver) {
+    thumbObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        thumbObserver.unobserve(entry.target);
+        thumbQueue.enqueue(thumbItems.get(entry.target));
+      }
+    }, { root: libraryRoot.querySelector('.scroll'), rootMargin: '120px' });
+  }
+  thumbItems.set(image, item);
+  thumbObserver.observe(image);
+}
 
 let base = '/output/';
 let assets = [];
@@ -70,8 +110,11 @@ const fileName = (relative) => relative?.split('/').pop() ?? '';
 
 function assetButton(asset, { sub = false } = {}) {
   const pips = STEPS.slice(0, stepCount(asset)).map((step) => `<i class="${stepDone(asset, step.id) ? 'done' : ''}"></i>`).join('');
-  // a small server-made copy, not the full picture (often a megabyte each)
-  const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
+  // a small server-made copy, not the full picture (often a megabyte each); a model with no
+  // picture gets one rendered in the browser, so the row is not just the logo
+  const thumb = asset.picture
+    ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">`
+    : `<img class="mark" data-thumb-id="${escape(asset.id)}" src="${LOGO}" alt="">`;
   const when = new Date(asset.updated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const name = sub ? `v${asset.version} · ${statusText(asset)}` : asset.name;
   return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${libraryRowSelection(asset, { current, inputId: libraryInputId, viewingMaking })}">
@@ -99,6 +142,11 @@ function renderLibrary() {
       ${open ? `<ul class="versions">${members.map((m) => `<li>${assetButton(m, { sub: true })}</li>`).join('')}</ul>` : ''}</li>`;
   }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing matches.' : 'No assets yet. Press + Create to make your first.'}</li>`)
     + (more ? `<li><button class="ghost more" id="showMore">Show ${Math.min(more, 30)} more of ${more}</button></li>` : '');
+  thumbObserver?.disconnect();   // every row is a new node, so old observations are stale
+  $('assetList').querySelectorAll('[data-thumb-id]').forEach((image) => {
+    const asset = assets.find((a) => a.id === image.dataset.thumbId);
+    if (asset) watchThumb(image, asset);
+  });
   const shown = assets.filter((a) => !a.hidden).length;
   $('libFoot').textContent = `${shown} asset${shown === 1 ? '' : 's'} · saved in output/ on this machine`;
   document.querySelector('.hidden-toggle').hidden = !hiddenCount && !showHidden;
@@ -155,22 +203,14 @@ function renderSteps(asset) {
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
-    const stepId = button.dataset.viewstep;
-    if (viewingStep === stepId) { show(asset); return; }
-    const file = stepFile(asset, stepId);
-    viewingStep = stepId;
-    viewingPictures = false;
-    viewer.setFacing(null);
-    viewer.setClips([]);
-    viewer.load(url(file), { label: `${asset.name} · ${STEPS.find((s) => s.id === stepId)?.label ?? stepId}` });
-    renderSteps(asset);
-    setDownload(file);
+    showStep(asset, button.dataset.viewstep);
   }));
   const skin = viewingSkin && (asset.skins || []).find((k) => k.id === viewingSkin);
   // a character wearing a skin: the move picker points the download at the dressed move
   if (!(skin && asset.rigged && asset.clips.length)) {
     setDownload(skin ? skin.file : viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
   }
+  renderModelSwitch(asset);
   mountSkins($('steps'), asset, skinCtx);
 }
 
@@ -232,6 +272,35 @@ function stepLink(asset, stepId) {
   const view = canViewStep(asset, stepId)
     ? ` · <button type="button" class="linkish" data-viewstep="${stepId}">${viewingStep === stepId ? 'Show latest' : 'View'}</button>` : '';
   return file ? `${view} · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
+}
+
+/** The chips above the model: every version of it this asset has. */
+function renderModelSwitch(asset) {
+  const host = $('modelSwitch');
+  const choices = modelChoices(asset);
+  host.hidden = choices.length < 2;   // a single file needs no switcher
+  if (host.hidden) { host.innerHTML = ''; return; }
+  const active = activeChoice(choices, { step: viewingStep, latest: viewingPictures ? null : displayModel(asset) });
+  host.innerHTML = choices.map((choice) => `<button type="button" class="chip" data-model-step="${escape(choice.step)}" aria-pressed="${choice.step === active}">${escape(choice.label)}</button>`).join('');
+  host.querySelectorAll('[data-model-step]').forEach((button) => {
+    button.addEventListener('click', () => showStep(asset, button.dataset.modelStep));
+  });
+}
+
+/** Show one step's own model. The file the asset opens on goes through show(), so a rigged
+ *  character keeps its moves and the camera returns home. */
+function showStep(asset, stepId) {
+  const file = stepFile(asset, stepId);
+  if (!file || file === displayModel(asset) || viewingStep === stepId) { show(asset); return; }
+  viewingStep = stepId;
+  viewingPictures = false;
+  viewer.setFacing(null);
+  viewer.setClips([]);
+  viewer.load(url(file), { label: `${asset.name} · ${STEPS.find((step) => step.id === stepId)?.label ?? stepId}` });
+  renderSteps(asset);
+  setDownload(file);
+  // the subtitle follows the file on screen, not the asset's furthest stage
+  $('vMeta').textContent = STEPS.find((step) => step.id === stepId)?.label ?? statusText(asset);
 }
 
 function setDownload(file) {
@@ -340,6 +409,7 @@ function show(asset) {
   if (!asset) {
     viewer.showEmpty('Nothing to show yet. Pick an asset on the left.');
     $('steps').innerHTML = '';
+    renderModelSwitch(null);
     return;
   }
   renderSteps(asset);
@@ -547,6 +617,7 @@ function showMaking() {
   if (!making) return;
   closeSheet($('stage'));
   viewingMaking = true;
+  renderModelSwitch(null);
   renderLibrary();
   $('vTitle').textContent = making.title;
   $('vTitle').classList.toggle('long', making.title.length > 60);

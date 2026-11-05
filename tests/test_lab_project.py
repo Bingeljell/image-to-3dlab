@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -19,3 +20,10 @@ def test_the_lab_is_a_uv_project_on_python_3_11():
     assert not (REPO / "requirements.txt").exists()
     assert not (REPO / "requirements-dev.txt").exists()
     assert not (REPO / "requirements.lock").exists()
+
+
+def test_the_version_is_the_one_in_the_changelog():
+    """The version now lives in two places. A release has to move both, so check they agree."""
+    project = (REPO / "pyproject.toml").read_text()
+    version = re.search(r'^version = "([^"]+)"', project, re.MULTILINE).group(1)
+    assert f"## [{version}]" in (REPO / "CHANGELOG.md").read_text()

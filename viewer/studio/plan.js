@@ -21,6 +21,12 @@ export const ALLOWED = {
 export const FULL_GUIDE = 'https://assetfurnace.com/blog/how-to-use-assetfurnace';
 export const STEP_LABELS = { picture: 'Picture', back: 'Back picture', model: '3D model', finished: 'Finish', split: 'Split into props', rigged: 'Rig', animated: 'Animate', skin: 'Skin' };
 
+/** The old picture's requested goal, or its asset category when history is unavailable. */
+export function retryWant(want, category) {
+  if (ALLOWED.idea[want] === true) return want;
+  return { picture: 'picture', prop: 'prop', 'prop set': 'set', character: 'character' }[category] || 'character';
+}
+
 /** The steps to run, in order, before any "stop after".
  *  `frontBack`: draw a back picture and build the 3D model from front and back (one prop or
  *  a character; a sheet of nine has no back). */
@@ -58,11 +64,17 @@ export function stopAfter(steps, last) {
   return i < 0 ? steps : steps.slice(0, i + 1);
 }
 
+/** Turn pasted multi-line prose into one prompt paragraph without changing its wording. */
+export function normalizePromptText(text) {
+  return String(text || '').replace(/\r\n?|\n/g, ' ').replace(/[ \t\f\v]+/g, ' ').trim();
+}
+
 /** The prompt actually sent: the description plus the goal's proven wording. */
 export function composePrompt(text, goal, recipes, useRecipe = true) {
-  const base = String(text || '').trim().replace(/[\s,.]+$/, '');
+  const base = normalizePromptText(text);
   const wording = useRecipe ? recipes?.goals?.[goal]?.wording : '';
-  return wording ? `${base}, ${wording}` : base;
+  if (!wording || !base) return wording || base;
+  return /[,.!?;:]$/.test(base) ? `${base} ${wording}` : `${base}, ${wording}`;
 }
 
 /** Gentle warnings for words we know cause trouble for this goal. */

@@ -1,7 +1,7 @@
 // Create: one sheet that asks "start from" and "I want", then a runner that carries one
 // thing through every step it needs, using the same job APIs as the Steps panel.
 
-import { HAVES, WANTS, ALLOWED, STEP_LABELS, FULL_GUIDE, planFor, stopAfter, composePrompt, troubleFor } from './plan.js';
+import { HAVES, WANTS, ALLOWED, STEP_LABELS, FULL_GUIDE, planFor, stopAfter, composePrompt, normalizePromptText, troubleFor } from './plan.js';
 import { plainError } from './jobs.js';
 import { openPromptGuide, isGuideLink } from './guide.js';
 
@@ -32,11 +32,24 @@ export function pastedPicture(clipboard, now = Date.now) {
  * The picture job's settings from Create's choices. A new seed each time by default, so the
  * same prompt gives fresh tries; a fixed seed gives the same picture back.
  */
-export function pictureSettings({ size = 768, steps = 8, newEachTime = true, seed = 42 } = {}, random = Math.random) {
-  const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 768;
+export function pictureSettings({ size = 1024, steps = 8, newEachTime = true, seed = 42 } = {}, random = Math.random) {
+  const side = [512, 768, 1024].includes(Number(size)) ? Number(size) : 1024;
   const count = Math.max(1, Math.min(50, Math.round(Number(steps)) || 10));
   const fixed = Number.isFinite(Number(seed)) ? Math.trunc(Number(seed)) : 42;
   return { width: side, height: side, steps: count, seed: newEachTime ? freshSeed(random) : fixed };
+}
+
+/** The saved controls to offer when drawing a Library picture again, or nothing for older pictures. */
+export function retryPictureSettings(settings) {
+  if (!settings || typeof settings !== 'object') return null;
+  const steps = Number(settings.steps);
+  const seed = Number(settings.seed);
+  if (!Number.isFinite(steps) || !Number.isSafeInteger(seed)) return null;
+  const restored = { steps: Math.max(1, Math.min(50, Math.round(steps))), seed, touched: true };
+  const width = Number(settings.width), height = Number(settings.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) restored.size = 1024;
+  else if (width === height && [512, 768, 1024].includes(width)) restored.size = width;
+  return restored;
 }
 
 /**
@@ -45,7 +58,7 @@ export function pictureSettings({ size = 768, steps = 8, newEachTime = true, see
  */
 export function pictureDefaults(engine, pictureOnly = false) {
   const defaults = engine?.defaults || {};
-  return { size: defaults.width || 768, steps: (pictureOnly && engine?.picture_only_steps) || defaults.steps || 8 };
+  return { size: defaults.width || 1024, steps: (pictureOnly && engine?.picture_only_steps) || defaults.steps || 8 };
 }
 
 /**
@@ -62,15 +75,49 @@ export function freshSeed(random = Math.random) {
   return Math.floor(random() * 2147483647);
 }
 
+export function preloadPicture(url, ImageCtor = globalThis.Image) {
+  if (!ImageCtor) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const image = new ImageCtor();
+    let settled = false;
+    const done = (error) => { if (settled) return; settled = true; error ? reject(error) : resolve(); };
+    image.onload = () => done();
+    image.onerror = () => done(new Error('The picture preview could not be loaded.'));
+    image.src = url;
+    image.decode?.().then(() => done(), () => {});
+  });
+}
+
+export function fitTextarea(textarea) {
+  textarea.style.height = 'auto';
+  const border = Math.max(0, (textarea.offsetHeight || 0) - (textarea.clientHeight || 0));
+  textarea.style.height = textarea.scrollHeight + border + 'px';
+  textarea.style.overflowY = 'hidden';
+}
+
+export function rerenderKeepingScroll(container, render) {
+  const scrollTop = container.scrollTop;
+  render();
+  container.scrollTop = scrollTop;
+}
+
+export function detailStates(details) {
+  return Object.fromEntries([...details].map((detail) => [detail.dataset.detail, detail.open]));
+}
+
 /** Show the Create sheet over the viewer. `onStart(plan)` runs it. */
-export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart }) {
+export function openCreate({ stage, recipes, engines, presets, frontBack = null, pictureEngines = [], prefill = null, onStart, onSourceChange = null }) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
   stage.appendChild(sheet);
+  let textResize = null;
+  let firstRender = true;
+  let sourceRevision = 0;
   const state = { have: 'idea', want: 'character', stop: null, tips: false, useRecipe: true, text: '', file: null, preview: null,
     backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
-    pic: { size: 768, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
+    pic: { size: 1024, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
+    details: {},
     picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // size and steps follow the picture engine and whether the picture is the end product, until you set them
@@ -78,6 +125,8 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   const fitPicture = (pictureOnly) => { if (!state.pic.touched) Object.assign(state.pic, pictureDefaults(picEngine(), pictureOnly)); };
   // "Draw another picture": the picture's own description, word for word, so nothing is added twice
   if (prefill?.text) Object.assign(state, { text: prefill.text, useRecipe: false, want: prefill.want || state.want });
+  const retryPicture = retryPictureSettings(prefill?.pictureSettings);
+  if (retryPicture) Object.assign(state.pic, retryPicture);
   // paste a picture (Ctrl+V) anywhere while the sheet is open; text pastes are left alone
   const onPaste = (e) => {
     const picture = pastedPicture(e.clipboardData);
@@ -87,10 +136,14 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   };
   document.addEventListener('paste', onPaste);
   // the chosen picture, shown back so you can tell it is the right one; the URL is released when it changes
-  const setFile = (file) => {
-    if (state.preview) URL.revokeObjectURL(state.preview);
+  const setFile = (file, { deferPreviewRevoke = false } = {}) => {
+    const previousPreview = state.preview;
     state.file = file;
+    sourceRevision += 1;
+    onSourceChange?.(file);
     state.preview = file && (file.type.startsWith('image/') || PICTURE_TYPES.test(file.name)) ? URL.createObjectURL(file) : null;
+    if (previousPreview && !deferPreviewRevoke) URL.revokeObjectURL(previousPreview);
+    return previousPreview;
   };
   const setBack = (file) => {
     if (state.backPreview) URL.revokeObjectURL(state.backPreview);
@@ -98,10 +151,14 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     state.backPreview = file ? URL.createObjectURL(file) : null;
   };
   // run by closeSheet too, so a sheet closed from outside (a Library click) leaves no listener behind
-  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); setFile(null); setBack(null); };
+  sheet.onSheetClose = () => { document.removeEventListener('paste', onPaste); textResize?.disconnect(); setFile(null); setBack(null); };
   const close = () => { sheet.onSheetClose(); sheet.remove(); };
 
   const render = () => {
+    const scrollTop = sheet.scrollTop;
+    Object.assign(state.details, detailStates(sheet.querySelectorAll('details[data-detail]')));
+    textResize?.disconnect();
+    textResize = null;
     if (ALLOWED[state.have][state.want] !== true) state.want = Object.keys(ALLOWED[state.have]).find((k) => ALLOWED[state.have][k] === true);
     const installedPictures = pictureEngines.filter((e) => e.installed);
     const pixal = state.engine === 'pixal3d';
@@ -123,7 +180,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       ? `<label class="field">Describe it<textarea data-k="text" rows="3" placeholder="${state.want === 'character' ? 'A stylised orc blacksmith with short tusks, a braided beard and heavy boots' : state.want === 'picture' ? 'Concept art of an orc blacksmith at a glowing forge' : 'A weathered wooden tavern barrel with iron bands'}">${esc(state.text)}</textarea></label>
          ${recipe?.wording ? `<label class="check addline"><input type="checkbox" data-k="recipe" ${state.useRecipe ? 'checked' : ''}><span><b>We add:</b> ${esc(recipe.wording)}</span></label>` : ''}
          <div class="warnings" aria-live="polite"></div>`
-      : `<div class="drop" data-drop tabindex="0" role="button">${state.file ? `${state.preview ? `<img class="droppreview" src="${state.preview}" alt="The picture you chose">` : ''}<b>${esc(state.file.name)}</b><br><span class="hint">${fileSizeText(state.file.size)} · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>` : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`}</div>`;
+      : `<div class="drop" data-drop tabindex="0" role="button">${sourceDropContent()}</div>`;
     sheet.innerHTML = `<form class="sheet-card" novalidate>
       <div class="sheet-top"><h2>What should we <span>make?</span></h2><button type="button" class="ghost" data-close>Cancel</button></div>
       <div class="quick">${quick.map(([w, h, t]) => `<button type="button" class="qs${w === state.want && h === state.have ? ' on' : ''}" data-w="${w}" data-h="${h}">${t}</button>`).join('')}</div>
@@ -139,19 +196,37 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       <div class="path">${plan.map((s, i) => `${i ? '<span class="arr">→</span>' : ''}<button type="button" class="pstep${active.includes(s) ? '' : ' skip'}" data-stop="${s}">${STEP_LABELS[s]}</button>`).join('')}</div>
       ${heroChoice(state, active, pixal)}
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
-      ${active.includes('picture') ? `<details class="adv"><summary>Advanced: picture settings</summary>
+      ${active.includes('picture') ? `<details class="adv" data-detail="picture" ${state.details.picture ? 'open' : ''}><summary>Advanced: picture settings</summary>
         <div class="picset">
           ${installedPictures.length > 1 ? `<label class="field">Picture engine<select data-k="picengine">${installedPictures.map((e) => `<option value="${esc(e.id)}" ${e.id === state.picEngine ? 'selected' : ''}>${esc(e.label)}${e.suggested ? ' · suggested for this machine' : ''} · ${esc(e.license?.name || '')}</option>`).join('')}</select></label>` : ''}
-          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 768) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          <label class="field">Size<select data-pic="size">${[[512, '512 (fastest)'], [768, '768'], [1024, '1024 (best detail, slowest)']].map(([v, t]) => [v, v === (picEngine()?.defaults?.width || 1024) ? `${t} · recommended` : t]).map(([v, t]) => `<option value="${v}" ${v === state.pic.size ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
           <label class="field">Steps<input type="number" data-pic="steps" min="1" max="50" value="${state.pic.steps}"><span class="hint">Each extra step adds the same time again.</span></label>
           <label class="check"><input type="checkbox" data-pic="newEachTime" ${state.pic.newEachTime ? 'checked' : ''}><span>New picture each time <span class="hint">untick to reuse a seed and get the same picture back</span></span></label>
           ${state.pic.newEachTime ? '' : `<label class="field">Seed<input type="number" data-pic="seed" step="1" value="${state.pic.seed}"></label>`}
         </div></details>` : ''}
-      ${active.includes('model') ? `<details class="adv"><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
+      ${active.includes('model') ? `<details class="adv" data-detail="model" ${state.details.model ? 'open' : ''}><summary>Advanced: 3D model</summary>${engines.length > 1 ? `<label class="field">Engine<select data-k="engine">${engines.map((e, i) => `<option value="${esc(e.id)}" ${e.id === state.engine ? 'selected' : ''}>${i ? '' : 'Best quality: '}${esc(e.label)}</option>`).join('')}</select></label>` : ''}${pixal && state.want !== 'set' && !state.backFile ? (frontBack?.ready ? `<label class="check"><input type="checkbox" data-k="frontback" ${state.frontBack ? 'checked' : ''}><span>Front + back <span class="hint">draws the back too, so the sides and back match your picture instead of being guessed. A few minutes more on a Mac, under a minute on a Linux GPU.</span></span></label>` : frontBack?.hint ? `<p class="hint">Front + back is off. ${esc(frontBack.hint)}</p>` : '') : ''}<label class="check"><input type="checkbox" data-k="keep" ${state.keep ? 'checked' : ''}><span>Keep everything <span class="hint">textures, in-between meshes and resume files, for digging into a bad result. Takes a lot more disk.</span></span></label></details>` : ''}
       <p class="error" data-error hidden></p>
       <div class="row end"><span class="hint">${active.length} step${active.length === 1 ? '' : 's'}${active.includes('picture') ? ` · the picture uses ${esc(picEngine()?.label || 'the picture engine')}, run on this machine` : ''}</span><button type="submit" class="primary">Make it</button></div>
     </form>`;
     wire(active);
+  };
+
+  const sourceDropContent = () => state.file
+    ? `${state.preview ? `<img class="droppreview" data-source-preview src="${state.preview}" alt="The picture you chose">` : ''}<b data-source-name>${esc(state.file.name)}</b><br><span class="hint"><span data-source-size>${fileSizeText(state.file.size)}</span> · click${state.have === 'picture' ? ', drop or paste' : ' or drop'} another to replace</span>`
+    : `Drop ${state.have === 'picture' ? 'a picture (PNG, JPG, WebP)' : 'a 3D model (GLB)'} here, ${state.have === 'picture' ? 'paste one (Ctrl+V), ' : ''}or click to choose`;
+
+  const updateSourcePreview = () => {
+    const drop = sheet.querySelector('[data-drop]');
+    if (!drop) return true;
+    const image = drop.querySelector('[data-source-preview]');
+    const name = drop.querySelector('[data-source-name]');
+    const size = drop.querySelector('[data-source-size]');
+    if (image && state.preview && name && size) {
+      image.src = state.preview;
+      name.textContent = state.file.name;
+      size.textContent = fileSizeText(state.file.size);
+    } else drop.innerHTML = sourceDropContent();
+    return true;
   };
 
   const warn = () => {
@@ -181,7 +256,20 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       if (link && isGuideLink(link.href)) { e.preventDefault(); openPromptGuide(); }
     });
     const text = q('[data-k="text"]');
-    if (text) { text.oninput = () => { state.text = text.value; warn(); }; warn(); }
+    if (text) {
+      fitTextarea(text);
+      text.oninput = () => { state.text = text.value; fitTextarea(text); warn(); };
+      if (typeof ResizeObserver !== 'undefined') {
+        let width = text.clientWidth;
+        textResize = new ResizeObserver(() => {
+          if (text.clientWidth === width) return;
+          width = text.clientWidth;
+          fitTextarea(text);
+        });
+        textResize.observe(text);
+      }
+      warn();
+    }
     q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
@@ -197,7 +285,12 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       const key = el.dataset.pic;
       state.pic[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
       if (key === 'size' || key === 'steps') state.pic.touched = true;
-      if (key === 'newEachTime') { render(); sheet.querySelector('.picset').closest('details').open = true; }  // show or hide the seed box
+      if (key === 'newEachTime') {
+        const scrollTop = sheet.scrollTop;
+        rerenderKeepingScroll(sheet, render);
+        sheet.querySelector('[data-pic="newEachTime"]').focus({ preventScroll: true });
+        sheet.scrollTop = scrollTop;
+      }  // show or hide the seed box
     }));
     const picker = q('[data-file]'), drop = q('[data-drop]');
     if (drop) {
@@ -224,7 +317,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       const backFile = backSlotShown(state, frontBack, active) ? state.backFile : null;
       close();
       onStart({ have: state.have, want: state.want, steps: active, file, engine: state.engine, firstMove: state.firstMove,
-        description: state.text.trim(), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
+        description: normalizePromptText(state.text), prompt: state.have === 'idea' ? composePrompt(state.text, state.want, recipes, state.useRecipe) : null,
         pictureSettings: active.includes('picture') ? pictureSettings(state.pic) : null,
         pictureEngine: active.includes('picture') ? state.picEngine : null,
         backFile,
@@ -232,7 +325,9 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
         keepEverything: active.includes('model') && state.keep,
         finishSettings: heroWanted(state, active, state.engine === 'pixal3d') ? { faces: 32000, hero: true } : null });
     };
-    text?.focus();
+    if (firstRender) text?.focus();
+    if (!firstRender) sheet.scrollTop = scrollTop;
+    firstRender = false;
   }
 
   // drop a file anywhere on the sheet
@@ -240,6 +335,36 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
   sheet.addEventListener('drop', (e) => { e.preventDefault(); takeFile(e.dataTransfer.files[0]); });
   sheet.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   render();
+  return {
+    canUseLibraryPicture: () => state.have === 'picture' && sheet.isConnected !== false,
+    sourceRevision: () => sourceRevision,
+    isSourceCurrent: (revision) => sourceRevision === revision && sheet.isConnected !== false,
+    usePicture: async (file) => {
+      if (!file || sheet.isConnected === false) return false;
+      state.have = 'picture';
+      const previousPreview = setFile(file, { deferPreviewRevoke: true });
+      const revision = sourceRevision;
+      const nextPreview = state.preview;
+      try {
+        await preloadPicture(nextPreview);
+      } catch {
+        if (nextPreview && state.preview === nextPreview) URL.revokeObjectURL(nextPreview);
+        return false;
+      }
+      if (sourceRevision !== revision || sheet.isConnected === false) {
+        if (nextPreview && state.preview === nextPreview) URL.revokeObjectURL(nextPreview);
+        return false;
+      }
+      updateSourcePreview();
+      if (previousPreview) URL.revokeObjectURL(previousPreview);
+      return true;
+    },
+    pictureName: () => state.file?.name || null,
+    showError: (message) => {
+      const error = sheet.querySelector('[data-error]');
+      if (error) { error.textContent = message; error.hidden = false; }
+    },
+  };
 }
 
 /**

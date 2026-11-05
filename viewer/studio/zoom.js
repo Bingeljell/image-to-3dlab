@@ -42,7 +42,7 @@ export function zoomTo(state, scale, w, h) {
 export function attachZoom(root) {
   const images = [...root.querySelectorAll('.zoombox img')];
   if (!images.length) return;
-  let state = RESET, drag = null;
+  let state = RESET, drag = null, suppressClick = false;
   const bar = root.querySelector('.zoombar');
   if (bar) {
     bar.innerHTML = STEPS.map((s) => `<button type="button" class="chip" data-zoom="${s}">${Math.round(s * 100)}%</button>`).join('')
@@ -74,20 +74,37 @@ export function attachZoom(root) {
     }, { passive: false });
     box.addEventListener('pointerdown', (event) => {
       if (state.scale === 1) return;
-      drag = { x: event.clientX, y: event.clientY };
+      drag = { x: event.clientX, y: event.clientY, moved: false };
       box.setPointerCapture(event.pointerId);
       apply();
     });
     box.addEventListener('pointermove', (event) => {
       if (!drag) return;
       const r = box.getBoundingClientRect();
-      state = panBy(state, event.clientX - drag.x, event.clientY - drag.y, r.width, r.height);
-      drag = { x: event.clientX, y: event.clientY };
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      drag.moved ||= dx !== 0 || dy !== 0;
+      state = panBy(state, dx, dy, r.width, r.height);
+      drag = { x: event.clientX, y: event.clientY, moved: drag.moved };
       apply();
     });
-    const stop = () => { drag = null; apply(); };
+    const stop = () => {
+      suppressClick = Boolean(drag?.moved);
+      drag = null;
+      apply();
+    };
     box.addEventListener('pointerup', stop);
     box.addEventListener('pointercancel', stop);
+    box.addEventListener('click', (event) => {
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      if (state.scale !== 1) return;
+      const r = box.getBoundingClientRect();
+      const next = 2;
+      state = zoomAt(state, next / state.scale, event.clientX - r.left, event.clientY - r.top, r.width, r.height);
+      apply();
+    });
     box.addEventListener('dblclick', () => { state = RESET; apply(); });
   });
   apply();

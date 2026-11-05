@@ -418,7 +418,26 @@ def test_one_version_per_family_can_be_the_main_one(output):
 def test_an_asset_carries_the_prompt_its_picture_was_drawn_from(output):
     _write(output / "images" / IMG / f"{IMG}.provenance.json", json.dumps({"prompt": "A chunky knight"}), 1000)
     assert _by_name(aa.list_assets(output))["a chunky knight"]["prompt"] == "A chunky knight"
-    assert _by_name(aa.list_assets(output))["a lone fox"]["prompt"] is None       # no record kept
+    old_picture = _by_name(aa.list_assets(output))["a lone fox"]
+    assert old_picture["prompt"] is None       # no record kept
+    assert old_picture["picture_settings"] is None
+
+
+def test_an_asset_carries_its_picture_settings_for_drawing_it_again(output):
+    _write(output / "images" / IMG / f"{IMG}.provenance.json", json.dumps({
+        "prompt": "A chunky knight",
+        "settings": {"width": 1024, "height": 1024, "steps": 17, "seed": 447606998181262},
+    }), 1000)
+    asset = _by_name(aa.list_assets(output))["a chunky knight"]
+    assert asset["picture_settings"] == {"width": 1024, "height": 1024, "steps": 17, "seed": 447606998181262}
+
+
+def test_an_asset_carries_the_picture_goal_that_started_its_chain(output):
+    picture = f"images/{IMG}/{IMG}.png"
+    _write(output / ".activity.jsonl", json.dumps({
+        "made": picture, "want": "picture", "step": "picture", "result": "done",
+    }) + "\n")
+    assert _by_name(aa.list_assets(output))["a chunky knight"]["picture_want"] == "picture"
 
 
 # --- deleting a version --------------------------------------------------------------------------

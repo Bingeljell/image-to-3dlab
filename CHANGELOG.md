@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Setup scripts say `uv sync` instead of pointing at the requirements files this release
   removed.
 - A run that dies before its first step says Stopped. It used to say "Stopped at undefined". When the step is known, the library names it.
+- Clicking a Library picture while Create starts from a picture now fills the picture source instead of closing Create.
+- Library filter dropdowns now wrap when the sidebar is narrow, so their selected labels and arrows stay readable.
+- The Library shows a compact loading state before its search and filters appear, and offers a retry if loading fails.
+- Tooltips at the edge of the studio now flip or clamp into the browser window instead of being clipped.
+- Picture headings now have their own space above the image, and the picture keeps its caption and zoom controls inside the viewer.
+- Clicking a picture at its zoom-in cursor now zooms to 200% toward that spot; dragging still pans without an accidental zoom.
+- Picture and empty views no longer show the 3D toolbar or orientation gizmo.
+- Drawing a Library picture again keeps its original goal (or its asset category
+  for older records), picture size, steps and seed settings; new pictures start
+  at 1024×1024 unless you choose another available size.
+- Create expands a long description instead of hiding part of it in the text box.
+- Changing a Create control keeps the form's scroll position and open advanced sections.
+- Create turns pasted prompt line breaks into spaces and keeps ending
+  punctuation when it redraws a picture.
+- A stale Library refresh can no longer replace newer results after a retry.
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 
 ## [0.5.7] - 2026-11-03

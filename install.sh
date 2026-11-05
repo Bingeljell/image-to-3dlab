@@ -149,25 +149,28 @@ PY="$DIR/.venv/bin/python"
 # can load, so that path exports the lock, strips that family, and installs the ROCm
 # build instead. image_to_3dlab.host picks the ROCm build that matches the installed
 # runtime (tested in tests/test_host.py). The CUDA and Apple paths keep a plain uv sync.
+#
+# --inexact: add and update the lock's packages, but never delete one. Backends install
+# into this same environment (the SF3D setup script pip-installs with this interpreter),
+# so an exact sync would remove a working backend on the next update.
 if [ "$GPU" = amd ]; then
   run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
   if [ "$DRY" != 1 ]; then
+    [ -x "$PY" ] || die "The Python environment in $DIR/.venv is missing, so the AMD packages cannot be set up. Delete $DIR/.venv and run this again."
     # Inside the venv: it belongs to this install, and git already ignores it there.
     ROCM_FILE="$DIR/.venv/requirements.rocm.txt"
     (cd "$DIR" && "$UV" export --frozen --no-dev --output-file "$ROCM_FILE")
-    if [ -x "$PY" ]; then
-      # From inside $DIR: `-m` finds the package in the current folder, and under
-      # `curl | bash` that folder is wherever the user happened to be.
-      (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
-      mv "$ROCM_FILE.tmp" "$ROCM_FILE"
-    fi
+    # From inside $DIR: `-m` finds the package in the current folder, and under
+    # `curl | bash` that folder is wherever the user happened to be.
+    (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
+    mv "$ROCM_FILE.tmp" "$ROCM_FILE"
     run "$UV" pip install --quiet --python "$PY" -r "$ROCM_FILE"
   fi
 else
   if [ "$DRY" = 1 ]; then
-    say "would run: uv sync --frozen --no-dev --python 3.11 (in $DIR)"
+    say "would run: uv sync --frozen --no-dev --inexact --python 3.11 (in $DIR)"
   else
-    (cd "$DIR" && "$UV" sync --frozen --no-dev --python 3.11)
+    (cd "$DIR" && "$UV" sync --frozen --no-dev --inexact --python 3.11)
   fi
 fi
 

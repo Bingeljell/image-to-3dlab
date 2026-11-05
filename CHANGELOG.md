@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- Finish says why Pixal3D's clean-up could not run: it checks the saved dump against the
+  size its own header asks for, so a dump that was not fully written names itself instead
+  of failing with a bare exit code. A clean-up that exits without printing anything now
+  says that too (#192).
 - On an AMD card, a missing Python environment stops the install with a message instead of
   installing about 6 GB of NVIDIA wheels the card cannot use.
 - Updating no longer removes packages it did not install. The installer adds and updates

@@ -8,6 +8,7 @@ the right face count.
 
 from __future__ import annotations
 
+import struct
 import subprocess
 from pathlib import Path
 
@@ -211,3 +212,69 @@ def test_log_tail_keeps_only_the_last_lines(tmp_path):
     tail = pn.log_tail(log, lines=3)
     assert tail == "line 37\nline 38\nline 39"
     assert pn.log_tail(tmp_path / "missing.log") == "(no log written)"
+
+
+# --- the dump preflight: post-replay says nothing when a read falls short (#192) -----------
+
+def _dump(tmp_path, vertices=3, faces=1, voxels=2, res=512, extra=0, name="run.post.bin"):
+    """A clean-up dump with the layout trellis-cli writes: header, verts, faces, coords, pbr6."""
+    payload = 12 * vertices + 12 * faces + 36 * voxels
+    data = struct.pack("<4i", vertices, faces, voxels, res) + b"\0" * (payload + extra)
+    path = tmp_path / name
+    path.write_bytes(data)
+    return path
+
+
+def test_a_complete_dump_passes_the_preflight(tmp_path):
+    assert pn.dump_problem(_dump(tmp_path)) is None
+
+
+def test_a_dump_short_of_the_size_its_header_asks_for_is_named(tmp_path):
+    dump = _dump(tmp_path)
+    dump.write_bytes(dump.read_bytes()[:-100])
+    problem = pn.dump_problem(dump)
+    assert "run.post.bin" in problem and "not written completely" in problem
+    assert "V=3 F=1 Mv=2" in problem and "needs 136" in problem
+
+
+def test_a_file_too_short_for_its_header_is_named(tmp_path):
+    dump = tmp_path / "run.post.bin"
+    dump.write_bytes(b"dump")
+    assert "too short to hold the 16-byte header" in pn.dump_problem(dump)
+
+
+def test_a_file_that_is_not_a_dump_is_named(tmp_path):
+    dump = tmp_path / "run.post.bin"
+    dump.write_bytes(struct.pack("<4i", 0, -1, 0, 0) + b"\0" * 64)
+    assert "which is not a clean-up dump" in pn.dump_problem(dump)
+
+
+def test_a_missing_dump_is_left_to_the_runner(tmp_path):
+    """Only a dump that exists reaches native_retopo in a run; the tests pass a fake path."""
+    assert pn.dump_problem(tmp_path / "absent.post.bin") is None
+
+
+def test_a_short_dump_is_reported_without_running_post_replay(tmp_path):
+    """The whole point: say the file is short instead of surfacing a bare exit code 1."""
+    dump = _dump(tmp_path)
+    dump.write_bytes(dump.read_bytes()[:-100])
+
+    def runner(*args, **kwargs):
+        raise AssertionError("post-replay must not run on a dump it cannot read")
+
+    with pytest.raises(pn.ReplayFailed, match="not written completely"):
+        pn.native_retopo(dump, tmp_path / "raw.glb", tmp_path / "out.glb", 100, 1024,
+                         tmp_path / "replay.log", post_replay=tmp_path / "post-replay",
+                         runner=runner)
+    assert not (tmp_path / "out.glb").exists()
+
+
+def test_an_empty_log_says_the_exit_code_is_all_there_is(tmp_path):
+    def runner(command, stdout=None, **kwargs):
+        raise subprocess.CalledProcessError(1, command)
+
+    with pytest.raises(pn.ReplayFailed, match="printed nothing") as caught:
+        pn.native_retopo(tmp_path / "run.post.bin", tmp_path / "raw.glb", tmp_path / "out.glb",
+                         100, 1024, tmp_path / "replay.log", post_replay=tmp_path / "post-replay",
+                         runner=runner)
+    assert "(log is empty)" in str(caught.value)

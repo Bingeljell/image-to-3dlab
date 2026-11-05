@@ -24,6 +24,7 @@ leaves a symmetric silhouette unchanged, `frame_problem` compares every bound, n
 from __future__ import annotations
 
 import subprocess
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -89,6 +90,39 @@ def dump_beside(views: Path) -> Path | None:
     """The clean-up dump saved by the run whose cameras are `views` (`<run>.svviews`)."""
     dump = views.with_suffix(DUMP_SUFFIX)
     return dump if dump.is_file() else None
+
+
+# The dump's own layout, as trellis-cli writes it: i32 V, F, Mv, res; then V*3 f32 verts,
+# F*3 i32 faces, Mv*3 i32 coords, Mv*6 f32 pbr6.
+DUMP_HEADER_BYTES = 16
+
+
+def dump_problem(dump: Path) -> str | None:
+    """Why post-replay cannot read this dump, or None when it looks complete.
+
+    post-replay exits 1 without printing anything when any read falls short (#192, seen on
+    Windows), so a bug report carries only an exit code. Compare the file against the size
+    its own header asks for before running it, so the report says what is wrong instead.
+    A missing file is left to the runner: only a dump that exists reaches here in a run.
+    """
+    try:
+        size = dump.stat().st_size
+        with dump.open("rb") as handle:
+            header = handle.read(DUMP_HEADER_BYTES)
+    except OSError:
+        return None
+    if len(header) < DUMP_HEADER_BYTES:
+        return (f"{dump.name} is {size} bytes, too short to hold the "
+                f"{DUMP_HEADER_BYTES}-byte header.")
+    vertices, faces, voxels, res = struct.unpack("<4i", header)
+    if vertices <= 0 or faces <= 0 or voxels < 0 or res <= 0:
+        return (f"{dump.name} starts with V={vertices} F={faces} Mv={voxels} res={res}, "
+                "which is not a clean-up dump.")
+    expected = DUMP_HEADER_BYTES + 12 * vertices + 12 * faces + 36 * voxels
+    if size < expected:
+        return (f"{dump.name} is {size} bytes, but its header (V={vertices} F={faces} "
+                f"Mv={voxels} res={res}) needs {expected}: it was not written completely.")
+    return None
 
 
 def replay_available(post_replay: Path = POST_REPLAY) -> bool:
@@ -225,6 +259,9 @@ def native_retopo(dump: Path, raw_glb: Path, output: Path, faces: int, atlas: in
     Pixel Match a model it would paint backwards.
     """
     replayed = output.with_name(output.stem + ".replay.glb")
+    problem = dump_problem(dump)
+    if problem:
+        raise ReplayFailed(f"Pixal3D clean-up cannot read its dump: {problem}")
     with open(log, "w") as handle:
         try:
             runner(replay_command(dump, replayed, faces, atlas, post_replay),
@@ -234,8 +271,11 @@ def native_retopo(dump: Path, raw_glb: Path, output: Path, faces: int, atlas: in
         else:
             failed = None
     if failed:
+        tail = log_tail(log)
+        hint = ("\nIt printed nothing, so the exit code is all it left behind."
+                if tail == "(log is empty)" else "")
         raise ReplayFailed(f"Pixal3D clean-up exited with code {failed.returncode}. "
-                           f"Its log ({log.name}) ends:\n{log_tail(log)}") from failed
+                           f"Its log ({log.name}) ends:\n{tail}{hint}") from failed
     converted = convert_replay_glb(replayed.read_bytes())
     problem = frame_problem(glb_bounds(raw_glb.read_bytes()), glb_bounds(converted))
     if problem:

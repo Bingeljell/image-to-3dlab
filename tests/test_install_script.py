@@ -92,6 +92,7 @@ def test_fresh_install_picks_the_newest_release_not_a_backup_tag(tmp_path, upstr
     uv_calls = (tmp_path / "uv.log").read_text()
     assert "sync" in uv_calls and "--frozen" in uv_calls and "--no-dev" in uv_calls
     assert "--python 3.11" in uv_calls
+    assert "--inexact" in uv_calls
     assert "requirements.lock" not in uv_calls
 
 
@@ -319,6 +320,16 @@ def test_installs_from_uv_lock(tmp_path, upstream, fake_bin):
     assert "requirements.lock" not in uv_calls
 
 
+def test_an_update_never_removes_packages_it_did_not_install(tmp_path, upstream, fake_bin):
+    """uv sync is exact by default: it deletes anything not in the lock. Backends install
+    into this same environment (scripts/bootstrap_sf3d.py pip-installs with this
+    interpreter), so an exact sync would remove a working backend on the next update."""
+    done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"))
+    assert done.returncode == 0, done.stderr
+    uv_calls = (tmp_path / "uv.log").read_text()
+    assert "--inexact" in uv_calls
+
+
 def test_the_uv_lock_pins_what_broke_before():
     lock = (SCRIPT.parent / "uv.lock").read_text()
     assert 'name = "rembg"' in lock
@@ -538,6 +549,7 @@ def test_an_nvidia_install_is_left_alone(tmp_path, upstream, fake_bin, amd_venv)
     assert "Machine: Linux with an NVIDIA GPU" in done.stdout
     uv_calls = (tmp_path / "uv.log").read_text()
     assert "sync" in uv_calls and "--frozen" in uv_calls and "--no-dev" in uv_calls
+    assert "--inexact" in uv_calls
     assert "requirements.lock" not in uv_calls
     assert "requirements.rocm.lock" not in uv_calls
     assert "rocm" not in uv_calls

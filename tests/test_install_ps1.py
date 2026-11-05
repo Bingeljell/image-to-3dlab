@@ -16,7 +16,7 @@ PS1 = REPO / "install.ps1"
 def test_the_windows_installer_exports_the_lock_as_install_sh_syncs_it():
     ps1 = PS1.read_text(encoding="utf-8")
     sh = (REPO / "install.sh").read_text(encoding="utf-8")
-    assert "uv sync --frozen --no-dev --python 3.11" in sh
+    assert "uv sync --frozen --no-dev --inexact --python 3.11" in sh
     assert "uv export --frozen --no-dev" in ps1
     assert ps1.index("uv export --frozen --no-dev") < ps1.index("& uv pip install --quiet --python $Py -r $Reqs")
     assert "requirements.lock" not in ps1

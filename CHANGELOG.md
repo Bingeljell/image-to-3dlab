@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The viewer has a switcher for every model an asset has (3D model, Finished, Rigged), so
+  looking at the raw model is no longer a one-way trip back through the Library.
+- Library rows for a model with no picture show a thumbnail rendered from the model itself,
+  once and in the background, and kept for next time.
+
 ### Changed
 - The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
   `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still

@@ -2,7 +2,7 @@
 # and the error count grew with no change to our code. pyproject.toml pins the
 # version for the same reason.
 
-target-version = "py310"
+target-version = "py311"
 
 # Not ours to lint: third-party code tracked or cloned here, and local working folders.
 extend-exclude = [

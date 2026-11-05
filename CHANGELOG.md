@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updating no longer removes packages it did not install. The installer adds and updates
   the lock's packages and leaves the rest of the lab's Python environment alone, so a
   backend installed there keeps working.
+- Setup scripts say `uv sync` instead of pointing at the requirements files this release
+  removed.
 - A run that dies before its first step says Stopped. It used to say "Stopped at undefined". When the step is known, the library names it.
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 

@@ -156,15 +156,14 @@ PY="$DIR/.venv/bin/python"
 if [ "$GPU" = amd ]; then
   run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
   if [ "$DRY" != 1 ]; then
+    [ -x "$PY" ] || die "The Python environment in $DIR/.venv is missing, so the AMD packages cannot be set up. Delete $DIR/.venv and run this again."
     # Inside the venv: it belongs to this install, and git already ignores it there.
     ROCM_FILE="$DIR/.venv/requirements.rocm.txt"
     (cd "$DIR" && "$UV" export --frozen --no-dev --output-file "$ROCM_FILE")
-    if [ -x "$PY" ]; then
-      # From inside $DIR: `-m` finds the package in the current folder, and under
-      # `curl | bash` that folder is wherever the user happened to be.
-      (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
-      mv "$ROCM_FILE.tmp" "$ROCM_FILE"
-    fi
+    # From inside $DIR: `-m` finds the package in the current folder, and under
+    # `curl | bash` that folder is wherever the user happened to be.
+    (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
+    mv "$ROCM_FILE.tmp" "$ROCM_FILE"
     run "$UV" pip install --quiet --python "$PY" -r "$ROCM_FILE"
   fi
 else

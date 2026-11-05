@@ -183,8 +183,10 @@ def test_linux_with_an_amd_card_is_named_as_one(tmp_path, upstream, fake_bin):
     # One directory per bound card is what the kernel driver leaves behind, so an empty
     # directory means no card.
     (nodes / "0").mkdir(parents=True)
+    # --dry-run: this test is about naming the machine. The AMD install itself, venv and
+    # all, has its own tests below.
     done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"),
-               machine=("Linux", "x86_64"), env={"I3D_KFD_NODES": str(nodes)})
+               "--dry-run", machine=("Linux", "x86_64"), env={"I3D_KFD_NODES": str(nodes)})
     assert done.returncode == 0, done.stderr
     assert "Machine: Linux with an AMD GPU" in done.stdout
     assert "No NVIDIA or AMD GPU found" not in done.stdout
@@ -392,9 +394,12 @@ echo "$@" >> "{tmp_path}/venv-python.log"
 
 
 def _amd_run(tmp_path, fake_bin, upstream, amd_venv, rocm_already=False,
-             index="https://download.pytorch.org/whl/rocm7.2"):
+             index="https://download.pytorch.org/whl/rocm7.2", make_python=True):
     """install.sh on an AMD machine, with the fake venv interpreter already in place."""
     python = amd_venv(rocm_already, index)
+    # What `uv venv` leaves behind. `make_python=False` is a venv that did not get an
+    # interpreter, which must stop the install rather than install the wrong wheels.
+    leave_python = f'cp "{python}" "$dir/bin/python"' if make_python else ':'
     uv = fake_bin / "uv"
     uv.write_text(f'''#!/bin/sh
 echo "$@" >> "{tmp_path}/uv.log"
@@ -418,7 +423,7 @@ while [ $# -gt 0 ]; do
         exit 1
       fi
       mkdir -p "$dir/bin"
-      cp "{python}" "$dir/bin/python"
+      {leave_python}
       ;;
     *) shift ;;
   esac
@@ -514,6 +519,21 @@ def test_an_amd_install_leaves_no_stray_file_in_the_checkout(tmp_path, upstream,
     done = _amd_run(tmp_path, fake_bin, upstream, amd_venv)
     assert done.returncode == 0, done.stderr
     assert not (tmp_path / "lab" / "requirements.rocm.txt").exists()
+
+
+def test_an_amd_install_stops_when_the_venv_has_no_python(tmp_path, upstream, fake_bin,
+                                                          amd_venv):
+    """Without the venv interpreter the CUDA family cannot be stripped, and installing the
+    lock as it stands would put about 6 GB of NVIDIA wheels on an AMD card. Stop instead."""
+    (upstream / "uv.lock").write_text("placeholder\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-q", "-m", "lock")
+    _git(upstream, "tag", "v0.2.11")
+
+    done = _amd_run(tmp_path, fake_bin, upstream, amd_venv, make_python=False)
+    assert done.returncode != 0
+    assert "cannot be set up" in done.stderr and "Delete" in done.stderr
+    assert "pip install" not in (tmp_path / "uv.log").read_text()
 
 
 def test_an_amd_install_can_be_re_run_over_the_existing_venv(tmp_path, upstream, fake_bin,

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- On an AMD card, a missing Python environment stops the install with a message instead of
+  installing about 6 GB of NVIDIA wheels the card cannot use.
 - Updating no longer removes packages it did not install. The installer adds and updates
   the lock's packages and leaves the rest of the lab's Python environment alone, so a
   backend installed there keeps working.

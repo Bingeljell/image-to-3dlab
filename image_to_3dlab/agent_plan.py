@@ -44,11 +44,18 @@ def stop_after(steps: list[str], last: str | None) -> list[str]:
     return steps[: steps.index(last) + 1] if last in steps else steps
 
 
+def normalize_prompt_text(text: str) -> str:
+    """One paragraph from pasted prose, wording untouched (plan.js `normalizePromptText`)."""
+    return re.sub(r"[ \t\f\v]+", " ", re.sub(r"\r\n?|\n", " ", str(text or ""))).strip()
+
+
 def compose_prompt(text: str, goal: str, recipes: dict[str, Any] | None, use_recipe: bool = True) -> str:
     """The description plus the goal's proven wording (plan.js `composePrompt`)."""
-    base = re.sub(r"[\s,.]+$", "", str(text or "").strip())
+    base = normalize_prompt_text(text)
     wording = ((recipes or {}).get("goals", {}).get(goal) or {}).get("wording") if use_recipe else ""
-    return f"{base}, {wording}" if wording else base
+    if not wording or not base:
+        return wording or base
+    return f"{base} {wording}" if re.search(r"[,.!?;:]$", base) else f"{base}, {wording}"
 
 
 def refusal(have: str, want: str) -> str | None:

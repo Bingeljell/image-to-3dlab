@@ -157,7 +157,7 @@ def test_an_idea_for_a_character_runs_the_studios_full_plan_with_its_wording(stu
     out = ms.create(studio, want="character", description="a knight.")
     form = sent(studio)
     assert json.loads(form["steps"]) == ["picture", "back", "model", "finished", "rigged", "animated"]
-    assert form["prompt"] == "a knight, A-pose, plain background"
+    assert form["prompt"] == "a knight. A-pose, plain background"   # the ending punctuation is kept
     assert form["engine"] == "pixal3d"             # best ready engine, not the first listed
     assert form["first_move"] == "idle"            # the first move that is not a second take
     assert out["run_id"] == "new-run"

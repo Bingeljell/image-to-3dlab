@@ -74,7 +74,7 @@ class ComfyUIClient:
             import requests
         except ImportError as exc:
             raise RuntimeError(
-                "quality mode requires requests; install requirements.txt"
+                "quality mode requires requests; uv sync"
             ) from exc
         self._requests = requests
         self.base_url = base_url.rstrip("/") + "/"

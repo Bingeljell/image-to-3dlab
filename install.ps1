@@ -87,12 +87,12 @@ Say "Setting up Python 3.11 and the viewer's packages (a few GB with an NVIDIA G
 & uv venv --quiet --allow-existing --python 3.11 (Join-Path $Dir ".venv")
 $Py = Join-Path $Dir ".venv\Scripts\python.exe"
 
-# The lock pins every package to versions tested together, as install.sh installs them;
-# requirements.txt only bounds them, so installing from it gave each install whatever
-# PyPI had that day. (It falls back to requirements.txt only in a checkout older than the lock.)
-$Reqs = Join-Path $Dir "requirements.lock"
-if (-not (Test-Path -LiteralPath $Reqs)) { $Reqs = Join-Path $Dir "requirements.txt" }
-# requirements.txt pins no torch, so then nothing matches and PyTorch stays unpinned, as before
+# uv.lock pins every package to versions tested together, as install.sh installs them.
+# Export it to a pip-format file so the CUDA pin parser below can read torch== lines.
+$Reqs = Join-Path $Dir ".venv\requirements.uv.txt"
+Push-Location $Dir
+& uv export --frozen --no-dev --output-file $Reqs
+Pop-Location
 $TorchPin = Select-String -LiteralPath $Reqs -Pattern '^torch==([^ ;]+)' | Select-Object -First 1
 $VisionPin = Select-String -LiteralPath $Reqs -Pattern '^torchvision==([^ ;]+)' | Select-Object -First 1
 $TorchVersion = if ($TorchPin) { $TorchPin.Matches[0].Groups[1].Value } else { $null }
@@ -125,9 +125,13 @@ if ($HasGpu) {
             }
             $PinFailed = ($LASTEXITCODE -ne 0)
             if ($PinFailed) {
-                # the lock would now swap PyTorch for the CPU wheel, so do as before the lock
-                Say "Warning: PyTorch ($($Torch -join ', ')) with CUDA could not be installed from $TorchIndex. Using its newest CUDA build and requirements.txt instead of the lock."
-                $Reqs = Join-Path $Dir "requirements.txt"
+                # the lock would now swap PyTorch for the CPU wheel, so drop torch from it
+                Say "Warning: PyTorch ($($Torch -join ', ')) with CUDA could not be installed from $TorchIndex. Using its newest CUDA build; the rest of the lock still installs."
+                $Filtered = Join-Path $Dir ".venv\requirements.nocuda.txt"
+                Push-Location $Dir
+                & $Py -m image_to_3dlab.host without-cuda $Reqs | Set-Content -LiteralPath $Filtered
+                Pop-Location
+                $Reqs = $Filtered
             }
         }
         if ((-not $Pinned -or $PinFailed) -and -not $TorchHasCuda) {

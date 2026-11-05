@@ -1087,9 +1087,8 @@ def image_has_transparent_alpha(path: Path) -> bool:
     except ImportError as exc:
         raise RuntimeError(
             "Pillow is not installed in the interpreter running viewer/serve.py, so the "
-            "alpha-transparency check cannot run. Install it (`pip install Pillow`, or "
-            "`pip install -r requirements.txt`) into that same interpreter and restart "
-            "the server."
+            "alpha-transparency check cannot run. Install it (`pip install Pillow`) into "
+            "that same interpreter and restart the server."
         ) from exc
     try:
         with Image.open(path) as image:

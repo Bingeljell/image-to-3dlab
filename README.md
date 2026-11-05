@@ -518,7 +518,7 @@ here. Model weights keep their own licences, listed above.
 ## Development
 
 ```bash
-python -m pip install -r requirements-dev.txt
+uv sync
 PYTHONPATH=. pytest -q        # backends that load real models stay manual
 ruff check .
 ```

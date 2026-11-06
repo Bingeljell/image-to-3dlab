@@ -12,13 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The licence record that travels with each file says the same, separately from the model's licence.
 - Pixal3D runs leave their licence record as `<run>.provenance.json`, the name every other route
   uses. Runs made before this keep working, and their old `.json` record is still read.
-- A line-coverage report for the package and the viewer: `PYTHONPATH=. pytest -q --cov-config=pyproject.toml --cov --cov-report=html`. It writes `htmlcov/` and leaves `scripts/` out.
+- A line-coverage report for the package and the viewer: `uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=html`. It writes `htmlcov/` and leaves `scripts/` out.
 - The viewer has a switcher for every model an asset has (3D model, Finished, Rigged), so
   looking at the raw model is no longer a one-way trip back through the Library.
 - Library rows for a model with no picture show a thumbnail rendered from the model itself,
   once and in the background, and kept for next time.
 
 ### Changed
+- `uv run pytest` finds the package without `PYTHONPATH=.`. `pytest.ini` sets `pythonpath = .`.
 - The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
   `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still
   use uv; they do not require mise.

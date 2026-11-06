@@ -22,6 +22,13 @@ def test_the_lab_is_a_uv_project_on_python_3_11():
     assert not (REPO / "requirements.lock").exists()
 
 
+def test_pytest_puts_the_repo_root_on_the_path():
+    """The project is not installed, so pytest must be told where the package is."""
+    assert "pythonpath = ." in (REPO / "pytest.ini").read_text()
+    for name in ("AGENTS.md", "CHANGELOG.md"):
+        assert "PYTHONPATH=. pytest" not in (REPO / name).read_text()
+
+
 def test_coverage_measures_the_package_and_the_viewer():
     """Opt-in line coverage for our code. scripts/ stays out: most of those files run
     inside Blender, and one combined number would mostly describe them."""

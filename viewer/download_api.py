@@ -394,14 +394,14 @@ def remove(backend_id: str) -> dict[str, Any]:
             continue  # another route uses it too (the background remover)
         path = weight.path.resolve()
         if not _inside_known_roots(path):
-            raise RuntimeError(f"refusing to delete outside the repo or cache: {path}")
+            raise RuntimeError(f"refusing to delete outside the repo, cache or configured models folder: {path}")
         if weight.pattern is not None:
             # One file in a folder another download owns: its snapshot link and the blob
             # behind it go, the folder and everything else in it stay.
             for item in weight.files():
                 target = item.resolve()
                 if not _inside_known_roots(target):
-                    raise RuntimeError(f"refusing to delete outside the repo or cache: {target}")
+                    raise RuntimeError(f"refusing to delete outside the repo, cache or configured models folder: {target}")
                 if target.is_file():
                     freed += target.stat().st_size
                     target.unlink()
@@ -426,10 +426,15 @@ def remove(backend_id: str) -> dict[str, Any]:
 
 
 def _inside_known_roots(path: Path) -> bool:
+    from image_to_3dlab import models_home
     from image_to_3dlab.matte import model_home
 
     # rembg's model folder too, for the background remover's single file.
-    roots = (REPO.resolve(), HF_HUB_DIR.resolve(), model_home().resolve())
+    roots = [REPO.resolve(), HF_HUB_DIR.resolve(), model_home().resolve()]
+    chosen = models_home.chosen(repo=REPO)
+    if chosen is not None:
+        roots.append(chosen.resolve())
+    path = path.resolve()
     return any(root == path or root in path.parents for root in roots)
 
 

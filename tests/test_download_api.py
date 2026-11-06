@@ -690,3 +690,71 @@ def test_front_back_setup_names_qwen_s_projector_when_it_fetches_it(monkeypatch,
     assert len(got) == listed
     if got:
         assert got[0]["licence"] == "Qwen Research License" and got[0]["size"] == "0.75 GB"
+
+
+def _external_backend(tmp_path, monkeypatch, *, saved=False):
+    import dataclasses
+
+    from image_to_3dlab import models_home
+
+    repo, root = tmp_path / "repo", tmp_path / "models"
+    own = root / "pixal3d"
+    own.mkdir(parents=True)
+    (own / "weight.bin").write_bytes(b"model")
+    monkeypatch.setattr(dl, "REPO", repo)
+    if saved:
+        monkeypatch.delenv(models_home.ENV, raising=False)
+        models_home.save(str(root), repo=repo)
+    else:
+        monkeypatch.setenv(models_home.ENV, str(root))
+    real = dl.BY_ID["pixal3d"]
+    backend = dataclasses.replace(real, id="external-test", weights=(
+        dataclasses.replace(real.weights[0], path=own, pattern=None),))
+    monkeypatch.setitem(dl.BY_ID, backend.id, backend)
+    return root, own, backend
+
+
+@pytest.mark.parametrize("saved", [False, True])
+def test_remove_weights_in_active_external_models_root(tmp_path, monkeypatch, saved):
+    root, own, backend = _external_backend(tmp_path, monkeypatch, saved=saved)
+    result = dl.remove(backend.id)
+    assert result["freed_bytes"] == 5
+    assert result["removed"] == [str(own)]
+    assert not own.exists() and root.is_dir()
+
+
+@pytest.mark.parametrize("escape", ["sibling", "inactive", "symlink", "pattern"])
+def test_external_model_root_does_not_allow_escapes(tmp_path, monkeypatch, escape):
+    import dataclasses
+
+    root, own, backend = _external_backend(tmp_path, monkeypatch)
+    outside = tmp_path / ("models-other" if escape == "sibling" else "inactive")
+    outside.mkdir()
+    sentinel = outside / "weight.bin"
+    sentinel.write_bytes(b"keep")
+    pattern = None
+    if escape == "symlink":
+        path = root / "linked"
+        path.symlink_to(outside, target_is_directory=True)
+    elif escape == "pattern":
+        path, pattern = root / "patterned", "*.bin"
+        path.mkdir()
+        (path / "weight.bin").symlink_to(sentinel)
+    else:
+        path = outside
+    replacement = dataclasses.replace(backend, weights=(dataclasses.replace(backend.weights[0], path=path, pattern=pattern),))
+    monkeypatch.setitem(dl.BY_ID, backend.id, replacement)
+    with pytest.raises(RuntimeError, match="refusing to delete"):
+        dl.remove(backend.id)
+    assert sentinel.read_bytes() == b"keep"
+    assert own.is_dir()
+
+
+def test_external_models_environment_choice_wins_over_saved_folder(tmp_path, monkeypatch):
+    from image_to_3dlab import models_home
+
+    _root, own, backend = _external_backend(tmp_path, monkeypatch, saved=True)
+    monkeypatch.setenv(models_home.ENV, str(tmp_path / "new-models"))
+    with pytest.raises(RuntimeError, match="refusing to delete"):
+        dl.remove(backend.id)
+    assert own.is_dir()

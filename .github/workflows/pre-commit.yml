@@ -25,7 +25,7 @@ jobs:
         with:
           version: "0.13.7"
       - run: uv sync --frozen
-      - run: uv run pytest -q
+      - run: uv run pytest --tb=short -ra --color=yes
 
   # title:
   #   if: github.event_name == 'pull_request'

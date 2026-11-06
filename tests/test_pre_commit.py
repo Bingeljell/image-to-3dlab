@@ -40,7 +40,7 @@ def test_pull_requests_run_the_file_checks():
     assert "tox-dev/action-pre-commit-uv@v1" in workflow
     pre_commit_job = workflow.split("\n  pytest:")[0]
     assert "pytest" not in pre_commit_job
-    assert "uv run pytest -q" in workflow
+    assert "uv run pytest --tb=short -ra --color=yes" in workflow
     assert "\n    needs: pre-commit\n" in workflow.split("\n  pytest:", 1)[1]
     config = (REPO / ".pre-commit-config.yaml").read_text()
     assert "stages: [commit-msg]" in config

@@ -1,0 +1,37 @@
+name: CI
+
+# File checks, and the test suite in its own job.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: Linters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: tox-dev/action-pre-commit-uv@v1
+
+  pytest:
+    name: Tests
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+      - run: uv sync --frozen
+      - run: uv run pytest --tb=short -ra --color=yes

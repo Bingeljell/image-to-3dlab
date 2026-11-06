@@ -1,7 +1,7 @@
 # Repository Guide
 
 How to communicate in this repo: Keep your answers short. No jargon - if we have to use abbriviations or jargon
-we must explain it. We simplify everything. We don't over think or over explain. Brevity is important. Humour and wit is acceptable. 
+we must explain it. We simplify everything. We don't over think or over explain. Brevity is important. Humour and wit is acceptable.
 
 Local Apple Silicon **image → 3D** pipeline wrapping four backends (SF3D, TRELLIS.2, and
 two Hunyuan3D-MLX paths — see `docs/hunyuan-mlx-recipes.md`, not the old ComfyUI
@@ -34,7 +34,7 @@ route) behind one CLI, with license provenance as a first-class concern.
 | `manifests/` | Versioned run manifests (schema v1) — the preferred, traceable way to run |
 | `scripts/` | Every command-line tool: generation, repair, texture, measurement, Blender, vendor patches. **`scripts/README.md` indexes all of them** and a test fails if a new script is not listed there |
 | `workflows/` | ComfyUI API-format workflow JSON for the Hunyuan `--quality` path |
-| `tests/` | pytest suite — one `test_*.py` per script or module it covers; run it with `PYTHONPATH=. pytest -q` |
+| `tests/` | pytest suite — one `test_*.py` per script or module it covers; run it with `uv run pytest -q` |
 | `journal/` | Investigation logs and session history (git-ignored — local only, not part of the shipped repo) |
 | `hunyuan_mlx/` | Xiong's Hunyuan3D-MLX shape+paint port (MIT) — **tracked in-repo**, moved out of `vendor/` 2026-08-19 so a clone alone has the code. `shape/` and `paint/` each need `uv sync`; `weights/` under each is git-ignored, fetched via `download_weights.py`. No patch-reapply dance needed here — fixes are just part of the tracked source |
 | `vendor/` | Vendored backend checkouts — **git-ignored**, cloned by the bootstrap scripts (or manually, for `hunyuan-mlx`). `trellis-mac` is a clone of `shivampkumar/trellis-mac` (~1.1 GB of code, weights and compiled Metal kernels); `hunyuan-mlx` is dgrauet's shape port, kept vendored on purpose since it's Tencent-licensed code, not just weights (see `docs/info_and_credits.md`). Ignored because these are someone else's repos at multi-GB scale; the cost is that patches vanish on re-bootstrap, so they live in `scripts/patch_*.py` — except `hunyuan-mlx-paint`, retired 2026-08-19 once its code moved to `hunyuan_mlx/` |
@@ -71,12 +71,15 @@ Follow **[Keep a Changelog](https://keepachangelog.com)** in `CHANGELOG.md`.
 
 ```bash
 uv sync
-PYTHONPATH=. pytest -q
+uv run pytest -q
+uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html
 ruff check .
 python pipeline.py --help
 ```
 
 - Target Python 3.11 (installers pin 3.11; not 3.14 — SF3D's native deps don't fit yet).
+- Commit checks live in `.pre-commit-config.yaml`. Install them with `uv tool install pre-commit --with pre-commit-uv`, then `pre-commit install`. They do not run pytest or the formatter. A pull request runs the file checks and the test suite.
+- Line coverage is opt-in. It measures `image_to_3dlab/` and `viewer/`, and writes `htmlcov/`. `--cov` takes no path, so that list in `pyproject.toml` is the one that is measured.
 - Backends that load real models are exercised manually; keep them out of the unit suite.
 - Prefer running via a manifest (`--run-manifest manifests/...json`) so runs stay traceable.
 

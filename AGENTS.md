@@ -1,7 +1,7 @@
 # Repository Guide
 
 How to communicate in this repo: Keep your answers short. No jargon - if we have to use abbriviations or jargon
-we must explain it. We simplify everything. We don't over think or over explain. Brevity is important. Humour and wit is acceptable. 
+we must explain it. We simplify everything. We don't over think or over explain. Brevity is important. Humour and wit is acceptable.
 
 Local Apple Silicon **image → 3D** pipeline wrapping four backends (SF3D, TRELLIS.2, and
 two Hunyuan3D-MLX paths — see `docs/hunyuan-mlx-recipes.md`, not the old ComfyUI
@@ -78,6 +78,7 @@ python pipeline.py --help
 ```
 
 - Target Python 3.11 (installers pin 3.11; not 3.14 — SF3D's native deps don't fit yet).
+- Commit checks live in `.pre-commit-config.yaml`. Install them with `uv tool install pre-commit --with pre-commit-uv`, then `pre-commit install`. They do not run pytest or the formatter. A pull request runs the file checks.
 - Line coverage is opt-in. It measures `image_to_3dlab/` and `viewer/`, and writes `htmlcov/`. `--cov` takes no path, so that list in `pyproject.toml` is the one that is measured.
 - Backends that load real models are exercised manually; keep them out of the unit suite.
 - Prefer running via a manifest (`--run-manifest manifests/...json`) so runs stay traceable.

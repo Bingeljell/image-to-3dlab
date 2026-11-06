@@ -1,4 +1,4 @@
-name: pre-commit
+name: CI
 
 # File checks, and the test suite in its own job.
 on:

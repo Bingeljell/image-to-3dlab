@@ -49,7 +49,8 @@ def test_pull_requests_run_the_file_checks():
     assert "\n    name: Tests\n" in workflow
     assert "\n    needs: pre-commit\n" in workflow.split("\n  pytest:", 1)[1]
     note = (REPO / ".github" / "workflows" / "pr-status.yml").read_text()
-    assert "workflows: [pre-commit]" in note
+    assert "name: CI\n" in workflow
+    assert "workflows: [CI]" in note
     assert "conclusion == 'failure'" in note
     assert "delete: true" in note
     assert "marocchino/sticky-pull-request-comment@v3" in note

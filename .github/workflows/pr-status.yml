@@ -3,7 +3,7 @@ name: pull-request-status
 # A note on the pull request when Linters or Tests failed. A green run removes it.
 on:
   workflow_run:
-    workflows: [pre-commit]
+    workflows: [CI]
     types: [completed]
 
 permissions:

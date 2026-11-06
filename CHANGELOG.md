@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   once and in the background, and kept for next time.
 
 ### Changed
+- The development commands in the README use `uv run pytest`.
 - `uv run pytest` finds the package without `PYTHONPATH=.`. `pytest.ini` sets `pythonpath = .`.
 - The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
   `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still

@@ -522,8 +522,8 @@ here. Model weights keep their own licences, listed above.
 ```bash
 uv sync
 uv tool install pre-commit --with pre-commit-uv && pre-commit install
-PYTHONPATH=. pytest -q        # backends that load real models stay manual
-PYTHONPATH=. pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html  # package and viewer; writes htmlcov/
+uv run pytest -q        # backends that load real models stay manual
+uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html  # package and viewer; writes htmlcov/
 ruff check .
 ```
 

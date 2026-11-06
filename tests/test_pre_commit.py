@@ -30,7 +30,7 @@ def test_pre_commit_uses_the_python_runner_and_pinned_tools():
 
 
 def test_pull_requests_run_the_file_checks():
-    """GitHub Actions runs the file hooks. The pull request title check is commented out."""
+    """GitHub Actions runs the file hooks. The pull request title is checked locally."""
     workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text()
     assert "pull_request:" in workflow
     assert "branches: [main]" in workflow
@@ -65,6 +65,7 @@ def test_pull_requests_run_the_file_checks():
     assert "sticky-pull-request-comment" not in workflow
     config = (REPO / ".pre-commit-config.yaml").read_text()
     assert "stages: [commit-msg]" in config
-    assert "action-semantic-pull-request@v6" in config
+    assert "action-semantic-pull-request" not in config
     assert "\n  title:" not in workflow
-    assert "# title:" in workflow
+    assert "# title:" not in workflow
+    assert "action-semantic-pull-request" not in workflow

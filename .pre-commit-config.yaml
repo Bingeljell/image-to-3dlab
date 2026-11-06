@@ -37,7 +37,6 @@ repos:
     rev: v4.4.0
     hooks:
       - id: conventional-pre-commit
-        # Local commit only. The pull request title check is commented out
-        # in .github/workflows/pre-commit.yml (action-semantic-pull-request@v6).
+        # Local commit message only. Pull request titles are not checked on GitHub.
         stages: [commit-msg]
         args: [feat, fix, docs, refactor, test, perf, build, chore]

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from glb_fixtures import valid_glb
 
 MODULE = Path(__file__).resolve().parents[1] / "viewer" / "finish_api.py"
 
@@ -341,7 +342,7 @@ def test_job_ids_are_validated_before_lookup():
 # --- The photo stage: match the upload to its Pixal3D run, copy its camera in -------------
 
 
-def _pixal3d_run(root, glb_bytes=b"glb-bytes"):
+def _pixal3d_run(root, glb_bytes=b"glb-bytes", record_name="robot__pixal3d__1.json"):
     import hashlib
     run = root / "seb" / "robot__pixal3d__1"
     views = run / "robot__pixal3d__1.svviews"
@@ -349,15 +350,26 @@ def _pixal3d_run(root, glb_bytes=b"glb-bytes"):
     (views / "transforms.json").write_text('{"frames": []}')
     glb = run / "robot__pixal3d__1.glb"
     glb.write_bytes(glb_bytes)
-    (run / "robot__pixal3d__1.json").write_text(json.dumps({
+    (run / record_name).write_text(json.dumps({
         "backend": "pixal3d",
         "output": {"path": str(glb), "sha256": hashlib.sha256(glb_bytes).hexdigest()},
     }))
     return views
 
 
-def test_an_uploaded_pixal3d_model_finds_its_camera(tmp_path):
+@pytest.mark.parametrize("record_name", ["robot__pixal3d__1.json", "robot__pixal3d__1.provenance.json"])
+def test_an_uploaded_pixal3d_model_finds_its_camera(tmp_path, record_name):
+    views = _pixal3d_run(tmp_path, record_name=record_name)
+    assert finish.find_source_views(b"glb-bytes", tmp_path) == views
+
+
+def test_a_run_with_both_record_names_is_found_once(tmp_path):
+    """rglob("*.json") matches both; a run must not be offered twice."""
     views = _pixal3d_run(tmp_path)
+    run = views.parent
+    (run / "robot__pixal3d__1.provenance.json").write_text(
+        (run / "robot__pixal3d__1.json").read_text())
+    assert len(list(finish._matching_runs(b"glb-bytes", tmp_path))) == 1
     assert finish.find_source_views(b"glb-bytes", tmp_path) == views
 
 
@@ -620,15 +632,17 @@ def _with_dump(views):
     run = views.parent
     dump = run / "robot__pixal3d__1.post.bin"
     dump.write_bytes(b"dump")
-    record_path = run / "robot__pixal3d__1.json"
+    record_path = next(path for path in (run / "robot__pixal3d__1.provenance.json",
+                                         run / "robot__pixal3d__1.json") if path.is_file())
     record = json.loads(record_path.read_text())
     record["post_dump"] = dump.name
     record_path.write_text(json.dumps(record))
     return dump
 
 
-def test_the_dump_is_linked_in_and_passed_to_the_worker(tmp_path):
-    dump = _with_dump(_pixal3d_run(tmp_path / "generated"))
+@pytest.mark.parametrize("record_name", ["robot__pixal3d__1.json", "robot__pixal3d__1.provenance.json"])
+def test_the_dump_is_linked_in_and_passed_to_the_worker(tmp_path, record_name):
+    dump = _with_dump(_pixal3d_run(tmp_path / "generated", record_name=record_name))
     manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
     job = manager.create("robot.glb", b"glb-bytes", b"png", {})
     assert job.dump_path.read_bytes() == b"dump"
@@ -883,20 +897,21 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
 
 
 @pytest.mark.parametrize("backend", ["pixal3d", "sf3d"])
-def test_finish_preserves_source_license_through_rig_lookup(tmp_path, monkeypatch, backend):
+@pytest.mark.parametrize("record_name", ["source.provenance.json", "source.json"])
+def test_finish_preserves_source_license_through_rig_lookup(tmp_path, monkeypatch, backend, record_name):
     import hashlib
     import sys
 
     import autorig_api
 
-    asset = b"original model"
+    asset = valid_glb(generator="the source backend")
     generated = tmp_path / "generated"
     generated.mkdir()
     source = {"backend": backend, "license": {"name": "Source terms", "conditions": ["credit"]},
               "model": {"identity": "source-model"}, "components": [{"component": "encoder"}],
               "output": {"sha256": hashlib.sha256(asset).hexdigest(), "classification": "commercial-conditional"},
               "source_record": {"padding": "x" * 21000}}
-    (generated / "source.provenance.json").write_text(json.dumps(source))
+    (generated / record_name).write_text(json.dumps(source))
     manager = finish.FinishJobManager(tmp_path / "finish", generated)
     job = manager.create("source.glb", asset, None,
                          {"keep_mesh": True, "skip_paint": True, "skip_bake": True, "skip_compress": True})

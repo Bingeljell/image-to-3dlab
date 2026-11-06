@@ -10,6 +10,16 @@ import io
 from scripts import hero_route
 
 
+def test_a_run_record_is_found_under_either_name(tmp_path):
+    model = tmp_path / "body.glb"
+    model.write_bytes(b"glb")
+    assert hero_route.run_record_path(model) is None
+    (tmp_path / "body.json").write_text("{}")
+    assert hero_route.run_record_path(model).name == "body.json"
+    (tmp_path / "body.provenance.json").write_text("{}")
+    assert hero_route.run_record_path(model).name == "body.provenance.json", "the new name wins"
+
+
 def test_missing_parts_names_only_what_is_absent(tmp_path):
     present = tmp_path / "here"
     present.write_text("x")

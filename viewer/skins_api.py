@@ -33,6 +33,7 @@ sys.path.insert(0, str(REPO))   # standing alone, not only after another module 
 import usage_api
 
 from image_to_3dlab import processes
+from image_to_3dlab.provenance import read_run_record
 
 OUTPUT_ROOT = REPO / "output"
 SKINS_DIR = "skins"
@@ -115,10 +116,8 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
     if not asset.get("finished") or not asset.get("model"):
         raise SkinError("Skins start from a finished model. Finish this one first.")
     model = _inside(output, asset["model"])
-    try:
-        record = json.loads(model.with_suffix(".json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        record = {}
+    # New runs write `.provenance.json`; older ones `.json`. read_run_record tries both.
+    record = read_run_record(model) or {}
     if record.get("backend") != "pixal3d":
         raise SkinError("Only Pixal3D models can take new skins.")
     shape = model.with_suffix(".shape.bin")

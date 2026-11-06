@@ -332,7 +332,8 @@ def test_the_matted_path_reaches_the_cli_absolute(tmp_path, monkeypatch):
 #
 # Reported in #50: this route wrote no record at all, from the CLI or the viewer (which runs
 # this same script), unlike the Hunyuan route and pipeline.py. The record sits at
-# <output>.json, where the viewer already looks for a job's manifest.
+# <output>.provenance.json like every other route; older runs keep <output>.json and every
+# reader accepts both.
 
 
 def test_the_manifest_carries_the_licence_from_the_catalogue(tmp_path):
@@ -393,8 +394,9 @@ def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypat
     monkeypatch.setattr(sys, "argv", ["pixal3d_generate.py", str(image), str(output)])
 
     assert px.main() == 0
-    record = __import__("json").loads((tmp_path / "out" / "gnome.json").read_text())
+    record = __import__("json").loads((tmp_path / "out" / "gnome.provenance.json").read_text())
     assert record["backend"] == "pixal3d"
+    assert record["made_with"]["name"] == "AssetFurnace"
     assert record["output"]["path"] == str(output.resolve())
     # Turned to face front, with its camera, before the record hashes it.
     assert glb_turn.glb_faces_front(output.read_bytes())
@@ -735,6 +737,14 @@ def _saved_shape(tmp_path, views=None):
     params = {"seed": 1} if views is None else {"seed": 1, "views": views}
     (tmp_path / "run.json").write_text(json.dumps({"parameters": params}))
     return shape
+
+
+def test_a_new_runs_provenance_record_is_read_too(tmp_path):
+    shape = tmp_path / "run.shape.bin"
+    shape.write_bytes(b"x")
+    (tmp_path / "run.provenance.json").write_text(
+        json.dumps({"parameters": {"views": "front + back"}}))
+    assert "--back" in px.reuse_problem(shape, has_back=False)
 
 
 def test_a_front_back_shape_needs_a_back_picture_to_repaint(tmp_path):

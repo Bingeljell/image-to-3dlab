@@ -304,14 +304,15 @@ def find_source_views(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
     """The saved camera + view directory of the Pixal3D run that produced `asset`.
 
     The browser uploads bytes, not a path, so the model is matched by content: every
-    Pixal3D run writes `<output>.json` with the GLB's sha256, and its staged views sit
-    beside the GLB as `<output>.svviews/`. Anything else (another generator, a model from
-    elsewhere, an edited file) has no match and simply gets no photo stage.
+    Pixal3D run writes a record (`.provenance.json` now, `.json` on older runs) with the
+    GLB's sha256, and its staged views sit beside the GLB as `<output>.svviews/`. Anything
+    else (another generator, a model from elsewhere, an edited file) has no match and
+    simply gets no photo stage.
     """
     for record_path, record in _matching_runs(asset, root):
         views = Path((record.get("output") or {}).get("path", "")).with_suffix(".svviews")
         if not (views / "transforms.json").is_file():
-            views = record_path.with_suffix(".svviews")
+            views = record_path.with_name(_run_name(record_path) + ".svviews")
         if (views / "transforms.json").is_file():
             return views
     return None
@@ -353,18 +354,32 @@ def find_source_record(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None
     return None
 
 
+def _run_name(record_path: Path) -> str:
+    """`run.json` and `run.provenance.json` name the same run."""
+    return record_path.name.removesuffix(".provenance.json").removesuffix(".json")
+
+
 def _matching_runs(asset: bytes, root: Path):
-    """(record path, record) for each Pixal3D run whose output has `asset`'s sha256."""
+    """(record path, record) for each Pixal3D run whose output has `asset`'s sha256.
+
+    A run may have an old `.json` record, a new `.provenance.json`, or (during a
+    transition) both. `rglob("*.json")` matches both, so a run is reported once.
+    """
     digest = hashlib.sha256(asset).hexdigest()
     if not root.is_dir():
         return
+    seen = set()
     for record_path in root.rglob("*.json"):
         if record_path.stat().st_size > 20000:
+            continue
+        key = (record_path.parent, _run_name(record_path))
+        if key in seen:
             continue
         record = _read_json(record_path)
         if not isinstance(record, dict) or record.get("backend") != "pixal3d":
             continue
         if (record.get("output") or {}).get("sha256") == digest:
+            seen.add(key)
             yield record_path, record
 
 

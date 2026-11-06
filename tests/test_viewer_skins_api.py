@@ -67,6 +67,16 @@ def test_the_base_carries_the_shape_pictures_seed_and_finish_settings(output):
     assert base["finish"]["faces"] == 20000
 
 
+def test_a_new_run_with_a_provenance_record_takes_a_skin(output):
+    """New runs say .provenance.json; the old .json must keep working too (above)."""
+    record = json.loads((output / GEN / f"{GEN}.json").read_text())
+    (output / GEN / f"{GEN}.json").unlink()
+    _write(output / GEN / f"{GEN}.provenance.json", json.dumps({**record, "made_with": {
+        "name": "AssetFurnace", "version": "0.5.7", "url": "https://assetfurnace.com"}}))
+    base = sk.base_from_asset(output, _asset())
+    assert base["seed"] == 15629060
+
+
 def test_a_version_changed_by_fix_a_spot_cannot_take_a_skin(output):
     """A skin repaints the shape the model was made with, so the fixed spots would come back."""
     _write(output / "finish" / FIN / "fix-spot.json", "{}")

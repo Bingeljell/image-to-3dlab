@@ -1457,8 +1457,9 @@ def _cleanup_debug_files(job: Job) -> None:
     textures, intermediate meshes, resume caches and run.log -- everything a run writes
     that exists purely to diagnose a run, not to use the asset."""
     # The licence record travels with the file (AGENTS.md), so it is never "debug". For
-    # Pixal3D that record is <name>.json, and <name>.svviews/ is the camera Finish's Pixel
-    # Match needs: deleting them shipped Pixal3D models with no provenance at all.
+    # Pixal3D that record is <name>.provenance.json (older runs: <name>.json), and
+    # <name>.svviews/ is the camera Finish's Pixel Match needs: deleting them shipped
+    # Pixal3D models with no provenance at all.
     out = job.output_path
     # <name>.post.bin is Pixal3D's clean-up input, which the Pixal3D Finish route reruns;
     # <name>.shape.bin is the shape every new skin repaints.

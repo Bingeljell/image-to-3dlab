@@ -391,13 +391,18 @@ def reuse_problem(shape: Path, has_back: bool) -> str | None:
 
     Front-only and front + back runs place their cameras differently, so painting one's
     shape with the other's pictures lands the paint off target. The run that saved the
-    shape recorded which it was in `<name>.json` beside it; without that record, allow it.
+    shape recorded which it was in `<name>.provenance.json` beside it, or `<name>.json` on
+    runs from before that name; without either record, allow it.
     """
-    record = shape.with_name(shape.name.removesuffix(SHAPE_SUFFIX) + ".json")
-    try:
-        views = json.loads(record.read_text())["parameters"].get("views")
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+    base = shape.with_name(shape.name.removesuffix(SHAPE_SUFFIX))
+    for record in (base.with_suffix(".provenance.json"), base.with_suffix(".json")):
+        try:
+            views = json.loads(record.read_text())["parameters"].get("views")
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        break
+    else:
+        return None   # no record: the original behaviour was to allow it
     built_with_back = views == "front + back"
     if built_with_back and not has_back:
         return f"{shape.name} was built from front + back pictures: give --back too"
@@ -689,7 +694,7 @@ def main() -> int:
     elif dump is not None:
         print("[pixal3d] note: no clean-up dump was written; Finish will use its classic route",
               flush=True)
-    record_path = write_provenance(args.output.with_name(f"{args.output.stem}.json"), record)
+    record_path = write_provenance(args.output.with_name(f"{args.output.stem}.provenance.json"), record)
 
     size = args.output.stat().st_size / 1048576
     print(f"[pixal3d] done in {seconds:.0f}s -> {args.output} "

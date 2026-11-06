@@ -88,6 +88,7 @@ def test_every_rembg_looks_in_the_same_model_folder(tmp_path, monkeypatch):
     seen = {}
     fake = types.SimpleNamespace(new_session=lambda name: seen.setdefault("home", __import__("os").environ.get("U2NET_HOME")))
     monkeypatch.setitem(sys.modules, "rembg", fake)
+    monkeypatch.setattr(mt, "_offline_rembg_session", fake.new_session)
     monkeypatch.delenv("U2NET_HOME", raising=False)
     monkeypatch.setattr(mt, "model_home", lambda: tmp_path)
     (tmp_path / "u2net.onnx").write_bytes(b"x")
@@ -115,6 +116,7 @@ def _fake_rembg(monkeypatch, tmp_path):
         remove=fake_remove,
     )
     monkeypatch.setitem(sys.modules, "rembg", fake)
+    monkeypatch.setattr(mt, "_offline_rembg_session", fake.new_session)
     monkeypatch.setattr(mt, "model_home", lambda: tmp_path)
 
 
@@ -272,3 +274,48 @@ def test_a_run_on_the_older_file_points_to_the_lighter_one():
     note = mt.fallback_note(mt.LITE_MODEL)
     assert "Setup & Status" in note and "181 MB" in note and "removed" in note
     assert mt.fallback_note(mt.LEAN_MODEL) is None
+
+
+@pytest.mark.parametrize("model", [mt.FALLBACK_MODEL, mt.LITE_MODEL, mt.LEAN_MODEL])
+def test_corrupt_existing_u2net_never_downloads_offline(tmp_path, monkeypatch, model):
+    import pooch
+
+    monkeypatch.setenv("U2NET_HOME", str(tmp_path))
+    mt.model_file(model).write_bytes(b"broken")
+    if model == mt.LEAN_MODEL:
+        mt.model_file(mt.FALLBACK_MODEL).write_bytes(b"broken fallback")
+    downloads = []
+    def download(*args, **kwargs):
+        downloads.append(args)
+        raise RuntimeError("unexpected network attempt")
+    monkeypatch.setattr(pooch.HTTPDownloader, "__call__", download)
+    with pytest.raises(RuntimeError, match="damaged.*Setup & Status"):
+        mt.new_session(model, allow_download=False)
+    assert downloads == []
+
+
+@pytest.mark.parametrize("model,digest_name", [(mt.FALLBACK_MODEL, "FALLBACK_MD5"), (mt.LITE_MODEL, "LITE_MD5")])
+def test_offline_session_uses_local_rembg_class_without_retrieval(tmp_path, monkeypatch, model, digest_name):
+    import hashlib
+    import types
+
+    import onnxruntime as ort
+    import pooch
+    from rembg.sessions import sessions_class
+
+    monkeypatch.setenv("U2NET_HOME", str(tmp_path))
+    monkeypatch.setenv("OMP_NUM_THREADS", "2")
+    path = mt.model_file(model)
+    path.write_bytes(b"local model fixture")
+    monkeypatch.setattr(mt, digest_name, hashlib.md5(path.read_bytes()).hexdigest(), raising=False)
+    monkeypatch.setattr(pooch, "retrieve", lambda *a, **k: pytest.fail("remote retrieval"))
+    monkeypatch.setattr(ort, "get_device", lambda: "CPU")
+    monkeypatch.setattr(ort, "InferenceSession", lambda path, **kw: types.SimpleNamespace(path=path, **kw))
+    session = mt.new_session(model)
+    real_class = next(cls for cls in sessions_class if cls.name() == model)
+    assert isinstance(session, real_class) and callable(session.predict)
+    assert session.model_name == model
+    assert session.inner_session.path == str(path)
+    assert session.inner_session.providers == ["CPUExecutionProvider"]
+    assert session.inner_session.sess_options.intra_op_num_threads == 2
+    assert session.inner_session.sess_options.inter_op_num_threads == 2

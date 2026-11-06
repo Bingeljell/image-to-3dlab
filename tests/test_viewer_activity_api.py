@@ -62,6 +62,7 @@ def test_a_whole_character_runs_and_each_step_gets_the_last_ones_file(tmp_path):
     assert chain.status == "done" and chain.done == chain.steps
     posts = [(p, b) for m, p, b in jobs.calls if m == "POST"]
     assert [p for p, _ in posts] == ["/api/image", "/api/generate", "/api/finish", "/api/animate/rig", "/api/animate/play"]
+    assert b'name="image"; filename="pic.png"' in posts[2][1]
     assert b'name="model"\r\n\r\nfinish/f/finished.glb' in posts[3][1]          # rig takes the finished model
     assert json.loads(posts[4][1]) == {"model": "animate/r/rigged.glb", "preset": "walk"}
     history = aa.read_history(tmp_path)
@@ -571,3 +572,53 @@ def test_new_lines_in_a_full_log_tail_count_as_progress(tmp_path):
     runner.submit(chain, background=False)
     assert polls["n"] == 3, chain.error
     assert len(set(changes[:2])) == 2   # the second poll's new line moved the clock on
+
+
+@pytest.mark.parametrize("when", ["start", "poll"])
+@pytest.mark.parametrize("terminal", ["cancelled", "done"])
+@pytest.mark.parametrize("retry", [False, True])
+def test_cancel_during_child_start_is_delivered(tmp_path, when, terminal, retry):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="cancel", steps=["picture", "model", "finished"], prompt="picture")
+    attempts = []
+    polls = 0
+    def request(method, path, body, content_type):
+        nonlocal polls
+        if path.endswith("/cancel"):
+            assert runner.lock.acquire(blocking=False), "cancel HTTP request held the runner lock"
+            runner.lock.release()
+            attempts.append(path)
+            if retry and len(attempts) == 1:
+                raise OSError("connection lost")
+        if method == "POST" and path == "/api/generate" and when == "start":
+            assert runner.cancel(chain.id)
+        result = jobs(method, path, body, content_type)
+        if method == "GET" and "/generate/" in path:
+            polls += 1
+            if polls == 1:
+                if when == "poll":
+                    assert runner.cancel(chain.id)
+                assert runner.running() is chain
+                with pytest.raises(RuntimeError, match="already being made"):
+                    runner.submit(aa.Chain(title="another", steps=["picture"]), background=False)
+                return 200, {"status": "running"}
+            return result[0], {**result[1], "status": terminal}
+        return result
+    runner.request = request
+    runner.submit(chain, background=False)
+    assert attempts == ["/api/generate/job-model/cancel"] * (2 if retry else 1)
+    assert chain.status == "cancelled"
+    assert chain.done == ["picture"]
+    assert chain.made["picture"] == "images/p/pic.png"
+    if terminal == "done":
+        assert chain.made["model"] == "pixal3d/m/model.glb"
+    assert not any(path == "/api/finish" for _, path, _ in jobs.calls)
+    assert aa.read_history(tmp_path)[0]["result"] == "cancelled"
+
+
+def test_finish_rejects_picture_upload_without_a_model(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="picture", steps=["finished"], upload=("picture.png", b"picture"))
+    runner.submit(chain, background=False)
+    assert chain.status == "error" and "3D model" in chain.error
+    assert not any(path == "/api/finish" for _, path, _ in jobs.calls)

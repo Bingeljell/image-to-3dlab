@@ -338,7 +338,7 @@ def install_weights() -> None:
     try:
         from huggingface_hub import snapshot_download
     except ImportError as exc:
-        raise SystemExit("huggingface_hub is not installed. pip install -r requirements.txt"
+        raise SystemExit("huggingface_hub is not installed. uv sync"
                          ) from exc
     for label, source, patterns, local, size in WEIGHTS:
         print(f"\nFetching {label} ({size:.2f} GB)...", flush=True)

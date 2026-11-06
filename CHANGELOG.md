@@ -10,8 +10,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
   The licence record that travels with each file says the same, separately from the model's licence.
+- The viewer has a switcher for every model an asset has (3D model, Finished, Rigged), so
+  looking at the raw model is no longer a one-way trip back through the Library.
+- Library rows for a model with no picture show a thumbnail rendered from the model itself,
+  once and in the background, and kept for next time.
+
+### Changed
+- The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
+  `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still
+  use uv; they do not require mise.
 
 ### Fixed
+- Long bug reports produce bounded GitHub links without hanging; copied text and website drafts retain the full report.
+- Setup can remove weights from the active custom models folder while retaining path and shared-weight protections.
+- CLI runs keep the primary image ahead of additional views, preserving output naming and provenance.
+- Agent-created Finish jobs accept uploaded models without requiring a reference picture.
+- Cancellation during job startup reaches the child job and remains cancelled even if that job finishes at the same time.
+- Damaged background-remover weights fail with repair instructions instead of downloading replacements without consent.
+- Setup readiness lists every model component, including weights sharing one download repository.
+- Finished models and kept spot fixes retain source and paint licences through later rigging and export.
+- SF3D uses the installed background remover correctly for opaque and noisy-alpha pictures.
+- Finish says why Pixal3D's clean-up could not run: it checks the saved dump against the
+  size its own header asks for, so a dump that was not fully written names itself instead
+  of failing with a bare exit code. A clean-up that exits without printing anything now
+  says that too (#192).
+- On an AMD card, a missing Python environment stops the install with a message instead of
+  installing about 6 GB of NVIDIA wheels the card cannot use.
+- Updating no longer removes packages it did not install. The installer adds and updates
+  the lock's packages and leaves the rest of the lab's Python environment alone, so a
+  backend installed there keeps working.
+- Setup scripts say `uv sync` instead of pointing at the requirements files this release
+  removed.
+- A run that dies before its first step says Stopped. It used to say "Stopped at undefined". When the step is known, the library names it.
+- Clicking a Library picture while Create starts from a picture now fills the picture source instead of closing Create.
+- Library filter dropdowns now wrap when the sidebar is narrow, so their selected labels and arrows stay readable.
+- The Library shows a compact loading state before its search and filters appear, and offers a retry if loading fails.
+- Tooltips at the edge of the studio now flip or clamp into the browser window instead of being clipped.
+- Picture headings now have their own space above the image, and the picture keeps its caption and zoom controls inside the viewer.
+- Clicking a picture at its zoom-in cursor now zooms to 200% toward that spot; dragging still pans without an accidental zoom.
+- Picture and empty views no longer show the 3D toolbar or orientation gizmo.
+- Drawing a Library picture again keeps its original goal (or its asset category
+  for older records), picture size, steps and seed settings; new pictures start
+  at 1024×1024 unless you choose another available size.
+- Create expands a long description instead of hiding part of it in the text box.
+- Changing a Create control keeps the form's scroll position and open advanced sections.
+- Create turns pasted prompt line breaks into spaces and keeps ending
+  punctuation when it redraws a picture.
+- A stale Library refresh can no longer replace newer results after a retry.
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 
 ## [0.5.7] - 2026-11-03

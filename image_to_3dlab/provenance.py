@@ -6,8 +6,9 @@ import os
 import struct
 import subprocess
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -471,7 +472,7 @@ def finalize_output(
     record = {
         "schema_version": 1,
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "intent": intent,
         "input": {
             "path": str(image),
@@ -531,3 +532,62 @@ def finalize_output(
     }
     sidecar = write_provenance(destination.with_suffix(".provenance.json"), record)
     return destination, sidecar
+
+
+def read_model_record(glb: Path) -> dict[str, Any] | None:
+    """Read a licence-bearing record beside a model, including older run records."""
+    for suffix in (".provenance.json", ".json", ".retopo-repaint.json"):
+        try:
+            record = json.loads(glb.with_suffix(suffix).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict) and record.get("license"):
+            return record
+    return None
+
+
+def write_derived_sidecar(
+    source: Path, output: Path, *, operation: str,
+    source_record: dict[str, Any] | None = None,
+    component_records: Sequence[dict[str, Any]] = (),
+) -> Path:
+    """Keep the full licence ancestry while recording this derived file's identity."""
+    import copy
+
+    source_record = source_record if source_record is not None else read_model_record(source)
+    unknown = {"name": "Unverified — source licence unavailable", "verified": False,
+               "conditions": ["Verify the source model's licence before use."]}
+    origin = source_record or {}
+    licence = copy.deepcopy(origin.get("license") or unknown)
+    classification = (origin.get("output") or {}).get("classification") or origin.get("classification") or "unverified"
+    records = [origin, *component_records]
+    if component_records:
+        licences = [r.get("license") or unknown for r in records]
+        conditions = []
+        for item in licences:
+            for term in item.get("conditions", []) if isinstance(item, dict) else []:
+                if term not in conditions:
+                    conditions.append(term)
+        licence = {"name": " + ".join(str(item.get("name", "Unverified")) if isinstance(item, dict)
+                                       else str(item) for item in licences), "conditions": conditions}
+        classes = {(r.get("output") or {}).get("classification") or r.get("classification") or "unverified"
+                   for r in records}
+        classification = classes.pop() if len(classes) == 1 else "unverified"
+    if classification == "unverified":
+        licence = {**licence, "verified": False} if isinstance(licence, dict) else {"name": licence, "verified": False}
+    record = {
+        "schema_version": 1, "operation": operation,
+        "input": {"path": str(source), "sha256": sha256_file(source)},
+        "output": {"path": str(output), "sha256": sha256_file(output), "classification": classification},
+        "model": copy.deepcopy(origin.get("model", {})), "license": licence,
+        "components": [copy.deepcopy(c) for r in records for c in r.get("components", [])],
+        "source_record": source_record, "component_records": list(component_records),
+    }
+    sidecar = output.with_suffix(".provenance.json")
+    temporary = sidecar.with_name(f".{sidecar.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.replace(sidecar)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return sidecar

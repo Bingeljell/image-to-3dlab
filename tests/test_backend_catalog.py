@@ -905,3 +905,28 @@ def test_an_old_mac_sees_trellis_as_unsupported_in_setup(monkeypatch):
     entry = bc.BY_ID["trellis"].describe(bc.APPLE)
     assert entry["supported_here"] is False and entry["action"] == "none"
     assert "macOS 26" in entry["platform_note"]
+
+
+def test_readiness_keeps_components_with_the_same_source(monkeypatch):
+    backend = bc.resolve("qwen-image")
+    described = backend.describe()
+    before = bc.readiness("qwen-image")["weights"]
+    assert len(before) == len(described["weights"]) == 4
+    assert {w["label"] for w in before.values()} == {w["label"] for w in described["weights"]}
+    real_describe = bc.Backend.describe
+    def reversed_weights(self, host=None):
+        result = real_describe(self, host)
+        return {**result, "weights": list(reversed(result["weights"]))}
+    monkeypatch.setattr(bc.Backend, "describe", reversed_weights)
+    assert bc.readiness("qwen-image")["weights"] == before
+    for weight in described["weights"]:
+        if sum(w["source"] == weight["source"] for w in described["weights"]) == 1:
+            assert weight["source"] in before
+        else:
+            assert any(w.get("source") == weight["source"] and w["label"] == weight["label"]
+                       for w in before.values())
+
+
+def test_catalogue_readiness_preserves_every_component():
+    for backend in bc.BY_ID.values():
+        assert len(bc.readiness(backend.id)["weights"]) == len(backend.weights), backend.id

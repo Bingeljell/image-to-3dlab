@@ -42,7 +42,7 @@ import uuid
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -483,7 +483,7 @@ def provenance(prompt: str, settings: dict[str, Any], seconds: float,
     return {
         "schema_version": 1,
         "kind": "generated-image",
-        "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "model": {
             "id": engine.licence_key,
             "runtime": "stable-diffusion.cpp (Metal)",

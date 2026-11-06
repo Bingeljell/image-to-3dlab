@@ -118,7 +118,7 @@ def build_entry(
     if not note.strip():
         raise ValueError("a note is required - 'good' without a reason is not a data point")
 
-    stamp = (now or dt.datetime.now(dt.timezone.utc)).isoformat()
+    stamp = (now or dt.datetime.now(dt.UTC)).isoformat()
     sidecar = find_sidecar(asset)
     return {
         "recorded_at": stamp,

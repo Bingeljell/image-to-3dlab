@@ -5,14 +5,61 @@ import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFi
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails, logScroll, moveBox, resizeBox } from './jobs.js';
 import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
+import { retryWant } from './plan.js';
 import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
-import { STEP_LABELS } from './plan.js';
+import { STEP_LABELS, stoppedLine, stoppedStep } from './plan.js';
 import { mountSkins } from './skins.js';
+import { installTooltips } from './tooltips.js';
+import { setLibraryLoading, showLibraryError, showLibraryLoadError, runLibraryLoad } from './library-loading.js';
+import { createLibraryPictureLoader } from './library-picture.js';
+import { libraryRowSelection, libraryFamilyOpen } from './library-selection.js';
+import { modelChoices, activeChoice } from './model-switch.js';
+import { thumbFile, createThumbCache, createThumbQueue } from './model-thumbs.js';
+import { createThumbnailRenderer } from './model-thumb-renderer.js';
 
 const $ = (id) => document.getElementById(id);
 const LOGO = './studio/mark.svg';
+installTooltips();
+const libraryRoot = document.querySelector('.lib');
+
+// Rows with no picture get a thumbnail rendered from their model: one at a time, only when
+// the row is on screen, cached afterwards. A hidden tab renders nothing.
+const thumbRenderer = createThumbnailRenderer();
+const thumbCache = createThumbCache({ storage: (() => { try { return window.localStorage; } catch { return null; } })() });
+const thumbQueue = createThumbQueue({
+  render: (file) => thumbRenderer.render(url(file)),
+  cache: thumbCache,
+  onThumb: ({ id }, data) => {
+    const image = $('assetList').querySelector(`[data-thumb-id="${id}"]`);
+    if (!image) return;   // the row was re-rendered or filtered away
+    image.src = data;
+    image.classList.remove('mark');   // the logo's size and dimming belong to the logo
+  },
+  isHidden: () => document.hidden,
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden) thumbQueue.resume(); });
+const thumbItems = new WeakMap();
+let thumbObserver = null;
+
+function watchThumb(image, asset) {
+  const item = { id: asset.id, file: thumbFile(asset) };
+  if (!item.file) return;
+  if (thumbQueue.offer(item) === 'cached') return;
+  if (typeof IntersectionObserver === 'undefined') { thumbQueue.enqueue(item); return; }
+  if (!thumbObserver) {
+    thumbObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        thumbObserver.unobserve(entry.target);
+        thumbQueue.enqueue(thumbItems.get(entry.target));
+      }
+    }, { root: libraryRoot.querySelector('.scroll'), rootMargin: '120px' });
+  }
+  thumbItems.set(image, item);
+  thumbObserver.observe(image);
+}
 
 let base = '/output/';
 let assets = [];
@@ -20,8 +67,12 @@ let filter = 'all', query = '', showHidden = false, limit = 30;
 let stageFilter = 'all', engineFilter = 'all', starredOnly = false, sortBy = 'newest';
 let current = null;
 let engines = [], presets = [], recipes = null, frontBack = null, pictureEngines = [], busy = false, playNext = null;
+let libraryReady = false;
+let libraryLoadToken = 0;
 let blenderReady = true;  // Finish and Split need Blender; the Finish step says so before anyone clicks
 let making = null, viewingMaking = false;  // the asset Create is making right now
+let createHandle = null;
+let libraryInputId = null;
 let cardPlace = null;  // where the user dragged or resized the progress card; null keeps it centred
 let viewingPictures = false;  // the viewer shows the asset's pictures instead of its model
 let viewingStep = null;       // a step id when the viewer shows that step's own model (the raw one, say)
@@ -59,11 +110,14 @@ const fileName = (relative) => relative?.split('/').pop() ?? '';
 
 function assetButton(asset, { sub = false } = {}) {
   const pips = STEPS.slice(0, stepCount(asset)).map((step) => `<i class="${stepDone(asset, step.id) ? 'done' : ''}"></i>`).join('');
-  // a small server-made copy, not the full picture (often a megabyte each)
-  const thumb = asset.picture ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">` : `<img class="mark" src="${LOGO}" alt="">`;
+  // a small server-made copy, not the full picture (often a megabyte each); a model with no
+  // picture gets one rendered in the browser, so the row is not just the logo
+  const thumb = asset.picture
+    ? `<img src="/api/thumb?path=${encodeURIComponent(asset.picture)}" alt="" loading="lazy">`
+    : `<img class="mark" data-thumb-id="${escape(asset.id)}" src="${LOGO}" alt="">`;
   const when = new Date(asset.updated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const name = sub ? `v${asset.version} · ${statusText(asset)}` : asset.name;
-  return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${!viewingMaking && asset === current}">
+  return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${libraryRowSelection(asset, { current, inputId: libraryInputId, viewingMaking })}">
       <span class="thumb">${thumb}</span>
       <span style="min-width:0"><span class="nm">${asset.main ? '<b class="star" title="Main version">★</b> ' : ''}${escape(name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${sub ? escape(when) : escape(statusText(asset))}</span></span>
     </button>`;
@@ -77,16 +131,22 @@ function renderEngineChoices() {
 }
 
 function renderLibrary() {
+  if (!libraryReady) return;
   renderEngineChoices();
   const { rows: list, more, hiddenCount } = visibleFamilies(assets, { filter, query, showHidden, limit, stage: stageFilter, engine: engineFilter, starred: starredOnly, sort: sortBy });
   $('assetList').innerHTML = makingRow() + (list.length ? list.map(({ key, shown, members }) => {
     if (members.length < 2) return `<li>${assetButton(shown)}</li>`;
-    const open = openFamilies.has(key) || members.includes(current);
+    const open = libraryFamilyOpen(members, { key, openFamilies, current, inputId: libraryInputId });
     return `<li class="family">${assetButton(shown)}
       <button type="button" class="vers" data-family="${escape(key)}" aria-expanded="${open}">${members.length} versions <span aria-hidden="true">${open ? '▾' : '▸'}</span></button>
       ${open ? `<ul class="versions">${members.map((m) => `<li>${assetButton(m, { sub: true })}</li>`).join('')}</ul>` : ''}</li>`;
   }).join('') : `<li class="empty-lib">${assets.length ? 'Nothing matches.' : 'No assets yet. Press + Create to make your first.'}</li>`)
     + (more ? `<li><button class="ghost more" id="showMore">Show ${Math.min(more, 30)} more of ${more}</button></li>` : '');
+  thumbObserver?.disconnect();   // every row is a new node, so old observations are stale
+  $('assetList').querySelectorAll('[data-thumb-id]').forEach((image) => {
+    const asset = assets.find((a) => a.id === image.dataset.thumbId);
+    if (asset) watchThumb(image, asset);
+  });
   const shown = assets.filter((a) => !a.hidden).length;
   $('libFoot').textContent = `${shown} asset${shown === 1 ? '' : 's'} · saved in output/ on this machine`;
   document.querySelector('.hidden-toggle').hidden = !hiddenCount && !showHidden;
@@ -128,7 +188,10 @@ function renderSteps(asset) {
     if (card.querySelector('.body [data-run]')) wireStep(card, card.dataset.step, asset, ctx);
     wireBrush(card, asset, ctx);
     wireVersions(card, asset, ctx);
-    card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({ text: asset.prompt, want: asset.kind === 'prop' ? 'prop' : 'character' }));
+    card.querySelector('[data-newpicture]')?.addEventListener('click', () => openCreateSheet({
+      text: asset.prompt, want: retryWant(asset.picture_want, asset.kind),
+      pictureSettings: asset.picture_settings,
+    }));
   });
   $('steps').querySelector('[data-pictures]')?.addEventListener('click', () => {
     if (viewingPictures) { show(asset); return; }
@@ -140,22 +203,14 @@ function renderSteps(asset) {
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
-    const stepId = button.dataset.viewstep;
-    if (viewingStep === stepId) { show(asset); return; }
-    const file = stepFile(asset, stepId);
-    viewingStep = stepId;
-    viewingPictures = false;
-    viewer.setFacing(null);
-    viewer.setClips([]);
-    viewer.load(url(file), { label: `${asset.name} · ${STEPS.find((s) => s.id === stepId)?.label ?? stepId}` });
-    renderSteps(asset);
-    setDownload(file);
+    showStep(asset, button.dataset.viewstep);
   }));
   const skin = viewingSkin && (asset.skins || []).find((k) => k.id === viewingSkin);
   // a character wearing a skin: the move picker points the download at the dressed move
   if (!(skin && asset.rigged && asset.clips.length)) {
     setDownload(skin ? skin.file : viewingStep ? stepFile(asset, viewingStep) : displayModel(asset));
   }
+  renderModelSwitch(asset);
   mountSkins($('steps'), asset, skinCtx);
 }
 
@@ -219,6 +274,35 @@ function stepLink(asset, stepId) {
   return file ? `${view} · <a class="step-dl" href="${escape(url(file))}" download="${escape(fileName(file))}">Download GLB</a>` : '';
 }
 
+/** The chips above the model: every version of it this asset has. */
+function renderModelSwitch(asset) {
+  const host = $('modelSwitch');
+  const choices = modelChoices(asset);
+  host.hidden = choices.length < 2;   // a single file needs no switcher
+  if (host.hidden) { host.innerHTML = ''; return; }
+  const active = activeChoice(choices, { step: viewingStep, latest: viewingPictures ? null : displayModel(asset) });
+  host.innerHTML = choices.map((choice) => `<button type="button" class="chip" data-model-step="${escape(choice.step)}" aria-pressed="${choice.step === active}">${escape(choice.label)}</button>`).join('');
+  host.querySelectorAll('[data-model-step]').forEach((button) => {
+    button.addEventListener('click', () => showStep(asset, button.dataset.modelStep));
+  });
+}
+
+/** Show one step's own model. The file the asset opens on goes through show(), so a rigged
+ *  character keeps its moves and the camera returns home. */
+function showStep(asset, stepId) {
+  const file = stepFile(asset, stepId);
+  if (!file || file === displayModel(asset) || viewingStep === stepId) { show(asset); return; }
+  viewingStep = stepId;
+  viewingPictures = false;
+  viewer.setFacing(null);
+  viewer.setClips([]);
+  viewer.load(url(file), { label: `${asset.name} · ${STEPS.find((step) => step.id === stepId)?.label ?? stepId}` });
+  renderSteps(asset);
+  setDownload(file);
+  // the subtitle follows the file on screen, not the asset's furthest stage
+  $('vMeta').textContent = STEPS.find((step) => step.id === stepId)?.label ?? statusText(asset);
+}
+
 function setDownload(file) {
   const download = $('download');
   download.hidden = !file;
@@ -268,6 +352,13 @@ $('copyPathBtn').addEventListener('click', async (event) => {
 
 // A picture redrawn, brushed or swapped keeps its file name: ask past the browser's copy
 const fresh = (relative) => `${url(relative)}?v=${Date.now()}`;
+const libraryPictureLoader = createLibraryPictureLoader({
+  fetchPicture: (picture) => fetch(picture),
+  freshUrl: fresh,
+  getTarget: () => createHandle,
+  makeFile: (parts, name, options) => new File(parts, name, options),
+  onUsed: (asset) => { libraryInputId = asset.id; renderLibrary(); },
+});
 
 // what the step actions need from the page
 const ctx = {
@@ -318,6 +409,7 @@ function show(asset) {
   if (!asset) {
     viewer.showEmpty('Nothing to show yet. Pick an asset on the left.');
     $('steps').innerHTML = '';
+    renderModelSwitch(null);
     return;
   }
   renderSteps(asset);
@@ -357,6 +449,7 @@ $('assetList').addEventListener('click', (event) => {
   if (!button) return;  // the "Show more" row has its own handler
   if (button.dataset.making != null) { showMaking(); return; }
   const asset = assets.find((a) => a.id === button.dataset.id);
+  if (asset?.picture && createHandle?.canUseLibraryPicture()) { useLibraryPicture(asset); return; }
   if (asset && (asset !== current || viewingMaking)) show(asset);
 });
 
@@ -433,17 +526,36 @@ document.querySelectorAll('.seg [data-filter]').forEach((button) => {
 });
 
 async function loadLibrary(keepId = null, { pick = true } = {}) {
-  try {
-    const response = await fetch('/api/assets');
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || response.statusText);
+  const requestId = ++libraryLoadToken;
+  if (!libraryReady) setLibraryLoading(libraryRoot, true);
+  await runLibraryLoad({
+    requestId,
+    isCurrent: () => requestId === libraryLoadToken,
+    fetchAssets: async () => {
+      const response = await fetch('/api/assets');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || response.statusText);
+      return payload;
+    },
+    onSuccess: (payload) => {
     base = payload.base;
     assets = payload.assets;
+    libraryReady = true;
+    setLibraryLoading(libraryRoot, false);
     show(pick ? assets.find((a) => a.id === keepId) ?? assets[0] ?? null : null);
-  } catch (error) {
-    $('libFoot').textContent = `The Library didn't load: ${error.message}`;
+    },
+    onError: (error) => {
+    if (libraryReady) {
+      showLibraryError(libraryRoot, error.message, () => {
+        $('libFoot').textContent = 'Trying again…';
+        loadLibrary(null, { pick: false });
+      });
+    } else {
+      showLibraryLoadError(libraryRoot, error.message, () => loadLibrary(null, { pick: false }));
+    }
     viewer.showEmpty('The Library did not load. Is the viewer server running?');
-  }
+    },
+  });
 }
 
 async function refreshAssets() {
@@ -473,7 +585,12 @@ async function loadTools() {
 // ------------------------------------------------------------------ Create
 function openCreateSheet(prefill = null) {
   closeSheet($('stage'));
-  openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, pictureEngines, prefill, onStart: (plan) => startChain(plan) });
+  createHandle = openCreate({ stage: $('stage'), recipes, engines, presets, frontBack, pictureEngines, prefill,
+    onSourceChange: () => { libraryInputId = null; renderLibrary(); }, onStart: (plan) => startChain(plan) });
+}
+
+async function useLibraryPicture(asset) {
+  return libraryPictureLoader.load(asset);
 }
 
 $('createBtn').addEventListener('click', () => {
@@ -488,7 +605,7 @@ function makingRow() {
   const n = making.plan.steps.length, done = making.done.length;
   const pips = making.plan.steps.map((s) => `<i class="${making.done.includes(s) ? 'done' : s === making.current && !making.cancelled ? (making.failed ? 'stop' : 'run') : ''}"></i>`).join('');
   const thumb = making.made.picture ? `<img src="${url(making.made.picture)}" alt="">` : `<img class="mark glow" src="${LOGO}" alt="">`;
-  const status = making.cancelled ? 'Cancelled' : making.failed ? `Stopped at ${STEP_LABELS[making.current]}` : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
+  const status = making.cancelled ? 'Cancelled' : making.failed ? stoppedLine(making.current) : making.finished ? 'Done' : `${STEP_LABELS[making.current] || 'Starting'}… step ${Math.min(done + 1, n)} of ${n}`;
   return `<li><button class="asset making" data-making aria-current="${viewingMaking}">
     <span class="thumb">${thumb}</span>
     <span style="min-width:0"><span class="nm">${escape(making.title)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${escape(status)}</span></span>
@@ -500,6 +617,7 @@ function showMaking() {
   if (!making) return;
   closeSheet($('stage'));
   viewingMaking = true;
+  renderModelSwitch(null);
   renderLibrary();
   $('vTitle').textContent = making.title;
   $('vTitle').classList.toggle('long', making.title.length > 60);
@@ -666,8 +784,14 @@ async function startChain(plan, attach = null) {
       if (viewingMaking) drawProgress();
     },
     done: (step, made, seconds) => { making.done.push(step); making.made = made; making.seconds = seconds || {}; renderLibrary(); if (viewingMaking) showMaking(); },
-    cancelled: () => { Object.assign(making, { failed: true, cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '', fullLog: '' }); renderLibrary(); if (viewingMaking) showMaking(); },
-    fail: (step, why, log) => { Object.assign(making, { failed: true, why, log: readableLog(log, 80), fullLog: log }); renderLibrary(); if (viewingMaking) showMaking(); },
+    cancelled: (step) => {
+      Object.assign(making, { current: stoppedStep(making.current, step, making.plan.steps), failed: true, cancelled: true, why: 'Cancelled. Everything finished before this step is kept.', log: '', fullLog: '' });
+      renderLibrary(); if (viewingMaking) showMaking();
+    },
+    fail: (step, why, log) => {
+      Object.assign(making, { current: stoppedStep(making.current, step, making.plan.steps), failed: true, why, log: readableLog(log, 80), fullLog: log });
+      renderLibrary(); if (viewingMaking) showMaking();
+    },
     finish: (mine) => {
       making.finished = true;
       making.result = assets.find(mine) ?? null;

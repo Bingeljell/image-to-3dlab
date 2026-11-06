@@ -72,6 +72,20 @@ def _asked_for_props(history: list[dict[str, Any]]) -> set[str]:
     return {str(r["made"]) for r in history if r.get("want") == "prop" and r.get("made")}
 
 
+RETRY_WANTS = {"picture", "prop", "set", "character"}
+
+
+def _picture_wants(history: list[dict[str, Any]]) -> dict[str, str]:
+    """The requested goal for each drawn picture, newest record first."""
+    wanted = {}
+    for record in history:
+        made, want = record.get("made"), record.get("want")
+        if (record.get("step") == "picture" and record.get("result") == "done"
+                and made and want in RETRY_WANTS):
+            wanted.setdefault(str(made), want)
+    return wanted
+
+
 def _step_times(history: list[dict[str, Any]]) -> dict[str, tuple[str, float]]:
     """How long the step that made each file took: {file relative to output/: (step, seconds)}.
     History is newest first, so the first record for a file wins."""
@@ -119,6 +133,26 @@ def _picture_prompt(picture: Path | None) -> str | None:
         return first_prompt(json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")))
     except (OSError, ValueError):
         return None
+
+
+def _picture_settings(picture: Path | None) -> dict[str, int] | None:
+    """The saved picture controls for Create's “Draw another picture” retry."""
+    if picture is None:
+        return None
+    try:
+        settings = json.loads(picture.with_suffix(".provenance.json").read_text(encoding="utf-8")).get("settings")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(settings, dict):
+        return None
+    steps, seed = settings.get("steps"), settings.get("seed")
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in (steps, seed)):
+        return None
+    saved = {"steps": steps, "seed": seed}
+    width, height = settings.get("width"), settings.get("height")
+    if all(isinstance(value, int) and not isinstance(value, bool) for value in (width, height)):
+        saved.update(width=width, height=height)
+    return saved
 
 
 def friendly_name(stem: str) -> str:
@@ -280,7 +314,8 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
         return []
     hashes = _Hashes(output)
     history = _history(output)
-    asked_props, step_times, prop_wording = _asked_for_props(history), _step_times(history), _prop_wording()
+    asked_props, picture_wants = _asked_for_props(history), _picture_wants(history)
+    step_times, prop_wording = _step_times(history), _prop_wording()
     pictures, models, finishes = _pictures(output), _models(output), _finishes(output)
     rigs, sets = _rigs(output), _prop_sets(output)
 
@@ -435,6 +470,8 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             "stage": stage,
             "picture": rel(picture["file"]) if picture else None,
             "prompt": _picture_prompt(picture["file"] if picture else None),
+            "picture_settings": _picture_settings(picture["file"] if picture else None),
+            "picture_want": picture_wants.get(rel(picture["file"])) if picture else None,
             # Front + back: the drawn back sits beside its front as <front>__back.png.
             "back": rel(back) if picture and (back := picture["file"].with_name(
                 f"{picture['file'].stem}__back.png")).is_file() else None,

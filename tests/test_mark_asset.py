@@ -104,7 +104,7 @@ def test_hash_identifies_content_not_path(asset, tmp_path):
 
 def test_append_only_roundtrip(asset, tmp_path):
     register = tmp_path / "verdicts.jsonl"
-    when = dt.datetime(2026, 8, 13, 9, 0, tzinfo=dt.timezone.utc)
+    when = dt.datetime(2026, 8, 13, 9, 0, tzinfo=dt.UTC)
 
     ma.append_entry(register, ma.build_entry(asset, "bad", "hollow", culled=True, now=when))
     ma.append_entry(register, ma.build_entry(asset, "good", "fixed", culled=True, now=when))

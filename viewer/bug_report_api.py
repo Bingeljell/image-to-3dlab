@@ -114,13 +114,32 @@ def _site_link(message: str, details_text: str, version: str) -> str:
 
 def _github_link(message: str, details_text: str) -> str:
     title = (message.strip().splitlines() or ["Bug report"])[0][:100]
-    body = f"{message.strip()}\n\n```\n{details_text}\n```"
-    url = f"{GITHUB_NEW_ISSUE}?{urlencode({'title': title, 'body': body})}"
-    while len(url) > GITHUB_URL_MAX and details_text:
-        details_text = details_text[len(details_text) // 4:]       # drop the oldest log lines first
-        body = f"{message.strip()}\n\n```\n…{details_text}\n```"
-        url = f"{GITHUB_NEW_ISSUE}?{urlencode({'title': title, 'body': body})}"
-    return url
+    def link(text: str, details: str) -> str:
+        body = f"{text.strip()}\n\n```\n{details}\n```"
+        return f"{GITHUB_NEW_ISSUE}?{urlencode({'title': title, 'body': body})}"
+
+    original = link(message, details_text)
+    if len(original) <= GITHUB_URL_MAX:
+        return original
+
+    def fit(text: str, render: Callable[[str], str], *, tail: bool = False) -> str | None:
+        # Measure encoded URLs, not Unicode character counts; every iteration narrows the range.
+        low, high, best = 0, len(text), None
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = render(text[len(text) - middle:] if tail else text[:middle])
+            if len(candidate) <= GITHUB_URL_MAX:
+                best, low = candidate, middle + 1
+            else:
+                high = middle - 1
+        return best
+
+    marker = "… [truncated]"
+    shortened = fit(details_text, lambda tail: link(message, marker + "\n" + tail), tail=True)
+    if shortened is not None:
+        return shortened
+    return fit(message.strip(), lambda prefix: link(prefix + "\n" + marker,
+                                                    marker if details_text else "")) or GITHUB_NEW_ISSUE
 
 
 def links(message: str, details_text: str, version: str | None = None, home: str | None = None) -> dict[str, str]:

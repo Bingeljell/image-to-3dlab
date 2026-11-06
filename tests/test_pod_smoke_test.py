@@ -10,7 +10,7 @@ import signal
 import subprocess
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pod_smoke_test as smoke
 import pytest
@@ -52,7 +52,7 @@ def test_a_banned_country_is_fine_without_hunyuan():
 
 
 def test_terminate_after_is_hours_from_now_in_utc():
-    now = datetime(2026, 10, 2, 22, 30, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 2, 22, 30, tzinfo=UTC)
     assert smoke.terminate_after(3, now) == "2026-10-03T01:30:00Z"
 
 

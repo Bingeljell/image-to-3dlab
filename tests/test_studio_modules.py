@@ -484,6 +484,23 @@ def test_each_starting_point_gets_only_the_steps_it_needs():
 
 
 @needs_node
+def test_a_run_that_stops_before_it_starts_does_not_say_undefined():
+    out = _run("plan.js", """console.log(JSON.stringify({
+      named: m.stoppedLine(m.stoppedStep(null, 'model', ['picture', 'model'])),
+      unknown: m.stoppedLine(m.stoppedStep(null, null, ['picture', 'model'])),
+      kept: m.stoppedLine(m.stoppedStep('picture', 'nope', ['picture', 'model'])),
+      empty: m.stoppedLine(m.stoppedStep(null, undefined, [])),
+    }));""")
+    assert out == {
+        "named": "Stopped at 3D model",
+        "unknown": "Stopped",
+        "kept": "Stopped at Picture",
+        "empty": "Stopped",
+    }
+    assert "undefined" not in json.dumps(out)
+
+
+@needs_node
 def test_front_and_back_adds_a_back_picture_before_the_3d_model():
     out = _run("plan.js", """console.log(JSON.stringify({
       ideaChar: m.planFor('idea', 'character', { frontBack: true }),
@@ -515,13 +532,36 @@ def test_the_prompt_gets_the_goals_wording_and_warnings_for_trouble_words():
         propCape: m.troubleFor('a cape on a hook', 'prop', r).length,
         notInside: m.troubleFor('a landscaper gnome', 'character', r).length,
       }}));""")
-    assert out["added"].startswith("An orc blacksmith with short tusks, full body, front view, "
+    assert out["added"].startswith("An orc blacksmith with short tusks. full body, front view, "
                                    "standing in an A-pose")
     assert out["off"] == "An orc blacksmith"
     assert out["picture"] == "A sunset over hills"
     assert out["warnCape"] == ["cape", "holding"]
     assert out["propCape"] == 0            # capes are fine on a prop
     assert out["notInside"] == 0           # "landscaper" is not "landscape"
+
+
+@needs_node
+def test_prompt_text_flattens_line_breaks_without_losing_punctuation():
+    text = "A brass robot.\r\n  Its boots are blue,\rwith a red scarf."
+    period = "A brass robot.\n"
+    comma = "A brass robot,\r"
+    out = _run("plan.js", f"""
+      const r = {json.dumps(RECIPES)};
+      const text = {json.dumps(text)};
+      console.log(JSON.stringify({{
+        plain: m.normalizePromptText(text),
+        withoutRecipe: m.composePrompt(text, 'character', r, false),
+        withPeriod: m.composePrompt({json.dumps(period)}, 'character', r),
+        withComma: m.composePrompt({json.dumps(comma)}, 'character', r),
+        withoutPunctuation: m.composePrompt('A brass robot', 'character', r),
+      }}));""")
+    assert out["plain"] == "A brass robot. Its boots are blue, with a red scarf."
+    assert out["withoutRecipe"] == out["plain"]
+    wording = RECIPES["goals"]["character"]["wording"]
+    assert out["withPeriod"] == f"A brass robot. {wording}"
+    assert out["withComma"] == f"A brass robot, {wording}"
+    assert out["withoutPunctuation"] == f"A brass robot, {wording}"
 
 
 @needs_node
@@ -647,11 +687,263 @@ def test_create_makes_a_fresh_picture_each_time_unless_a_seed_is_kept():
     out = _run("create.js", """
       const fresh = m.pictureSettings({ size: 1024, steps: 16 }, () => 0.5);
       const kept = m.pictureSettings({ newEachTime: false, seed: 7, size: 999, steps: 900 });
+      const defaulted = m.pictureSettings({}, () => 0.5);
       const form = m.planForm({ steps: ['picture'], description: 'x', pictureSettings: kept });
-      console.log(JSON.stringify({ fresh, kept, sent: JSON.parse(form.get('picture_settings')) }));""")
+      console.log(JSON.stringify({ fresh, kept, defaulted, sent: JSON.parse(form.get('picture_settings')) }));""")
     assert out["fresh"] == {"width": 1024, "height": 1024, "steps": 16, "seed": 1073741823}
-    assert out["kept"] == {"width": 768, "height": 768, "steps": 50, "seed": 7}  # odd sizes fall back, steps are capped
+    assert out["kept"] == {"width": 1024, "height": 1024, "steps": 50, "seed": 7}  # odd sizes fall back, steps are capped
+    assert out["defaulted"]["width"] == out["defaulted"]["height"] == 1024
     assert out["sent"] == out["kept"]
+
+
+@needs_node
+def test_retry_picture_settings_keep_the_previous_steps_and_seed_when_unchecked():
+    out = _run("create.js", """
+      const retry = m.retryPictureSettings({ width: 1024, height: 1024, steps: 17, seed: 447606998181262 });
+      const zero = m.retryPictureSettings({ steps: 6, seed: 0 });
+      const rectangle = m.retryPictureSettings({ width: 1024, height: 768, steps: 6, seed: 9 });
+      console.log(JSON.stringify({
+        retry,
+        zero,
+        rectangle,
+        fresh: m.pictureSettings(retry, () => 0.5),
+        kept: m.pictureSettings({ ...retry, newEachTime: false }),
+        zeroKept: m.pictureSettings({ ...zero, newEachTime: false }),
+        missing: m.retryPictureSettings(null),
+      }));""")
+    assert out["retry"] == {"size": 1024, "steps": 17, "seed": 447606998181262, "touched": True}
+    assert out["zero"] == {"size": 1024, "steps": 6, "seed": 0, "touched": True}
+    assert out["rectangle"] == {"steps": 6, "seed": 9, "touched": True}
+    assert out["fresh"]["seed"] == 1073741823  # retry still starts with a new picture by default
+    assert out["kept"] == {"width": 1024, "height": 1024, "steps": 17, "seed": 447606998181262}
+    assert out["zeroKept"]["seed"] == 0
+    assert out["missing"] is None
+
+
+@needs_node
+def test_retry_goal_keeps_a_supported_previous_choice_or_uses_the_asset_category():
+    out = _run("plan.js", """
+      console.log(JSON.stringify({
+        savedPicture: m.retryWant('picture', 'character'),
+        character: m.retryWant(null, 'character'),
+        prop: m.retryWant(null, 'prop'),
+        picture: m.retryWant(null, 'picture'),
+        set: m.retryWant(null, 'prop set'),
+        unknown: m.retryWant('not-a-goal', 'not-a-category'),
+        picturePlan: m.planFor('idea', m.retryWant('picture', 'character')),
+      }));""")
+    assert out["savedPicture"] == "picture"
+    assert out["character"] == "character"
+    assert out["prop"] == "prop"
+    assert out["picture"] == "picture"
+    assert out["set"] == "set"
+    assert out["unknown"] == "character"
+    assert out["picturePlan"] == ["picture"]
+
+
+@needs_node
+def test_describe_textarea_fits_its_full_content_after_prefill_and_edits():
+    out = _run("create.js", """
+      const box = { style: {}, scrollHeight: 312, clientHeight: 312, offsetHeight: 314 };
+      m.fitTextarea(box);
+      const prefilled = box.style.height;
+      box.scrollHeight = box.clientHeight = 74;
+      box.offsetHeight = 76;
+      m.fitTextarea(box);
+      console.log(JSON.stringify({ prefilled, shrunk: box.style.height, overflow: box.style.overflowY }));""")
+    assert out == {"prefilled": "314px", "shrunk": "76px", "overflow": "hidden"}
+
+
+@needs_node
+def test_create_rerender_keeps_its_scroll_position():
+    out = _run("create.js", """
+      const sheet = { scrollTop: 612 };
+      m.rerenderKeepingScroll(sheet, () => { sheet.scrollTop = 0; });
+      console.log(JSON.stringify({ scrollTop: sheet.scrollTop }));""")
+    assert out == {"scrollTop": 612}
+
+
+@needs_node
+def test_create_remembers_open_and_closed_advanced_sections():
+    out = _run("create.js", """
+      console.log(JSON.stringify(m.detailStates([
+        { dataset: { detail: 'picture' }, open: true },
+        { dataset: { detail: 'model' }, open: false },
+      ])));""")
+    assert out == {"picture": True, "model": False}
+
+
+@needs_node
+def test_create_picture_toggle_preserves_each_advanced_section_open_state():
+    """Changing picture settings rerenders the real Create template, preserving details."""
+    out = _run("create.js", """
+      class Node {
+        constructor(tag = 'div', attrs = {}) {
+          this.tagName = tag; this.attrs = attrs; this.dataset = {};
+          for (const [key, value] of Object.entries(attrs)) if (key.startsWith('data-')) this.dataset[key.slice(5)] = value;
+          this.children = []; this.listeners = {}; this.style = {}; this.open = 'open' in attrs;
+          this.checked = 'checked' in attrs; this.value = attrs.value || ''; this.type = attrs.type || '';
+          this.textContent = ''; this.scrollTop = 0;
+        }
+        addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+        dispatch(type) { const e = { target: this, preventDefault() {}, stopPropagation() {} };
+          for (const fn of this.listeners[type] || []) fn(e); this['on' + type]?.(e); }
+        appendChild(child) { this.children.push(child); child.parentNode = this; return child; }
+        remove() { this.removed = true; }
+        focus() {}
+        closest(selector) { return selector === 'details' && this.parentNode?.tagName === 'DETAILS' ? this.parentNode : null; }
+        querySelectorAll(selector) { const found = []; const visit = (n) => { for (const c of n.children) { if (matches(c, selector)) found.push(c); visit(c); } }; visit(this); return found; }
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+        set innerHTML(html) { this.children = []; parse(this, html); }
+      }
+      const matches = (n, selector) => {
+        if (selector === 'form' || selector === 'textarea' || selector === 'select') return n.tagName.toLowerCase() === selector;
+        if (selector.startsWith('.')) return (n.attrs.class || '').split(' ').includes(selector.slice(1));
+        if (selector === 'details[data-detail]') return n.tagName === 'DETAILS' && n.dataset.detail !== undefined;
+        const d = selector.match(/^\\[data-([^=\\]]+)(?:="([^"]*)")?\\]$/);
+        return Boolean(d && Object.prototype.hasOwnProperty.call(n.dataset, d[1]) && (d[2] === undefined || n.dataset[d[1]] === d[2]));
+      };
+      const attrsOf = (s) => Object.fromEntries([...s.matchAll(/([\\w-]+)(?:="([^"]*)")?/g)].map((x) => [x[1], x[2] ?? '']));
+      const parseInputs = (parent, html) => { for (const x of html.matchAll(/<(input|button|select|textarea)\\b([^>]*)>/g)) parent.appendChild(new Node(x[1].toUpperCase(), attrsOf(x[2]))); };
+      const parse = (parent, html) => {
+        for (const x of html.matchAll(/<details\\b([^>]*)>([\\s\\S]*?)<\\/details>/g)) {
+          const d = new Node('DETAILS', attrsOf(x[1])); const s = /<summary>([\\s\\S]*?)<\\/summary>/.exec(x[2]);
+          if (s) { const summary = new Node('SUMMARY'); summary.textContent = s[1]; d.appendChild(summary); }
+          parseInputs(d, x[2]); parent.appendChild(d);
+        }
+        const form = new Node('FORM'); parent.appendChild(form); parseInputs(form, html);
+      };
+      globalThis.document = { createElement: () => new Node(), addEventListener() {}, removeEventListener() {} };
+      globalThis.ResizeObserver = undefined; globalThis.URL = { createObjectURL: () => 'blob:test', revokeObjectURL() {} };
+      globalThis.scrollTop = 0;
+      const stage = new Node();
+      const handle = m.openCreate({ stage, recipes: { goals: { character: {} }, trouble: [] }, engines: [{ id: 'pixal3d', label: 'Pixal3D' }], presets: [], pictureEngines: [], onStart() {} });
+      const sheet = stage.children[0]; const picture = () => sheet.querySelector('[data-detail="picture"]');
+      const model = () => sheet.querySelector('[data-detail="model"]');
+      const sourceDrop = sheet.querySelector('[data-drop]');
+      const toggle = () => sheet.querySelector('[data-pic="newEachTime"]').dispatch('change');
+      picture().open = true; model().open = false; toggle();
+      const closed = model().open; const pictureWhileModelClosed = picture().open;
+      model().open = true; toggle();
+      const reopened = model().open;
+      sheet.querySelector('[data-have="picture"]').onclick();
+      const pendingSource = handle.sourceRevision();
+      const used = await handle.usePicture({ name: 'library source.png', type: 'image/png', size: 1 });
+      console.log(JSON.stringify({ hasPicture: Boolean(picture()), hasModel: Boolean(model()), closed,
+        pictureWhileModelClosed, reopened, source: handle.pictureName(), used,
+        pendingSourceStillCurrent: handle.isSourceCurrent(pendingSource), sourceDropPreserved: sourceDrop === sheet.querySelector('[data-drop]'),
+        modelPreserved: model() === sheet.querySelector('[data-detail="model"]') }));
+    """)
+    assert out == {"hasPicture": False, "hasModel": True, "closed": False, "pictureWhileModelClosed": True,
+                   "reopened": True, "source": "library source.png", "used": True,
+                   "pendingSourceStillCurrent": False, "sourceDropPreserved": True, "modelPreserved": True}
+
+
+@needs_node
+def test_picture_preview_waits_for_decode_before_resolving():
+    out = _run("create.js", """
+      let finish;
+      class FakeImage {
+        set src(value) { this.url = value; }
+        decode() { return new Promise((resolve) => { finish = resolve; }); }
+      }
+      let ready = false;
+      const pending = m.preloadPicture('blob:new', FakeImage).then(() => { ready = true; });
+      await Promise.resolve();
+      const before = ready;
+      finish();
+      await pending;
+      console.log(JSON.stringify({ before, after: ready }));
+    """)
+    assert out == {"before": False, "after": True}
+
+
+@needs_node
+def test_library_picture_loader_ignores_stale_success_and_error_after_source_change():
+    out = _run("library-picture.js", """
+      let pending;
+      const errors = []; const used = [];
+      const selected = [];
+      const target = { revision: 0, sourceRevision() { return this.revision; }, canUseLibraryPicture() { return true; },
+        isSourceCurrent(revision) { return this.revision === revision; },
+        usePicture(file) { used.push(file.name); return true; }, showError(message) { errors.push(message); } };
+      const loader = m.createLibraryPictureLoader({
+        fetchPicture: () => new Promise((resolve, reject) => { pending = { resolve, reject }; }),
+        freshUrl: (picture) => picture, getTarget: () => target,
+        makeFile: (parts, name) => ({ parts, name }),
+        onUsed: (asset) => selected.push(asset.picture),
+      });
+      const first = loader.load({ picture: 'images/old.png' });
+      target.revision = 1;
+      pending.resolve({ ok: true, blob: async () => ({ type: 'image/png' }) });
+      await first;
+      const second = loader.load({ picture: 'images/old.png' });
+      target.revision = 2;
+      pending.reject(new Error('old request failed'));
+      await second;
+      console.log(JSON.stringify({ used, errors, selected }));
+    """)
+    assert out == {"used": [], "errors": [], "selected": []}
+
+
+@needs_node
+def test_library_picture_loader_marks_only_a_successful_source_as_selected():
+    out = _run("library-picture.js", """
+      let resolveFetch;
+      const selected = []; const target = { sourceRevision: () => 0, canUseLibraryPicture: () => true,
+        isSourceCurrent: () => true, usePicture: () => true, showError() {} };
+      const loader = m.createLibraryPictureLoader({
+        fetchPicture: () => new Promise((resolve) => { resolveFetch = resolve; }),
+        freshUrl: (picture) => picture, getTarget: () => target,
+        makeFile: (parts, name) => ({ parts, name }), onUsed: (asset) => selected.push(asset.id),
+      });
+      const pending = loader.load({ id: 'library-1', picture: 'images/one.png' });
+      resolveFetch({ ok: true, blob: async () => ({ type: 'image/png' }) });
+      await pending;
+      console.log(JSON.stringify(selected));
+    """)
+    assert out == ["library-1"]
+
+
+@needs_node
+def test_library_input_selection_renders_the_input_version_and_opens_its_family():
+    out = _run("library-selection.js", """
+      const viewerAsset = { id: 'viewer', family: 'family' };
+      const inputAsset = { id: 'input-version', family: 'family' };
+      const members = [viewerAsset, inputAsset];
+      const options = { current: viewerAsset, inputId: inputAsset.id, viewingMaking: false };
+      console.log(JSON.stringify({
+        inputRow: { className: 'asset', ariaCurrent: String(m.libraryRowSelection(inputAsset, options)) },
+        viewerRow: { className: 'asset', ariaCurrent: String(m.libraryRowSelection(viewerAsset, options)) },
+        familyOpen: m.libraryFamilyOpen(members, { key: 'family', openFamilies: new Set(), current: viewerAsset, inputId: inputAsset.id }),
+      }));
+    """)
+    assert out == {"inputRow": {"className": "asset", "ariaCurrent": "true"},
+                   "viewerRow": {"className": "asset", "ariaCurrent": "false"}, "familyOpen": True}
+
+
+@needs_node
+def test_library_picture_loader_ignores_old_request_after_create_reopens():
+    out = _run("library-picture.js", """
+      let pending;
+      const used = [];
+      const oldTarget = { sourceRevision: () => 0, canUseLibraryPicture: () => true,
+        isSourceCurrent: () => true, usePicture: () => used.push('old'), showError() {} };
+      const newTarget = { sourceRevision: () => 0, canUseLibraryPicture: () => true,
+        isSourceCurrent: () => true, usePicture: () => used.push('new'), showError() {} };
+      let target = oldTarget;
+      const loader = m.createLibraryPictureLoader({
+        fetchPicture: () => new Promise((resolve) => { pending = resolve; }),
+        freshUrl: (picture) => picture, getTarget: () => target,
+        makeFile: (parts, name) => ({ parts, name }),
+      });
+      const old = loader.load({ picture: 'images/old.png' });
+      target = newTarget;
+      pending({ ok: true, blob: async () => ({ type: 'image/png' }) });
+      await old;
+      console.log(JSON.stringify(used));
+    """)
+    assert out == []
 
 
 @needs_node
@@ -1190,7 +1482,7 @@ def test_create_takes_each_picture_engines_own_size_and_steps():
       console.log(JSON.stringify([m.pictureDefaults(flux), m.pictureDefaults(flux, true), m.pictureDefaults(qwen, true),
         m.pictureDefaults(null), form.get('picture_engine'), m.planForm({{ steps: ['picture'] }}).get('picture_engine')]));""")
     assert out == [{"size": 1024, "steps": 4}, {"size": 1024, "steps": 8}, {"size": 768, "steps": 8},
-                   {"size": 768, "steps": 8}, "qwen", None]
+                   {"size": 1024, "steps": 8}, "qwen", None]
 
 
 @needs_node
@@ -1342,3 +1634,108 @@ def test_the_setup_question_lists_what_comes_down_beyond_the_weights():
                                             capture_output=True, text=True).stdout)
     assert "Also downloads:" in lines and any("sd engine: ~35 MB, MIT" in x and "https://g" in x for x in lines)
     assert none == []
+
+
+# --- the viewer's model switcher, and Library thumbnails for picture-less models ----------
+
+@needs_node
+def test_the_switcher_lists_every_model_the_asset_has():
+    out = _run("model-switch.js", """console.log(JSON.stringify({
+      full: m.modelChoices({ model: 'a.glb', finished: 'b.glb', rigged: 'c.glb' }).map((c) => [c.step, c.label, c.file]),
+      rawOnly: m.modelChoices({ model: 'a.glb' }).map((c) => c.step),
+      pictureOnly: m.modelChoices({ kind: 'picture', picture: 'p.png' }),
+      propSet: m.modelChoices({ kind: 'prop set', model: 'a.glb' }),
+      missing: m.modelChoices(null),
+    }));""")
+    assert out == {
+        "full": [["model", "3D model", "a.glb"], ["finished", "Finished", "b.glb"], ["rigged", "Rigged", "c.glb"]],
+        "rawOnly": ["model"],
+        "pictureOnly": [],
+        "propSet": [],
+        "missing": [],
+    }
+
+
+@needs_node
+def test_the_switcher_marks_the_model_on_screen():
+    out = _run("model-switch.js", """const choices = m.modelChoices({ model: 'a.glb', finished: 'b.glb' });
+      console.log(JSON.stringify({
+        picked: m.activeChoice(choices, { step: 'model', latest: 'b.glb' }),
+        latest: m.activeChoice(choices, { latest: 'b.glb' }),
+        picture: m.activeChoice(choices, { latest: null }),
+        stale: m.activeChoice(choices, { step: 'rigged', latest: 'b.glb' }),
+      }));""")
+    assert out == {"picked": "model", "latest": "finished", "picture": None, "stale": None}
+
+
+@needs_node
+def test_a_row_without_a_picture_asks_for_a_model_thumbnail():
+    out = _run("model-thumbs.js", """console.log(JSON.stringify({
+      finished: m.thumbFile({ picture: null, model: 'a.glb', finished: 'b.glb', rigged: 'c.glb' }),
+      raw: m.thumbFile({ picture: null, model: 'a.glb' }),
+      rigged: m.thumbFile({ picture: null, rigged: 'c.glb' }),
+      pictured: m.thumbFile({ picture: 'p.png', model: 'a.glb' }),
+      nothing: m.thumbFile({ picture: null }),
+      key: m.thumbKey('b.glb'),
+    }));""")
+    assert out == {"finished": "b.glb", "raw": "a.glb", "rigged": "c.glb",
+                   "pictured": None, "nothing": None, "key": "af-thumb-v1:b.glb"}
+
+
+@needs_node
+def test_the_thumbnail_cache_keeps_the_newest_and_survives_a_blocked_store():
+    out = _run("model-thumbs.js", """const store = (() => {
+        const map = new Map();
+        return { getItem: (k) => map.has(k) ? map.get(k) : null,
+                 setItem: (k, v) => map.set(k, v), removeItem: (k) => map.delete(k) };
+      })();
+      const cache = m.createThumbCache({ storage: store, limit: 2 });
+      cache.set('k1', 'one'); cache.set('k2', 'two'); cache.set('k3', 'three');
+      const blocked = { getItem() { throw new Error('no'); }, setItem() { throw new Error('no'); },
+                        removeItem() { throw new Error('no'); } };
+      const stubborn = m.createThumbCache({ storage: blocked });
+      stubborn.set('k', 'kept');
+      console.log(JSON.stringify({
+        evicted: cache.get('k1'), kept: cache.get('k2'), newest: cache.get('k3'),
+        persisted: store.getItem('k3'), stubborn: stubborn.get('k'),
+      }));""")
+    assert out == {"evicted": None, "kept": "two", "newest": "three",
+                   "persisted": "three", "stubborn": "kept"}
+
+
+@needs_node
+def test_the_thumbnail_queue_renders_one_at_a_time_and_respects_its_cap():
+    out = _run("model-thumbs.js", """const rendered = [], seen = [];
+      const queue = m.createThumbQueue({
+        cache: m.createThumbCache(), limit: 2, gap: 0, wait: () => Promise.resolve(),
+        render: async (file) => { rendered.push(file); return 'data:' + file; },
+        onThumb: (item, data) => seen.push([item.id, data]),
+      });
+      queue.enqueue({ id: 'a', file: 'a.glb' });
+      queue.enqueue({ id: 'a', file: 'a.glb' });
+      queue.enqueue({ id: 'b', file: 'b.glb' });
+      queue.enqueue({ id: 'c', file: 'c.glb' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const renderedSeen = seen.slice();   // offer() may apply a cached copy again, by design
+      const cached = queue.offer({ id: 'a', file: 'a.glb' });
+      const over = queue.offer({ id: 'c', file: 'c.glb' });
+      console.log(JSON.stringify({ rendered, seen: renderedSeen, cached, over, pending: queue.pending() }));""")
+    assert out == {"rendered": ["a.glb", "b.glb"], "seen": [["a", "data:a.glb"], ["b", "data:b.glb"]],
+                   "cached": "cached", "over": "wanted", "pending": 1}
+
+
+@needs_node
+def test_a_hidden_tab_renders_nothing_until_it_comes_back():
+    out = _run("model-thumbs.js", """let hidden = true; const rendered = [];
+      const queue = m.createThumbQueue({
+        cache: m.createThumbCache(), gap: 0, wait: () => Promise.resolve(),
+        render: async (file) => { rendered.push(file); return 'data:' + file; },
+        isHidden: () => hidden,
+      });
+      queue.enqueue({ id: 'a', file: 'a.glb' });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const whileHidden = rendered.slice();
+      hidden = false; queue.resume();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      console.log(JSON.stringify({ whileHidden, after: rendered }));""")
+    assert out == {"whileHidden": [], "after": ["a.glb"]}

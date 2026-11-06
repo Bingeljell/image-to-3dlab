@@ -157,7 +157,7 @@ def test_an_idea_for_a_character_runs_the_studios_full_plan_with_its_wording(stu
     out = ms.create(studio, want="character", description="a knight.")
     form = sent(studio)
     assert json.loads(form["steps"]) == ["picture", "back", "model", "finished", "rigged", "animated"]
-    assert form["prompt"] == "a knight, A-pose, plain background"
+    assert form["prompt"] == "a knight. A-pose, plain background"   # the ending punctuation is kept
     assert form["engine"] == "pixal3d"             # best ready engine, not the first listed
     assert form["first_move"] == "idle"            # the first move that is not a second take
     assert out["run_id"] == "new-run"
@@ -957,3 +957,38 @@ def test_the_agent_hears_about_the_lighter_remover_only_when_it_is_missing():
     assert ms.remover_tip({"backends": [engine, {"id": "matte", "state": "ready"}]}) is None
     # Nothing ready yet: setup is the conversation to have, not a lighter file.
     assert ms.remover_tip({"backends": [{"id": "matte", "state": "missing"}]}) is None
+
+
+def test_mcp_uploaded_model_can_finish_without_picture(tmp_path, studio):
+    from viewer import activity_api as aa
+    from viewer import finish_api
+    from viewer.generate_api import parse_multipart
+
+    model = tmp_path / "source.glb"
+    model.write_bytes(b"uploaded model")
+    ms.create(studio, want="prop", model_path=str(model), finish_upload=True)
+    _, posted = studio.http.posts[-1]
+    body, ctype = aa.multipart({k: v[1] for k, v in posted.items() if v[0] is None},
+                               {k: (v[0], v[1]) for k, v in posted.items() if v[0] is not None})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    output = tmp_path / "output"
+    manager = finish_api.FinishJobManager(output / "finish", output)
+    created = []
+    def request(method, path, body, content_type):
+        if method == "POST":
+            assert path == "/api/finish"
+            form = parse_multipart(content_type, body)
+            assert form["asset"]["data"] == b"uploaded model"
+            assert "image" not in form
+            job = manager.create(form["asset"]["filename"], form["asset"]["data"], None,
+                                 json.loads(form["settings"]["value"]))
+            assert job.settings["skip_photo"] and job.settings["skip_paint"]
+            created.append(job)
+            return 202, {"job_id": job.id}
+        job = created[0]
+        job.result_glb.write_bytes(b"finished")
+        return 200, {"status": "done", "last_event": {"path": job.result_glb.relative_to(output).as_posix()}}
+    aa.ChainRunner(output, request, poll=0).submit(chain, background=False)
+    assert chain.status == "done", chain.error
+    assert len(created) == 1
+    assert (output / chain.made["finished"]).read_bytes() == b"finished"

@@ -142,31 +142,39 @@ fi
 
 # --- 4. Python ----------------------------------------------------------------------------
 say "Setting up Python 3.11 and the viewer's packages (a few hundred MB, mostly PyTorch)"
-run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
 PY="$DIR/.venv/bin/python"
 
-# The lock pins every package to versions tested together; requirements.txt only bounds
-# them, so installing from it gave each install whatever PyPI had that day.
-REQS="$DIR/requirements.lock"
-[ -f "$REQS" ] || REQS="$DIR/requirements.txt"
-
-# PyPI's Linux PyTorch is a CUDA build, and the lock carries about 6 GB of NVIDIA wheels
-# with it. On an AMD card none of that can load, and the box is left with a torch that
-# reports no device. So the lock is installed with that family taken out and the ROCm build
-# is put in its place. image_to_3dlab.host picks the ROCm build that matches the installed
-# runtime (tested in tests/test_host.py); the CUDA and Apple paths keep the plain install.
-if [ "$GPU" = amd ] && [ -f "$REQS" ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
-  # Inside the venv: it belongs to this install, and git already ignores it there.
-  ROCM_LOCK="$DIR/.venv/requirements.rocm.lock"
-  # From inside $DIR: `-m` finds the package in the current folder, and under
-  # `curl | bash` that folder is wherever the user happened to be.
-  (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$REQS") >"$ROCM_LOCK"
-  REQS="$ROCM_LOCK"
+# uv.lock pins every package to versions tested together. On an AMD card PyPI's Linux
+# PyTorch is a CUDA build and brings about 6 GB of NVIDIA wheels with it, none of which
+# can load, so that path exports the lock, strips that family, and installs the ROCm
+# build instead. image_to_3dlab.host picks the ROCm build that matches the installed
+# runtime (tested in tests/test_host.py). The CUDA and Apple paths keep a plain uv sync.
+#
+# --inexact: add and update the lock's packages, but never delete one. Backends install
+# into this same environment (the SF3D setup script pip-installs with this interpreter),
+# so an exact sync would remove a working backend on the next update.
+if [ "$GPU" = amd ]; then
+  run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
+  if [ "$DRY" != 1 ]; then
+    [ -x "$PY" ] || die "The Python environment in $DIR/.venv is missing, so the AMD packages cannot be set up. Delete $DIR/.venv and run this again."
+    # Inside the venv: it belongs to this install, and git already ignores it there.
+    ROCM_FILE="$DIR/.venv/requirements.rocm.txt"
+    (cd "$DIR" && "$UV" export --frozen --no-dev --output-file "$ROCM_FILE")
+    # From inside $DIR: `-m` finds the package in the current folder, and under
+    # `curl | bash` that folder is wherever the user happened to be.
+    (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
+    mv "$ROCM_FILE.tmp" "$ROCM_FILE"
+    run "$UV" pip install --quiet --python "$PY" -r "$ROCM_FILE"
+  fi
+else
+  if [ "$DRY" = 1 ]; then
+    say "would run: uv sync --frozen --no-dev --inexact --python 3.11 (in $DIR)"
+  else
+    (cd "$DIR" && "$UV" sync --frozen --no-dev --inexact --python 3.11)
+  fi
 fi
 
-run "$UV" pip install --quiet --python "$PY" -r "$REQS"
-
-# After the requirements, so it wins over the PyPI wheel: --reinstall-package is what makes
+# After the packages, so it wins over the PyPI wheel: --reinstall-package is what makes
 # uv swap the build rather than consider the requirement satisfied.
 if [ "$GPU" = amd ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
   ROCM_INDEX="$(cd "$DIR" && "$PY" -m image_to_3dlab.host torch-rocm-index | tr -d '[:space:]')"
@@ -176,7 +184,7 @@ if [ "$GPU" = amd ] && [ "$DRY" != 1 ] && [ -x "$PY" ]; then
       run "$UV" pip install --quiet --python "$PY" --reinstall-package torch \
         --reinstall-package torchvision --index-url "$ROCM_INDEX" torch torchvision
     else
-      # The lock went in without torch, so without this there would be no PyTorch at all.
+      # The export went in without torch, so without this there would be no PyTorch at all.
       say "Your ROCm is older than PyTorch's ROCm builds (they need ROCm 6.2 or newer)."
       say "Installing the CPU build of PyTorch for now. Install a newer ROCm, then run this"
       say "again to get the GPU build."

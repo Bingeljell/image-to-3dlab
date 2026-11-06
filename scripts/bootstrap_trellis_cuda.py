@@ -364,7 +364,7 @@ def install_weights() -> None:
         from huggingface_hub import snapshot_download
         from huggingface_hub.utils import GatedRepoError
     except ImportError as exc:
-        raise SystemExit("huggingface_hub is not installed. pip install -r requirements.txt"
+        raise SystemExit("huggingface_hub is not installed. uv sync"
                          ) from exc
     for repo, patterns, size in WEIGHTS:
         print(f"\nFetching {repo} ({size:.2f} GB)...", flush=True)

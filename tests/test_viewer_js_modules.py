@@ -426,6 +426,212 @@ def test_model_load_error_is_rendered_as_text_not_markup():
     assert out["htmlContains"] is False
 
 
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_studio_viewer_3d_tools_follow_real_picture_and_empty_mode_switches():
+    """Toolbar/gizmo are inert for pictures and empty stages, but return for 3D models."""
+    module_url = (REPO / "viewer" / "studio" / "viewer.js").as_uri()
+    three_url = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
+    stubs = {
+        "../components/model-viewport.js": "export function createModelViewport() { return { renderer: { domElement: { remove() {} } } }; } export function disposeModelViewport() {}",
+        "../components/camera-view-controls.js": "export function setCameraView() { return false; }",
+        "../animation/player.js": "export class AnimationPlayer {}",
+        "./gizmo.js": "export const AXES = []; export function projectAxes() { return []; }",
+        "./bones.js": "export function createBoneDisplay() { return null; }",
+        "./floor.js": "export function createFloor() { return {}; } export function standOnFloor() { return 1; } export function homeView() { return { target: [0, 0, 0], position: [0, 0, 1] }; } export function facingAngle() { return 0; }",
+        "./looks.js": "export function applyLook() {} export function meshesOf() { return []; } export function faceLabel(s) { return s; }",
+        "./zoom.js": "export function attachZoom(overlay) { overlay.zoomAttached = true; }",
+    }
+    stub_urls = {key: "data:text/javascript," + quote(value, safe="") for key, value in stubs.items()}
+    resolve_cases = "".join(
+        f"if (s === {json.dumps(spec)} && c.parentURL === {json.dumps(module_url)}) return {{ url: {json.dumps(url)}, shortCircuit: true }};"
+        for spec, url in stub_urls.items()
+    )
+    program = f"""
+      import {{ register }} from 'node:module';
+      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{
+        if (s === 'three') return {{ url: {json.dumps(three_url)}, shortCircuit: true }};
+        {resolve_cases}
+        return n(s, c);
+      }}`));
+      const make = () => {{
+        const node = {{ nodeType: 1, className: '', hidden: false, inert: false, style: {{}}, children: [], _html: '', zoomAttached: false,
+          get innerHTML() {{ return node._html; }}, set innerHTML(value) {{ node._html = value; node.children = []; }},
+          get textContent() {{ return ''; }}, set textContent(value) {{ node._text = String(value); }},
+          classList: {{ add() {{}}, remove() {{}}, toggle() {{}}, contains() {{ return false; }} }},
+          appendChild(child) {{ node.children.push(child); return child; }}, querySelector: () => make(), querySelectorAll: () => [],
+          addEventListener() {{}}, setAttribute(k, v) {{ node[k] = String(v); }}, getAttribute(k) {{ return node[k] ?? null; }},
+          remove() {{}}, closest: () => null }};
+        return node;
+      }};
+      globalThis.document = {{ createElement: make }}; globalThis.window = globalThis;
+      globalThis.addEventListener = () => {{}}; globalThis.removeEventListener = () => {{}};
+      globalThis.ResizeObserver = class {{ observe() {{}} disconnect() {{}} }};
+      globalThis.requestAnimationFrame = () => 0; globalThis.devicePixelRatio = 1;
+      const {{ createStudioViewer, pictureOverlayTop, pictureMaxHeight }} = await import({json.dumps(module_url)});
+      const stage = make(); const viewer = createStudioViewer({{ stage, logoUrl: 'logo.svg' }});
+      const tools = stage.children.find((node) => node.className === 'sv-tools');
+      const state = () => [tools.hidden, tools.inert];
+      viewer.load('model.glb'); const model = state();
+      viewer.showImage('picture.png', 'Picture'); const picture = state(); const zoom = stage.children.find((node) => node.className === 'sv-overlay').zoomAttached;
+      viewer.load('model-again.glb'); const modelAgain = state();
+      viewer.showEmpty('Nothing here'); const empty = state();
+      console.log(JSON.stringify({{ model, picture, modelAgain, empty, zoom,
+        pictureTop: pictureOverlayTop({{ top: 100 }}, {{ bottom: 180 }}),
+        pictureMax: [pictureMaxHeight({{ top: 0, height: 600 }}, {{ bottom: 180 }}, 40, 20),
+          pictureMaxHeight({{ top: 0, height: 100 }}, {{ bottom: 180 }}, 40, 20)] }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "model": [False, False], "picture": [True, True], "modelAgain": [False, False], "empty": [True, True], "zoom": True,
+        "pictureTop": 92,
+        "pictureMax": [316, 0],
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_picture_zoom_clicks_in_at_the_pointer_and_does_not_zoom_after_drag():
+    """The shipped zoom module makes its zoom-in cursor actionable without stealing pans."""
+    module_url = (REPO / "viewer" / "studio" / "zoom.js").as_uri()
+    program = f"""
+      const {{ attachZoom }} = await import({json.dumps(module_url)});
+      const listeners = {{}};
+      const box = {{
+        getBoundingClientRect: () => ({{ left: 0, top: 0, width: 400, height: 300 }}),
+        addEventListener: (name, fn) => {{ listeners[name] = fn; }},
+        setPointerCapture: () => {{}},
+      }};
+      const image = {{ style: {{}}, parentElement: box }};
+      const root = {{ querySelectorAll: () => [image], querySelector: () => null }};
+      attachZoom(root);
+      listeners.click({{ clientX: 100, clientY: 50 }});
+      const zoomed = [image.style.transform, image.style.cursor];
+      listeners.pointerdown({{ clientX: 100, clientY: 100, pointerId: 1 }});
+      listeners.pointermove({{ clientX: 130, clientY: 100 }});
+      listeners.pointerup();
+      listeners.click({{ clientX: 130, clientY: 100 }});
+      const afterDrag = [image.style.transform, image.style.cursor];
+      listeners.dblclick();
+      console.log(JSON.stringify({{ zoomed, afterDrag, reset: image.style.transform }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "zoomed": ["translate(-100px, -50px) scale(2)", "grab"],
+        "afterDrag": ["translate(-70px, -50px) scale(2)", "grab"],
+        "reset": "translate(0px, 0px) scale(1)",
+    }
+
+
+def test_picture_overlay_leaves_room_for_stage_heading():
+    """Picture mode starts below the absolute title instead of drawing underneath it."""
+    css = (REPO / "viewer" / "studio" / "studio.css").read_text()
+    assert ".stage:has(.sv-picture) .sv-overlay" in css
+    assert "align-items: start; padding: var(--sv-picture-top, 24px) 24px 24px" in css
+    assert "var(--sv-picture-max-height, 78vh)" in css
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_tooltip_placement_flips_and_clamps_at_viewport_edges():
+    """The shared tooltip geometry keeps top, bottom, left and right edge tips visible."""
+    module_url = (REPO / "viewer" / "studio" / "tooltips.js").as_uri()
+    program = f"""
+      const {{ tooltipPlacement }} = await import({json.dumps(module_url)});
+      const viewport = {{ width: 800, height: 600 }};
+      console.log(JSON.stringify([
+        tooltipPlacement({{ top: 20, bottom: 70, left: 300, right: 400 }}, viewport, 'up'),
+        tooltipPlacement({{ top: 500, bottom: 580, left: 300, right: 400 }}, viewport, 'down'),
+        tooltipPlacement({{ top: 200, bottom: 250, left: 10, right: 90 }}, viewport, 'down'),
+        tooltipPlacement({{ top: 200, bottom: 250, left: 750, right: 790 }}, viewport, 'down'),
+        tooltipPlacement({{ top: 200, bottom: 250, left: 300, right: 400 }}, viewport, 'down'),
+      ]));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == [
+        {"vertical": "down", "horizontal": ""},
+        {"vertical": "up", "horizontal": ""},
+        {"vertical": "down", "horizontal": "left"},
+        {"vertical": "down", "horizontal": "right"},
+        {"vertical": "down", "horizontal": ""},
+    ]
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_library_loading_state_reveals_controls_and_offers_safe_retry():
+    """The real loading helpers hide filters only while pending and make failures retryable."""
+    module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()
+    program = f"""
+      const {{ setLibraryLoading, showLibraryError }} = await import({json.dumps(module_url)});
+      const controls = {{ hidden: true, inert: true }};
+      const indicator = {{ hidden: false }};
+      const footer = {{ textContent: '', children: [], append(...nodes) {{ this.children.push(...nodes); }} }};
+      const root = {{ ownerDocument: {{ createElement: () => ({{ textContent: '', className: '', type: '', onclick: null }}) }},
+        querySelector: (selector) => ({{ '#libControls': controls, '#libLoad': indicator, '#libFoot': footer }})[selector] }};
+      setLibraryLoading(root, false);
+      let retried = false;
+      showLibraryError(root, '<offline>', () => {{ retried = true; }});
+      footer.children[1].onclick();
+      console.log(JSON.stringify({{ controls, indicator, footer: [footer.children[0].textContent, footer.children[1].textContent], retried }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "controls": {"hidden": False, "inert": False}, "indicator": {"hidden": True},
+        "footer": ["The Library didn't load: <offline>", "Try again"], "retried": True,
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_initial_library_failure_keeps_controls_hidden_and_retries_in_loader():
+    module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()
+    program = f"""
+      const {{ setLibraryLoading, showLibraryLoadError }} = await import({json.dumps(module_url)});
+      const controls = {{ hidden: false, inert: false }};
+      const indicator = {{ hidden: true, _text: '', children: [], get textContent() {{ return this._text; }}, set textContent(value) {{ this._text = value; this.children = []; }}, append(...nodes) {{ this.children.push(...nodes); }} }};
+      const root = {{ ownerDocument: {{ createElement: () => ({{ textContent: '', className: '', type: '', onclick: null, setAttribute() {{}} }}) }},
+        querySelector: (selector) => ({{ '#libControls': controls, '#libLoad': indicator }})[selector] }};
+      setLibraryLoading(root, true);
+      let retried = false;
+      showLibraryLoadError(root, '<offline>', () => {{ retried = true; }});
+      indicator.children[1].onclick();
+      console.log(JSON.stringify({{ controls, indicator: [indicator.hidden, indicator.children[0].textContent, indicator.children[1].textContent], retried }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {
+        "controls": {"hidden": True, "inert": True},
+        "indicator": [False, "The Library didn't load: <offline>", "Try again"], "retried": True,
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
+def test_library_filters_wrap_before_select_labels_are_clipped():
+    """The filter row's columns have room for their native select arrows and labels."""
+    css = (REPO / "viewer" / "studio" / "studio.css").read_text()
+    assert "grid-template-columns: repeat(auto-fit, minmax(112px, 1fr))" in css
+
+
+def test_library_load_runner_ignores_stale_success_and_failure():
+    """A late response from an older real load cannot overwrite the newest result or error."""
+    module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()
+    program = f"""
+      const {{ runLibraryLoad }} = await import({json.dumps(module_url)});
+      const pending = [];
+      const committed = [], failed = [];
+      let latest = 0;
+      const start = (id) => runLibraryLoad({{
+        requestId: id, isCurrent: () => id === latest,
+        fetchAssets: () => new Promise((resolve, reject) => pending.push({{ id, resolve, reject }})),
+        onSuccess: (value) => committed.push(value), onError: (error) => failed.push(error.message),
+      }});
+      latest = 1; const old = start(1);
+      latest = 2; const current = start(2);
+      pending.find((p) => p.id === 2).resolve('new');
+      await current;
+      pending.find((p) => p.id === 1).reject(new Error('old failure'));
+      await old;
+      console.log(JSON.stringify({{ committed, failed }}));
+    """
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == {"committed": ["new"], "failed": []}
+
+
 def viewer_scripts() -> list[Path]:
     """Every first-party viewer script; vendored libraries are someone else's to parse."""
     viewer = REPO / "viewer"

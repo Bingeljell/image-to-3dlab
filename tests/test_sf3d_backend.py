@@ -32,31 +32,36 @@ def _noisy_rgba():
     return Image.fromarray(np.dstack([rgb, noise]).astype(np.uint8), "RGBA")
 
 
-def test_noisy_alpha_forces_background_removal():
-    from image_to_3dlab.sf3d_backend import cut_out
-
-    calls = []
-
-    def remove_background(image, session, force=False):
-        calls.append(force)
-        return image
-
-    cut_out(_noisy_rgba(), remove_background, session=None)
-    assert calls == [True]
-
-
-def test_real_matte_is_left_alone():
+@pytest.mark.parametrize("noisy", [False, True])
+def test_default_lean_session_cuts_out_opaque_input(noisy):
     import numpy as np
     from PIL import Image
 
-    from image_to_3dlab.sf3d_backend import cut_out
+    from image_to_3dlab.matte import LeanSession
+
+    class Inference:
+        def run(self, names, inputs):
+            scores = np.full((1, 1, 32, 32), -10.0)
+            scores[:, :, 8:24, 8:24] = 10.0
+            return [scores]
+
+    session = LeanSession("unused.onnx", inner=Inference())
+    image = _noisy_rgba() if noisy else Image.new("RGB", (32, 32), "white")
+    cut = sf3d.cut_out(image, session=session)
+    assert cut.mode == "RGBA"
+    assert cut.getpixel((0, 0))[3] == 0
+    assert cut.getpixel((16, 16))[3] == 255
+
+
+def test_real_matte_is_left_alone(monkeypatch):
+    import numpy as np
+    from PIL import Image
 
     alpha = np.zeros((32, 32), dtype=np.uint8)
     alpha[8:24, 8:24] = 255
-    image = Image.fromarray(np.dstack([np.zeros((32, 32, 3)), alpha]).astype(np.uint8), "RGBA")
-    calls = []
-    cut_out(image, lambda *a, **k: calls.append(1), session=None)
-    assert calls == []
+    image = Image.fromarray(np.dstack([np.zeros((32, 32, 3)), alpha]).astype(np.uint8))
+    monkeypatch.setattr(sf3d.matte, "new_session", lambda **kw: pytest.fail("loaded a model"))
+    assert sf3d.cut_out(image) is image
 
 
 def test_a_hub_id_with_no_snapshot_is_refused_before_sf3d_loads(tmp_path, monkeypatch):

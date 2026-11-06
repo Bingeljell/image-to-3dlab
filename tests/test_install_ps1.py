@@ -13,11 +13,14 @@ REPO = Path(__file__).resolve().parents[1]
 PS1 = REPO / "install.ps1"
 
 
-def test_the_windows_installer_installs_the_lock_as_install_sh_does():
+def test_the_windows_installer_exports_the_lock_as_install_sh_syncs_it():
     ps1 = PS1.read_text(encoding="utf-8")
-    assert 'REQS="$DIR/requirements.lock"' in (REPO / "install.sh").read_text(encoding="utf-8")
-    assert ps1.index('Join-Path $Dir "requirements.lock"') < ps1.index("& uv pip install --quiet --python $Py -r $Reqs")
-    assert '-r (Join-Path $Dir "requirements.txt")' not in ps1
+    sh = (REPO / "install.sh").read_text(encoding="utf-8")
+    assert "uv sync --frozen --no-dev --inexact --python 3.11" in sh
+    assert "uv export --frozen --no-dev" in ps1
+    assert ps1.index("uv export --frozen --no-dev") < ps1.index("& uv pip install --quiet --python $Py -r $Reqs")
+    assert "requirements.lock" not in ps1
+    assert "requirements.txt" not in ps1
 
 
 def test_cuda_pytorch_is_installed_at_the_locks_versions():
@@ -26,19 +29,15 @@ def test_cuda_pytorch_is_installed_at_the_locks_versions():
     ps1 = PS1.read_text(encoding="utf-8")
     patterns = re.findall(r"-Pattern '(\^torch(?:vision)?==\(\[\^ ;\]\+\))'", ps1)
     assert len(patterns) == 2
-    lock = (REPO / "requirements.lock").read_text(encoding="utf-8")
-    for pattern in patterns:          # the installer's own patterns find the lock's pins
-        assert re.search(pattern, lock, re.MULTILINE), pattern
     assert '"torch==$TorchVersion", "torchvision==$VisionVersion"' in ps1
     assert ps1.index("@Torch") < ps1.index("-r $Reqs")
+    assert "uv export --frozen --no-dev" in ps1
 
 
-def test_a_checkout_without_the_lock_keeps_the_unpinned_install():
-    """An older I3D_REF has only requirements.txt, which pins no torch: reading a pin from
-    no match crashed under ErrorActionPreference Stop. The match is checked first, and
-    PyTorch is installed unpinned, only when it lacks CUDA, as before the lock."""
+def test_a_missing_torch_pin_keeps_the_unpinned_install():
+    """Reading a pin from no match crashed under ErrorActionPreference Stop. The match is
+    checked first, and PyTorch is installed unpinned, only when it lacks CUDA."""
     ps1 = PS1.read_text(encoding="utf-8")
-    assert not re.search(r"^torch(vision)?==", (REPO / "requirements.txt").read_text(encoding="utf-8"), re.MULTILINE)
     assert "Select-Object -First 1).Matches" not in ps1
     assert "if ($TorchPin) { $TorchPin.Matches[0]" in ps1 and "if ($VisionPin) { $VisionPin.Matches[0]" in ps1
     assert "$Pinned = [bool]($TorchVersion -and $VisionVersion)" in ps1
@@ -47,15 +46,15 @@ def test_a_checkout_without_the_lock_keeps_the_unpinned_install():
     assert "if ((-not $Pinned -or $PinFailed) -and -not $TorchHasCuda)" in ps1[:ps1.index(unpinned)]
 
 
-def test_a_failed_pinned_pytorch_warns_and_falls_back_instead_of_stopping():
+def test_a_failed_pinned_pytorch_warns_and_drops_torch_from_the_lock():
     """The pinned CUDA build can be missing from the driver's index. Then the install goes
-    on as it did before the lock: the newest CUDA build, and requirements.txt, since the
-    lock would swap that build for the CPU wheel."""
+    on with the newest CUDA build, and the lock minus torch so it cannot swap in the CPU
+    wheel."""
     ps1 = PS1.read_text(encoding="utf-8")
     torch_block = ps1[ps1.index("$TorchIndex = ("):ps1.index("-r $Reqs")]
     assert "Die " not in torch_block
     failed = torch_block.index("$PinFailed = ($LASTEXITCODE -ne 0)")
     fallback = torch_block[failed:]
     assert 'Say "Warning: PyTorch' in fallback
-    assert '$Reqs = Join-Path $Dir "requirements.txt"' in fallback
-    assert fallback.index("$Reqs = Join-Path") < fallback.index("--index-url $TorchIndex torch torchvision")
+    assert "without-cuda" in fallback
+    assert fallback.index("without-cuda") < fallback.index("--index-url $TorchIndex torch torchvision")

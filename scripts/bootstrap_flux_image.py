@@ -100,7 +100,7 @@ def install_weights(light: bool = False) -> None:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise SystemExit(
-            "huggingface_hub is not installed. pip install -r requirements-dev.txt"
+            "huggingface_hub is not installed. uv sync"
         ) from exc
     for repo, filename, size in weights_for(light):
         sdcpp.fetch_pinned(hf_hub_download, repo, filename, size, PINS)

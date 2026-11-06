@@ -220,6 +220,9 @@ def build_command(
         "--paint-tex", str(settings["paint_tex"]),
         "--texture-size", str(settings["texture_size"]),
     ]
+    record = job.asset_path.parent / "source.json"
+    if record.is_file():
+        command += ["--source-record", str(record)]
     if settings["skip_paint"]:
         command.append("--skip-paint")
     if settings["skip_compress"]:
@@ -333,9 +336,20 @@ def find_source_dump(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
 
 
 def find_source_record(asset: bytes, root: Path = GENERATED_ROOT) -> Path | None:
-    """The run record (`<output>.json`) of the Pixal3D run that produced `asset`, or None."""
-    for record_path, _ in _matching_runs(asset, root):
-        return record_path
+    """Find a licence record by output hash, independently of camera/dump metadata."""
+    digest = hashlib.sha256(asset).hexdigest()
+    root = root.resolve()
+    if not root.is_dir():
+        return None
+    for path in root.rglob("*.json"):
+        if not path.resolve().is_relative_to(root):
+            continue
+        record = _read_json(path)
+        if not isinstance(record, dict) or not record.get("license"):
+            continue
+        output = record.get("output")
+        if isinstance(output, dict) and output.get("sha256") == digest:
+            return path
     return None
 
 
@@ -601,7 +615,10 @@ class FinishJobManager:
                 dump = find_source_dump(asset, self.generated_root)
                 if dump is not None:
                     link_or_copy(dump, job.dump_path)
-                record = find_source_record(asset, self.generated_root) if hero else None
+                record = find_source_record(asset, self.generated_root)
+                if hero and record is None:
+                    # Older Hero runs also use non-licence metadata from the source manifest.
+                    record = next((path for path, _ in _matching_runs(asset, self.generated_root)), None)
                 if record is not None:
                     shutil.copy(record, job.input_dir / "source.json")   # its licences, for provenance
                 # Written up front, not with the record at the end: a run that dies

@@ -11,12 +11,14 @@ permissions:
 
 jobs:
   pre-commit:
+    name: Linters
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: tox-dev/action-pre-commit-uv@v1
 
   pytest:
+    name: Tests
     needs: pre-commit
     runs-on: ubuntu-latest
     steps:

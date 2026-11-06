@@ -479,10 +479,13 @@ def _ready_only(*ids):
     return lambda engine: engine.id in ids
 
 
-def test_flux_is_preferred_when_installed_and_named_when_nothing_is():
+def test_flux_is_preferred_when_installed_and_named_when_nothing_is(monkeypatch):
+    # Plenty of memory. At 16 GB or less the suggestion is Flux Light, and a
+    # GitHub runner has 16 GB.
+    monkeypatch.setattr(api._host, "low_memory", lambda *a: False)
     assert api.pick_engine(ready=_ready_only("flux", "qwen")) is api.FLUX
     assert api.pick_engine(ready=_ready_only("qwen")) is api.QWEN
-    # nothing set up: point at the smaller, Apache-licensed download
+    # nothing set up: point at Flux, the suggestion for this machine
     assert api.pick_engine(ready=_ready_only()) is api.FLUX
     assert api.pick_engine("qwen", ready=_ready_only("flux")) is api.QWEN   # asked for is asked for
     with pytest.raises(ValueError, match="no picture engine 'dalle'"):

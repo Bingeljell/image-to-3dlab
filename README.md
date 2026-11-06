@@ -522,6 +522,7 @@ here. Model weights keep their own licences, listed above.
 ```bash
 uv sync
 PYTHONPATH=. pytest -q        # backends that load real models stay manual
+PYTHONPATH=. pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html  # package and viewer; writes htmlcov/
 ruff check .
 ```
 

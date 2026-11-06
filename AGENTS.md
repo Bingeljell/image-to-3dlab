@@ -72,11 +72,13 @@ Follow **[Keep a Changelog](https://keepachangelog.com)** in `CHANGELOG.md`.
 ```bash
 uv sync
 PYTHONPATH=. pytest -q
+PYTHONPATH=. pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html
 ruff check .
 python pipeline.py --help
 ```
 
 - Target Python 3.11 (installers pin 3.11; not 3.14 — SF3D's native deps don't fit yet).
+- Line coverage is opt-in. It measures `image_to_3dlab/` and `viewer/`, and writes `htmlcov/`. `--cov` takes no path, so that list in `pyproject.toml` is the one that is measured.
 - Backends that load real models are exercised manually; keep them out of the unit suite.
 - Prefer running via a manifest (`--run-manifest manifests/...json`) so runs stay traceable.
 

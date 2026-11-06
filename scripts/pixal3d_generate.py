@@ -122,7 +122,7 @@ def manifest(image: Path, output: Path, *, res: int, seed: int, fov: float, gss:
              gsh: float | None, matted: bool, matted_here: bool,
              seconds: float, steps: int = DEFAULT_STEPS,
              matte_model: str | None = None) -> dict[str, object]:
-    """The run's provenance record, written beside the GLB as `<output>.json`.
+    """The run's provenance record, written beside the GLB as `<output>.provenance.json`.
 
     Same place and shape as the Hunyuan route's manifest, so the viewer serves it as the
     job's manifest without special-casing, plus the licence and file hashes.

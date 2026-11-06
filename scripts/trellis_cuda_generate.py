@@ -30,7 +30,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -189,7 +189,7 @@ def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
     ]
     return {
         "schema_version": 1,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "input": {"path": str(image), "sha256": sha256_file(image), "source": "user-provided"},
         "output": {"path": str(output), "sha256": sha256_file(output),
                    "classification": profile.classification},

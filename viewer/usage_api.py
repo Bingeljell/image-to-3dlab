@@ -128,7 +128,7 @@ def _write(path: Path | None, state: dict[str, Any]) -> None:
 
 def _today() -> str:
     """The UTC day, so every copy agrees where a day starts when the counts are added up."""
-    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    return datetime.datetime.now(datetime.UTC).date().isoformat()
 
 
 def blocked(env: dict[str, str] | None = None) -> bool:

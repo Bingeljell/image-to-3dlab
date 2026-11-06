@@ -7,7 +7,7 @@ import subprocess
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -401,7 +401,7 @@ def finalize_output(
     record = {
         "schema_version": 1,
         "run_id": run_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "intent": intent,
         "input": {
             "path": str(image),

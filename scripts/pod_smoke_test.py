@@ -35,7 +35,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -66,7 +66,7 @@ DEFAULT_IMAGE = REPO / "output" / "pod-test-2026-10-01" / "input-vanguard_plain.
 
 def terminate_after(hours: float, now: datetime | None = None) -> str:
     """RunPod's own kill switch, as the UTC timestamp `--terminate-after` takes."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     return (now + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

@@ -393,3 +393,48 @@ def test_keeping_the_full_mesh_never_calms_it():
 def test_the_calmed_mesh_has_its_own_step_file(tmp_path):
     assert rr.step_paths(tmp_path / "out.glb")["calm"] == tmp_path / "out_calm.glb"
     assert rr.step_paths(tmp_path / "o.glb", tmp_path / "s")["calm"].name == "1_calm.glb"
+
+
+@pytest.mark.parametrize("paint", [False, True])
+def test_worker_preserves_provenance_on_resume(tmp_path, monkeypatch, paint):
+    import json
+    import sys
+
+    from image_to_3dlab import provenance as p
+
+    source, image, output = tmp_path / "source.glb", tmp_path / "image.png", tmp_path / "out.glb"
+    source.write_bytes(b"source")
+    image.write_bytes(b"picture")
+    source.with_suffix(".json").write_text(json.dumps({
+        "license": {"name": "Shape", "conditions": ["shape terms"]},
+        "output": {"classification": "commercial-conditional"}}))
+    steps = rr.step_paths(output)
+    steps["retopo"].write_bytes(b"retopo")
+    if paint:
+        steps["painted"].write_bytes(b"painted")
+        p.write_hunyuan_sidecar(steps["painted"], image, backend="paint", paint=True)
+    monkeypatch.setattr(rr, "preflight", lambda *a: (None, None))
+    argv = ["retopo_repaint.py", str(source), str(image), str(output), "--resume", "--skip-bake", "--skip-compress"]
+    if not paint:
+        argv.append("--skip-paint")
+    monkeypatch.setattr(sys, "argv", argv)
+    assert rr.main() == 0
+    record = p.read_model_record(output)
+    assert record["source_record"]["license"]["name"] == "Shape"
+    if paint:
+        assert record["component_records"][0]["components"][0]["license"].startswith("Tencent")
+        assert any("EU" in term for term in record["license"]["conditions"])
+
+
+def test_worker_rejects_malformed_explicit_record_before_work(tmp_path, monkeypatch):
+    import sys
+
+    source = tmp_path / "source.glb"
+    source.write_bytes(b"source")
+    record = tmp_path / "record.json"
+    record.write_text("[]")
+    monkeypatch.setattr(rr, "preflight", lambda *a: pytest.fail("work started"))
+    monkeypatch.setattr(sys, "argv", ["retopo_repaint.py", str(source), "unused.png", str(tmp_path / "out.glb"),
+                                    "--source-record", str(record), "--skip-paint"])
+    with pytest.raises(ValueError, match="licence record"):
+        rr.main()

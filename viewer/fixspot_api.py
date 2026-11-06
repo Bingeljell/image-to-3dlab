@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from assets_api import FINISH_RUN
 
 from image_to_3dlab import spot_fix
+from image_to_3dlab.provenance import write_derived_sidecar
 
 # The studio's brush slider range, a share of the model's height (viewer/studio/viewer.js).
 BRUSH_MIN, BRUSH_MAX = 0.005, 0.08
@@ -150,6 +151,7 @@ def keep_response(output: Path, payload: Any) -> tuple[int, dict[str, Any]]:
         shutil.copytree(origin.parent / "input", run / "input")
     result = run / f"{origin.stem.removesuffix('_fixed')}_fixed.glb"
     shutil.move(str(preview), result)
+    write_derived_sidecar(origin, result, operation="fix-spot")
     (run / "fix-spot.json").write_text(json.dumps(
         {"from": origin.relative_to(output).as_posix(), "spots": payload.get("spots")}, indent=2), encoding="utf-8")
     return 200, {"file": result.relative_to(output).as_posix()}

@@ -295,6 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("source", type=Path, help="generated GLB to finish")
     parser.add_argument("image", type=Path, help="source concept art, for the repaint")
     parser.add_argument("output", type=Path, help="finished GLB to write")
+    parser.add_argument("--source-record", type=Path, help="source licence record")
     parser.add_argument("--faces", type=int, default=None,
                         help="retopology target (default: 20,000, or 50,000 with --detail high)")
     parser.add_argument(
@@ -388,6 +389,13 @@ def required_inputs(args: argparse.Namespace) -> list[Path]:
 
 def main() -> int:
     args = build_parser().parse_args()
+    from image_to_3dlab.provenance import read_model_record, write_derived_sidecar
+
+    source_record = None
+    if args.source_record is not None:
+        source_record = json.loads(args.source_record.read_text(encoding="utf-8"))
+        if not isinstance(source_record, dict) or not source_record.get("license"):
+            raise ValueError("The source licence record must name its licence.")
 
     for path in required_inputs(args):
         if not path.is_file():
@@ -480,6 +488,7 @@ def main() -> int:
         timings["orient"] = round(time.time() - step, 1)
         current = orient_glb
 
+    component_records = []
     if not args.skip_paint:
         painted = steps["painted"]
         step = time.time()
@@ -498,6 +507,11 @@ def main() -> int:
             )
         timings["repaint"] = round(time.time() - step, 1)
         current = painted
+        component_records.append(read_model_record(painted) or {
+            "license": {"name": "Unverified — paint stage record unavailable", "verified": False,
+                        "conditions": ["Verify the paint model's licence before use."]},
+            "output": {"classification": "unverified"},
+        })
 
     photo_record = None
     if args.views is not None:
@@ -581,6 +595,8 @@ def main() -> int:
         "textures": report,
         "size_bytes": args.output.stat().st_size,
     }
+    write_derived_sidecar(args.source, args.output, operation="finish", source_record=source_record,
+                          component_records=component_records)
     record_path = Path(f"{stem}.retopo-repaint.json")
     record_path.write_text(json.dumps(record, indent=2))
 

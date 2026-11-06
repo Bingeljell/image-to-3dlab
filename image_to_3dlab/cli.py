@@ -254,7 +254,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    views = [v.expanduser().resolve() for v in (args.views or [args.image])]
+    manifest_views = manifest_data is not None and "views" in manifest_data["input"]
+    inputs = args.views if manifest_views else [args.image, *(args.views or [])]
+    views = [v.expanduser().resolve() for v in inputs]
     missing = [str(v) for v in views if not v.is_file()]
     if missing:
         print(f"error: input image does not exist: {', '.join(missing)}", file=sys.stderr)

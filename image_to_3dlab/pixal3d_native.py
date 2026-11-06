@@ -23,8 +23,8 @@ leaves a symmetric silhouette unchanged, `frame_problem` compares every bound, n
 
 from __future__ import annotations
 
-import subprocess
 import struct
+import subprocess
 from pathlib import Path
 
 import numpy as np

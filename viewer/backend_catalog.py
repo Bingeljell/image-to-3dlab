@@ -1033,10 +1033,13 @@ def readiness(backend_id: str, host: str | None = None) -> dict[str, Any] | None
     if backend is None:
         return None
     described = backend.describe(host)
-    weights = {
-        w["source"]: {"label": w["label"], "present": w["present"], "human": w["human_present"]}
-        for w in described["weights"]
-    }
+    sources = [w["source"] for w in described["weights"]]
+    weights = {}
+    for weight in described["weights"]:
+        source = weight["source"]
+        key = source if sources.count(source) == 1 else f"{source}#{weight['label']}"
+        weights[key] = {"label": weight["label"], "present": weight["present"],
+                        "human": weight["human_present"], "source": source}
     missing = [w["label"] for w in described["weights"] if not w["present"]]
     blocking = [w["label"] for w in described["weights"] if _blocks_run(w)]
     supported = described["supported_here"]

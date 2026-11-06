@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- Long bug reports produce bounded GitHub links without hanging; copied text and website drafts retain the full report.
+- Setup can remove weights from the active custom models folder while retaining path and shared-weight protections.
+- CLI runs keep the primary image ahead of additional views, preserving output naming and provenance.
+- Agent-created Finish jobs accept uploaded models without requiring a reference picture.
+- Cancellation during job startup reaches the child job and remains cancelled even if that job finishes at the same time.
+- Damaged background-remover weights fail with repair instructions instead of downloading replacements without consent.
+- Setup readiness lists every model component, including weights sharing one download repository.
+- Finished models and kept spot fixes retain source and paint licences through later rigging and export.
+- SF3D uses the installed background remover correctly for opaque and noisy-alpha pictures.
 - Finish says why Pixal3D's clean-up could not run: it checks the saved dump against the
   size its own header asks for, so a dump that was not fully written names itself instead
   of failing with a bare exit code. A clean-up that exits without printing anything now

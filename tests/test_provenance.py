@@ -233,3 +233,51 @@ def test_finalize_output_marks_unknown_identity_unverified(tmp_path):
     assert record["license"]["conditions"] == [
         "Verify this model's licence yourself; this run used an identity not in the reviewed profile."
     ]
+
+
+@pytest.mark.parametrize("extra", [False, True])
+def test_derived_sidecar_retains_licences_and_hashes(tmp_path, extra):
+    from image_to_3dlab import provenance as p
+
+    source, output = tmp_path / "source.glb", tmp_path / "out.glb"
+    source.write_bytes(b"source")
+    output.write_bytes(b"derived")
+    origin = {"license": {"name": "Shape", "conditions": ["credit shape"]},
+              "output": {"classification": "commercial-conditional"}, "model": {"identity": "shape"},
+              "components": [{"component": "shape encoder"}]}
+    paint = {"license": {"name": "Paint", "url": "https://example.test/terms", "conditions": ["territory"]},
+             "output": {"classification": "territory-restricted"},
+             "components": [{"component": "paint"}]}
+    source.with_suffix(".json").write_text(json.dumps(origin))
+    sidecar = p.write_derived_sidecar(source, output, operation="finish", component_records=[paint] if extra else [])
+    record = json.loads(sidecar.read_text())
+    assert record["source_record"] == origin
+    assert record["output"]["sha256"] == p.sha256_file(output)
+    assert record["model"] == origin["model"]
+    assert record["components"][0] == origin["components"][0]
+    assert "credit shape" in record["license"]["conditions"]
+    if extra:
+        assert "territory" in record["license"]["conditions"]
+        assert record["component_records"] == [paint]
+        assert record["output"]["classification"] == "unverified"
+    else:
+        assert record["license"] == origin["license"]
+        assert record["output"]["classification"] == "commercial-conditional"
+
+
+def test_derived_unknown_source_stays_unverified_and_write_failure_propagates(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from image_to_3dlab import provenance as p
+
+    source, output = tmp_path / "in.glb", tmp_path / "out.glb"
+    source.write_bytes(b"source")
+    output.write_bytes(b"result")
+    record = json.loads(p.write_derived_sidecar(source, output, operation="keep").read_text())
+    assert record["output"]["classification"] == "unverified"
+    assert record["license"]["verified"] is False
+    def fail_replace(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="disk full"):
+        p.write_derived_sidecar(source, output, operation="keep")

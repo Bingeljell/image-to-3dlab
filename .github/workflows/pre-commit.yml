@@ -24,6 +24,13 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.13.7"
+          enable-cache: false
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
       - run: uv sync --frozen
       - run: uv run pytest --tb=short -ra --color=yes
 

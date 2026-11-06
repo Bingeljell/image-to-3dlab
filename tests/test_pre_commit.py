@@ -41,6 +41,10 @@ def test_pull_requests_run_the_file_checks():
     pre_commit_job = workflow.split("\n  pytest:")[0]
     assert "pytest" not in pre_commit_job
     assert "uv run pytest --tb=short -ra --color=yes" in workflow
+    assert "actions/cache@v6" in workflow
+    assert "enable-cache: false" in workflow
+    assert "path: ~/.cache/uv" in workflow
+    assert "hashFiles('uv.lock')" in workflow
     assert "\n    needs: pre-commit\n" in workflow.split("\n  pytest:", 1)[1]
     config = (REPO / ".pre-commit-config.yaml").read_text()
     assert "stages: [commit-msg]" in config

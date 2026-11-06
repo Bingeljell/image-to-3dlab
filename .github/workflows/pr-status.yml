@@ -41,7 +41,7 @@ jobs:
           lines = [
               "### Thank you for your contribution!",
               "",
-              "Few of the checks did not pass:",
+              "A few of the checks did not pass:",
               "",
           ]
           if hooks:
@@ -57,15 +57,30 @@ jobs:
           ]
           Path("/tmp/comment.md").write_text("\n".join(lines) + "\n")
           PY
-      - uses: marocchino/sticky-pull-request-comment@v3
+      - name: Find the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          # workflow_run.pull_requests is empty for a pull request from a fork.
+          number=$(gh api "repos/${{ github.repository }}/pulls" -f head="${HEAD_OWNER}:${HEAD_BRANCH}" -f state=open --jq "[.[] | select(.head.sha == \"${HEAD_SHA}\") | .number][0] // .[0].number")
+          if [ -z "$number" ] || [ "$number" = "null" ]; then
+            echo "No open pull request for ${HEAD_OWNER}:${HEAD_BRANCH} (${HEAD_SHA})" >&2
+            exit 1
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+      - uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88
         if: github.event.workflow_run.conclusion == 'failure'
         with:
           header: ci
-          number: ${{ github.event.workflow_run.pull_requests[0].number }}
+          number: ${{ steps.pr.outputs.number }}
           path: /tmp/comment.md
-      - uses: marocchino/sticky-pull-request-comment@v3
+      - uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88
         if: github.event.workflow_run.conclusion != 'failure'
         with:
           header: ci
           delete: true
-          number: ${{ github.event.workflow_run.pull_requests[0].number }}
+          number: ${{ steps.pr.outputs.number }}

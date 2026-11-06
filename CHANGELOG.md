@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- A failed check on a pull request from a fork still leaves a note. GitHub leaves the pull request list empty on those runs, so the note is found from the branch instead.
 - Pixal3D and TRELLIS.2 models are now marked `commercial-clear`, because the DINOv3 License has
   no commercial limit. Its use bans are still listed in every record. A commercial run manifest
   is no longer refused for these engines, and command-line runs now file them under `commercial`.

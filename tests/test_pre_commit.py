@@ -53,9 +53,14 @@ def test_pull_requests_run_the_file_checks():
     assert "workflows: [CI]" in note
     assert "conclusion == 'failure'" in note
     assert "delete: true" in note
-    assert "marocchino/sticky-pull-request-comment@v3" in note
+    assert "marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88" in note
+    assert "sticky-pull-request-comment@v3" not in note
+    assert "pull_requests[0]" not in note
+    assert "head_repository.owner.login" in note
+    assert "head_branch" in note
+    assert "head.sha" in note
     assert "Thank you for your contribution!" in note
-    assert "Few of the checks did not pass:" in note
+    assert "A few of the checks did not pass:" in note
     assert "green light" in note
     assert "sticky-pull-request-comment" not in workflow
     config = (REPO / ".pre-commit-config.yaml").read_text()

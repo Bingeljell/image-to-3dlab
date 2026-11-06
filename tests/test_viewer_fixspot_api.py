@@ -104,3 +104,34 @@ def test_smooth_makes_a_preview(tmp_path):
     status, body = fx.preview_response(output, {"from": rel, "spots": [{**SPOT, "mode": "smooth", "strength": 0.8}]})
     assert status == 200, body
     assert body["reports"][0]["smoothed"] > 0
+
+
+def test_keep_preserves_provenance_for_repeated_finish(tmp_path):
+    import hashlib
+    import json
+
+    import autorig_api
+
+    from image_to_3dlab.provenance import write_derived_sidecar
+
+    output, rel = _finished(tmp_path)
+    original = output / rel
+    before = original.read_bytes()
+    source = {"license": {"name": "Original terms", "conditions": ["credit"]},
+              "output": {"classification": "commercial-conditional"}, "model": {"identity": "shape"}}
+    original.with_suffix(".provenance.json").write_text(json.dumps(source))
+    for _ in range(2):
+        status, preview = fx.preview_response(output, {"from": rel, "spots": [SPOT]})
+        assert status == 200
+        status, kept = fx.keep_response(output, {"from": rel, "preview": preview["preview"]})
+        assert status == 200
+        kept_path = output / kept["file"]
+        record = autorig_api.source_record_for(kept_path)
+        assert record is not None
+        assert record["license"] == source["license"]
+        assert record["output"]["sha256"] == hashlib.sha256(kept_path.read_bytes()).hexdigest()
+        # A subsequent Finish consumes this very record, including its ancestry.
+        write_derived_sidecar(kept_path, kept_path, operation="finish")
+        rel = kept["file"]
+    assert original.read_bytes() == before
+    assert json.loads(original.with_suffix(".provenance.json").read_text()) == source

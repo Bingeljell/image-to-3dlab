@@ -880,3 +880,37 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
     assert any(event.get("phase") == "error" for event in job.events)
     assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
     assert manager.active is None
+
+
+@pytest.mark.parametrize("backend", ["pixal3d", "sf3d"])
+def test_finish_preserves_source_license_through_rig_lookup(tmp_path, monkeypatch, backend):
+    import hashlib
+    import sys
+
+    import autorig_api
+
+    asset = b"original model"
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    source = {"backend": backend, "license": {"name": "Source terms", "conditions": ["credit"]},
+              "model": {"identity": "source-model"}, "components": [{"component": "encoder"}],
+              "output": {"sha256": hashlib.sha256(asset).hexdigest(), "classification": "commercial-conditional"},
+              "source_record": {"padding": "x" * 21000}}
+    (generated / "source.provenance.json").write_text(json.dumps(source))
+    manager = finish.FinishJobManager(tmp_path / "finish", generated)
+    job = manager.create("source.glb", asset, None,
+                         {"keep_mesh": True, "skip_paint": True, "skip_bake": True, "skip_compress": True})
+    worker = finish.worker_module()
+    monkeypatch.setattr(worker, "preflight", lambda *a: (None, None))
+    command = finish.build_command(job, job.settings)
+    monkeypatch.setattr(sys, "argv", command[2:])
+    assert worker.main() == 0
+    record = autorig_api.source_record_for(job.result_glb)
+    assert record is not None
+    assert record["source_record"] == source
+    assert record["license"] == source["license"]
+    assert record["output"]["sha256"] == hashlib.sha256(job.result_glb.read_bytes()).hexdigest()
+    rig = autorig_api.rig_record("result.glb", job.result_glb.read_bytes(), record, "finish")
+    assert rig["license"] == source["license"]
+    assert rig["source_record"]["source_record"]["model"] == source["model"]
+    assert finish.find_source_record(job.result_glb.read_bytes(), tmp_path / "finish") is not None

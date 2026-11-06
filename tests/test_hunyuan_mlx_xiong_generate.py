@@ -126,3 +126,25 @@ def test_main_writes_manifest_and_provenance(tmp_path, monkeypatch):
     assert record["backend"] == "hunyuan-mlx-xiong"
     assert record["input"]["sha256"] == sha256_file(image)
     assert record["output"]["sha256"] == sha256_file(output)
+
+
+def test_run_paint_keeps_stage_licence_record(tmp_path, monkeypatch):
+    from image_to_3dlab import provenance as p
+
+    image = _png(tmp_path / "image.png")
+    source = tmp_path / "source.glb"
+    source.write_bytes(b"mesh")
+    output = tmp_path / "painted.glb"
+    monkeypatch.setattr(xiong, "PAINT_ROOT", tmp_path)
+    def child(command, **kwargs):
+        folder = Path(kwargs["env"]["PAINT_OUT"])
+        result = folder / "textured_mesh_pbr.glb"
+        result.write_bytes(b"painted")
+        p.write_hunyuan_sidecar(result, image, backend="paint", paint=True, paint_weights="chosen-weights")
+        return types.SimpleNamespace(returncode=0)
+    monkeypatch.setattr(xiong.subprocess, "run", child)
+    xiong.run_paint(source, image, output, 0, 512, 15, 4096, 0)
+    record = json.loads(output.with_suffix(".provenance.json").read_text())
+    assert record["components"][0]["weights"] == "chosen-weights"
+    assert record["output"]["path"] == str(output)
+    assert record["output"]["sha256"] == sha256_file(output)

@@ -157,7 +157,9 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
     result.replace(output)
     temp_sidecar = out_dir / "textured_mesh_pbr.provenance.json"
     if temp_sidecar.is_file():
-        temp_sidecar.unlink()
+        record = json.loads(temp_sidecar.read_text(encoding="utf-8"))
+        record["output"]["path"] = str(output)
+        output.with_suffix(".provenance.json").write_text(json.dumps(record, indent=2) + "\n")
     for name in ("pbr_albedo_texture.png", "pbr_albedo_views.png",
                  "pbr_mr_texture.png", "pbr_mr_views.png"):
         src = out_dir / name

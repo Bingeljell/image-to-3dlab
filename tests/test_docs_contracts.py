@@ -62,7 +62,7 @@ def test_prop_sheets_keep_picture_rights_off_the_mesh():
     assert "and so are the props" not in text
     assert "Pixal3D" in text
     assert "DINOv3" in text
-    assert "commercial-conditional" in text
+    assert "commercial-clear" in text
 
 
 def test_shape_readme_commands_carry_yes():

@@ -455,11 +455,13 @@ On a Mac, TRELLIS.2 runs about twice as fast with **Attention backend** set to `
 ## Licensing & provenance (non-negotiable)
 
 - **Pixal3D** code and flow weights: MIT. The Q8_0 bundle also carries the **DINOv3** image
-  encoder under its own licence, so treat its output the same as TRELLIS's. Background
+  encoder under its own licence (see below). Background
   removal uses BiRefNet-lite (MIT) once installed, `rembg`'s u2net otherwise, and never
   BRIA RMBG-2.0.
-- **TRELLIS.2** code and weights: MIT. **DINOv3** image encoder: separate DINOv3 License,
-  so TRELLIS output is classified `commercial-conditional`.
+- **TRELLIS.2** code and weights: MIT. **DINOv3** image encoder: separate DINOv3 License.
+  It allows commercial use with no revenue limit, so Pixal3D and TRELLIS output is classified
+  `commercial-clear`. It bans military, nuclear, espionage, gun and illegal-weapon uses, and
+  each record lists those bans.
 - **TinyCLIP ViT-8M/16** input advisor: MIT. It only warns about risky input style and is
   not part of the generated artifact.
 - **Hunyuan3D-2 / 2.1 model weights** (used by both Hunyuan3D-MLX backends): Tencent

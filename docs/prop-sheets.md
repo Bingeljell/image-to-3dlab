@@ -34,7 +34,7 @@ What matters in it:
 - **A slight view from above.** Pixal3D sees the tops and models them; the split
   stands each prop back up afterwards. At eye level, the tops come back invented.
 
-The pictures Qwen-Image makes are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)). The 3D props carry the Pixal3D classification: MIT for the code and flow weights, and the DINOv3 License for the bundled encoder (`commercial-conditional`).
+The pictures Qwen-Image makes are yours ([Qwen's statement](https://x.com/QwenDevs/status/2101917379785838660)). The 3D props carry the Pixal3D classification: MIT for the code and flow weights, and the DINOv3 License for the bundled encoder (`commercial-clear`).
 
 ## 2. Turn it into 3D
 

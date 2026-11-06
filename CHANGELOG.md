@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- Pixal3D and TRELLIS.2 models are now marked `commercial-clear`, because the DINOv3 License has
+  no commercial limit. Its use bans are still listed in every record. A commercial run manifest
+  is no longer refused for these engines, and command-line runs now file them under `commercial`.
 - Long bug reports produce bounded GitHub links without hanging; copied text and website drafts retain the full report.
 - Setup can remove weights from the active custom models folder while retaining path and shared-weight protections.
 - CLI runs keep the primary image ahead of additional views, preserving output naming and provenance.

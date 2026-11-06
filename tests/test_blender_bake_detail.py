@@ -72,7 +72,7 @@ def test_the_real_orc_pair_is_accepted():
 
 
 def test_a_thin_figure_trimmed_by_a_low_triangle_count_still_bakes():
-    """Fencehand at 5k, 2026-11-03: 1.5 cm off a 19 cm-deep, 88 cm-tall figure read as an
+    """A thin character at 5k: 1.5 cm off a 19 cm-deep, 88 cm-tall figure read as an
     8% spread on the depth and the bake was refused. Against the figure it is under 2%."""
     fit = bd.fit(high_size=(0.637, 0.884, 0.190), low_size=(0.629, 0.870, 0.175))
     assert fit.spread > 1.05          # what the old per-axis check refused

@@ -773,6 +773,11 @@ def test_job_manager_matches_folder_and_file_name(tmp_path, monkeypatch):
     assert job.manifest_path == job.directory / "my-run.json"
 
 
+def test_a_pixal3d_job_serves_its_provenance_record_as_the_manifest(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "run.glb", {}, "pixal3d")
+    assert job.manifest_path == tmp_path / "run.provenance.json"
+
+
 def test_job_manager_disambiguates_colliding_folder_names(tmp_path):
     jobs = api.JobManager()
     job1 = jobs.create(tmp_path / "in.png", {}, "trellis", "flicker", "dup", tmp_path)

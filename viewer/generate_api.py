@@ -1248,7 +1248,9 @@ class Job:
         self.directory = directory
         self.image_path = image_path
         self.output_path = output_path
-        self.manifest_path = output_path.with_suffix(".json")
+        # Pixal3D's run record is its .provenance.json; every other route still writes <run>.json.
+        self.manifest_path = output_path.with_suffix(
+            ".provenance.json" if backend_id == "pixal3d" else ".json")
         self.settings = settings
         self.backend_id = backend_id
         self.debug = debug

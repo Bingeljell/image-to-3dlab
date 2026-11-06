@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- Long bug reports produce bounded GitHub links without hanging; copied text and website drafts retain the full report.
 - Setup can remove weights from the active custom models folder while retaining path and shared-weight protections.
 - CLI runs keep the primary image ahead of additional views, preserving output naming and provenance.
 - Agent-created Finish jobs accept uploaded models without requiring a reference picture.

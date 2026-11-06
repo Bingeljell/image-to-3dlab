@@ -129,3 +129,27 @@ def test_scrub_leaves_text_alone_when_home_is_a_root():
     """Some services run with home at / or C:\\: replacing that would turn every path into ~."""
     for home in ("/", "C:\\", "", "C:"):
         assert br.scrub("/opt/lab/run.log C:\\lab\\x", home) == "/opt/lab/run.log C:\\lab\\x"
+
+
+@pytest.mark.parametrize("message,diagnostics", [
+    ("x" * 8000, "diagnostics"), ("x" * 8000, ""), ("🙂" * 4000, "x"),
+    ("漢字" * 2000, "xx"), ("x" * 8000, "xxx"), ("small\nnext", "é" * 20000),
+])
+def test_long_message_has_bounded_github_url(message, diagnostics):
+    import os
+    import subprocess
+
+    # Run the real function out of process: the original infinite loop must not hang pytest.
+    result = subprocess.run(
+        [sys.executable, "-c", ("import json,sys; import bug_report_api as br; "
+         "print(json.dumps(br.links(*json.load(sys.stdin), version='test', home='/Users/ada')))")],
+        input=json.dumps([message, diagnostics]), text=True, capture_output=True, timeout=5,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}, check=True,
+    )
+    links = json.loads(result.stdout)
+    assert len(links["github"]) <= br.GITHUB_URL_MAX
+    body = parse_qs(urlparse(links["github"]).query)["body"][0]
+    assert "…" in body
+    assert _draft_from(links["site"])["message"] == message
+    assert _draft_from(links["site"])["details"] == diagnostics
+    assert links["text"] == f"{message}\n\n{diagnostics}"

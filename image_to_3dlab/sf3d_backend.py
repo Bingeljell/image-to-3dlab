@@ -28,15 +28,11 @@ def _is_mps_oom(exc: RuntimeError) -> bool:
     )
 
 
-def cut_out(image, remove_background, session):
-    """Run rembg unless the image is already really cut out.
-
-    Upstream `remove_background` skips rembg on any RGBA with an alpha below 255, so a
-    Qwen image with noise alpha went in un-cut and came out encased in a slab.
-    """
+def cut_out(image, session=None):
+    """Use the shared remover unless the image already has a meaningful matte."""
     if is_matted(image):
         return image
-    return remove_background(image, session, force=True)
+    return matte.cut_out(image, session=session)[0]
 
 
 def setup_command(platform_id: str | None = None) -> str:
@@ -59,13 +55,13 @@ def _load_sf3d(repo: Path):
         sys.path.insert(0, str(repo))
     try:
         from sf3d.system import SF3D
-        from sf3d.utils import remove_background, resize_foreground
+        from sf3d.utils import resize_foreground
     except ImportError as exc:
         raise RuntimeError(
             f"SF3D or a compiled extension could not be imported. Run {setup_command()}. "
             f"Original error: {exc}"
         ) from exc
-    return SF3D, remove_background, resize_foreground
+    return SF3D, resize_foreground
 
 
 def local_model(model: str) -> str:
@@ -87,7 +83,7 @@ def _run(
     import torch
     from PIL import Image
 
-    SF3D, remove_background, resize_foreground = _load_sf3d(options.repo)
+    SF3D, resize_foreground = _load_sf3d(options.repo)
     model = SF3D.from_pretrained(
         model_id, config_name="config.yaml", weight_name="model.safetensors"
     ).to(device)
@@ -96,7 +92,7 @@ def _run(
     image = Image.open(image_path).convert("RGBA")
     # BiRefNet-lite when installed, else u2net (image_to_3dlab/matte.py). rembg's own
     # default is u2net, which eats thin and light-coloured parts.
-    image = cut_out(image, remove_background, matte.new_session())
+    image = cut_out(image)
     image = resize_foreground(image, options.foreground_ratio)
     prepared = output_path.with_name(f"{output_path.stem}_input.png")
     image.save(prepared)

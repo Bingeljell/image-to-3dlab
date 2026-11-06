@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- SF3D uses the installed background remover correctly for opaque and noisy-alpha pictures.
 - Finish says why Pixal3D's clean-up could not run: it checks the saved dump against the
   size its own header asks for, so a dump that was not fully written names itself instead
   of failing with a bare exit code. A clean-up that exits without printing anything now

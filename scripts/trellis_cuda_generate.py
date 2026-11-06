@@ -47,7 +47,9 @@ import trellis_space_generate as space  # noqa: E402, RUF100
 from image_to_3dlab.provenance import (  # noqa: E402, RUF100
     LICENSES,
     MATTE_LICENSES,
+    set_glb_generator,
     sha256_file,
+    write_provenance,
 )
 
 #: This script's defaults are the CUDA route; the AMD twin passes ROCM through the same
@@ -354,6 +356,8 @@ def _write_records(*, image: Path, output: Path, params: dict[str, Any], pipelin
                    seed: int, timings: dict[str, float], artifacts: dict[str, Any],
                    matte_model: str | None, vendor_root: Path,
                    route: trellis_route.Route = ROUTE) -> None:
+    set_glb_generator(output)   # the hash below must describe the file that ships
+    artifacts["glb"]["sha256"] = sha256_file(output)
     manifest = build_manifest(image=str(image), output=str(output), params=params,
                               pipeline_type=pipeline_type, seed=seed, timings=timings,
                               artifacts=artifacts, matte_model=matte_model, route=route)
@@ -362,7 +366,7 @@ def _write_records(*, image: Path, output: Path, params: dict[str, Any], pipelin
                               matte_model=matte_model,
                               backend_revision=backend_revision(vendor_root, route),
                               route=route)
-    provenance_path(output).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    write_provenance(provenance_path(output), record)
     print(f"Manifest: {output.with_suffix('.json')}", flush=True)
     print(f"Provenance: {provenance_path(output)}", flush=True)
 

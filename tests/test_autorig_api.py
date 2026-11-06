@@ -7,12 +7,13 @@ import sys
 from pathlib import Path
 
 import pytest
+from glb_fixtures import valid_glb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
 import autorig_api as aa
 
 
-def _glb(path: Path, payload: bytes = b"glTF") -> Path:
+def _glb(path: Path, payload: bytes = valid_glb()) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
     return path
@@ -104,6 +105,11 @@ def test_animation_needs_a_rigged_model_a_preset_and_a_sane_spread(tmp_path, mot
     assert "NVIDIA" in job.record["motion"]["license"]["name"]
 
 
+def _write_glb_script(payload: bytes | None = None) -> str:
+    """A worker stand-in that writes a real GLB, so the generator stamp can read it."""
+    return f"open(r'{{out}}', 'wb').write(bytes.fromhex('{(payload or valid_glb()).hex()}'))"
+
+
 def _fake_job(tmp_path, script: str) -> aa.AnimateJob:
     result = tmp_path / "out.glb"
     command = [sys.executable, "-c", script.format(out=result)]
@@ -112,7 +118,7 @@ def _fake_job(tmp_path, script: str) -> aa.AnimateJob:
 
 
 def test_a_finished_job_writes_its_provenance(tmp_path):
-    job = _fake_job(tmp_path, "open(r'{out}', 'wb').write(b'glb'); print('hello')")
+    job = _fake_job(tmp_path, _write_glb_script() + "; print('hello')")
     aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
     assert job.status == "done"
     assert json.loads(job.result.with_suffix(".provenance.json").read_text())["license"]
@@ -123,7 +129,7 @@ def test_a_finished_job_writes_its_provenance(tmp_path):
 def test_done_is_said_only_after_the_done_event_names_the_file(tmp_path, monkeypatch):
     """A plan polls the status and reads the last event: if "done" came first (the fit check takes
     seconds), the plan saw no file and skipped the move. Lost a robot's rig on 2026-10-25."""
-    job = _fake_job(tmp_path, "open(r'{out}', 'wb').write(b'glb')")
+    job = _fake_job(tmp_path, _write_glb_script())
     seen = []
 
     def slow_fit(path):
@@ -219,7 +225,7 @@ def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
     directory = tmp_path / "clip"
     directory.mkdir()
     result = directory / "out.glb"
-    result.write_bytes(b"glb")
+    result.write_bytes(valid_glb())
     script = (
         "import time\n"
         "from pathlib import Path\n"

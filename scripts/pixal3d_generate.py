@@ -46,7 +46,12 @@ from image_to_3dlab.glb_turn import turn_cameras, turn_glb
 from image_to_3dlab.host import executable
 from image_to_3dlab.matte import cut_out, fallback_note, is_matted, matte_model
 from image_to_3dlab.models_home import vendor_models
-from image_to_3dlab.provenance import LICENSES, sha256_file
+from image_to_3dlab.provenance import (
+    LICENSES,
+    set_glb_generator,
+    sha256_file,
+    write_provenance,
+)
 
 PIXAL3D_ROOT = REPO / "vendor" / "pixal3d-cpp"
 CLI = executable(PIXAL3D_ROOT / "build", "trellis-cli")
@@ -664,6 +669,7 @@ def main() -> int:
         raise SystemExit(f"trellis-cli exited with code {code}")
     if not args.output.is_file():
         raise SystemExit(f"trellis-cli exited 0 without writing {args.output}")
+    set_glb_generator(args.output)   # the manifest below hashes the file that ships
     face_front(args.output)
 
     seconds = time.time() - started
@@ -683,8 +689,7 @@ def main() -> int:
     elif dump is not None:
         print("[pixal3d] note: no clean-up dump was written; Finish will use its classic route",
               flush=True)
-    record_path = args.output.with_name(f"{args.output.stem}.json")
-    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    record_path = write_provenance(args.output.with_name(f"{args.output.stem}.json"), record)
 
     size = args.output.stat().st_size / 1048576
     print(f"[pixal3d] done in {seconds:.0f}s -> {args.output} "

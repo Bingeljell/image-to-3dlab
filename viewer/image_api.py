@@ -55,7 +55,12 @@ import usage_api
 from image_to_3dlab import back_view, matte, processes
 from image_to_3dlab import host as _host
 from image_to_3dlab.host import APPLE, executable, host_platform, with_rocm_libraries
-from image_to_3dlab.provenance import FLUX_OUTPUT_RIGHTS, LICENSES, QWEN_OUTPUT_RIGHTS
+from image_to_3dlab.provenance import (
+    FLUX_OUTPUT_RIGHTS,
+    LICENSES,
+    QWEN_OUTPUT_RIGHTS,
+    write_provenance,
+)
 from image_to_3dlab.sdcpp import BackendWatch, no_gpu_help
 
 HF_HUB = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub"
@@ -996,7 +1001,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                     # licence travels on inside this record (the outside of the paint is still it)
                     record["brush"]["replaced"] = None
                     record["brush"]["replaced_record"] = drop_kept(kept)
-            sidecar.write_text(json.dumps(record, indent=2), encoding="utf-8")
+            write_provenance(sidecar, record)
             job.set_status("done", result_url=f"/api/image/{job.id}/result.png",
                            elapsed_seconds=round(elapsed, 1))
             usage_api.count_done("picture")

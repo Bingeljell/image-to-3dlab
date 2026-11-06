@@ -152,7 +152,7 @@ def main() -> int:
     sidecar_path.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(scene_path), check_existing=False)
     sidecar = build_sidecar(metarig, profile, asset_path, scene_path)
-    sidecar_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")
+    sidecar_path.write_text(json.dumps(sidecar, indent=2, sort_keys=True) + "\n")  # not a provenance record: a rig sidecar
     print("I2L_RIG_BINDING::" + json.dumps({
         "adapter": adapter,
         "joints": len(sidecar["joints"]),

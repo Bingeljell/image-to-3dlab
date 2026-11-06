@@ -42,6 +42,7 @@ import usage_api
 
 from image_to_3dlab import processes
 from image_to_3dlab.blender import missing_help
+from image_to_3dlab.provenance import set_glb_generator, write_provenance
 
 OUTPUT_ROOT = REPO / "output" / "props"
 SPLITTER = REPO / "scripts" / "blender_split_props.py"
@@ -467,9 +468,9 @@ class PropsJobManager:
                 job.settings = clean
                 job.source_glb.write_bytes(asset)
                 job.settings_path.write_text(json.dumps(job.settings, indent=2), encoding="utf-8")
-                job.provenance_path.write_text(json.dumps(
-                    provenance_record(asset_name, asset, source_record, generated),
-                    indent=2), encoding="utf-8")
+                write_provenance(
+                    job.provenance_path,
+                    provenance_record(asset_name, asset, source_record, generated))
             except Exception:
                 shutil.rmtree(directory, ignore_errors=True)
                 raise
@@ -568,6 +569,7 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
         if job.only:
             swap_in_turn(job)
             job.settings_path.write_text(json.dumps(job.settings, indent=2), encoding="utf-8")
+        stamp_finished_models(job.directory, job.only)
         run = describe_run(job.directory)
         job.status = "done"
         usage_api.count_done("prop")
@@ -595,6 +597,18 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
             except Exception as cleanup_exc:
                 job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
+
+
+def stamp_finished_models(directory: Path, prop: str | None = None) -> None:
+    """Name who made the finished GLB(s). Blender wrote its own exporter name; the
+    finished prop is ours, and this is the last step before anyone downloads it.
+
+    A turn re-bakes one prop, so only that one is touched; the others were stamped when
+    they were finished.
+    """
+    root = Path(directory) / "finished"
+    for glb in ((root / prop) if prop else root).rglob("*.glb"):
+        set_glb_generator(glb)
 
 
 def swap_in_turn(job: PropsJob) -> None:

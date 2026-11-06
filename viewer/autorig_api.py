@@ -43,6 +43,7 @@ if str(REPO) not in sys.path:
 import usage_api
 
 from image_to_3dlab import host, processes
+from image_to_3dlab.provenance import set_glb_generator, write_provenance
 
 OUTPUT_ROOT = REPO / "output" / "animate"
 SKINTOKENS = REPO / "vendor" / "SkinTokens"
@@ -473,8 +474,8 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                       if code else f"{job.kind} step wrote no GLB",
                       "log_tail": "\n".join(job.log_lines)[-6000:]})
         else:
-            job.result.with_suffix(".provenance.json").write_text(
-                json.dumps(job.record, indent=2), encoding="utf-8")
+            set_glb_generator(job.result)   # the rigger's or Blender's own value is not ours
+            write_provenance(job.result.with_suffix(".provenance.json"), job.record)
             # The done event (with the file's path) goes out BEFORE the status flips: a plan polls
             # the status and reads the last event, and the fit check takes seconds. The other order
             # lost a robot's rig mid-plan (2026-10-25).

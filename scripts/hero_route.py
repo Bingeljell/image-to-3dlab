@@ -296,7 +296,11 @@ def main() -> int:
 
     from image_to_3dlab import hero, matte
     from image_to_3dlab.pixal3d_native import smooth_normals
-    from image_to_3dlab.provenance import sha256_file
+    from image_to_3dlab.provenance import (
+        set_glb_generator,
+        sha256_file,
+        write_provenance,
+    )
 
     out = (args.out or REPO / "output" / "hero" / args.picture.stem[:60]).resolve()
     run = Run(out)
@@ -464,6 +468,7 @@ def main() -> int:
         else:
             run.flag(f"{model.name} has no run record: its licence is not in the provenance")
             sub_runs.append({})
+    set_glb_generator(final)
     record = {
         "schema_version": 1, "route": "hero", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "input": {"picture": str(args.picture), "sha256": sha256_file(picture),
@@ -476,12 +481,13 @@ def main() -> int:
                        "crop": list(crop), "head_bones": picked},
         "sub_runs": [str(p.with_suffix(".json")) for p in (body_raw, head_raw)],
     }
-    final.with_suffix(".provenance.json").write_text(json.dumps(record, indent=2))
+    write_provenance(final.with_suffix(".provenance.json"), record)
     if args.result:
         args.result.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(final, args.result)
-        args.result.with_suffix(".provenance.json").write_text(
-            json.dumps({**record, "output": {"path": str(args.result), "sha256": sha256_file(args.result)}}, indent=2))
+        write_provenance(
+            args.result.with_suffix(".provenance.json"),
+            {**record, "output": {"path": str(args.result), "sha256": sha256_file(args.result)}})
     run.say(f"done: {final} ({final.stat().st_size / 1e6:.1f} MB); check sheet {out / 'check_sheet.jpg'}")
     for note in run.unsure:
         run.say(f"  to check: {note}")

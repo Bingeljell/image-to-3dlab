@@ -8,6 +8,7 @@ from pathlib import Path
 
 import hunyuan_mlx_generate as generate
 import hunyuan_mlx_xiong_generate as xiong
+from glb_fixtures import valid_glb
 
 from image_to_3dlab.provenance import LICENSES
 
@@ -39,7 +40,7 @@ def test_generate_main_writes_a_licence_sidecar(tmp_path, monkeypatch):
     output = tmp_path / "out.glb"
 
     def fake_paint(*args, **kwargs):
-        output.write_bytes(b"glb")
+        output.write_bytes(valid_glb())
 
     monkeypatch.setattr(generate, "run_shape", lambda *args, **kwargs: _Mesh())
     monkeypatch.setattr(generate, "run_remesh", lambda mesh, target, t0: (mesh, False))

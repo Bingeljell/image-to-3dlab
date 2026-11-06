@@ -60,7 +60,9 @@ from image_to_3dlab import gpu_memory, models_home  # noqa: E402, RUF100
 from image_to_3dlab.provenance import (  # noqa: E402, RUF100
     LICENSES,
     MATTE_LICENSES,
+    set_glb_generator,
     sha256_file,
+    write_provenance,
 )
 
 DEFAULT_VENDOR = bootstrap.VENDOR
@@ -605,6 +607,7 @@ def generate(image_path: Path, output: Path, vendor_root: Path, settings: dict[s
         timings["paint"] = generate_paint(prepared, mesh_path, output, settings, vendor_root)
     timings["total"] = time.time() - started
 
+    set_glb_generator(output)
     artifacts = {"glb": {"path": str(output), "sha256": sha256_file(output)}}
     manifest = build_manifest(image=str(image_path), output=str(output), params=settings,
                               shape_only=shape_only, timings=timings, artifacts=artifacts,
@@ -613,7 +616,7 @@ def generate(image_path: Path, output: Path, vendor_root: Path, settings: dict[s
     record = build_provenance(image=image_path, output=output, parameters=settings,
                               matte_model=matte_model, shape_only=shape_only,
                               backend_revision=backend_revision(vendor_root))
-    provenance_path(output).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    write_provenance(provenance_path(output), record)
     print(f"Manifest: {output.with_suffix('.json')}", flush=True)
     print(f"Provenance: {provenance_path(output)}", flush=True)
     print(f"DONE in {timings['total']:.1f}s -> {output}", flush=True)

@@ -184,8 +184,9 @@ def main() -> None:
     }
     manifest_path = args.output.with_name(f"{args.output.stem}.json")
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    from image_to_3dlab.provenance import write_hunyuan_sidecar
+    from image_to_3dlab.provenance import set_glb_generator, write_hunyuan_sidecar
 
+    set_glb_generator(args.output)
     sidecar = write_hunyuan_sidecar(
         args.output,
         args.image,

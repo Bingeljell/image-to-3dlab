@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
+  The licence record that travels with each file says the same, separately from the model's licence.
+
 ### Fixed
 - Finish at a low triangle count (5k and below) no longer stops at the detail bake on slim characters.
 

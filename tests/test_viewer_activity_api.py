@@ -62,6 +62,7 @@ def test_a_whole_character_runs_and_each_step_gets_the_last_ones_file(tmp_path):
     assert chain.status == "done" and chain.done == chain.steps
     posts = [(p, b) for m, p, b in jobs.calls if m == "POST"]
     assert [p for p, _ in posts] == ["/api/image", "/api/generate", "/api/finish", "/api/animate/rig", "/api/animate/play"]
+    assert b'name="image"; filename="pic.png"' in posts[2][1]
     assert b'name="model"\r\n\r\nfinish/f/finished.glb' in posts[3][1]          # rig takes the finished model
     assert json.loads(posts[4][1]) == {"model": "animate/r/rigged.glb", "preset": "walk"}
     history = aa.read_history(tmp_path)
@@ -613,3 +614,11 @@ def test_cancel_during_child_start_is_delivered(tmp_path, when, terminal, retry)
         assert chain.made["model"] == "pixal3d/m/model.glb"
     assert not any(path == "/api/finish" for _, path, _ in jobs.calls)
     assert aa.read_history(tmp_path)[0]["result"] == "cancelled"
+
+
+def test_finish_rejects_picture_upload_without_a_model(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="picture", steps=["finished"], upload=("picture.png", b"picture"))
+    runner.submit(chain, background=False)
+    assert chain.status == "error" and "3D model" in chain.error
+    assert not any(path == "/api/finish" for _, path, _ in jobs.calls)

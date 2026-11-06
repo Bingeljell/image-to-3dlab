@@ -406,10 +406,16 @@ class ChainRunner:
             body, ctype = multipart({"settings": json.dumps(settings)}, files)
             return kind, self._post("/api/generate", body, ctype)
         if step == "finished":
-            if not chain.made.get("model"):
+            if chain.made.get("model"):
+                asset = self._file(chain.made["model"])
+            elif chain.upload and not self._picture_upload(chain):
+                asset = chain.upload
+            else:
                 raise ValueError("Finish needs a 3D model, and there is none yet")
-            body, ctype = multipart({"settings": json.dumps(chain.finish_settings)},
-                                    {"asset": self._file(chain.made["model"]), "image": self._picture(chain)})
+            files = {"asset": asset}
+            if chain.made.get("picture") or self._picture_upload(chain):
+                files["image"] = self._picture(chain)
+            body, ctype = multipart({"settings": json.dumps(chain.finish_settings)}, files)
             return kind, self._post("/api/finish", body, ctype)
         if step == "rigged":
             source = chain.made.get("finished") or chain.made.get("model")

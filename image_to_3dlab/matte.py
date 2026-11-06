@@ -8,7 +8,9 @@ head in Pixal3D (2026-09-22), a grey slab around every SF3D model (2026-09-24).
 
 from __future__ import annotations
 
+import hashlib
 import os
+from pathlib import Path
 
 # A real cutout leaves a lot of the frame empty -- a centred subject is typically 30-60%
 # transparent. This floor only has to separate that from an alpha channel that cuts nothing.
@@ -52,6 +54,7 @@ LEAN_SIZE = 1024  # the square input the file was exported at
 
 LITE_MODEL = "birefnet-general-lite"
 FALLBACK_MODEL = "u2net"
+FALLBACK_MD5 = "60024c5c889badc19c04ad937298a77b"
 LITE_URL = ("https://github.com/danielgatis/rembg/releases/download/v0.0.0/"
             "BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx")
 LITE_BYTES = 224_005_088
@@ -190,6 +193,41 @@ def clean_edges(rgba, solid: int = 250, reach: int = 4):
     return out
 
 
+def _verified_model_file(model: str) -> Path:
+    digests = {LEAN_MODEL: ("sha256", LEAN_SHA256), LITE_MODEL: ("md5", LITE_MD5),
+               FALLBACK_MODEL: ("md5", FALLBACK_MD5)}
+    if model not in digests:
+        raise RuntimeError(f"No verified offline background remover for {model!r}. Use Setup & Status.")
+    algorithm, expected = digests[model]
+    path = model_file(model)
+    with path.open("rb") as stream:
+        actual = hashlib.file_digest(stream, algorithm).hexdigest()
+    if actual != expected:
+        raise RuntimeError(f"Background remover {model!r} is damaged. Reinstall it from Setup & Status.")
+    return path
+
+
+def _offline_rembg_session(model: str):
+    """Use rembg's prediction class with an exclusively local model resolver."""
+    import onnxruntime as ort
+    from rembg.sessions import sessions_class
+
+    path = _verified_model_file(model)
+    session_class = next((cls for cls in sessions_class if cls.name() == model), None)
+    if session_class is None:
+        raise RuntimeError(f"This rembg version cannot load {model!r}. Update it from Setup & Status.")
+
+    class LocalSession(session_class):
+        @classmethod
+        def download_models(cls, *args, **kwargs):
+            return path
+
+    options = ort.SessionOptions()
+    if "OMP_NUM_THREADS" in os.environ:
+        options.inter_op_num_threads = options.intra_op_num_threads = int(os.environ["OMP_NUM_THREADS"])
+    return LocalSession(model, options)
+
+
 def new_session(model: str | None = None, *, allow_download: bool = False):
     # Newer rembg keeps models in ~/.rembg/models unless told otherwise, so a backend's own
     # venv missed BiRefNet-lite here and fetched u2net. One folder for every rembg.
@@ -200,13 +238,13 @@ def new_session(model: str | None = None, *, allow_download: bool = False):
     _ensure_model(model, allow_download)
     if model == LEAN_MODEL:
         try:
-            return LeanSession(model_file(LEAN_MODEL))
+            return LeanSession(_verified_model_file(LEAN_MODEL))
         except Exception as error:  # an onnxruntime too old for DeformConv, say
             fallback = LITE_MODEL if model_file(LITE_MODEL).is_file() else FALLBACK_MODEL
             print(f"[matte] lean remover would not load ({error}); using {fallback}", flush=True)
             model = fallback
             _ensure_model(model, allow_download)
-    return rembg.new_session(model)
+    return rembg.new_session(model) if allow_download else _offline_rembg_session(model)
 
 
 def cut_out(image, session=None, *, allow_download: bool = False):

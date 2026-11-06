@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- Damaged background-remover weights fail with repair instructions instead of downloading replacements without consent.
 - Setup readiness lists every model component, including weights sharing one download repository.
 - Finished models and kept spot fixes retain source and paint licences through later rigging and export.
 - SF3D uses the installed background remover correctly for opaque and noisy-alpha pictures.

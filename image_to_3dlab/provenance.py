@@ -36,16 +36,26 @@ def stamp_provenance(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def write_provenance(path: Path, record: dict[str, Any]) -> Path:
+def write_provenance(path: Path, record: dict[str, Any], *, atomic: bool = False) -> Path:
     """The one way to write a `.provenance.json`.
 
     Stamps `made_with` first, so a writer cannot forget it, then writes the record. Old
     records without the field still load: readers parse plain JSON and none of them
-    requires it.
+    requires it. `atomic` writes beside the file and replaces it, so a crash never leaves
+    half a record for a model that exists.
     """
     path = Path(path)
     stamp_provenance(record)
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
+    if not atomic:
+        path.write_text(text, encoding="utf-8")
+        return path
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
     return path
 
 
@@ -534,6 +544,18 @@ def finalize_output(
     return destination, sidecar
 
 
+def read_run_record(glb: Path) -> dict[str, Any] | None:
+    """The run's own record beside a model: `.provenance.json`, or `.json` on older runs."""
+    for suffix in (".provenance.json", ".json"):
+        try:
+            record = json.loads(glb.with_suffix(suffix).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict):
+            return record
+    return None
+
+
 def read_model_record(glb: Path) -> dict[str, Any] | None:
     """Read a licence-bearing record beside a model, including older run records."""
     for suffix in (".provenance.json", ".json", ".retopo-repaint.json"):
@@ -583,11 +605,4 @@ def write_derived_sidecar(
         "components": [copy.deepcopy(c) for r in records for c in r.get("components", [])],
         "source_record": source_record, "component_records": list(component_records),
     }
-    sidecar = output.with_suffix(".provenance.json")
-    temporary = sidecar.with_name(f".{sidecar.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temporary.replace(sidecar)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return sidecar
+    return write_provenance(output.with_suffix(".provenance.json"), record, atomic=True)

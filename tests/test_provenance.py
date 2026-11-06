@@ -360,6 +360,7 @@ def test_derived_sidecar_retains_licences_and_hashes(tmp_path, extra):
     sidecar = p.write_derived_sidecar(source, output, operation="finish", component_records=[paint] if extra else [])
     record = json.loads(sidecar.read_text())
     assert record["source_record"] == origin
+    assert record["made_with"]["name"] == "AssetFurnace"
     assert record["output"]["sha256"] == p.sha256_file(output)
     assert record["model"] == origin["model"]
     assert record["components"][0] == origin["components"][0]

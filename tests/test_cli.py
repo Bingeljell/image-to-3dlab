@@ -218,7 +218,7 @@ def test_primary_image_precedes_additional_views(tmp_path, monkeypatch, manifest
     def generate(views, working, options):
         seen.extend(views)
         asset = working / "mesh.glb"
-        asset.write_bytes(b"mesh")
+        asset.write_bytes(valid_glb(generator="the trellis backend"))
         return TrellisResult(asset, "test")
     monkeypatch.setattr("image_to_3dlab.trellis_backend.generate_trellis", generate)
     if manifest_kind:

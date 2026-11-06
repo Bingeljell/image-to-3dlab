@@ -33,7 +33,7 @@ def test_pull_requests_run_the_file_checks():
     """GitHub Actions runs the file hooks. The pull request title check is commented out."""
     workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text()
     assert "pull_request:" in workflow
-    assert "branches: [main]" in workflow
+    assert "branches: [main, feat/tests-infra]" in workflow
     assert "pull_request_target" not in workflow
     assert "tox-dev/action-pre-commit-uv@v1" in workflow
     assert "pytest" not in workflow

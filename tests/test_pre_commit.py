@@ -36,7 +36,10 @@ def test_pull_requests_run_the_file_checks():
     assert "branches: [main, feat/tests-infra]" in workflow
     assert "pull_request_target" not in workflow
     assert "tox-dev/action-pre-commit-uv@v1" in workflow
-    assert "pytest" not in workflow
+    pre_commit_job = workflow.split("\n  pytest:")[0]
+    assert "pytest" not in pre_commit_job
+    assert "uv run pytest -q" in workflow
+    assert "\n    needs: pre-commit\n" in workflow.split("\n  pytest:", 1)[1]
     config = (REPO / ".pre-commit-config.yaml").read_text()
     assert "stages: [commit-msg]" in config
     assert "action-semantic-pull-request@v6" in config

@@ -1,6 +1,6 @@
 name: pre-commit
 
-# File checks.
+# File checks, and the test suite in its own job.
 on:
   pull_request:
   push:
@@ -15,6 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: tox-dev/action-pre-commit-uv@v1
+
+  pytest:
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+      - run: uv sync --frozen
+      - run: uv run pytest -q
 
   # title:
   #   if: github.event_name == 'pull_request'

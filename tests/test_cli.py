@@ -201,3 +201,40 @@ def test_bad_material_mode_refuses_before_generate(tmp_path, monkeypatch, capsys
     assert main(["--run-manifest", str(manifest)]) == 2
     assert "material_mode" in capsys.readouterr().err
     assert not (tmp_path / "out" / ".working").exists()
+
+
+@pytest.mark.parametrize("manifest_kind,extra", [(None, 0), (None, 1), (None, 2),
+                                                ("views", 2), ("path", 0), ("path", 1)])
+def test_primary_image_precedes_additional_views(tmp_path, monkeypatch, manifest_kind, extra):
+    from image_to_3dlab.trellis_backend import TrellisResult
+
+    pictures = [tmp_path / name for name in ("front.png", "back.png", "side.png")]
+    for picture in pictures:
+        picture.write_bytes(b"picture")
+    expected = pictures[:extra + 1]
+    output = tmp_path / "out"
+    seen = []
+    def generate(views, working, options):
+        seen.extend(views)
+        asset = working / "mesh.glb"
+        asset.write_bytes(b"mesh")
+        return TrellisResult(asset, "test")
+    monkeypatch.setattr("image_to_3dlab.trellis_backend.generate_trellis", generate)
+    if manifest_kind:
+        manifest = tmp_path / "run.json"
+        manifest.write_text(json.dumps({
+            "schema_version": 1, "model": {"backend": "trellis2"},
+            "input": {"views": [p.name for p in expected]} if manifest_kind == "views" else {"path": "front.png"},
+            "license_policy": {"allow_conditional": True}, "output": {"directory": str(output)}}))
+        argv = ["--run-manifest", str(manifest)]
+    else:
+        argv = [str(pictures[0]), "--trellis", "--output-dir", str(output)]
+    if manifest_kind != "views":
+        for view in expected[1:]:
+            argv += ["--view", str(view)]
+    assert main(argv) == 0
+    assert seen == expected
+    sidecars = list(output.rglob("*.provenance.json"))
+    assert len(sidecars) == 1 and sidecars[0].name.startswith("front__")
+    record = json.loads(sidecars[0].read_text())
+    assert record["input"]["path"] == str(pictures[0])

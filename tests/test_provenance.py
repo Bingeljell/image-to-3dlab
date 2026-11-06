@@ -1,8 +1,20 @@
+import ast
 import json
+from pathlib import Path
 
 import pytest
+from glb_fixtures import read_glb, valid_glb
 
-from image_to_3dlab.provenance import LICENSES, finalize_output, validate_run_policy
+from image_to_3dlab import __version__
+from image_to_3dlab.provenance import (
+    LICENSES,
+    finalize_output,
+    set_glb_generator,
+    validate_run_policy,
+    write_provenance,
+)
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_sf3d_is_allowed_when_conditionals_are_enabled():
@@ -151,7 +163,7 @@ def test_finalize_output_does_not_give_a_missing_identity_the_default_licence(tm
     image = tmp_path / "input.png"
     generated = tmp_path / "out.glb"
     image.write_bytes(b"image")
-    generated.write_bytes(b"glb")
+    generated.write_bytes(valid_glb(generator="Khronos glTF Blender I/O v5.2.39"))
     profile = LICENSES["hunyuan-comfyui"]
 
     _, sidecar = finalize_output(
@@ -184,10 +196,10 @@ def test_finalize_output_records_canonical_identity(tmp_path):
     image = tmp_path / "input.png"
     generated = tmp_path / "out.glb"
     image.write_bytes(b"image")
-    generated.write_bytes(b"glb")
+    generated.write_bytes(valid_glb(generator="Khronos glTF Blender I/O v5.2.39"))
     profile = LICENSES["sf3d"]
 
-    _, sidecar = finalize_output(
+    destination, sidecar = finalize_output(
         generated=generated,
         image=image,
         output_root=tmp_path,
@@ -203,13 +215,16 @@ def test_finalize_output_records_canonical_identity(tmp_path):
     assert record["model"]["identity"] == "stabilityai/stable-fast-3d"
     assert record["output"]["classification"] == profile.classification
     assert "verified" not in record.get("license", {})
+    assert record["made_with"]["name"] == "AssetFurnace"
+    assert record["made_with"]["version"] == __version__
+    assert read_glb(destination.read_bytes())[0]["asset"]["generator"] == f"AssetFurnace {__version__}"
 
 
 def test_finalize_output_marks_unknown_identity_unverified(tmp_path):
     image = tmp_path / "input.png"
     generated = tmp_path / "out.glb"
     image.write_bytes(b"image")
-    generated.write_bytes(b"glb")
+    generated.write_bytes(valid_glb(generator="Khronos glTF Blender I/O v5.2.39"))
     profile = LICENSES["sf3d"]
 
     _, sidecar = finalize_output(
@@ -235,6 +250,99 @@ def test_finalize_output_marks_unknown_identity_unverified(tmp_path):
     ]
 
 
+# --------------------------------------------------------------- who made the file
+
+def test_every_record_says_who_made_the_file(tmp_path):
+    record = {"schema_version": 1, "license": {"name": "Apache-2.0", "conditions": ["credit"]}}
+    path = write_provenance(tmp_path / "a.provenance.json", record)
+    saved = json.loads(path.read_text())
+    assert saved["made_with"] == {
+        "name": "AssetFurnace",
+        "version": __version__,
+        "url": "https://assetfurnace.com",
+    }
+    assert saved["schema_version"] == 1, "the schema version does not move"
+    assert saved["license"] == {"name": "Apache-2.0", "conditions": ["credit"]}
+    assert "made_with" not in saved["license"], "who made it is never part of the licence"
+
+
+def test_an_old_record_without_made_with_still_loads(tmp_path):
+    old = {"schema_version": 1, "license": {"name": "MIT"},
+           "output": {"classification": "commercial-clear"}}
+    path = tmp_path / "old.provenance.json"
+    path.write_text(json.dumps(old))
+    assert json.loads(path.read_text()) == old
+
+
+def test_a_glb_says_it_was_made_with_assetfurnace_and_nothing_else_changes(tmp_path):
+    path = tmp_path / "a.glb"
+    before_bytes = valid_glb(generator="Khronos glTF Blender I/O v5.2.39",
+                             asset_extra={"minVersion": "2.0"}, binary=b"\x01\x02\x03\x04")
+    path.write_bytes(before_bytes)
+    before, before_bin = read_glb(before_bytes)
+
+    set_glb_generator(path)
+
+    after, after_bin = read_glb(path.read_bytes())
+    expected = json.loads(json.dumps(before))
+    expected["asset"]["generator"] = f"AssetFurnace {__version__}"
+    assert after == expected, "only generator changes"
+    assert after_bin == before_bin, "the binary chunk is untouched"
+    set_glb_generator(path)
+    assert read_glb(path.read_bytes())[0]["asset"]["generator"] == f"AssetFurnace {__version__}"
+
+
+def test_a_file_that_is_not_a_glb_is_refused_not_rewritten(tmp_path):
+    path = tmp_path / "not.glb"
+    path.write_bytes(b"glb")
+    with pytest.raises(ValueError, match="not a GLB"):
+        set_glb_generator(path)
+    assert path.read_bytes() == b"glb"
+
+
+def _provenance_writers() -> list[str]:
+    """Every write call that targets a provenance sidecar, by file and line."""
+    offenders = []
+    for folder in ("image_to_3dlab", "viewer", "scripts"):
+        for path in (ROOT / folder).rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            lines = source.splitlines()
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if not isinstance(func, ast.Attribute) or func.attr not in {"write_text", "write"}:
+                    continue
+                segment = ast.get_source_segment(source, node) or ""
+                receiver = ast.get_source_segment(source, func.value) or ""
+                if not ("provenance" in (segment + receiver).lower()
+                        or "sidecar" in receiver.lower()):
+                    continue
+                line = lines[node.lineno - 1] if node.lineno - 1 < len(lines) else ""
+                if "write_provenance" in segment or "not a provenance record" in line:
+                    continue
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+    return offenders
+
+
+def test_every_provenance_writer_uses_the_shared_helper():
+    """A new writer that forgets to stamp the record fails here, before it ships."""
+    assert _provenance_writers() == []
+
+
+def test_the_scan_would_catch_a_writer_that_forgets(tmp_path):
+    """The guard is only useful if it really flags a raw sidecar write."""
+    forgetful = tmp_path / "example.py"
+    forgetful.write_text(
+        'from pathlib import Path\n'
+        'def write(sidecar: Path, record):\n'
+        '    sidecar.write_text("{}")\n'
+    )
+    tree = ast.parse(forgetful.read_text())
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    assert any("sidecar" in (ast.get_source_segment(forgetful.read_text(), call) or "")
+               for call in calls)
 @pytest.mark.parametrize("extra", [False, True])
 def test_derived_sidecar_retains_licences_and_hashes(tmp_path, extra):
     from image_to_3dlab import provenance as p
@@ -252,6 +360,7 @@ def test_derived_sidecar_retains_licences_and_hashes(tmp_path, extra):
     sidecar = p.write_derived_sidecar(source, output, operation="finish", component_records=[paint] if extra else [])
     record = json.loads(sidecar.read_text())
     assert record["source_record"] == origin
+    assert record["made_with"]["name"] == "AssetFurnace"
     assert record["output"]["sha256"] == p.sha256_file(output)
     assert record["model"] == origin["model"]
     assert record["components"][0] == origin["components"][0]

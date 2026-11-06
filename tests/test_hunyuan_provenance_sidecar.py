@@ -8,6 +8,7 @@ from pathlib import Path
 
 import hunyuan_mlx_generate as generate
 import hunyuan_mlx_xiong_generate as xiong
+from glb_fixtures import valid_glb
 
 from image_to_3dlab.provenance import LICENSES
 
@@ -39,7 +40,7 @@ def test_generate_main_writes_a_licence_sidecar(tmp_path, monkeypatch):
     output = tmp_path / "out.glb"
 
     def fake_paint(*args, **kwargs):
-        output.write_bytes(b"glb")
+        output.write_bytes(valid_glb())
 
     monkeypatch.setattr(generate, "run_shape", lambda *args, **kwargs: _Mesh())
     monkeypatch.setattr(generate, "run_remesh", lambda mesh, target, t0: (mesh, False))
@@ -119,14 +120,16 @@ def test_two_paint_runs_do_not_share_an_output_file(tmp_path, monkeypatch):
     assert second.parent == tmp_path
 
 
-def _stub_paint(module, tmp_path, monkeypatch):
+def _stub_paint(module, tmp_path, monkeypatch, sidecar=None):
     seen = {}
 
     def fake_run(cmd, cwd, env, check):
         seen["out"] = env["PAINT_OUT"]
         dest = Path(env["PAINT_OUT"])
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / "textured_mesh_pbr.glb").write_bytes(b"glb")
+        (dest / "textured_mesh_pbr.glb").write_bytes(sidecar[0] if sidecar else b"glb")
+        if sidecar:
+            (dest / "textured_mesh_pbr.provenance.json").write_text(json.dumps(sidecar[1]))
         return type("Proc", (), {"returncode": 0})()
 
     monkeypatch.setattr(module, "PAINT_ROOT", tmp_path / "paint")
@@ -154,3 +157,15 @@ def test_xiong_run_paint_reads_its_own_directory(tmp_path, monkeypatch):
     assert output.read_bytes() == b"glb"
     shared = tmp_path / "paint" / "outputs" / "textured_mesh_pbr.glb"
     assert Path(seen["out"]) / "textured_mesh_pbr.glb" != shared
+
+
+def test_the_paint_stages_record_keeps_who_made_it(tmp_path, monkeypatch):
+    paint_record = {"schema_version": 1, "license": {"name": "Paint terms"},
+                    "output": {"path": "textured_mesh_pbr.glb"}}
+    _stub_paint(xiong, tmp_path, monkeypatch, sidecar=(valid_glb(), paint_record))
+    output = tmp_path / "final.glb"
+    xiong.run_paint(tmp_path / "mesh.obj", tmp_path / "in.png", output, 0, 512, 15, 4096, 0.0)
+    record = json.loads(output.with_suffix(".provenance.json").read_text())
+    assert record["license"]["name"] == "Paint terms"
+    assert record["made_with"]["name"] == "AssetFurnace"
+    assert record["output"]["path"] == str(output)

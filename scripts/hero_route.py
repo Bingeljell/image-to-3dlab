@@ -162,6 +162,14 @@ def measure_rig(run: Run, body: Path, rig: Path) -> None:
         run.run(command, cwd=cwd, tries=2, env=env)
 
 
+def run_record_path(model: Path) -> Path | None:
+    """The run's licence record: new runs say `.provenance.json`, older ones `.json`."""
+    for candidate in (model.with_suffix(".provenance.json"), model.with_suffix(".json")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def missing_parts(parts: dict[str, Path]) -> list[str]:
     """The named parts whose file is not on disk: checked before 20 minutes of work, not after."""
     return [name for name, path in parts.items() if not Path(path).exists()]
@@ -296,7 +304,11 @@ def main() -> int:
 
     from image_to_3dlab import hero, matte
     from image_to_3dlab.pixal3d_native import smooth_normals
-    from image_to_3dlab.provenance import sha256_file
+    from image_to_3dlab.provenance import (
+        set_glb_generator,
+        sha256_file,
+        write_provenance,
+    )
 
     out = (args.out or REPO / "output" / "hero" / args.picture.stem[:60]).resolve()
     run = Run(out)
@@ -324,7 +336,9 @@ def main() -> int:
         if args.body_dump and args.body_dump.is_file():
             shutil.copy(args.body_dump, body_raw.with_suffix(".post.bin"))
         if args.body_record and args.body_record.is_file():
-            shutil.copy(args.body_record, body_raw.with_suffix(".json"))
+            # Keep the name it came with: a new run's record is .provenance.json, an old one's .json.
+            suffix = ".provenance.json" if args.body_record.name.endswith(".provenance.json") else ".json"
+            shutil.copy(args.body_record, body_raw.with_suffix(suffix))
         shutil.copy(args.body, body_raw)
         run.say(f"body: using {args.body}")
     if run.step("body: Pixal3D", body_raw):
@@ -457,13 +471,16 @@ def main() -> int:
             x += shot.width
         sheet.save(out / "check_sheet.jpg", quality=90)
 
-    sub_runs = []
+    sub_runs, sub_run_paths = [], []
     for model in (body_raw, head_raw):
-        if model.with_suffix(".json").is_file():
-            sub_runs.append(json.loads(model.with_suffix(".json").read_text()))
+        record_path = run_record_path(model)
+        if record_path is not None:
+            sub_runs.append(json.loads(record_path.read_text()))
+            sub_run_paths.append(str(record_path))
         else:
             run.flag(f"{model.name} has no run record: its licence is not in the provenance")
             sub_runs.append({})
+    set_glb_generator(final)
     record = {
         "schema_version": 1, "route": "hero", "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "input": {"picture": str(args.picture), "sha256": sha256_file(picture),
@@ -474,14 +491,15 @@ def main() -> int:
         "unsure": run.unsure,
         "parameters": {"body_faces": args.body_faces, "head_faces": args.head_faces, "seed": args.seed,
                        "crop": list(crop), "head_bones": picked},
-        "sub_runs": [str(p.with_suffix(".json")) for p in (body_raw, head_raw)],
+        "sub_runs": sub_run_paths,
     }
-    final.with_suffix(".provenance.json").write_text(json.dumps(record, indent=2))
+    write_provenance(final.with_suffix(".provenance.json"), record)
     if args.result:
         args.result.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(final, args.result)
-        args.result.with_suffix(".provenance.json").write_text(
-            json.dumps({**record, "output": {"path": str(args.result), "sha256": sha256_file(args.result)}}, indent=2))
+        write_provenance(
+            args.result.with_suffix(".provenance.json"),
+            {**record, "output": {"path": str(args.result), "sha256": sha256_file(args.result)}})
     run.say(f"done: {final} ({final.stat().st_size / 1e6:.1f} MB); check sheet {out / 'check_sheet.jpg'}")
     for note in run.unsure:
         run.say(f"  to check: {note}")

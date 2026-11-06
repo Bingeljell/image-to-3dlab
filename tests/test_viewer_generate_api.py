@@ -11,6 +11,9 @@ import types
 from pathlib import Path
 
 import pytest
+from glb_fixtures import read_glb, valid_glb
+
+from image_to_3dlab import __version__
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "viewer" / "generate_api.py"
 SPEC = importlib.util.spec_from_file_location("viewer_generate_api", MODULE_PATH)
@@ -592,7 +595,7 @@ def test_sf3d_finalize_moves_output_into_place(tmp_path):
     image = tmp_path / "input.png"
     image.write_bytes(b"fake-png")
     generated = tmp_path / "raw_generated.glb"
-    generated.write_bytes(b"glb-bytes")
+    generated.write_bytes(valid_glb())
     finalize_output(
         generated=generated, image=image, output_root=tmp_path, backend="sf3d",
         profile=LICENSES["sf3d"], intent={}, parameters={}, source_manifest=None,
@@ -600,7 +603,7 @@ def test_sf3d_finalize_moves_output_into_place(tmp_path):
 
     api._sf3d_finalize(job)
 
-    assert job.output_path.read_bytes() == b"glb-bytes"
+    assert read_glb(job.output_path.read_bytes())[0]["asset"]["generator"] == f"AssetFurnace {__version__}"
     assert job.manifest_path.is_file()
     assert json.loads(job.manifest_path.read_text())["model"]["backend"] == "sf3d"
 
@@ -768,6 +771,11 @@ def test_job_manager_matches_folder_and_file_name(tmp_path, monkeypatch):
     assert job.directory.name == "my-run"
     assert job.output_path == job.directory / "my-run.glb"
     assert job.manifest_path == job.directory / "my-run.json"
+
+
+def test_a_pixal3d_job_serves_its_provenance_record_as_the_manifest(tmp_path):
+    job = api.Job("0" * 32, tmp_path, tmp_path / "in.png", tmp_path / "run.glb", {}, "pixal3d")
+    assert job.manifest_path == tmp_path / "run.provenance.json"
 
 
 def test_job_manager_disambiguates_colliding_folder_names(tmp_path):

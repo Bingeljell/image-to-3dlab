@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
+  The licence record that travels with each file says the same, separately from the model's licence.
+- Pixal3D runs leave their licence record as `<run>.provenance.json`, the name every other route
+  uses. Runs made before this keep working, and their old `.json` record is still read.
 - The viewer has a switcher for every model an asset has (3D model, Finished, Rigged), so
   looking at the raw model is no longer a one-way trip back through the Library.
 - Library rows for a model with no picture show a thumbnail rendered from the model itself,

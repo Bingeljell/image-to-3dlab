@@ -8,6 +8,7 @@ import types
 from pathlib import Path
 
 import hunyuan_mlx_xiong_generate as xiong
+from glb_fixtures import valid_glb
 
 from image_to_3dlab.provenance import sha256_file
 
@@ -32,7 +33,7 @@ def _png(path: Path) -> Path:
 def test_write_provenance_creates_sidecar_with_expected_licences(tmp_path):
     image = _png(tmp_path / "in.png")
     output = tmp_path / "out.glb"
-    output.write_bytes(b"glb bytes")
+    output.write_bytes(valid_glb())
     manifest = {
         "schema_version": 1,
         "backend": "hunyuan-mlx-xiong",
@@ -105,7 +106,7 @@ def test_main_writes_manifest_and_provenance(tmp_path, monkeypatch):
     def fake_paint(*args, **kwargs):
         calls["paint"] = True
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_bytes(b"glb")
+        output.write_bytes(valid_glb())
 
     monkeypatch.setattr(xiong, "run_shape", fake_shape)
     monkeypatch.setattr(xiong, "run_remesh", fake_remesh)

@@ -46,7 +46,12 @@ from image_to_3dlab.glb_turn import turn_cameras, turn_glb
 from image_to_3dlab.host import executable
 from image_to_3dlab.matte import cut_out, fallback_note, is_matted, matte_model
 from image_to_3dlab.models_home import vendor_models
-from image_to_3dlab.provenance import LICENSES, sha256_file
+from image_to_3dlab.provenance import (
+    LICENSES,
+    set_glb_generator,
+    sha256_file,
+    write_provenance,
+)
 
 PIXAL3D_ROOT = REPO / "vendor" / "pixal3d-cpp"
 CLI = executable(PIXAL3D_ROOT / "build", "trellis-cli")
@@ -117,7 +122,7 @@ def manifest(image: Path, output: Path, *, res: int, seed: int, fov: float, gss:
              gsh: float | None, matted: bool, matted_here: bool,
              seconds: float, steps: int = DEFAULT_STEPS,
              matte_model: str | None = None) -> dict[str, object]:
-    """The run's provenance record, written beside the GLB as `<output>.json`.
+    """The run's provenance record, written beside the GLB as `<output>.provenance.json`.
 
     Same place and shape as the Hunyuan route's manifest, so the viewer serves it as the
     job's manifest without special-casing, plus the licence and file hashes.
@@ -386,13 +391,18 @@ def reuse_problem(shape: Path, has_back: bool) -> str | None:
 
     Front-only and front + back runs place their cameras differently, so painting one's
     shape with the other's pictures lands the paint off target. The run that saved the
-    shape recorded which it was in `<name>.json` beside it; without that record, allow it.
+    shape recorded which it was in `<name>.provenance.json` beside it, or `<name>.json` on
+    runs from before that name; without either record, allow it.
     """
-    record = shape.with_name(shape.name.removesuffix(SHAPE_SUFFIX) + ".json")
-    try:
-        views = json.loads(record.read_text())["parameters"].get("views")
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+    base = shape.with_name(shape.name.removesuffix(SHAPE_SUFFIX))
+    for record in (base.with_suffix(".provenance.json"), base.with_suffix(".json")):
+        try:
+            views = json.loads(record.read_text())["parameters"].get("views")
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        break
+    else:
+        return None   # no record: the original behaviour was to allow it
     built_with_back = views == "front + back"
     if built_with_back and not has_back:
         return f"{shape.name} was built from front + back pictures: give --back too"
@@ -664,6 +674,7 @@ def main() -> int:
         raise SystemExit(f"trellis-cli exited with code {code}")
     if not args.output.is_file():
         raise SystemExit(f"trellis-cli exited 0 without writing {args.output}")
+    set_glb_generator(args.output)   # the manifest below hashes the file that ships
     face_front(args.output)
 
     seconds = time.time() - started
@@ -683,8 +694,7 @@ def main() -> int:
     elif dump is not None:
         print("[pixal3d] note: no clean-up dump was written; Finish will use its classic route",
               flush=True)
-    record_path = args.output.with_name(f"{args.output.stem}.json")
-    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    record_path = write_provenance(args.output.with_name(f"{args.output.stem}.provenance.json"), record)
 
     size = args.output.stat().st_size / 1048576
     print(f"[pixal3d] done in {seconds:.0f}s -> {args.output} "

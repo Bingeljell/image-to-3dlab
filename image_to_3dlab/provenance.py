@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import struct
 import subprocess
 import uuid
 from collections.abc import Sequence
@@ -12,7 +13,87 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+from image_to_3dlab import __version__
 from image_to_3dlab.matte import matte_model
+
+# Who made the file. `made_with` sits beside the licence, never inside it: it says which
+# app produced the asset, and must never read as if AssetFurnace licenses the model.
+MADE_WITH_NAME = "AssetFurnace"
+MADE_WITH_URL = "https://assetfurnace.com"
+
+GLB_MAGIC = 0x46546C67
+GLB_JSON_CHUNK = 0x4E4F534A
+
+
+def made_with() -> dict[str, str]:
+    """The app and version that produced a file, read from the package version."""
+    return {"name": MADE_WITH_NAME, "version": __version__, "url": MADE_WITH_URL}
+
+
+def stamp_provenance(record: dict[str, Any]) -> dict[str, Any]:
+    """Add who made the file to a record. Licence fields are left exactly as they are."""
+    record["made_with"] = made_with()
+    return record
+
+
+def write_provenance(path: Path, record: dict[str, Any], *, atomic: bool = False) -> Path:
+    """The one way to write a `.provenance.json`.
+
+    Stamps `made_with` first, so a writer cannot forget it, then writes the record. Old
+    records without the field still load: readers parse plain JSON and none of them
+    requires it. `atomic` writes beside the file and replaces it, so a crash never leaves
+    half a record for a model that exists.
+    """
+    path = Path(path)
+    stamp_provenance(record)
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
+    if not atomic:
+        path.write_text(text, encoding="utf-8")
+        return path
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
+
+
+def glb_generator() -> str:
+    return f"{MADE_WITH_NAME} {__version__}"
+
+
+def set_glb_generator(path: Path, generator: str | None = None) -> Path:
+    """Set `asset.generator` in a GLB and change nothing else.
+
+    Done on the final file, after the last export (Blender writes its own value on the way
+    through). The JSON chunk is re-padded to 4 bytes and the total length updated; the
+    binary chunk is left untouched.
+    """
+    path = Path(path)
+    data = path.read_bytes()
+    if len(data) < 12:
+        raise ValueError(f"not a GLB version 2 file: {path}")
+    magic, gl_version, _ = struct.unpack_from("<III", data, 0)
+    if magic != GLB_MAGIC or gl_version != 2:
+        raise ValueError(f"not a GLB version 2 file: {path}")
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
+        if chunk_type == GLB_JSON_CHUNK:
+            start = offset + 8
+            document = json.loads(data[start:start + chunk_length])
+            asset = document.setdefault("asset", {})
+            asset["generator"] = generator or glb_generator()
+            payload = json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode()
+            payload += b" " * ((4 - len(payload) % 4) % 4)
+            body = (data[:offset] + struct.pack("<II", len(payload), chunk_type) + payload
+                    + data[start + chunk_length:])
+            body = body[:8] + struct.pack("<I", len(body)) + body[12:]
+            path.write_bytes(body)
+            return path
+        offset += 8 + chunk_length
+    raise ValueError(f"no JSON chunk in {path}")
 
 
 @dataclass(frozen=True)
@@ -294,9 +375,7 @@ def write_hunyuan_sidecar(
         },
         "components": components,
     }
-    sidecar = output.with_suffix(".provenance.json")
-    sidecar.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    return sidecar
+    return write_provenance(output.with_suffix(".provenance.json"), record)
 
 
 def hunyuan_paint_run_dir(outputs_root: Path, stem: str) -> Path:
@@ -378,6 +457,8 @@ def finalize_output(
     stem = f"{image.stem}__{backend}__{classification}__{run_id}"
     destination = destination_dir / f"{stem}{generated.suffix.lower()}"
     generated.replace(destination)
+    if destination.suffix.lower() == ".glb":
+        set_glb_generator(destination)   # after the move, so the file that travels carries it
 
     if verified:
         license_record: dict[str, Any] = {
@@ -459,9 +540,20 @@ def finalize_output(
         if source_manifest
         else None,
     }
-    sidecar = destination.with_suffix(".provenance.json")
-    sidecar.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    sidecar = write_provenance(destination.with_suffix(".provenance.json"), record)
     return destination, sidecar
+
+
+def read_run_record(glb: Path) -> dict[str, Any] | None:
+    """The run's own record beside a model: `.provenance.json`, or `.json` on older runs."""
+    for suffix in (".provenance.json", ".json"):
+        try:
+            record = json.loads(glb.with_suffix(suffix).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(record, dict):
+            return record
+    return None
 
 
 def read_model_record(glb: Path) -> dict[str, Any] | None:
@@ -513,11 +605,4 @@ def write_derived_sidecar(
         "components": [copy.deepcopy(c) for r in records for c in r.get("components", [])],
         "source_record": source_record, "component_records": list(component_records),
     }
-    sidecar = output.with_suffix(".provenance.json")
-    temporary = sidecar.with_name(f".{sidecar.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temporary.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temporary.replace(sidecar)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return sidecar
+    return write_provenance(output.with_suffix(".provenance.json"), record, atomic=True)

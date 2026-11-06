@@ -35,7 +35,14 @@ REPO = Path(__file__).resolve().parents[1]
 # directly from the shape venv.
 sys.path.insert(0, str(REPO))
 
-from image_to_3dlab.provenance import LICENSES, write_hunyuan_sidecar
+from image_to_3dlab.provenance import (
+    LICENSES,
+    set_glb_generator,
+    write_hunyuan_sidecar,
+)
+from image_to_3dlab.provenance import (
+    write_provenance as write_provenance_record,
+)
 
 SHAPE_ROOT = REPO / "hunyuan_mlx" / "shape"
 SHAPE_MODELS = {
@@ -159,7 +166,7 @@ def run_paint(mesh_path: Path, image: Path, output: Path, paint_seed: int, paint
     if temp_sidecar.is_file():
         record = json.loads(temp_sidecar.read_text(encoding="utf-8"))
         record["output"]["path"] = str(output)
-        output.with_suffix(".provenance.json").write_text(json.dumps(record, indent=2) + "\n")
+        write_provenance_record(output.with_suffix(".provenance.json"), record)
     for name in ("pbr_albedo_texture.png", "pbr_albedo_views.png",
                  "pbr_mr_texture.png", "pbr_mr_views.png"):
         src = out_dir / name
@@ -174,6 +181,7 @@ def write_provenance(output: Path, image: Path, manifest: dict) -> Path:
     This run loads both stages, so the record names shape and paint. The shared
     writer lives in image_to_3dlab.provenance and does not load a model.
     """
+    set_glb_generator(output)
     return write_hunyuan_sidecar(
         output,
         image,

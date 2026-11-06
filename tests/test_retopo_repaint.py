@@ -13,6 +13,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from glb_fixtures import valid_glb
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "retopo_repaint.py"
 
@@ -409,9 +410,9 @@ def test_worker_preserves_provenance_on_resume(tmp_path, monkeypatch, paint):
         "license": {"name": "Shape", "conditions": ["shape terms"]},
         "output": {"classification": "commercial-conditional"}}))
     steps = rr.step_paths(output)
-    steps["retopo"].write_bytes(b"retopo")
+    steps["retopo"].write_bytes(valid_glb(generator="the retopo step"))
     if paint:
-        steps["painted"].write_bytes(b"painted")
+        steps["painted"].write_bytes(valid_glb(generator="the paint step"))
         p.write_hunyuan_sidecar(steps["painted"], image, backend="paint", paint=True)
     monkeypatch.setattr(rr, "preflight", lambda *a: (None, None))
     argv = ["retopo_repaint.py", str(source), str(image), str(output), "--resume", "--skip-bake", "--skip-compress"]

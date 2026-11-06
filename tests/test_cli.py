@@ -3,6 +3,7 @@ from argparse import Namespace
 from pathlib import Path
 
 import pytest
+from glb_fixtures import valid_glb
 
 from image_to_3dlab.cli import (
     _extract_workflow_model_identity,
@@ -144,7 +145,7 @@ def test_quality_download_uses_the_working_directory(tmp_path, monkeypatch):
         seen["output_dir"] = Path(output_dir)
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         asset = Path(output_dir) / "mesh.glb"
-        asset.write_bytes(b"glb")
+        asset.write_bytes(valid_glb())
         return asset
 
     monkeypatch.setattr("image_to_3dlab.comfyui_backend.ComfyUIClient.generate", fake_generate)
@@ -162,7 +163,7 @@ def test_unet_loader_workflow_does_not_get_a_tencent_sidecar(tmp_path, monkeypat
     def fake_generate(self, image, workflow_path, output_dir, **_kwargs):
         output_dir.mkdir(parents=True, exist_ok=True)
         asset = Path(output_dir) / "mesh.glb"
-        asset.write_bytes(b"glb")
+        asset.write_bytes(valid_glb())
         return asset
 
     monkeypatch.setattr("image_to_3dlab.comfyui_backend.ComfyUIClient.generate", fake_generate)
@@ -217,7 +218,7 @@ def test_primary_image_precedes_additional_views(tmp_path, monkeypatch, manifest
     def generate(views, working, options):
         seen.extend(views)
         asset = working / "mesh.glb"
-        asset.write_bytes(b"mesh")
+        asset.write_bytes(valid_glb(generator="the trellis backend"))
         return TrellisResult(asset, "test")
     monkeypatch.setattr("image_to_3dlab.trellis_backend.generate_trellis", generate)
     if manifest_kind:

@@ -15,7 +15,6 @@ how to get it, and stops. A `<back>.provenance.json` records the run like any pi
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 import time
@@ -28,6 +27,7 @@ import image_api
 from PIL import Image
 
 from image_to_3dlab import back_view, matte
+from image_to_3dlab.provenance import write_provenance
 
 # Every back in the 2026-10-12 eight-character test was drawn with this seed.
 DEFAULT_SEED = 3
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     record = image_api.provenance(back_view.BACK_PROMPT, image_api.clean_settings(
         {"seed": args.seed}), seconds, args.back)
     record["reference"] = {"front": str(args.front), "mode": "edit (back view)"}
-    args.back.with_suffix(".provenance.json").write_text(json.dumps(record, indent=2))
+    write_provenance(args.back.with_suffix(".provenance.json"), record)
     print(f"[back-view] {seconds:.0f}s -> {args.back}", flush=True)
     return 0
 

@@ -21,6 +21,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from glb_fixtures import valid_glb
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "hunyuan_mlx_xiong_generate.py"
 
@@ -75,7 +77,7 @@ class OrchestrationTest(unittest.TestCase):
             calls["cache_cleared_before_paint"] = stubs["mlx.core"].clear_cache.called
             if paint_error is not None:
                 raise paint_error
-            output.write_bytes(b"fake glb")
+            output.write_bytes(valid_glb())
 
         image = tmp / "ref.png"
         image.write_bytes(b"\x89PNG\r\n\x1a\n")

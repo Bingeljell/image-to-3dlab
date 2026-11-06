@@ -59,6 +59,7 @@ sys.path.insert(0, str(REPO))
 from image_to_3dlab import pixal3d_native
 from image_to_3dlab.blender import MAC_APP, find_blender, missing_help
 from image_to_3dlab.host import APPLE, host_platform
+from image_to_3dlab.provenance import set_glb_generator
 
 # Only a default for the command builders; main() finds the real one on every OS.
 BLENDER = MAC_APP
@@ -566,6 +567,7 @@ def main() -> int:
         args.output.write_bytes(current.read_bytes())
         report = []
 
+    set_glb_generator(args.output)   # the finished file, after every export that touched it
     record = {
         "resumed": args.resume,
         "source": str(args.source),

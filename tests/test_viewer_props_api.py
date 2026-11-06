@@ -14,6 +14,9 @@ import sys
 from pathlib import Path
 
 import pytest
+from glb_fixtures import read_glb, valid_glb
+
+from image_to_3dlab import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "viewer" / "props_api.py"
@@ -433,13 +436,13 @@ def _finish_turn(job, monkeypatch, *, fail_at=None, finish_record=None):
             for entry in record["props"]:
                 if entry["name"] == job.only:
                     entry["extra_turn_degrees"] = job.settings["turns"].get(job.only, 0.0)
-                (job.split_dir / f"{entry['name']}.glb").write_bytes(b"turned")
+                (job.split_dir / f"{entry['name']}.glb").write_bytes(valid_glb())
             (job.split_dir / "props.json").write_text(json.dumps(record))
         else:
             for index in range(len(job.settings["lods"])):
                 lod = job.finished_dir / job.only / f"{job.only}_LOD{index}.glb"
                 lod.parent.mkdir(parents=True, exist_ok=True)
-                lod.write_bytes(b"turned")
+                lod.write_bytes(valid_glb())
             if finish_record is not None:
                 (job.finished_dir / "finish_props.json").write_text(json.dumps(finish_record))
         if label == fail_at:
@@ -463,8 +466,8 @@ def test_a_finished_turn_swaps_in_the_new_split_and_lods(tmp_path, monkeypatch):
     job = _finish_turn(props.PropsJobManager(tmp_path).turn(directory.name, "chest", 90),
                        monkeypatch)
     assert job.status == "done"
-    assert (directory / "split" / "chest.glb").read_bytes() == b"turned"
-    assert (directory / "finished" / "chest" / "chest_LOD0.glb").read_bytes() == b"turned"
+    read_glb((directory / "split" / "chest.glb").read_bytes())
+    assert read_glb((directory / "finished" / "chest" / "chest_LOD0.glb").read_bytes())[0]["asset"]["generator"] == f"AssetFurnace {__version__}"
     assert (directory / "finished" / "barrel" / "barrel_LOD0.glb").read_bytes() == b"x" * 100
     assert not (directory / "turn").exists()
     chest = next(p for p in props.describe_run(directory)["props"] if p["name"] == "chest")
@@ -489,8 +492,8 @@ def test_a_prop_called_split_can_be_turned(tmp_path, monkeypatch):
     job = _finish_turn(props.PropsJobManager(tmp_path).turn(directory.name, "split", 90),
                        monkeypatch)
     assert job.status == "done", job.events[-1]
-    assert (directory / "split" / "split.glb").read_bytes() == b"turned"
-    assert (directory / "finished" / "split" / "split_LOD0.glb").read_bytes() == b"turned"
+    read_glb((directory / "split" / "split.glb").read_bytes())
+    assert read_glb((directory / "finished" / "split" / "split_LOD0.glb").read_bytes())[0]["asset"]["generator"] == f"AssetFurnace {__version__}"
     assert json.loads((directory / "settings.json").read_text())["turns"] == {"split": 90.0}
 
 
@@ -536,7 +539,7 @@ def test_a_turn_updates_its_prop_in_the_finish_record(tmp_path, monkeypatch):
     assert chest == entry
     # And they still point at the files once the turn is swapped into the run.
     assert (finished / chest["source"]).resolve() == (directory / "split" / "chest.glb").resolve()
-    assert (finished / chest["lods"][0]["glb"]).read_bytes() == b"turned"
+    assert read_glb((finished / chest["lods"][0]["glb"]).read_bytes())[0]["asset"]["generator"] == f"AssetFurnace {__version__}"
 
 
 def test_a_turn_that_would_lose_the_web_files_is_refused(tmp_path, monkeypatch):

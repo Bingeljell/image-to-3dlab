@@ -216,7 +216,7 @@ def main() -> int:
     export_glb(bpy, rig, meshes, output_glb)
 
     refreshed = refreshed_sidecar(sidecar, output_glb, output_blend)
-    output_sidecar.write_text(json.dumps(refreshed, indent=2, sort_keys=True) + "\n")
+    output_sidecar.write_text(json.dumps(refreshed, indent=2, sort_keys=True) + "\n")  # not a provenance record: a rig sidecar
     report = {
         "schemaVersion": 1,
         "status": "done",

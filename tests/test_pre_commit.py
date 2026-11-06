@@ -35,6 +35,8 @@ def test_pull_requests_run_the_file_checks():
     assert "pull_request:" in workflow
     assert "branches: [main, feat/tests-infra]" in workflow
     assert "pull_request_target" not in workflow
+    assert "actions/checkout@v7" in workflow
+    assert "actions/checkout@v4" not in workflow
     assert "tox-dev/action-pre-commit-uv@v1" in workflow
     pre_commit_job = workflow.split("\n  pytest:")[0]
     assert "pytest" not in pre_commit_job

@@ -125,6 +125,7 @@ class Chain:
     last_change: float = field(default_factory=time.time)
     cancel_requested: bool = False
     job: tuple[str, str] | None = None                               # (kind, job id) of the running step
+    cancel_sent: tuple[str, str] | None = None                       # child whose cancel is sent/in flight
     note: str = ""                                                   # why a run ended early, calmly
     step_seconds: dict[str, float] = field(default_factory=dict)      # how long each finished step took
 
@@ -173,17 +174,30 @@ class ChainRunner:
         return chain
 
     def cancel(self, chain_id: str) -> bool:
-        chain = self.chains.get(chain_id)
-        if chain is None or chain.status != "running":
-            return False
-        chain.cancel_requested = True
-        if chain.job:
-            kind, job_id = chain.job
-            try:
-                self.request("POST", f"/api/{kind}/{job_id}/cancel", None, None)
-            except OSError:
-                pass  # the job may already have ended; the run stops at its next step either way
+        with self.lock:
+            chain = self.chains.get(chain_id)
+            if chain is None or chain.status != "running":
+                return False
+            chain.cancel_requested = True
+        self._cancel_child(chain)
         return True
+
+    def _cancel_child(self, chain: Chain) -> None:
+        with self.lock:
+            job = chain.job
+            if not chain.cancel_requested or job is None or chain.cancel_sent == job:
+                return
+            chain.cancel_sent = job
+        kind, job_id = job
+        try:
+            status, _ = self.request("POST", f"/api/{kind}/{job_id}/cancel", None, None)
+            if status < 400:
+                return
+        except (OSError, ValueError):
+            pass
+        with self.lock:
+            if chain.cancel_sent == job:
+                chain.cancel_sent = None  # retry while the child remains active
 
     def recent(self, limit: int = 10) -> list[Chain]:
         return sorted(self.chains.values(), key=lambda c: c.started, reverse=True)[:limit]
@@ -230,20 +244,24 @@ class ChainRunner:
                 break
             chain.done.append(step)
         else:
-            chain.status = "done"
+            with self.lock:
+                chain.status = "cancelled" if chain.cancel_requested else "done"
             chain.current = None
         chain.job = None
 
     def _run_step(self, chain: Chain, step: str) -> bool:
         started = self.now()
+        chain.job = None
         try:
             kind, start = self._start(chain, step)
         except Exception as exc:
-            return self._fail(chain, step, plain_error(str(exc)), "", started)
+            return self._fail(chain, step, plain_error(str(exc)), "", started,
+                              "cancelled" if chain.cancel_requested else "error")
         chain.job = (kind, start["job_id"])
         status_url = start.get("status_url") or f"/api/{kind}/{start['job_id']}/status"
         last_key = None
         while True:
+            self._cancel_child(chain)
             try:
                 _, payload = self.request("GET", status_url, None, None)
             except (OSError, ValueError):  # a missed poll is not a failure; the next one catches up
@@ -263,6 +281,11 @@ class ChainRunner:
                 break
             self.sleep(self.poll)
         status = payload.get("status")
+        if chain.cancel_requested:
+            if status == "done":
+                self._record(chain, step, payload)
+            return self._fail(chain, step, "Cancelled. Everything finished before this step is kept.",
+                              payload.get("log_tail") or "", started, "cancelled")
         if status != "done":
             why = ("Cancelled. Everything finished before this step is kept." if status == "cancelled"
                    else plain_error(payload.get("error") or event.get("message") or payload.get("log_tail") or ""))

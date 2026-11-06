@@ -128,6 +128,17 @@ MATTE_LICENSES = {
     "u2net": "MIT code / Apache-2.0 U-2-Net",
 }
 
+# What the DINOv3 License asks (text dated 19 Aug 2025, read 2026-11-06). It has no commercial
+# limit, revenue threshold or product credit, so it does not make a model conditional. Its use
+# bans still bind, so every record that carries the encoder names them.
+DINOV3_TERMS = (
+    ("The DINOv3 License allows commercial use, with no revenue limit. Credit is only required "
+     "in published research."),
+    ("The DINOv3 License bans military, nuclear, espionage, gun and illegal-weapon uses, and "
+     "use that breaks sanctions or export rules."),
+    "Anyone who hands out the encoder weights must include the DINOv3 License.",
+)
+
 LICENSES = {
     "sf3d": LicenseProfile(
         classification="commercial-conditional",
@@ -152,26 +163,28 @@ LICENSES = {
         models=("tencent/Hunyuan3D-2.1",),
     ),
     "trellis2": LicenseProfile(
-        classification="commercial-conditional",
-        folder="conditional",
+        classification="commercial-clear",
+        folder="commercial",
         license_name="MIT (TRELLIS.2) + DINOv3 License",
         license_url="https://huggingface.co/microsoft/TRELLIS.2-4B",
         conditions=(
             "TRELLIS.2 model code and weights are MIT licensed.",
             "The DINOv3 image encoder is governed by the separate DINOv3 License.",
+            *DINOV3_TERMS,
             "BRIA RMBG-2.0 is disabled and must not be loaded in commercial runs.",
         ),
         models=("microsoft/TRELLIS.2-4B",),
     ),
     # Same two licences as TRELLIS.2, so the same class: an MIT model with a DINOv3 encoder.
     "pixal3d": LicenseProfile(
-        classification="commercial-conditional",
-        folder="conditional",
+        classification="commercial-clear",
+        folder="commercial",
         license_name="MIT (code + flow weights); DINOv3 License (bundled encoder)",
         license_url="https://huggingface.co/raven38/pixal3d-sv-q8_0-v1",
         conditions=(
             "Pixal3D code and flow weights are MIT licensed.",
             "The bundled DINOv3 image encoder is governed by the separate DINOv3 License.",
+            *DINOV3_TERMS,
         ),
         models=("raven38/pixal3d-sv-q8_0-v1",),
     ),
@@ -514,7 +527,7 @@ def finalize_output(
                     "component": "facebook/dinov3-vitl16-pretrain-lvd1689m",
                     "purpose": "image conditioning",
                     "license": "DINOv3 License",
-                    "commercial_status": "commercial-conditional",
+                    "commercial_status": "commercial-clear",
                     "license_url": "https://ai.meta.com/resources/models-and-libraries/dinov3-license/",
                 },
                 {

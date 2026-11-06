@@ -29,16 +29,36 @@ def test_hunyuan_is_blocked_for_worldwide_game():
         validate_run_policy("hunyuan-comfyui", "game", "worldwide", True)
 
 
-def test_trellis_inherits_dinov3_conditional_classification():
+@pytest.mark.parametrize("backend, identity", [
+    ("trellis2", "microsoft/TRELLIS.2-4B"),
+    ("pixal3d", "raven38/pixal3d-sv-q8_0-v1"),
+])
+def test_dinov3_engines_are_commercial_clear_and_keep_the_use_bans(backend, identity):
+    """The DINOv3 License has no commercial limit, so a commercial manifest is not refused.
+    Clear does not mean no rules: the record still has to name what the licence bans."""
     profile = validate_run_policy(
-        "trellis2", "game", "worldwide", True, model_identity="microsoft/TRELLIS.2-4B"
+        backend, "game", "worldwide", False, model_identity=identity, commercial_intent=True,
     )
-    assert profile.classification == "commercial-conditional"
+    assert profile.classification == "commercial-clear"
+    assert profile.folder == "commercial"
+    terms = " ".join(profile.conditions)
+    for word in ("military", "nuclear", "espionage", "weapon", "sanctions"):
+        assert word in terms
+    assert "published research" in terms and "include the DINOv3 License" in terms
 
 
-def test_trellis_is_blocked_when_manifest_disallows_conditionals():
+def test_trellis_still_says_bria_must_not_load():
+    assert any("BRIA" in c and "must not be loaded" in c for c in LICENSES["trellis2"].conditions)
+
+
+@pytest.mark.parametrize("backend", ["sf3d", "qwen-image-2.1"])
+def test_models_with_real_commercial_conditions_stay_conditional(backend):
+    assert LICENSES[backend].classification == "commercial-conditional"
+
+
+def test_a_conditional_model_is_blocked_when_manifest_disallows_conditionals():
     with pytest.raises(ValueError, match="disallows conditional"):
-        validate_run_policy("trellis2", "game", "worldwide", False)
+        validate_run_policy("sf3d", "game", "worldwide", False)
 
 
 def test_qwen_image_is_conditional_not_research_only():

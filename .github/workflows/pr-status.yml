@@ -1,0 +1,71 @@
+name: pull-request-status
+
+# A note on the pull request when Linters or Tests failed. A green run removes it.
+on:
+  workflow_run:
+    workflows: [pre-commit]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect the failures
+        if: github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          gh run view "$RUN_ID" --repo "${{ github.repository }}" --log-failed > /tmp/failed.log || true
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          text = re.sub(r"\x1b\[[0-9;]*m", "", Path("/tmp/failed.log").read_text(errors="replace"))
+          hooks, tests = [], []
+          for line in text.splitlines():
+              body = line.split("\t")[-1].strip()
+              if body.endswith("Failed") and "..." in body:
+                  name = body.split(".", 1)[0].strip()
+                  if name and name not in hooks:
+                      hooks.append(name)
+              if body.startswith("FAILED "):
+                  name = body.removeprefix("FAILED ").split(" - ", 1)[0].strip()
+                  if name and name not in tests:
+                      tests.append(name)
+          lines = [
+              "### Thank you for your contribution!",
+              "",
+              "Few of the checks did not pass:",
+              "",
+          ]
+          if hooks:
+              lines += ["**File checks**", "", *(f"- {name}" for name in hooks), ""]
+          if tests:
+              lines += ["**Tests**", "", *(f"- `{name}`" for name in tests), ""]
+          if not hooks and not tests:
+              lines += ["The run failed before it named a check.", ""]
+          lines += [
+              "We will gladly review your PR after the green light 🟢!",
+              "",
+              f"[Open the run]({os.environ['RUN_URL']})",
+          ]
+          Path("/tmp/comment.md").write_text("\n".join(lines) + "\n")
+          PY
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: github.event.workflow_run.conclusion == 'failure'
+        with:
+          header: ci
+          number: ${{ github.event.workflow_run.pull_requests[0].number }}
+          path: /tmp/comment.md
+      - uses: marocchino/sticky-pull-request-comment@v3
+        if: github.event.workflow_run.conclusion != 'failure'
+        with:
+          header: ci
+          delete: true
+          number: ${{ github.event.workflow_run.pull_requests[0].number }}

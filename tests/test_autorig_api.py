@@ -101,18 +101,22 @@ def test_animation_needs_a_rigged_model_a_preset_and_a_sane_spread(tmp_path, mot
     assert job.result == run / "knight_walk.glb"
     (command, _), = job.commands
     assert command[command.index("--arm-spread") + 1] == "12"
-    assert "--loop" in command
+    assert "--loop" in command and "--in-place" in command
     assert job.record["motion"]["made_with"] == "Kimodo"
     assert job.record["motion"]["loop"] is True and job.record["motion"]["grounded"] is True
+    assert job.record["motion"]["in_place"] is True
     assert "NVIDIA" in job.record["motion"]["license"]["name"]
 
 
 def test_animate_command_loops_repeating_clips_and_leaves_actions_alone(tmp_path):
     rigged = tmp_path / "knight_rigged.glb"
     motion = tmp_path / "walk.npz"
-    walk = aa.animate_command(rigged, motion, tmp_path / "walk.glb", 0, 1.0, aa.repeats("walk"))
-    kick = aa.animate_command(rigged, motion, tmp_path / "kick.glb", 0, 1.0, aa.repeats("kick"))
-    assert "--loop" in walk and "--loop" not in kick
+    walk = aa.animate_command(rigged, motion, tmp_path / "walk.glb", 0, 1.0,
+                              aa.repeats("walk"), aa.repeats("walk"))
+    kick = aa.animate_command(rigged, motion, tmp_path / "kick.glb", 0, 1.0,
+                              aa.repeats("kick"), aa.repeats("kick"))
+    assert "--loop" in walk and "--in-place" in walk
+    assert "--loop" not in kick and "--in-place" not in kick
     # Grounding is on by default, so the studio passes no opt-out.
     assert "--no-ground" not in walk
 

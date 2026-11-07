@@ -271,11 +271,13 @@ def repeats(preset_id: str) -> bool:
 
 
 def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float,
-                    speed: float = 1.0, repeat: bool = False) -> list[str]:
+                    speed: float = 1.0, repeat: bool = False, in_place: bool = False) -> list[str]:
     command = [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
                "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
     if repeat:
         command.append("--loop")
+    if in_place:
+        command.append("--in-place")
     return command
 
 
@@ -409,10 +411,12 @@ class AnimateJobManager:
                                       preset, spread)
             record["motion"]["speed"] = pace
             record["motion"]["loop"] = repeats(preset_id)
+            record["motion"]["in_place"] = repeats(preset_id)
             record["motion"]["grounded"] = True
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
-                                               result, spread, pace, repeats(preset_id)), REPO)],
+                                               result, spread, pace, repeats(preset_id),
+                                               repeats(preset_id)), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)
 

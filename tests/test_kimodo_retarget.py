@@ -647,6 +647,23 @@ def test_lift_above_floor_raises_only_the_frames_that_dip():
     assert low[1] > floor
 
 
+def test_in_place_frames_stay_on_the_spot_and_keep_the_bob():
+    parents, heads, _ = _humanoid()
+    _, order = _rest_mats(parents, heads)
+    base = heads[order[0]]
+    roots = [base + np.array([0.0, 0.0, 0.0]),
+             base + np.array([0.4, 1.0, 0.05]),
+             base + np.array([-0.2, 2.0, -0.03])]
+    world = {b: np.eye(3) for b in order}
+    frames = [(world, root) for root in roots]
+    moved = kr.in_place_frames(frames)
+    assert all(np.allclose(root[:2], roots[0][:2]) for _, root in moved)  # up is Z
+    assert [root[2] for _, root in moved] == pytest.approx([root[2] for root in roots])
+    assert all(np.array_equal(moved[i][0][b], world[b]) for i in range(3) for b in order)
+    assert kr.horizontal_travel(frames) > 1
+    assert kr.horizontal_travel(moved) == 0
+
+
 def test_skin_track_moves_a_sole_vertex_with_its_bone():
     parents, heads, roles = _humanoid()
     rest, order = _rest_mats(parents, heads)

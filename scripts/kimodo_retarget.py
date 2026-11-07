@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Play a Kimodo text-to-motion clip on a SkinTokens-rigged humanoid and export an animated GLB,
-with feet grounded and repeating clips loopable.
+with feet grounded, repeating clips loopable and looping moves in place.
 
 Kimodo (NVIDIA) writes motion for its own 77-joint SOMA skeleton; SkinTokens (VAST)
 invents a skeleton per mesh with bones named `bone_0..N`. Two facts make the hand-off
@@ -581,6 +581,28 @@ def lift_above_floor(frames, rest, parents, order, tails, mapping, floor: float,
     return out
 
 
+def horizontal_travel(frames, up=Z_UP) -> float:
+    """Net horizontal distance between the first and last root position."""
+    frames = list(frames)
+    if not frames:
+        return 0.0
+    return float(np.linalg.norm(_horizontal(frames[-1][1] - frames[0][1], up)))
+
+
+def in_place_frames(frames, up=Z_UP):
+    """Remove horizontal root travel from every frame, keeping height and rotations.
+
+    A walk, run, sneak or strafe then stays on the spot: the game moves the character.
+    The vertical bob is untouched, and all bone rotations are untouched.
+    """
+    frames = list(frames)
+    if not frames:
+        return frames
+    origin = frames[0][1]
+    return [(world_rot, root_pos - _horizontal(root_pos - origin, up))
+            for world_rot, root_pos in frames]
+
+
 def _slerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
     """Shortest-path spherical interpolation between two (w, x, y, z) quaternions."""
     a = np.asarray(a, dtype=np.float64)
@@ -889,6 +911,8 @@ def main() -> None:  # pragma: no cover - needs bpy
                     help="let feet pass through the rest floor (debug; grounding is on by default)")
     ap.add_argument("--loop", action="store_true",
                     help="trim to the best cycle and blend the seam; for clips that repeat")
+    ap.add_argument("--in-place", action="store_true",
+                    help="remove horizontal root travel, keeping the vertical bob; for walking clips")
     ap.add_argument("--stiff-fingers", action="store_true",
                     help="fingers move rigidly with the hand (for gloves, mittens or bad hand weights)")
     ap.add_argument("--arm-spread", type=float, default=0.0,
@@ -936,6 +960,10 @@ def main() -> None:  # pragma: no cover - needs bpy
     if clearance is not None:
         clear_arms(frames, rest, parents, order, tails, clearance)
 
+    before_travel = horizontal_travel(frames, up)
+    if args.in_place:
+        frames = in_place_frames(frames, up)
+
     floor = _rest_floor(rest, tails, mapping, up)
     height = max(float(heads[b] @ up) for b in heads) - floor
 
@@ -969,6 +997,7 @@ def main() -> None:  # pragma: no cover - needs bpy
 
     after_pen = penetration(track(frames), floor, height, up)
     after_gap = loop_gap(frames, rest, parents, order, height, up)
+    after_travel = horizontal_travel(frames, up)
     detail = ""
     if args.loop:
         start, end, candidates = trim
@@ -982,6 +1011,9 @@ def main() -> None:  # pragma: no cover - needs bpy
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
           f"({'trimmed' if args.loop else 'off'}, {len(frames)} frames){detail}")
+    print(f"in place: root travel {100 * before_travel / height:.1f}% -> "
+          f"{100 * after_travel / height:.1f}% of height "
+          f"({'on' if args.in_place else 'off'})")
 
     scene = bpy.context.scene
     scene.render.fps = 30

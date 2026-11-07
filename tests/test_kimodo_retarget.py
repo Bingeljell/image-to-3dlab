@@ -498,3 +498,150 @@ def test_straight_toeless_legs_fall_back_to_the_old_cue_without_crashing():
             heads[b] = np.array([heads[b][0], 0.02, 0.08])
     _, frame = kr.map_skintokens_to_soma(parents, heads)
     assert np.allclose(frame[:, 2], [0, +1, 0], atol=1e-6)
+
+
+# ------------------------------------------------------------------ floor and loop metrics
+
+
+def test_penetration_is_the_deepest_foot_below_the_floor():
+    track = np.array([[[0, 0, -0.05], [0, 0, 0.10]], [[0, 0, 0.02], [0, 0, 0.03]]])
+    assert kr.penetration(track, 0.0, 1.0) == pytest.approx(0.05)
+    assert kr.penetration(track + np.array([0, 0, 0.2]), 0.0, 1.0) == 0
+    with pytest.raises(ValueError):
+        kr.penetration(track, 0.0, 0)
+
+
+def _identity_frames(parents, heads, roots):
+    rest, order = _rest_mats(parents, heads)
+    return [({b: np.eye(3) for b in order}, np.asarray(root, float)) for root in roots], rest, order
+
+
+def test_loop_gap_ignores_forward_travel_but_not_height():
+    parents, heads, _ = _humanoid()
+    frames, rest, order = _identity_frames(parents, heads, [[0, 0, 1], [0, 2, 1]])
+    height = 1.6
+    # 2 m of forward travel is not a pop when games own the movement.
+    assert kr.loop_gap(frames, rest, parents, order, height) == pytest.approx(0, abs=1e-12)
+    frames, rest, order = _identity_frames(parents, heads, [[0, 0, 1], [0, 0, 1.1]])
+    # A 0.1 m jump in height is a pop.
+    assert kr.loop_gap(frames, rest, parents, order, height) == pytest.approx(0.1 / height)
+
+
+def _cycling_frames(parents, heads, roles, frames=40, period=10):
+    """One arm swings on a period, while the root walks forward 5 cm a frame."""
+    rest, order = _rest_mats(parents, heads)
+    root = heads[order[0]]
+    out = []
+    for t in range(frames):
+        angle = 0.5 * np.sin(2 * np.pi * t / period)
+        c, s = np.cos(angle), np.sin(angle)
+        world = {b: np.eye(3) for b in order}
+        world[roles["Larm"]] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+        out.append((world, root + np.array([0, 0.05 * t, 0])))
+    return out, rest, order
+
+
+def test_best_loop_finds_the_repeated_cycle_not_the_nearest_frame():
+    parents, heads, roles = _humanoid()
+    frames, rest, order = _cycling_frames(parents, heads, roles)
+    start, end = kr.best_loop(frames, rest, parents, order)
+    # Any full gait cycle of this exact periodic clip is a perfect match; what matters is
+    # that it is one cycle long and starts on the same phase, not which one won the tie.
+    assert end - start == 10
+    assert start % 10 == 0
+
+
+def test_blend_loop_matches_pose_and_height_and_keeps_forward_travel():
+    parents, heads, roles = _humanoid()
+    frames, rest, order = _cycling_frames(parents, heads, roles)
+    start, end = kr.best_loop(frames, rest, parents, order)
+    height = max(heads[b][2] for b in heads) - min(
+        float(np.asarray(heads[bone])[2]) for bone in kr._foot_bones(
+            kr.map_skintokens_to_soma(parents, heads)[0]))
+    assert kr.loop_gap(frames, rest, parents, order, height) > 0
+    blended = kr.blend_loop(frames, start, end)
+    assert kr.loop_gap(blended, rest, parents, order, height) == pytest.approx(0, abs=1e-9)
+    first_quat = kr.matrices_to_quaternions(np.asarray(blended[0][0][roles["Larm"]]))
+    last_quat = kr.matrices_to_quaternions(np.asarray(blended[-1][0][roles["Larm"]]))
+    assert abs(float(first_quat @ last_quat)) == pytest.approx(1, abs=1e-9)
+    # The seam keeps the walk moving forward; only height is pulled back to the start.
+    assert blended[-1][1][1] > blended[0][1][1]
+    assert blended[-1][1][2] == pytest.approx(blended[0][1][2])
+
+
+def test_ground_frames_lifts_every_penetrating_frame_onto_the_floor():
+    parents, heads, _ = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    _, tails = _rest_and_tails(parents, heads)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    base = heads[order[0]]
+    frames = [({b: np.eye(3) for b in order}, base + np.array([0, 0, dz]))
+              for dz in (-0.1, -0.2, -0.1)]
+    floor = kr._rest_floor(rest, tails, mapping)
+    height = max(heads[b][2] for b in heads) - floor
+    before = kr.penetration(kr._foot_track(frames, rest, parents, order, tails, mapping),
+                            floor, height)
+    assert before > 0.1
+    grounded = kr.ground_frames(frames, rest, parents, order, tails, mapping, floor)
+    after = kr.penetration(kr._foot_track(grounded, rest, parents, order, tails, mapping),
+                           floor, height)
+    assert after == pytest.approx(0, abs=1e-12)
+
+
+def test_lift_above_floor_raises_only_the_frames_that_dip():
+    parents, heads, _ = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    _, tails = _rest_and_tails(parents, heads)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    base = heads[order[0]]
+    floor = kr._rest_floor(rest, tails, mapping)
+    frames = [({b: np.eye(3) for b in order}, base + np.array([0, 0, dz]))
+              for dz in (-0.1, 0.1)]
+    lifted = kr.lift_above_floor(frames, rest, parents, order, tails, mapping, floor)
+    low = (kr._foot_track(lifted, rest, parents, order, tails, mapping) @ kr.Z_UP).min(axis=1)
+    assert low[0] == pytest.approx(floor, abs=1e-9)
+    assert lifted[1][1][2] == pytest.approx(frames[1][1][2])  # already above: untouched
+    assert low[1] > floor
+
+
+def test_skin_track_moves_a_sole_vertex_with_its_bone():
+    parents, heads, roles = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    point = heads[roles["Lfoot"]] + np.array([0, 0, -0.01])
+    weights = [{roles["Lfoot"]: 1.0}]
+    base = heads[order[0]]
+    still = [({b: np.eye(3) for b in order}, base)]
+    assert kr.skin_track(still, rest, parents, order, [point], weights)[0, 0] == pytest.approx(point)
+    moved = [({b: np.eye(3) for b in order}, base + np.array([0, 1.0, 0]))]
+    assert kr.skin_track(moved, rest, parents, order, [point], weights)[0, 0] == pytest.approx(
+        point + np.array([0, 1.0, 0]))
+
+
+def test_moving_average_calms_a_spike_without_shifting_the_ends():
+    values = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
+    smooth = kr._moving_average(values, 3)
+    assert smooth.max() < values.max()
+    assert smooth[0] == pytest.approx(0) and smooth[-1] == pytest.approx(0)
+    assert len(smooth) == len(values)
+
+
+def test_grounding_keeps_the_hips_own_bob_over_the_feet():
+    """Grounding moves the root, not the pose: a frame whose legs are more bent keeps
+    its hips lower above the floor than a straight-legged frame."""
+    parents, heads, roles = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    _, tails = _rest_and_tails(parents, heads)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    base = heads[order[0]]
+    straight = {b: np.eye(3) for b in order}
+    bent = dict(straight)
+    for lr in "LR":  # bend both knees a little: the hips sit lower over the same feet
+        bent[roles[f"{lr}shin"]] = kr.rotation_between(
+            heads[roles[f"{lr}foot"]] - heads[roles[f"{lr}shin"]], np.array([0, 0.2, -1.0]))
+    frames = [(straight, base), (bent, base)]
+    floor = kr._rest_floor(rest, tails, mapping)
+    grounded = kr.ground_frames(frames, rest, parents, order, tails, mapping, floor)
+    hips = [float((kr.pose_matrices(rest, parents, order, world, root)[order[0]][:3, 3])[2])
+            for world, root in grounded]
+    assert hips[1] < hips[0]
+

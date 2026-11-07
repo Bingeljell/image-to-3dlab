@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Play a Kimodo text-to-motion clip on a SkinTokens-rigged humanoid and export an animated GLB.
+"""Play a Kimodo text-to-motion clip on a SkinTokens-rigged humanoid and export an animated GLB,
+with feet grounded and repeating clips loopable.
 
 Kimodo (NVIDIA) writes motion for its own 77-joint SOMA skeleton; SkinTokens (VAST)
 invents a skeleton per mesh with bones named `bone_0..N`. Two facts make the hand-off
@@ -19,6 +20,9 @@ absorbed automatically, because the turn is world-space, not parent-relative. Th
 travel is scaled by the ratio of hip heights so a short character does not moonwalk.
 
 The maths below is pure numpy; only `main()` needs `bpy` (Blender, or the `bpy` wheel).
+Grounding and looping are separate pure passes over the generated frames:
+`ground_frames` puts the lowest sole on the rest floor, and `best_loop` / `blend_loop`
+trim a repeating clip to its best cycle and blend the seam.
 """
 
 from __future__ import annotations
@@ -54,6 +58,19 @@ SOMA77_PARENTS = [
 ]
 FINGERS = ("Index", "Middle", "Ring", "Pinky")
 Z_UP = np.array([0.0, 0.0, 1.0])
+
+# Grounding: every frame's lowest foot is put on the rest floor. The correction is
+# smoothed over this many frames, then the exact lift is kept wherever smoothing would
+# still let a foot through (see `ground_frames`).
+GROUND_SMOOTH_FRAMES = 5
+# Loop trimming: the shortest cycle worth keeping, and the share of the clip it must span
+# (a quarter of a four-second walk is one step, the smallest useful cycle).
+LOOP_MIN_FRAMES = 8
+LOOP_MIN_SHARE = 0.25
+LOOP_BLEND_FRAMES = 5
+# SOMA's foot joints, per side. A rig may lack the toe (three-bone legs), so whichever of
+# these its mapping has is used.
+FOOT_JOINTS = ("Foot", "ToeBase")
 
 
 def _children(parents: dict[str, str | None]) -> dict[str, list[str]]:
@@ -420,6 +437,219 @@ def posed_segments(rest, pose, tails, bones) -> dict[str, tuple[np.ndarray, np.n
     return out
 
 
+def _foot_bones(mapping: dict[str, str]) -> list[str]:
+    """Rig bones that carry a foot or toe joint, in a stable order."""
+    by_soma = {soma: bone for bone, soma in mapping.items()}
+    return [by_soma[f"{side}{joint}"] for side in ("Left", "Right")
+            for joint in FOOT_JOINTS if f"{side}{joint}" in by_soma]
+
+
+def _pose_heads(frames, rest, parents, order) -> np.ndarray:
+    """[T, B, 3] armature-space head of every bone, one row per clip frame."""
+    out = []
+    for world_rot, root_pos in frames:
+        pose = pose_matrices(rest, parents, order, world_rot, root_pos)
+        out.append([pose[b][:3, 3] for b in order])
+    return np.asarray(out)
+
+
+def _foot_track(frames, rest, parents, order, tails, mapping, up=Z_UP) -> np.ndarray:
+    """[T, P, 3] sole sample points: each foot/toe head and tail, one frame per clip frame."""
+    bones = _foot_bones(mapping)
+    if not bones:
+        raise ValueError("the rig maps no foot joints, so the floor cannot be found")
+    out = []
+    for world_rot, root_pos in frames:
+        pose = pose_matrices(rest, parents, order, world_rot, root_pos)
+        segments = posed_segments(rest, pose, tails, bones)
+        out.append([point for bone in bones for point in segments[bone]])
+    return np.asarray(out)
+
+
+def _rest_floor(rest, tails, mapping, up=Z_UP) -> float:
+    """Lowest foot point in the rest pose: the floor the character stands on."""
+    points = [float(np.asarray(rest[bone])[:3, 3] @ up) for bone in _foot_bones(mapping)]
+    points += [float(np.asarray(tails[bone]) @ up) for bone in _foot_bones(mapping) if bone in tails]
+    if not points:
+        raise ValueError("the rig maps no foot joints, so the floor cannot be found")
+    return min(points)
+
+
+def penetration(foot_track: np.ndarray, floor: float, height: float, up=Z_UP) -> float:
+    """Deepest foot below `floor` over the clip, as a fraction of body height.
+
+    `foot_track` is [T, P, 3] posed sole samples (see `_foot_track`), `floor` the rest
+    floor, and `height` the standing height. Zero means no foot ever goes through.
+    """
+    if height <= 0:
+        raise ValueError("height must be positive")
+    low = np.asarray(foot_track) @ up
+    return float(max(0.0, floor - float(low.min())) / height)
+
+
+def _horizontal(v: np.ndarray, up=Z_UP) -> np.ndarray:
+    v = np.asarray(v, dtype=float)
+    return v - np.expand_dims(v @ up, -1) * up
+
+
+def loop_gap(frames, rest, parents, order, height: float, up=Z_UP) -> float:
+    """Distance between the last and first pose, as a fraction of body height.
+
+    Horizontal root travel is removed first: a walk that has moved forward is not a pop,
+    and games move the character themselves. Vertical root height is kept, because a
+    loop that jumps in height is a pop too.
+    """
+    if height <= 0:
+        raise ValueError("height must be positive")
+    heads = _pose_heads(frames, rest, parents, order)
+    root_index = order.index(order[0])
+    relative = heads - _horizontal(heads[:, root_index], up)[:, None, :]
+    return float(np.linalg.norm(relative[-1] - relative[0], axis=-1).max() / height)
+
+
+def _moving_average(values: np.ndarray, window: int) -> np.ndarray:
+    """Centered moving average with edge padding, so the clip's ends do not tip."""
+    if window <= 1 or len(values) < 2:
+        return np.asarray(values, dtype=float)
+    window = min(int(window), len(values))
+    pad = window // 2
+    padded = np.pad(np.asarray(values, dtype=float), pad, mode="edge")
+    kernel = np.ones(window) / window
+    return np.convolve(padded, kernel, mode="valid")[:len(values)]
+
+
+def ground_frames(frames, rest, parents, order, tails, mapping, floor: float,
+                  up=Z_UP, smooth_frames: int = GROUND_SMOOTH_FRAMES, track=None):
+    """Shift each frame's root along `up` so the lowest foot sits on `floor`, in place.
+
+    The required lift is smoothed over `smooth_frames` so the body does not jitter, then
+    the exact lift is kept wherever smoothing alone would still let a foot through. The
+    hips' own bob above the feet is untouched: this moves the whole body, not the pose.
+    Pass `track` ([T, P, 3], e.g. `skin_track`) to ground the real sole vertices; left out,
+    the foot/toe bone points are used.
+    """
+    frames = list(frames)
+    if track is None:
+        track = _foot_track(frames, rest, parents, order, tails, mapping, up)
+    low = (np.asarray(track) @ up).min(axis=1)
+    required = floor - low
+    smoothed = _moving_average(required, smooth_frames)
+    lift = np.maximum(smoothed, required)
+    return [(world_rot, root_pos + float(offset) * up)
+            for (world_rot, root_pos), offset in zip(frames, lift)]
+
+
+def skin_track(frames, rest, parents, order, points, weights) -> np.ndarray:
+    """[T, P, 3] posed positions of skin vertices, by linear blend skinning.
+
+    `points` is [P, 3] rest positions in armature space and `weights` is one
+    ``{bone: weight}`` dict per point. This is what Blender's armature modifier does,
+    and it lets the floor be measured on the actual sole instead of the ankle.
+    """
+    points = np.asarray(points, dtype=float)
+    out = []
+    for world_rot, root_pos in frames:
+        pose = pose_matrices(rest, parents, order, world_rot, root_pos)
+        moved = {b: pose[b] @ np.linalg.inv(rest[b]) for b in order}
+        frame = []
+        for point, pair in zip(points, weights):
+            total = np.zeros(3)
+            for bone, weight in pair.items():
+                total += float(weight) * (moved[bone] @ np.append(point, 1.0))[:3]
+            frame.append(total)
+        out.append(frame)
+    return np.asarray(out)
+
+
+def lift_above_floor(frames, rest, parents, order, tails, mapping, floor: float,
+                     up=Z_UP, tolerance: float = 1e-9, track=None):
+    """Raise only the frames whose lowest foot is below `floor`; leave the rest alone.
+
+    Used after loop blending, which can dip the last few frames even though grounding
+    ran first. Frames already on or above the floor keep their smoothed height.
+    """
+    frames = list(frames)
+    if track is None:
+        track = _foot_track(frames, rest, parents, order, tails, mapping, up)
+    low = (np.asarray(track) @ up).min(axis=1)
+    out = []
+    for (world_rot, root_pos), height in zip(frames, low):
+        lift = float(floor - height)
+        out.append((world_rot, root_pos + (lift if lift > tolerance else 0.0) * up))
+    return out
+
+
+def _slerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
+    """Shortest-path spherical interpolation between two (w, x, y, z) quaternions."""
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    dot = float(a @ b)
+    if dot < 0:
+        b, dot = -b, -dot
+    if dot > 0.9995:
+        q = a + t * (b - a)
+        return q / np.linalg.norm(q)
+    theta = np.arccos(np.clip(dot, -1.0, 1.0))
+    return (np.sin((1 - t) * theta) * a + np.sin(t * theta) * b) / np.sin(theta)
+
+
+def best_loop(frames, rest, parents, order, up=Z_UP,
+              min_frames: int = LOOP_MIN_FRAMES, min_share: float = LOOP_MIN_SHARE) -> tuple[int, int]:
+    """The pair of frames whose poses match best: `(start, end)`, with `end` excluded.
+
+    Poses are compared with horizontal root travel removed and vertical height kept, so a
+    walking cycle matches itself a gait later rather than a later frame that only happens
+    to be at the same height.
+    """
+    frames = list(frames)
+    n = len(frames)
+    if n < 2:
+        return 0, n
+    shortest = max(int(min_frames), int(round(n * min_share)))
+    if shortest >= n:
+        return 0, n
+    heads = _pose_heads(frames, rest, parents, order)
+    root_index = order.index(order[0])
+    relative = heads - _horizontal(heads[:, root_index], up)[:, None, :]
+    best, score = (0, n), np.inf
+    for start in range(n - shortest):
+        for end in range(start + shortest, n):
+            distance = float(np.linalg.norm(relative[end] - relative[start], axis=-1).max())
+            if distance < score:
+                best, score = (start, end), distance
+    return best
+
+
+def _smoothstep(t: float) -> float:
+    return t * t * (3 - 2 * t)
+
+
+def blend_loop(frames, start: int, end: int, blend_frames: int = LOOP_BLEND_FRAMES,
+               up=Z_UP):
+    """Trim to the cycle `[start, end)` and blend its tail into its first pose.
+
+    Rotations blend as quaternions (shortest path) and the root's height blends too, so
+    the last frame matches the first and the restart has no pop. Horizontal travel is
+    left alone: games move the character, and rewinding it would slide them backwards.
+    """
+    clipped = list(frames)[start:end]
+    n = len(clipped)
+    if n < 2 or blend_frames < 1:
+        return clipped
+    _, first_root = clipped[0]
+    first_quat = {b: matrices_to_quaternions(np.asarray(m)) for b, m in clipped[0][0].items()}
+    tail = min(int(blend_frames), n - 1)
+    for step, index in enumerate(range(n - tail, n), start=1):
+        world, root = clipped[index]
+        t = _smoothstep(step / tail)
+        world = {b: quaternions_to_matrices(_slerp(matrices_to_quaternions(np.asarray(m)),
+                                                   first_quat[b], t))
+                 for b, m in world.items()}
+        height = (first_root - root) @ up
+        clipped[index] = (world, root + float(height) * up * t)
+    return clipped
+
+
 def _subtree(root: str, parents: dict[str, str | None]) -> list[str]:
     kids = _children(parents)
     out, stack = [], [root]
@@ -455,22 +685,22 @@ def clear_arms(frames, rest, parents, order, tails, proxy) -> None:
                 world_rot[b] = swing @ world_rot[b]
 
 
-def retarget_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
-                    hip_scale: float, align=None, frame=None, spread_degrees: float = 0.0,
-                    tails=None, clearance=None):
-    """Yield `pose_basis` dicts for every frame of a Kimodo clip.
+def retarget_pose_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
+                         hip_scale: float, align=None, frame=None, spread_degrees: float = 0.0):
+    """Yield ``(world_rot, root_pos)`` for every frame of a Kimodo clip.
 
     `axes` is `soma_to_rig_axes(...)` expressed in armature space, `global_rots` Kimodo's
     [T, 77, 3, 3] `global_rot_mats`, `hips_pos` its [T, 3] hips track. `align` comes from
-    `rest_alignment`; `frame` and `spread_degrees` drive `arm_spread`. With `clearance`
-    (an `arm_clearance.Proxy`) and the rest `tails`, arms are kept out of the body.
+    `rest_alignment`; `frame` and `spread_degrees` drive `arm_spread`.
+
+    This is the pose layer: grounding, loop trimming and arm clearance all operate on the
+    list it returns, so each one is a plain function a test can call without bpy.
     """
     root = order[0]
     rest_rot = {b: rest[b][:3, :3] for b in order}
     align = align or {b: np.eye(3) for b in order}
     upper = {lr: next((b for b in order if mapping[b] == f"{lr}Arm"), None) for lr in ("Left", "Right")}
     soma_arm_dir = {lr: axes @ np.array([1.0 if lr == "Left" else -1.0, 0, 0]) for lr in ("Left", "Right")}
-    frames = []
     for t in range(len(global_rots)):
         world_rot = {}
         delta = {b: axes @ global_rots[t, SOMA_INDEX[mapping[b]]] @ axes.T for b in order}
@@ -482,7 +712,19 @@ def retarget_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
                     world_rot[b] = arm_spread(mapping[b], delta[upper[lr]], soma_arm_dir[lr], frame,
                                               spread_degrees) @ world_rot[b]
         travel = axes @ (hips_pos[t] - hips_pos[0]) * hip_scale
-        frames.append((world_rot, rest[root][:3, 3] + travel))
+        yield world_rot, rest[root][:3, 3] + travel
+
+
+def retarget_frames(rest, parents, order, mapping, axes, global_rots, hips_pos,
+                    hip_scale: float, align=None, frame=None, spread_degrees: float = 0.0,
+                    tails=None, clearance=None):
+    """Yield `pose_basis` dicts for every frame, after optional arm clearance.
+
+    See `retarget_pose_frames` for the arguments. With `clearance` (an
+    `arm_clearance.Proxy`) and the rest `tails`, arms are kept out of the body.
+    """
+    frames = list(retarget_pose_frames(rest, parents, order, mapping, axes, global_rots,
+                                       hips_pos, hip_scale, align, frame, spread_degrees))
     if clearance is not None and tails is not None:
         clear_arms(frames, rest, parents, order, tails, clearance)
     for world_rot, root_pos in frames:
@@ -571,6 +813,50 @@ def body_proxy(arm, mapping, heads, tails, up):  # pragma: no cover - needs bpy
     return arm_clearance.build_proxy(mapping, np.array(points), owners, segments, height)
 
 
+def _skinned_meshes(arm):  # pragma: no cover - needs bpy
+    import bpy
+
+    return [o for o in bpy.data.objects if o.type == "MESH" and o.find_armature() == arm]
+
+
+def mesh_bounds(arm, up):  # pragma: no cover - needs bpy
+    """(floor, top) of the skinned meshes' rest pose, in armature space along `up`."""
+    inv = np.array(arm.matrix_world.inverted())
+    low, high = np.inf, -np.inf
+    for mesh in _skinned_meshes(arm):
+        to_arm = inv @ np.array(mesh.matrix_world)
+        for v in mesh.data.vertices:
+            height = float((to_arm @ np.append(np.array(v.co), 1.0))[:3] @ up)
+            low, high = min(low, height), max(high, height)
+    return low, high
+
+
+def foot_vertices(arm, mapping):  # pragma: no cover - needs bpy
+    """Rest positions and skin weights of the vertices that make up the soles.
+
+    Grounding against the actual sole, not the ankle joint, is what stops a boot from
+    clipping the floor when the foot rolls. Vertices are used when a foot or toe bone is
+    their strongest influence; the strongest four influences are normalised.
+    """
+    inv = np.array(arm.matrix_world.inverted())
+    foot = set(_foot_bones(mapping))
+    points, weights = [], []
+    for mesh in _skinned_meshes(arm):
+        to_arm = inv @ np.array(mesh.matrix_world)
+        names = {g.index: g.name for g in mesh.vertex_groups}
+        for v in mesh.data.vertices:
+            pairs = [(names[g.group], float(g.weight)) for g in v.groups
+                     if names.get(g.group) in foot and g.weight > 0]
+            if not pairs or max(weight for _, weight in pairs) < 0.2:
+                continue
+            pairs.sort(key=lambda pair: -pair[1])
+            pairs = pairs[:4]
+            total = sum(weight for _, weight in pairs)
+            points.append((to_arm @ np.append(np.array(v.co), 1.0))[:3])
+            weights.append({bone: weight / total for bone, weight in pairs})
+    return np.asarray(points), weights
+
+
 def main() -> None:  # pragma: no cover - needs bpy
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rig", required=True, type=Path, help="SkinTokens-rigged GLB")
@@ -582,6 +868,10 @@ def main() -> None:  # pragma: no cover - needs bpy
                     help="play the clip faster (>1) or slower (<1); 1.25 gives strikes snap")
     ap.add_argument("--no-clearance", action="store_true",
                     help="let arms pass through the body (debug; clearance is on by default)")
+    ap.add_argument("--no-ground", action="store_true",
+                    help="let feet pass through the rest floor (debug; grounding is on by default)")
+    ap.add_argument("--loop", action="store_true",
+                    help="trim to the best cycle and blend the seam; for clips that repeat")
     ap.add_argument("--stiff-fingers", action="store_true",
                     help="fingers move rigidly with the hand (for gloves, mittens or bad hand weights)")
     ap.add_argument("--arm-spread", type=float, default=0.0,
@@ -621,24 +911,64 @@ def main() -> None:  # pragma: no cover - needs bpy
     rig_hip = float(heads[order[0]] @ up - lowest)
     scale = rig_hip / soma_hip_height(joints0[None])
 
-    scene = bpy.context.scene
-    scene.render.fps = 30
-    scene.frame_start, scene.frame_end = 1, int(np.ceil(key_frame(len(g), args.speed)))
-    for pb in arm.pose.bones:
-        pb.rotation_mode = "QUATERNION"
-    clearance = None if args.no_clearance else body_proxy(arm, mapping, heads, tails, up)
     tpose = soma_tpose(g[:1], joints0[None])
     align = None if args.no_align else rest_alignment(parents, heads, mapping, axes, tpose)
-    for t, basis in enumerate(retarget_frames(rest, parents, order, mapping, axes, g, hips,
-                                              scale, align, frame, args.arm_spread,
-                                              tails, clearance), start=1):
+    frames = list(retarget_pose_frames(rest, parents, order, mapping, axes, g, hips,
+                                       scale, align, frame, args.arm_spread))
+    clearance = None if args.no_clearance else body_proxy(arm, mapping, heads, tails, up)
+    if clearance is not None:
+        clear_arms(frames, rest, parents, order, tails, clearance)
+
+    floor = _rest_floor(rest, tails, mapping, up)
+    height = max(float(heads[b] @ up) for b in heads) - floor
+
+    sole_points, sole_weights = foot_vertices(arm, mapping)
+    mesh_low, mesh_high = mesh_bounds(arm, up)
+    if len(sole_points) and np.isfinite(mesh_low) and mesh_high > mesh_low:
+        floor, height = mesh_low, mesh_high - mesh_low
+        def track(fs):
+            return skin_track(fs, rest, parents, order, sole_points, sole_weights)
+    else:  # a rig with no skinned sole vertices: fall back to the ankle joints
+        def track(fs):
+            return _foot_track(fs, rest, parents, order, tails, mapping, up)
+
+    before_pen = penetration(track(frames), floor, height, up)
+    before_gap = loop_gap(frames, rest, parents, order, height, up)
+
+    if args.loop:
+        start, end = best_loop(frames, rest, parents, order, up)
+        frames = frames[start:end]
+    if not args.no_ground:
+        frames = ground_frames(frames, rest, parents, order, tails, mapping, floor, up,
+                               track=track(frames))
+    if args.loop:
+        frames = blend_loop(frames, 0, len(frames), up=up)
+    if not args.no_ground:
+        frames = lift_above_floor(frames, rest, parents, order, tails, mapping, floor, up,
+                                  track=track(frames))
+
+    after_pen = penetration(track(frames), floor, height, up)
+    after_gap = loop_gap(frames, rest, parents, order, height, up)
+    print(f"grounding: penetration {100 * before_pen:.2f}% -> {100 * after_pen:.2f}% of height "
+          f"({'off' if args.no_ground else 'on'})")
+    print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
+          f"({'trimmed' if args.loop else 'off'}, {len(frames)} frames)")
+
+    scene = bpy.context.scene
+    scene.render.fps = 30
+    scene.frame_start = 1
+    scene.frame_end = int(np.ceil(key_frame(len(frames), args.speed)))
+    for pb in arm.pose.bones:
+        pb.rotation_mode = "QUATERNION"
+    for t, (world_rot, root_pos) in enumerate(frames, start=1):
+        basis = pose_basis(rest, parents, order, world_rot, root_pos)
         for name, mtx in basis.items():
             pb = arm.pose.bones[name]
             pb.matrix_basis = Matrix(mtx.tolist())
             pb.keyframe_insert("rotation_quaternion", frame=key_frame(t, args.speed))
             if parents[name] is None:
                 pb.keyframe_insert("location", frame=key_frame(t, args.speed))
-    print(f"retargeted {len(g)} frames onto {len(order)} bones, hip scale {scale:.3f}")
+    print(f"retargeted {len(frames)} frames onto {len(order)} bones, hip scale {scale:.3f}")
     print("side check:", {k: v for k, v in mapping.items() if v in ("LeftHand", "RightHand", "Head")})
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

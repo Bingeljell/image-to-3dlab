@@ -60,6 +60,9 @@ RIG_SECONDS = 70.0
 ANIMATE_SECONDS = 12.0
 MAX_ARM_SPREAD = 30.0
 SPEED_RANGE = (0.5, 2.0)
+# Clips that return to their first pose: walk, run, idle, sneak and strafe, including their
+# takes and variants (walk_b, walk_woman, strafe_left). One place, shared by the tab.
+LOOPING_PRESETS = ("idle", "walk", "run", "sneak", "strafe")
 
 SKINTOKENS_LICENSE = {
     "name": "MIT",
@@ -262,10 +265,18 @@ def rig_commands(source: Path, result: Path) -> list[tuple[list[str], Path]]:
     ]
 
 
+def repeats(preset_id: str) -> bool:
+    """Whether a preset is a cycle, so the retargeter should trim and blend its loop."""
+    return preset_id.startswith(LOOPING_PRESETS)
+
+
 def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float,
-                    speed: float = 1.0) -> list[str]:
-    return [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
-            "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
+                    speed: float = 1.0, repeat: bool = False) -> list[str]:
+    command = [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
+               "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
+    if repeat:
+        command.append("--loop")
+    return command
 
 
 def clamp_speed(value: Any, preset: dict[str, Any]) -> float:
@@ -397,9 +408,11 @@ class AnimateJobManager:
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
             record["motion"]["speed"] = pace
+            record["motion"]["loop"] = repeats(preset_id)
+            record["motion"]["grounded"] = True
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
-                                               result, spread, pace), REPO)],
+                                               result, spread, pace, repeats(preset_id)), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)
 

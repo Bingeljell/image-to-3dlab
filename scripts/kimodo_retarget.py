@@ -532,7 +532,9 @@ def ground_frames(frames, rest, parents, order, tails, mapping, floor: float,
     if track is None:
         track = _foot_track(frames, rest, parents, order, tails, mapping, up)
     low = (np.asarray(track) @ up).min(axis=1)
-    required = floor - low
+    # Grounding only ever lifts. Lowering a frame whose feet are already clear would
+    # flatten a jump, a flying kick, or the airborne part of a run.
+    required = np.maximum(floor - low, 0.0)
     smoothed = _moving_average(required, smooth_frames)
     lift = np.maximum(smoothed, required)
     return [(world_rot, root_pos + float(offset) * up)
@@ -593,31 +595,45 @@ def _slerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
     return (np.sin((1 - t) * theta) * a + np.sin(t * theta) * b) / np.sin(theta)
 
 
-def best_loop(frames, rest, parents, order, up=Z_UP,
-              min_frames: int = LOOP_MIN_FRAMES, min_share: float = LOOP_MIN_SHARE) -> tuple[int, int]:
-    """The pair of frames whose poses match best: `(start, end)`, with `end` excluded.
+def loop_candidates(frames, rest, parents, order, up=Z_UP,
+                    min_frames: int = LOOP_MIN_FRAMES,
+                    min_share: float = LOOP_MIN_SHARE) -> list[tuple[int, int, float]]:
+    """The best frame pair for each distinct cycle length, best match first.
 
-    Poses are compared with horizontal root travel removed and vertical height kept, so a
-    walking cycle matches itself a gait later rather than a later frame that only happens
-    to be at the same height.
+    Each entry is ``(start, end, distance)``; `end` is excluded and `distance` is the
+    largest joint move between the two poses (horizontal root travel removed, vertical
+    height kept). Comparing per bone, not as an unordered cloud of points, is what stops
+    a mirrored half-step (left leg forward vs right leg forward) counting as a match.
     """
     frames = list(frames)
     n = len(frames)
     if n < 2:
-        return 0, n
+        return []
     shortest = max(int(min_frames), int(round(n * min_share)))
     if shortest >= n:
-        return 0, n
+        return []
     heads = _pose_heads(frames, rest, parents, order)
     root_index = order.index(order[0])
     relative = heads - _horizontal(heads[:, root_index], up)[:, None, :]
-    best, score = (0, n), np.inf
+    by_length: dict[int, tuple[int, int, float]] = {}
     for start in range(n - shortest):
         for end in range(start + shortest, n):
             distance = float(np.linalg.norm(relative[end] - relative[start], axis=-1).max())
-            if distance < score:
-                best, score = (start, end), distance
-    return best
+            length = end - start
+            if length not in by_length or distance < by_length[length][2]:
+                by_length[length] = (start, end, distance)
+    return sorted(by_length.values(), key=lambda item: item[2])
+
+
+def best_loop(frames, rest, parents, order, up=Z_UP,
+              min_frames: int = LOOP_MIN_FRAMES, min_share: float = LOOP_MIN_SHARE) -> tuple[int, int]:
+    """The pair of frames whose poses match best: `(start, end)`, with `end` excluded.
+
+    See `loop_candidates` for how poses are compared. Falls back to the whole clip when
+    nothing is long enough to call a cycle.
+    """
+    candidates = loop_candidates(frames, rest, parents, order, up, min_frames, min_share)
+    return (candidates[0][0], candidates[0][1]) if candidates else (0, len(frames))
 
 
 def _smoothstep(t: float) -> float:
@@ -629,8 +645,9 @@ def blend_loop(frames, start: int, end: int, blend_frames: int = LOOP_BLEND_FRAM
     """Trim to the cycle `[start, end)` and blend its tail into its first pose.
 
     Rotations blend as quaternions (shortest path) and the root's height blends too, so
-    the last frame matches the first and the restart has no pop. Horizontal travel is
-    left alone: games move the character, and rewinding it would slide them backwards.
+    the seam is smooth. The duplicated last frame is then dropped: keeping it would show
+    the first pose twice at the wrap, a one-frame hitch. Horizontal travel is left alone:
+    games move the character, and rewinding it would slide them backwards.
     """
     clipped = list(frames)[start:end]
     n = len(clipped)
@@ -647,7 +664,7 @@ def blend_loop(frames, start: int, end: int, blend_frames: int = LOOP_BLEND_FRAM
                  for b, m in world.items()}
         height = (first_root - root) @ up
         clipped[index] = (world, root + float(height) * up * t)
-    return clipped
+    return clipped[:-1]
 
 
 def _subtree(root: str, parents: dict[str, str | None]) -> list[str]:
@@ -935,8 +952,11 @@ def main() -> None:  # pragma: no cover - needs bpy
     before_pen = penetration(track(frames), floor, height, up)
     before_gap = loop_gap(frames, rest, parents, order, height, up)
 
+    trim = None
     if args.loop:
-        start, end = best_loop(frames, rest, parents, order, up)
+        candidates = loop_candidates(frames, rest, parents, order, up)
+        start, end, _ = candidates[0]
+        trim = (start, end, candidates)
         frames = frames[start:end]
     if not args.no_ground:
         frames = ground_frames(frames, rest, parents, order, tails, mapping, floor, up,
@@ -949,10 +969,19 @@ def main() -> None:  # pragma: no cover - needs bpy
 
     after_pen = penetration(track(frames), floor, height, up)
     after_gap = loop_gap(frames, rest, parents, order, height, up)
+    detail = ""
+    if args.loop:
+        start, end, candidates = trim
+        runner = ""
+        if len(candidates) > 1:
+            length = candidates[1][1] - candidates[1][0]
+            runner = f", runner-up {length} frames at {100 * candidates[1][2] / height:.2f}%"
+        detail = (f"; chose frames {start}..{end} ({end - start} frames, "
+                  f"distance {100 * candidates[0][2] / height:.2f}%{runner})")
     print(f"grounding: penetration {100 * before_pen:.2f}% -> {100 * after_pen:.2f}% of height "
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
-          f"({'trimmed' if args.loop else 'off'}, {len(frames)} frames)")
+          f"({'trimmed' if args.loop else 'off'}, {len(frames)} frames){detail}")
 
     scene = bpy.context.scene
     scene.render.fps = 30

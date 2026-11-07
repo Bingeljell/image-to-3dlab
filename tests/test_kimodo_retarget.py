@@ -551,19 +551,46 @@ def test_best_loop_finds_the_repeated_cycle_not_the_nearest_frame():
     assert start % 10 == 0
 
 
-def test_blend_loop_matches_pose_and_height_and_keeps_forward_travel():
+def test_best_loop_rejects_a_mirrored_half_step():
+    """A walk's half-step swaps left and right; it looks like the other foot, not the same
+    pose. The full cycle must win even when the half-step is allowed by the length floor."""
+    parents, heads, roles = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    root = heads[order[0]]
+    frames = []
+    for t in range(40):
+        phase = 2 * np.pi * t / 20
+        world = {b: np.eye(3) for b in order}
+        for role, offset in (("Larm", 0.0), ("Rarm", np.pi / 2)):
+            angle = 0.5 * np.sin(phase + offset)
+            c, s = np.cos(angle), np.sin(angle)
+            world[roles[role]] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+        frames.append((world, root + np.array([0, 0.02 * t, 0])))
+    candidates = kr.loop_candidates(frames, rest, parents, order, min_frames=5, min_share=0.0)
+    best = candidates[0]
+    assert best[1] - best[0] == 20  # one full left+right cycle
+    by_length = {end - start: distance for start, end, distance in candidates}
+    assert by_length[10] > by_length[20]  # the mirrored half-step is visibly worse
+
+
+def test_blend_loop_drops_the_duplicate_first_pose_and_keeps_forward_travel():
     parents, heads, roles = _humanoid()
     frames, rest, order = _cycling_frames(parents, heads, roles)
     start, end = kr.best_loop(frames, rest, parents, order)
     height = max(heads[b][2] for b in heads) - min(
         float(np.asarray(heads[bone])[2]) for bone in kr._foot_bones(
             kr.map_skintokens_to_soma(parents, heads)[0]))
-    assert kr.loop_gap(frames, rest, parents, order, height) > 0
+    before = kr.loop_gap(frames, rest, parents, order, height)
+    assert before > 0
     blended = kr.blend_loop(frames, start, end)
-    assert kr.loop_gap(blended, rest, parents, order, height) == pytest.approx(0, abs=1e-9)
+    # The frame that matched the first is dropped; keeping it would show the pose twice.
+    assert len(blended) == end - start - 1
+    seam = kr.loop_gap(blended, rest, parents, order, height)
+    assert 0 < seam < before
+    assert seam < 0.05 * height  # a normal frame step at the wrap, not the old jump
     first_quat = kr.matrices_to_quaternions(np.asarray(blended[0][0][roles["Larm"]]))
     last_quat = kr.matrices_to_quaternions(np.asarray(blended[-1][0][roles["Larm"]]))
-    assert abs(float(first_quat @ last_quat)) == pytest.approx(1, abs=1e-9)
+    assert abs(float(first_quat @ last_quat)) < 1 - 1e-6  # not a duplicate
     # The seam keeps the walk moving forward; only height is pulled back to the start.
     assert blended[-1][1][1] > blended[0][1][1]
     assert blended[-1][1][2] == pytest.approx(blended[0][1][2])
@@ -586,6 +613,22 @@ def test_ground_frames_lifts_every_penetrating_frame_onto_the_floor():
     after = kr.penetration(kr._foot_track(grounded, rest, parents, order, tails, mapping),
                            floor, height)
     assert after == pytest.approx(0, abs=1e-12)
+
+
+def test_grounding_never_pulls_an_airborne_frame_down():
+    """A jump, flying kick or a run's flight phase has both feet above the floor. Grounding
+    may only lift, so those frames keep their height instead of being flattened."""
+    parents, heads, _ = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    _, tails = _rest_and_tails(parents, heads)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    base = heads[order[0]]
+    floor = kr._rest_floor(rest, tails, mapping)
+    frames = [({b: np.eye(3) for b in order}, base + np.array([0, 0, dz]))
+              for dz in (0.4, 0.6, 0.5)]
+    grounded = kr.ground_frames(frames, rest, parents, order, tails, mapping, floor)
+    for before, after in zip(frames, grounded):
+        assert after[1][2] == pytest.approx(before[1][2])
 
 
 def test_lift_above_floor_raises_only_the_frames_that_dip():
@@ -638,7 +681,7 @@ def test_grounding_keeps_the_hips_own_bob_over_the_feet():
     for lr in "LR":  # bend both knees a little: the hips sit lower over the same feet
         bent[roles[f"{lr}shin"]] = kr.rotation_between(
             heads[roles[f"{lr}foot"]] - heads[roles[f"{lr}shin"]], np.array([0, 0.2, -1.0]))
-    frames = [(straight, base), (bent, base)]
+    frames = [(straight, base), (bent, base - np.array([0, 0, 0.1]))]
     floor = kr._rest_floor(rest, tails, mapping)
     grounded = kr.ground_frames(frames, rest, parents, order, tails, mapping, floor)
     hips = [float((kr.pose_matrices(rest, parents, order, world, root)[order[0]][:3, 3])[2])

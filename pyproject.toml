@@ -1,6 +1,6 @@
 [project]
 name = "image-to-3dlab"
-version = "0.5.7"
+version = "0.5.8"
 requires-python = ">=3.11,<3.12"
 dependencies = [
   "torch>=2.4",

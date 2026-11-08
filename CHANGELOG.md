@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-11-08
+
 ### Added
 - Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
   The licence record that travels with each file says the same, separately from the model's licence.

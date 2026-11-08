@@ -36,6 +36,7 @@ def upstream(tmp_path: Path) -> Path:
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
     (repo / "pyproject.toml").write_text("[project]\nname = \"lab\"\nversion = \"0\"\n")
+    (repo / "uv.lock").write_text("version = 1\n")
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "one")
     _git(repo, "tag", "v0.1.0")
@@ -322,6 +323,30 @@ def test_installs_from_uv_lock(tmp_path, upstream, fake_bin):
     assert "requirements.lock" not in uv_calls
 
 
+def _an_older_release(upstream: Path, tag: str) -> None:
+    """A release from before uv.lock: 0.5.7 and older ship requirements.lock instead."""
+    _git(upstream, "rm", "-q", "uv.lock", "pyproject.toml")
+    (upstream / "requirements.lock").write_text("numpy==1.26.4\n")
+    _git(upstream, "add", ".")
+    _git(upstream, "commit", "-q", "-m", "old layout")
+    _git(upstream, "tag", tag)
+
+
+def test_a_release_from_before_uv_lock_still_installs(tmp_path, upstream, fake_bin):
+    """The installer is served from main but checks out the newest release. On 2026-11-08
+    main moved to uv.lock while v0.5.7 still had requirements.lock, and every install
+    stopped at `uv export`: No pyproject.toml found."""
+    _an_older_release(upstream, "v0.3.0")
+    done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"))
+    assert done.returncode == 0, done.stderr
+    assert "Version: v0.3.0" in done.stdout
+    uv_calls = (tmp_path / "uv.log").read_text()
+    assert "sync" not in uv_calls and "export" not in uv_calls
+    assert "venv --quiet --allow-existing --python 3.11" in uv_calls
+    assert "pip install --quiet --python" in uv_calls
+    assert uv_calls.strip().splitlines()[-1].endswith("/lab/requirements.lock")
+
+
 def test_an_update_never_removes_packages_it_did_not_install(tmp_path, upstream, fake_bin):
     """uv sync is exact by default: it deletes anything not in the lock. Backends install
     into this same environment (scripts/bootstrap_sf3d.py pip-installs with this
@@ -573,6 +598,22 @@ def test_an_nvidia_install_is_left_alone(tmp_path, upstream, fake_bin, amd_venv)
     assert "requirements.lock" not in uv_calls
     assert "requirements.rocm.lock" not in uv_calls
     assert "rocm" not in uv_calls
+
+
+def test_an_amd_install_of_an_older_release_still_drops_cuda(tmp_path, upstream, fake_bin,
+                                                             amd_venv):
+    _an_older_release(upstream, "v0.3.0")
+    (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
+    _git(upstream, "commit", "-q", "-am", "cuda lock")
+    _git(upstream, "tag", "v0.3.1")
+
+    done = _amd_run(tmp_path, fake_bin, upstream, amd_venv)
+    assert done.returncode == 0, done.stderr
+    uv_calls = (tmp_path / "uv.log").read_text()
+    assert "export" not in uv_calls and "sync" not in uv_calls
+    assert ".venv/requirements.rocm.txt" in uv_calls
+    filtered = (tmp_path / "lab" / ".venv" / "requirements.rocm.txt").read_text()
+    assert "numpy==1.26.4" in filtered and "torch==" not in filtered
 
 
 def test_the_uv_lock_covers_every_requirement():

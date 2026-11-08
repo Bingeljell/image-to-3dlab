@@ -153,13 +153,25 @@ PY="$DIR/.venv/bin/python"
 # --inexact: add and update the lock's packages, but never delete one. Backends install
 # into this same environment (the SF3D setup script pip-installs with this interpreter),
 # so an exact sync would remove a working backend on the next update.
+#
+# This script is served from main but checks out a release, and releases up to 0.5.7
+# ship requirements.lock instead of uv.lock. Those install from that file, as they did.
+OLD_REQS=""
+if [ "$DRY" != 1 ] && [ ! -f "$DIR/uv.lock" ]; then
+  OLD_REQS="$DIR/requirements.lock"
+  [ -f "$OLD_REQS" ] || OLD_REQS="$DIR/requirements.txt"
+fi
 if [ "$GPU" = amd ]; then
   run "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
   if [ "$DRY" != 1 ]; then
     [ -x "$PY" ] || die "The Python environment in $DIR/.venv is missing, so the AMD packages cannot be set up. Delete $DIR/.venv and run this again."
     # Inside the venv: it belongs to this install, and git already ignores it there.
     ROCM_FILE="$DIR/.venv/requirements.rocm.txt"
-    (cd "$DIR" && "$UV" export --frozen --no-dev --output-file "$ROCM_FILE")
+    if [ -n "$OLD_REQS" ]; then
+      cp "$OLD_REQS" "$ROCM_FILE"
+    else
+      (cd "$DIR" && "$UV" export --frozen --no-dev --output-file "$ROCM_FILE")
+    fi
     # From inside $DIR: `-m` finds the package in the current folder, and under
     # `curl | bash` that folder is wherever the user happened to be.
     (cd "$DIR" && "$PY" -m image_to_3dlab.host without-cuda "$ROCM_FILE") >"$ROCM_FILE.tmp"
@@ -169,6 +181,9 @@ if [ "$GPU" = amd ]; then
 else
   if [ "$DRY" = 1 ]; then
     say "would run: uv sync --frozen --no-dev --inexact --python 3.11 (in $DIR)"
+  elif [ -n "$OLD_REQS" ]; then
+    "$UV" venv --quiet --allow-existing --python 3.11 "$DIR/.venv"
+    "$UV" pip install --quiet --python "$PY" -r "$OLD_REQS"
   else
     (cd "$DIR" && "$UV" sync --frozen --no-dev --inexact --python 3.11)
   fi

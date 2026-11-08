@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use uv; they do not require mise.
 
 ### Fixed
+- The one-line installers work again on 0.5.7 and older releases. They had moved to `uv.lock`
+  before any release shipped one, so installs and updates stopped with "No `pyproject.toml` found".
 - Pixal3D and TRELLIS.2 models are now marked `commercial-clear`, because the DINOv3 License has
   no commercial limit. Its use bans are still listed in every record. A commercial run manifest
   is no longer refused for these engines, and command-line runs now file them under `commercial`.

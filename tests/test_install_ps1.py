@@ -19,8 +19,26 @@ def test_the_windows_installer_exports_the_lock_as_install_sh_syncs_it():
     assert "uv sync --frozen --no-dev --inexact --python 3.11" in sh
     assert "uv export --frozen --no-dev" in ps1
     assert ps1.index("uv export --frozen --no-dev") < ps1.index("& uv pip install --quiet --python $Py -r $Reqs")
-    assert "requirements.lock" not in ps1
-    assert "requirements.txt" not in ps1
+
+
+def test_a_release_from_before_uv_lock_installs_from_its_requirements_lock():
+    """The installer is served from main but checks out the newest release. On 2026-11-08
+    main moved to uv.lock while v0.5.7 still had requirements.lock: `uv export` found no
+    pyproject.toml and the next line crashed reading a file it never wrote."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    has_lock = 'if (Test-Path -LiteralPath (Join-Path $Dir "uv.lock"))'
+    assert has_lock in ps1
+    branch = ps1[ps1.index(has_lock):ps1.index("$TorchPin = ")]
+    assert branch.index("uv export --frozen --no-dev") < branch.index("} else {")
+    old = branch[branch.index("} else {"):]
+    assert '$Reqs = Join-Path $Dir "requirements.lock"' in old
+    assert '$Reqs = Join-Path $Dir "requirements.txt"' in old
+
+
+def test_a_failed_export_stops_with_a_message_not_a_powershell_trace():
+    ps1 = PS1.read_text(encoding="utf-8")
+    after = ps1[ps1.index("& uv export --frozen --no-dev"):]
+    assert after.index("if ($LASTEXITCODE -ne 0) { Pop-Location; Die ") < after.index("$TorchPin = ")
 
 
 def test_cuda_pytorch_is_installed_at_the_locks_versions():

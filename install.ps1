@@ -89,10 +89,18 @@ $Py = Join-Path $Dir ".venv\Scripts\python.exe"
 
 # uv.lock pins every package to versions tested together, as install.sh installs them.
 # Export it to a pip-format file so the CUDA pin parser below can read torch== lines.
-$Reqs = Join-Path $Dir ".venv\requirements.uv.txt"
-Push-Location $Dir
-& uv export --frozen --no-dev --output-file $Reqs
-Pop-Location
+# This script is served from main but checks out a release, and releases up to 0.5.7
+# ship requirements.lock instead (tested in tests/test_install_ps1.py).
+if (Test-Path -LiteralPath (Join-Path $Dir "uv.lock")) {
+    $Reqs = Join-Path $Dir ".venv\requirements.uv.txt"
+    Push-Location $Dir
+    & uv export --frozen --no-dev --output-file $Reqs
+    if ($LASTEXITCODE -ne 0) { Pop-Location; Die "Could not read the package list (uv.lock) in $Dir. Please report this with the lines above." }
+    Pop-Location
+} else {
+    $Reqs = Join-Path $Dir "requirements.lock"
+    if (-not (Test-Path -LiteralPath $Reqs)) { $Reqs = Join-Path $Dir "requirements.txt" }
+}
 $TorchPin = Select-String -LiteralPath $Reqs -Pattern '^torch==([^ ;]+)' | Select-Object -First 1
 $VisionPin = Select-String -LiteralPath $Reqs -Pattern '^torchvision==([^ ;]+)' | Select-Object -First 1
 $TorchVersion = if ($TorchPin) { $TorchPin.Matches[0].Groups[1].Value } else { $null }

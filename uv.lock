@@ -379,7 +379,7 @@ wheels = [
 
 [[package]]
 name = "image-to-3dlab"
-version = "0.5.7"
+version = "0.5.8"
 source = { virtual = "." }
 dependencies = [
     { name = "fast-simplification" },

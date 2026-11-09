@@ -139,7 +139,7 @@ def test_an_old_move_name_still_finds_the_move_that_replaced_it(tmp_path, motion
 def test_each_move_says_whether_it_stays_in_place(tmp_path, motions):
     # Loops travel nowhere in a game; one-offs keep their travel. presets.json says which, per move.
     shipped = {p["id"]: p for p in aa.presets()}
-    for move in ("idle", "walk", "run_b", "sneak", "strafe_left_b", "walk_woman"):
+    for move in ("idle", "walk", "run_b", "sneak", "strafe_left_b", "strafe_right", "walk_woman"):
         assert aa.default_in_place(shipped[move]) is True, move
     for move in ("jump", "roll", "punch", "death", "cheer", "kata", "sit_b"):
         assert aa.default_in_place(shipped[move]) is False, move
@@ -374,7 +374,7 @@ def test_the_shipped_preset_moves_are_all_in_the_repo():
     """The moves live in git: a fresh clone with an empty motions folder offers no moves."""
     shipped = aa.presets()
     assert len(shipped) >= 29, len(shipped)  # the reviewed move set, takes A and B where both are kept
-    assert {"idle", "walk", "run_b", "dance"} <= {p["id"] for p in shipped}
+    assert {"idle", "walk", "run_b", "dance", "strafe_right"} <= {p["id"] for p in shipped}
     assert not {"roundhouse", "flying_kick"} & {p["id"] for p in shipped}
 
 

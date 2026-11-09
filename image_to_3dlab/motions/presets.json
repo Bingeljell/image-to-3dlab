@@ -189,6 +189,17 @@
       "take": 0
     },
     {
+      "id": "strafe_right",
+      "label": "Strafe right",
+      "seconds": 3.0,
+      "in_place": true,
+      "prompt": "A person strafes to the right, side-stepping, keeping their face forward.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": 1,
+      "take": 0,
+      "mirrored_from": "strafe_left_b"
+    },
+    {
       "id": "death",
       "label": "Death",
       "seconds": 3.0,

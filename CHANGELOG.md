@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - A failed check on a pull request from a fork still leaves a note. GitHub leaves the pull request list empty on those runs, so the note is found from the branch instead.
+- A Hero-finished head no longer grows a second set of ears. The body's old head, kept as a
+  liner under the new hair, carried more volume than the new head and poked out beside it; the
+  liner is now tucked inside the new head, above the neck only, and faces with no new head
+  behind them are dropped.
 
 ## [0.5.8] - 2026-11-08
 

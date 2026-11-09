@@ -257,3 +257,60 @@ def test_regions_survive_a_rescaled_re_export():
     verts = np.array([[0, 0, 0], [0, 1, 0], [0, 2, 0]], float)
     rig = verts * 3 + 10
     assert hero.regions(verts, rig, np.array([7, 8, 9])).tolist() == [7, 8, 9]
+
+
+def _sphere(radius, at=(0.0, 0.0, 0.0), subdivisions=2):
+    import trimesh
+
+    mesh = trimesh.creation.icosphere(subdivisions=subdivisions, radius=radius)
+    mesh.apply_translation(at)
+    return mesh
+
+
+def test_tuck_liner_pulls_an_oversized_old_head_inside_the_new_one():
+    # The space marine (2026-11-09): the body's old head carried more volume than the new one and
+    # had ears the new head lacks, so the liner's ears poked out beside the new ears as a second
+    # set. Ray from the new head's centre: anything outside is pulled to just inside the surface.
+    import trimesh
+
+    new_head = _sphere(1.0)
+    old = trimesh.util.concatenate([_sphere(1.45), _sphere(0.3, (1.15, 0.1, 0.0), subdivisions=1)])
+    verts = np.vstack([old.vertices, [[0.0, -2.0, 0.0]]])   # the old head, then a shoulder point
+    liner = np.r_[np.ones(len(old.vertices), bool), False]
+
+    moved, drop = hero.tuck_liner(verts, old.faces, liner, new_head, cut=-0.85,
+                                  axis=np.array([0.0, 0.0]), radius=1.0)
+
+    old_head = moved[:len(old.vertices)]
+    beside = (old.vertices[:, 1] > -0.85) & (np.abs(old.vertices[:, 0]) > np.abs(old.vertices[:, 2]))
+    assert np.linalg.norm(old_head[beside], axis=1).max() <= 1.0 + 1e-6  # no second ear
+    assert np.allclose(old_head[~beside], old.vertices[~beside])         # the back, neck and collar stay
+    assert not drop.any()                                               # every ray hit the new head
+    assert np.allclose(moved[-1], [0.0, -2.0, 0.0])                     # the shoulder is untouched
+
+
+def test_tuck_liner_leaves_the_back_of_the_liner_alone():
+    # The liner is what fills the gap under the hair at the back. Pulling it in there showed the
+    # new head's own neck through the gap, so only what shows beside the head is pulled in.
+    new_head = _sphere(1.0)
+    verts = np.array([[0.0, 0.2, -1.4]])        # behind the head and outside it
+    moved, _ = hero.tuck_liner(verts, np.zeros((0, 3), int), np.ones(1, bool), new_head,
+                               cut=-0.85, axis=np.array([0.0, 0.0]), radius=1.0)
+    assert np.allclose(moved, verts)
+
+
+def test_tuck_liner_drops_faces_with_no_new_head_behind_them():
+    # A new head is cut open at the neck. Liner points below its jaw have no head behind them:
+    # nothing can hide them, so their faces go rather than showing old skin.
+    new_head = _sphere(1.0)
+    faces = new_head.faces
+    new_head.update_faces(new_head.vertices[faces][:, :, 1].min(axis=1) > 0.1)  # open at the neck
+    new_head.remove_unreferenced_vertices()
+
+    verts = np.array([[0.6, -0.5, 0.0], [0.9, -0.5, 0.0], [0.9, -0.5, 0.2], [0.6, -0.5, 0.2]])
+    faces = np.array([[0, 1, 2], [0, 2, 3]])
+    moved, drop = hero.tuck_liner(verts, faces, np.ones(4, bool), new_head, cut=-0.9,
+                                  axis=np.array([0.0, 0.0]), radius=1.0)
+
+    assert drop.tolist() == [True, True]
+    assert np.allclose(moved, verts)                              # nothing to pull them to

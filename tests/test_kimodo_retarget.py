@@ -705,3 +705,59 @@ def test_grounding_keeps_the_hips_own_bob_over_the_feet():
             for world, root in grounded]
     assert hips[1] < hips[0]
 
+
+
+def test_moving_frames_skips_the_standing_start_of_a_travelling_clip():
+    """Kimodo clips open standing; two still frames match perfectly, so the picker used to
+    choose a sprint's wind-up as its cycle."""
+    parents, heads, roles = _humanoid()
+    _, order = _rest_mats(parents, heads)
+    root = heads[order[0]]
+    frames = []
+    for t in range(30):
+        world = {b: np.eye(3) for b in order}
+        if t >= 6:  # the cycle only starts moving at frame 6
+            angle = 0.5 * np.sin(2 * np.pi * (t - 6) / 10)
+            c, s = np.cos(angle), np.sin(angle)
+            world[roles["Larm"]] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+        frames.append((world, root + np.array([0, 0.0 if t < 6 else 0.04 * (t - 6), 0])))
+    usable = kr.moving_frames(frames, height=1.6)
+    assert usable is not None
+    assert not usable[:6].any() and usable[8:].all()
+    # An idle sways but does not travel: every frame is a fair place to start a loop.
+    idle = [(world, root + np.array([0, 0, 0.002 * t])) for t, (world, _) in enumerate(frames)]
+    assert kr.moving_frames(idle, height=1.6) is None
+
+
+def test_a_cycle_is_picked_over_a_perfect_match_between_two_still_frames():
+    parents, heads, roles = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    root = heads[order[0]]
+    frames = []
+    for t in range(36):
+        world = {b: np.eye(3) for b in order}
+        moving = t >= 6
+        if moving:
+            angle = 0.5 * np.sin(2 * np.pi * (t - 6) / 10)
+            c, s = np.cos(angle), np.sin(angle)
+            world[roles["Larm"]] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+        frames.append((world, root + np.array([0, 0.0 if not moving else 0.04 * (t - 6), 0])))
+    start, _ = kr.best_loop(frames, rest, parents, order, height=1.6)
+    assert start >= 6, "a still frame must not start the cycle"
+
+
+def test_keep_whole_keeps_every_frame_and_only_blends_the_seam():
+    parents, heads, roles = _humanoid()
+    frames, rest, order = _cycling_frames(parents, heads, roles, frames=40, period=10)
+    start, end, candidates = kr.loop_trim(frames, rest, parents, order, height=1.6,
+                                          keep_whole=True)
+    assert (start, end, candidates) == (0, 40, [])
+    trimmed = kr.loop_trim(frames, rest, parents, order, height=1.6)
+    assert trimmed[1] - trimmed[0] == 10 and trimmed[2]
+
+
+def test_a_wider_seam_blends_more_frames():
+    assert kr.seam_blend_frames(0.02, 1.6) == 5          # a walk: the shipped five is enough
+    wide = kr.seam_blend_frames(0.09, 1.6)               # a sprint's 9% seam
+    assert 5 < wide <= kr.LOOP_BLEND_MAX
+    assert kr.seam_blend_frames(0.5, 1.6) == kr.LOOP_BLEND_MAX   # never longer than the cap

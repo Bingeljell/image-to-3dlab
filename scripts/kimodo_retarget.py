@@ -68,6 +68,17 @@ GROUND_SMOOTH_FRAMES = 5
 LOOP_MIN_FRAMES = 8
 LOOP_MIN_SHARE = 0.25
 LOOP_BLEND_FRAMES = 5
+#: A clip has to travel this much of the character's height before frame speed can tell a
+#: still stretch from a moving one (an idle sways too, and every frame of it is fair game).
+LOOP_TRAVEL_SHARE = 0.10
+#: Frames slower than this share of the clip's own top root speed never end a cycle: Kimodo
+#: clips open standing and often settle at the end, and two still frames match perfectly.
+LOOP_SPEED_SHARE = 0.35
+#: The seam blend grows with how far the two ends differ. Five frames is enough for a walk
+#: (about 2% of height); a sprint's halves differ 6-10%, and five frames still showed a hitch.
+LOOP_BLEND_FROM_PERCENT = 2.0   # a seam this wide or narrower blends in the base frames
+LOOP_BLEND_PER_PERCENT = 0.8
+LOOP_BLEND_MAX = 14
 # SOMA's foot joints, per side. A rig may lack the toe (three-bone legs), so whichever of
 # these its mapping has is used.
 FOOT_JOINTS = ("Foot", "ToeBase")
@@ -617,15 +628,45 @@ def _slerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
     return (np.sin((1 - t) * theta) * a + np.sin(t * theta) * b) / np.sin(theta)
 
 
+def moving_frames(frames, height: float | None, up=Z_UP,
+                  share: float = LOOP_SPEED_SHARE) -> np.ndarray | None:
+    """Which frames move at near the clip's own top speed, or None when speed says nothing.
+
+    Kimodo clips open standing and often settle at the end. Two still frames match each
+    other perfectly, so the picker used to choose a sprint's standing wind-up as its cycle.
+    Only travelling clips get this filter: an idle sways on the spot, and every frame of it
+    is a fair place to start a loop.
+    """
+    frames = list(frames)
+    n = len(frames)
+    if height is None or height <= 0 or n < 3:
+        return None
+    if horizontal_travel(frames, up) < LOOP_TRAVEL_SHARE * height:
+        return None
+    roots = np.array([root for _, root in frames])
+    steps = np.linalg.norm(_horizontal(np.diff(roots, axis=0), up), axis=1)
+    speed = np.empty(n)
+    speed[0], speed[-1] = steps[0], steps[-1]
+    speed[1:-1] = (steps[:-1] + steps[1:]) / 2
+    top = float(speed.max())
+    if top <= 0:
+        return None
+    return speed >= share * top
+
+
 def loop_candidates(frames, rest, parents, order, up=Z_UP,
                     min_frames: int = LOOP_MIN_FRAMES,
-                    min_share: float = LOOP_MIN_SHARE) -> list[tuple[int, int, float]]:
+                    min_share: float = LOOP_MIN_SHARE,
+                    height: float | None = None) -> list[tuple[int, int, float]]:
     """The best frame pair for each distinct cycle length, best match first.
 
     Each entry is ``(start, end, distance)``; `end` is excluded and `distance` is the
     largest joint move between the two poses (horizontal root travel removed, vertical
     height kept). Comparing per bone, not as an unordered cloud of points, is what stops
     a mirrored half-step (left leg forward vs right leg forward) counting as a match.
+
+    With HEIGHT (a travelling clip), a cycle's ends must be frames that are actually
+    moving: see `moving_frames`.
     """
     frames = list(frames)
     n = len(frames)
@@ -637,9 +678,13 @@ def loop_candidates(frames, rest, parents, order, up=Z_UP,
     heads = _pose_heads(frames, rest, parents, order)
     root_index = order.index(order[0])
     relative = heads - _horizontal(heads[:, root_index], up)[:, None, :]
+    usable = moving_frames(frames, height, up)
+    spots = range(n) if usable is None else [i for i in range(n) if usable[i]]
     by_length: dict[int, tuple[int, int, float]] = {}
-    for start in range(n - shortest):
-        for end in range(start + shortest, n):
+    for start in spots:
+        for end in spots:
+            if end - start < shortest:
+                continue
             distance = float(np.linalg.norm(relative[end] - relative[start], axis=-1).max())
             length = end - start
             if length not in by_length or distance < by_length[length][2]:
@@ -648,14 +693,47 @@ def loop_candidates(frames, rest, parents, order, up=Z_UP,
 
 
 def best_loop(frames, rest, parents, order, up=Z_UP,
-              min_frames: int = LOOP_MIN_FRAMES, min_share: float = LOOP_MIN_SHARE) -> tuple[int, int]:
+              min_frames: int = LOOP_MIN_FRAMES, min_share: float = LOOP_MIN_SHARE,
+              height: float | None = None) -> tuple[int, int]:
     """The pair of frames whose poses match best: `(start, end)`, with `end` excluded.
 
     See `loop_candidates` for how poses are compared. Falls back to the whole clip when
     nothing is long enough to call a cycle.
     """
-    candidates = loop_candidates(frames, rest, parents, order, up, min_frames, min_share)
+    candidates = loop_candidates(frames, rest, parents, order, up, min_frames, min_share, height)
     return (candidates[0][0], candidates[0][1]) if candidates else (0, len(frames))
+
+
+def loop_trim(frames, rest, parents, order, up=Z_UP, height: float | None = None,
+              keep_whole: bool = False):
+    """(start, end, candidates) for --loop: the best cycle, or every frame when kept whole.
+
+    Moves built from distinct beats (an idle that looks left, then right) have no repeating
+    stretch to cut to; trimming one to its longest matching pair threw away 5 of its 7
+    seconds. Kept whole, every frame stays and only the seam is blended.
+    """
+    if keep_whole:
+        return 0, len(frames), []
+    candidates = loop_candidates(frames, rest, parents, order, up, height=height)
+    if not candidates:
+        return 0, len(frames), []
+    start, end, _ = candidates[0]
+    return start, end, candidates
+
+
+def seam_blend_frames(gap: float, height: float, base: int = LOOP_BLEND_FRAMES,
+                      cap: int = LOOP_BLEND_MAX) -> int:
+    """How many frames to blend at the seam, from how far apart its two ends are.
+
+    `gap` is `loop_gap`'s answer (a fraction of `height`). A walk's ends are about 2% of
+    height apart and five frames blend it cleanly; a sprint's are 6-10%, where five frames
+    left a visible hitch, so the blend grows with the gap.
+    """
+    if height <= 0:
+        return base
+    over = max(0.0, gap / height * 100 - LOOP_BLEND_FROM_PERCENT)
+    extra = int(round(over * LOOP_BLEND_PER_PERCENT))
+    return int(min(cap, max(base, base + extra)))
 
 
 def _smoothstep(t: float) -> float:
@@ -913,6 +991,9 @@ def main() -> None:  # pragma: no cover - needs bpy
                     help="trim to the best cycle and blend the seam; for clips that repeat")
     ap.add_argument("--in-place", action="store_true",
                     help="remove horizontal root travel, keeping the vertical bob; for walking clips")
+    ap.add_argument("--keep-whole", action="store_true",
+                    help="with --loop, keep every frame and only blend the seam; for moves built "
+                         "from distinct beats, which have no cycle to trim to")
     ap.add_argument("--stiff-fingers", action="store_true",
                     help="fingers move rigidly with the hand (for gloves, mittens or bad hand weights)")
     ap.add_argument("--arm-spread", type=float, default=0.0,
@@ -982,15 +1063,18 @@ def main() -> None:  # pragma: no cover - needs bpy
 
     trim = None
     if args.loop:
-        candidates = loop_candidates(frames, rest, parents, order, up)
-        start, end, _ = candidates[0]
+        start, end, candidates = loop_trim(frames, rest, parents, order, up, height,
+                                           keep_whole=args.keep_whole)
         trim = (start, end, candidates)
         frames = frames[start:end]
     if not args.no_ground:
         frames = ground_frames(frames, rest, parents, order, tails, mapping, floor, up,
                                track=track(frames))
+    blend = LOOP_BLEND_FRAMES
     if args.loop:
-        frames = blend_loop(frames, 0, len(frames), up=up)
+        seam_gap = loop_gap(frames, rest, parents, order, height, up)
+        blend = seam_blend_frames(seam_gap, height)
+        frames = blend_loop(frames, 0, len(frames), blend, up=up)
     if not args.no_ground:
         frames = lift_above_floor(frames, rest, parents, order, tails, mapping, floor, up,
                                   track=track(frames))
@@ -1001,12 +1085,15 @@ def main() -> None:  # pragma: no cover - needs bpy
     detail = ""
     if args.loop:
         start, end, candidates = trim
-        runner = ""
-        if len(candidates) > 1:
-            length = candidates[1][1] - candidates[1][0]
-            runner = f", runner-up {length} frames at {100 * candidates[1][2] / height:.2f}%"
-        detail = (f"; chose frames {start}..{end} ({end - start} frames, "
-                  f"distance {100 * candidates[0][2] / height:.2f}%{runner})")
+        if args.keep_whole:
+            detail = f"; kept all {len(frames) + 1} frames, blend {blend}"
+        else:
+            runner = ""
+            if len(candidates) > 1:
+                length = candidates[1][1] - candidates[1][0]
+                runner = f", runner-up {length} frames at {100 * candidates[1][2] / height:.2f}%"
+            detail = (f"; chose frames {start}..{end} ({end - start} frames, "
+                      f"distance {100 * candidates[0][2] / height:.2f}%{runner}, blend {blend})")
     print(f"grounding: penetration {100 * before_pen:.2f}% -> {100 * after_pen:.2f}% of height "
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "

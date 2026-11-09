@@ -5,28 +5,33 @@
     "run": "run_b",
     "wave": "wave_b",
     "sit": "sit_b",
-    "strafe_left": "strafe_left_b"
+    "strafe_left": "strafe_left_b",
+    "idle_b": "idle_restless",
+    "fight_stance": "fight_stance_b",
+    "punch_combo": "punch_combo_b"
   },
   "presets": [
     {
       "id": "idle",
-      "label": "Idle",
-      "seconds": 4.0,
+      "label": "Idle (subtle)",
+      "seconds": 7.0,
       "in_place": true,
-      "prompt": "A person stands still and breathes calmly, looking around.",
+      "prompt": "A person stands idle, breathing calmly. A person standing idle turns their head to look to the left. A person standing idle turns their head to look to the right.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 0
+      "seed": null,
+      "take": 0,
+      "loop": false
     },
     {
-      "id": "idle_b",
-      "label": "Idle (take B)",
-      "seconds": 4.0,
+      "id": "idle_restless",
+      "label": "Idle (restless)",
+      "seconds": 7.0,
       "in_place": true,
-      "prompt": "A person stands still and breathes calmly, looking around.",
+      "loop": false,
+      "prompt": "A person stands idle, breathing calmly. A person standing idle turns their head to look to the left. A person standing idle turns their head to look to the right.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
+      "seed": null,
+      "take": 0
     },
     {
       "id": "walk",
@@ -59,6 +64,17 @@
       "take": 0
     },
     {
+      "id": "sprint",
+      "label": "Sprint",
+      "seconds": 0.7,
+      "in_place": true,
+      "loop": false,
+      "prompt": "A person sprints forward at full speed.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": null,
+      "take": 0
+    },
+    {
       "id": "jump",
       "label": "Jump",
       "seconds": 2.5,
@@ -86,7 +102,8 @@
       "prompt": "A person throws a punch with their right fist.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
-      "take": 0
+      "take": 0,
+      "speed": 1.3
     },
     {
       "id": "punch_b",
@@ -96,6 +113,18 @@
       "prompt": "A person throws a punch with their right fist.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
+      "take": 0,
+      "speed": 1.3
+    },
+    {
+      "id": "one_two",
+      "label": "One-two combo",
+      "seconds": 4.5,
+      "in_place": false,
+      "speed": 1.5,
+      "prompt": "A person in a boxing stance throws a fast left jab. A person throws a powerful straight right punch.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": null,
       "take": 0
     },
     {
@@ -109,36 +138,6 @@
       "take": 0
     },
     {
-      "id": "kick_b",
-      "label": "Kick (take B)",
-      "seconds": 2.0,
-      "in_place": false,
-      "prompt": "A person kicks forward with their right leg.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "sword_swing",
-      "label": "Sword swing",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person swings a sword overhead with both hands.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 0
-    },
-    {
-      "id": "sword_swing_b",
-      "label": "Sword swing (take B)",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person swings a sword overhead with both hands.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
       "id": "dance",
       "label": "Dance",
       "seconds": 5.0,
@@ -146,6 +145,16 @@
       "prompt": "A person dances happily.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
+      "take": 0
+    },
+    {
+      "id": "robot_dance",
+      "label": "Robot dance",
+      "seconds": 6.0,
+      "in_place": false,
+      "prompt": "A person does a robot dance with stiff, jerky arm and body movements.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": null,
       "take": 0
     },
     {
@@ -177,6 +186,28 @@
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
       "take": 1
+    },
+    {
+      "id": "crouch_sneak",
+      "label": "Crouch sneak",
+      "seconds": 4.0,
+      "in_place": true,
+      "loop": true,
+      "prompt": "A person is crouching low and sneaking forward stealthily.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": null,
+      "take": 0
+    },
+    {
+      "id": "zombie_walk",
+      "label": "Zombie walk",
+      "seconds": 4.4,
+      "in_place": true,
+      "loop": false,
+      "prompt": "A person walks forward slowly like a zombie, both arms stretched straight out in front at shoulder height, dragging the feet.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": 7,
+      "take": 0
     },
     {
       "id": "strafe_left_b",
@@ -220,6 +251,26 @@
       "take": 1
     },
     {
+      "id": "death_2",
+      "label": "Death 2",
+      "seconds": 4.0,
+      "in_place": false,
+      "prompt": "A person is hit, staggers backward, drops to their knees and collapses forward onto the ground, then lies completely still.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": 21,
+      "take": 0
+    },
+    {
+      "id": "death_2_b",
+      "label": "Death 2 (take B)",
+      "seconds": 4.0,
+      "in_place": false,
+      "prompt": "A person is hit, staggers backward, drops to their knees and collapses forward onto the ground, then lies completely still.",
+      "made_with": "Kimodo-SOMA-RP-v1.1",
+      "seed": 21,
+      "take": 1
+    },
+    {
       "id": "hit_react",
       "label": "Hit react",
       "seconds": 2.0,
@@ -250,27 +301,7 @@
       "take": 0
     },
     {
-      "id": "kata",
-      "label": "Kata",
-      "seconds": 5,
-      "in_place": false,
-      "prompt": "A person performs a martial arts kata with fast punches and blocks.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 0
-    },
-    {
-      "id": "kata_b",
-      "label": "Kata (take B)",
-      "seconds": 5,
-      "in_place": false,
-      "prompt": "A person performs a martial arts kata with fast punches and blocks.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "fight_stance",
+      "id": "fight_stance_b",
       "label": "Fighting stance",
       "seconds": 4,
       "in_place": false,
@@ -280,17 +311,7 @@
       "take": 0
     },
     {
-      "id": "fight_stance_b",
-      "label": "Fighting stance (take B)",
-      "seconds": 4,
-      "in_place": false,
-      "prompt": "A person bounces lightly on their feet in a fighting stance.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "punch_combo",
+      "id": "punch_combo_b",
       "label": "Punch combo",
       "seconds": 3,
       "in_place": false,
@@ -298,16 +319,6 @@
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
       "take": 0
-    },
-    {
-      "id": "punch_combo_b",
-      "label": "Punch combo (take B)",
-      "seconds": 3,
-      "in_place": false,
-      "prompt": "A person throws a fast combination of punches.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
     }
   ]
 }

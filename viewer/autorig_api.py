@@ -284,6 +284,13 @@ def repeats(preset_id: str) -> bool:
     return preset_id.startswith(LOOPING_PRESETS)
 
 
+def loops(preset: dict[str, Any]) -> bool:
+    """Whether to trim this move to its best cycle. `presets.json` can say no with `"loop": false`
+    for a move made of distinct beats (an idle that looks left, then right) or a clip that is
+    already a clean loop; trimming those would cut the beats out. Otherwise the name rule decides."""
+    return bool(preset.get("loop", repeats(str(preset.get("id", "")))))
+
+
 def default_in_place(preset: dict[str, Any]) -> bool:
     """Whether this move stays in place unless the person says otherwise.
 
@@ -443,12 +450,12 @@ class AnimateJobManager:
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
             record["motion"]["speed"] = pace
-            record["motion"]["loop"] = repeats(preset_id)
+            record["motion"]["loop"] = loops(preset)
             record["motion"]["in_place"] = keep
             record["motion"]["grounded"] = True
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
-                                               result, spread, pace, repeats(preset_id),
+                                               result, spread, pace, loops(preset),
                                                keep), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)

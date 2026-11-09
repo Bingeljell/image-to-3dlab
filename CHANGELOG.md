@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   idle) play on the spot by default, one-offs (jump, roll, kicks) keep their travel, and either can
   be flipped for the move you are making. Agents get the same choice.
 - A **Strafe right** move: the mirror of Strafe left, so a character can side-step either way.
+- New moves: **Sprint**, **Crouch sneak**, **Zombie walk**, **Robot dance**, a **One-two** punch combo
+  and a second death, **Death 2** (knocked to the knees, then down).
+- Two new idles replace the old ones: **Idle (subtle)** breathes and looks left and right, **Idle
+  (restless)** does the same with more life. Both play their whole clip instead of a cut-down loop.
 - Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
   The licence record that travels with each file says the same, separately from the model's licence.
 - Pixal3D runs leave their licence record as `<run>.provenance.json`, the name every other route
@@ -38,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
   punches, and Walk (female) for the female walk.
+- Hook and Jab play at 1.3x speed by default, so they land with some snap.
 - The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
   `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still
   use uv; they do not require mise.
@@ -45,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Moves that did not read well: Roundhouse kick, Flying kick, the second takes of Walk, Jump,
   Roll, Hit react, Cheer, Wave, Sit down and Dance, and the old Run and Strafe left.
+- Kata and Sword swing (it comes back once characters can hold a sword), the second Kick, and the
+  first takes of Fighting stance and Punch combo (their second takes are now the move).
 
 ### Fixed
 - The one-line installers work again on 0.5.7 and older releases. They had moved to `uv.lock`

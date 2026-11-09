@@ -126,6 +126,9 @@ def test_an_old_move_name_still_finds_the_move_that_replaced_it(tmp_path, motion
     # plan or an agent asking by the old name must still get the move, not "no such preset".
     assert aa.resolve_move("run") == "run_b" and aa.resolve_move("strafe_left") == "strafe_left_b"
     assert aa.resolve_move("walk") == "walk"           # a current name is left alone
+    shipped = {p["id"] for p in aa.presets()}
+    for old in ("idle_b", "fight_stance", "punch_combo", "run", "wave", "sit", "strafe_left"):
+        assert aa.resolve_move(old) in shipped, old    # every alias lands on a move that exists
     manager = aa.AnimateJobManager(tmp_path / "animate", motions)
     run = tmp_path / "animate" / "knight__rig__20261005-120000"
     rigged = _glb(run / "knight_rigged.glb")
@@ -141,7 +144,7 @@ def test_each_move_says_whether_it_stays_in_place(tmp_path, motions):
     shipped = {p["id"]: p for p in aa.presets()}
     for move in ("idle", "walk", "run_b", "sneak", "strafe_left_b", "strafe_right", "walk_woman"):
         assert aa.default_in_place(shipped[move]) is True, move
-    for move in ("jump", "roll", "punch", "death", "cheer", "kata", "sit_b"):
+    for move in ("jump", "roll", "punch", "death", "cheer", "robot_dance", "sit_b"):
         assert aa.default_in_place(shipped[move]) is False, move
 
 
@@ -174,6 +177,34 @@ def test_repeating_presets_are_listed_in_one_place():
         assert aa.repeats(preset), preset
     for preset in ("kick", "jump", "punch", "wave", "death", "roll"):
         assert not aa.repeats(preset), preset
+
+
+def test_a_move_can_keep_its_whole_clip(tmp_path):
+    # Trimming to the shortest repeat cut a 7 s look-left, look-right idle to 1.7 s and dropped the
+    # looks; `"loop": false` keeps every frame. Without the field, the name rule still decides.
+    assert aa.loops({"id": "idle", "loop": False}) is False
+    assert aa.loops({"id": "crouch_sneak", "loop": True}) is True
+    assert aa.loops({"id": "walk"}) is True and aa.loops({"id": "kick"}) is False
+
+    motions = tmp_path / "motions"
+    motions.mkdir()
+    (motions / "idle.npz").write_bytes(b"x")
+    (motions / "presets.json").write_text(json.dumps({"presets": [
+        {"id": "idle", "label": "Idle", "seconds": 7, "in_place": True, "loop": False}]}))
+    rigged = _glb(tmp_path / "animate" / "knight__rig__20261005-120000" / "knight_rigged.glb")
+    job = aa.AnimateJobManager(tmp_path / "animate", motions).create_animation(rigged, "idle", 0)
+    (command, _), = job.commands
+    assert "--loop" not in command and "--in-place" in command
+    assert job.record["motion"]["loop"] is False
+
+
+def test_the_shipped_moves_keep_whole_clips_and_strike_faster():
+    shipped = {p["id"]: p for p in aa.presets()}
+    for move in ("idle", "idle_restless", "sprint", "zombie_walk"):   # beats, or already a loop
+        assert aa.loops(shipped[move]) is False, move
+    assert aa.loops(shipped["crouch_sneak"]) is True
+    assert shipped["punch"]["speed"] == shipped["punch_b"]["speed"] == 1.3
+    assert shipped["one_two"]["speed"] == 1.5
 
 
 def _write_glb_script(payload: bytes | None = None) -> str:
@@ -375,7 +406,9 @@ def test_the_shipped_preset_moves_are_all_in_the_repo():
     shipped = aa.presets()
     assert len(shipped) >= 29, len(shipped)  # the reviewed move set, takes A and B where both are kept
     assert {"idle", "walk", "run_b", "dance", "strafe_right"} <= {p["id"] for p in shipped}
-    assert not {"roundhouse", "flying_kick"} & {p["id"] for p in shipped}
+    assert not {"roundhouse", "flying_kick", "kata", "sword_swing", "kick_b"} & {p["id"] for p in shipped}
+    assert {"sprint", "crouch_sneak", "zombie_walk", "robot_dance", "one_two", "death_2"} <= {
+        p["id"] for p in shipped}
 
 
 def test_free_ports_are_two_different_ports_that_bind():

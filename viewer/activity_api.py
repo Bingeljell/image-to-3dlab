@@ -31,7 +31,7 @@ LABELS = {"picture": "Picture", "back": "Back picture", "model": "3D model", "fi
 KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "finish", "split": "props",
         "rigged": "animate", "animated": "animate"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
-MOVE_KEYS = ("speed", "arm_spread")
+MOVE_KEYS = ("speed", "arm_spread", "in_place")
 # Every Detail choice the studio and agents offer must be able to pass (mcp_server.FINISH_DETAILS):
 # "high" and "hero" were dropped here, so an agent asking for them got a plain Finish.
 FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size",
@@ -106,7 +106,7 @@ class Chain:
     model_seed: int | None = None                                    # a fresh 3D try each time; None = engine default
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
     finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
-    move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread (the animate job checks them)
+    move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread, in_place (the animate job checks them)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
     back_upload: tuple[str, bytes] | None = None                     # the user's own back picture, for front + back

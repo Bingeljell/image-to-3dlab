@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.8] - 2026-11-08
 
 ### Added
+- An **In place** switch on the Animate tab, one answer per move: loops (walk, jog, sneak, strafe,
+  idle) play on the spot by default, one-offs (jump, roll, kicks) keep their travel, and either can
+  be flipped for the move you are making. Agents get the same choice.
+
 - Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
   The licence record that travels with each file says the same, separately from the model's licence.
 - Pixal3D runs leave their licence record as `<run>.provenance.json`, the name every other route

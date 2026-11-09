@@ -121,6 +121,38 @@ def test_animate_command_loops_repeating_clips_and_leaves_actions_alone(tmp_path
     assert "--no-ground" not in walk
 
 
+def test_the_in_place_switch_reaches_the_retarget_command(tmp_path, motions):
+    manager = aa.AnimateJobManager(tmp_path / "animate", motions)
+    run = tmp_path / "animate" / "knight__rig__20261005-120000"
+    rigged = _glb(run / "knight_rigged.glb")
+
+    walk = manager.create_animation(rigged, "walk", 0)              # the move's own default
+    (command, _), = walk.commands
+    assert "--in-place" in command and walk.record["motion"]["in_place"] is True
+    manager.finish(walk)
+
+    kick = manager.create_animation(rigged, "kick", 0)               # a one-off: travels by default
+    (command, _), = kick.commands
+    assert "--in-place" not in command and kick.record["motion"]["in_place"] is False
+    manager.finish(kick)
+
+    with pytest.raises(ValueError, match="true or false"):
+        manager.create_animation(rigged, "walk", 0, in_place="yes")
+
+    stuck = manager.create_animation(rigged, "kick", 0, in_place=True)  # flipped on
+    (command, _), = stuck.commands
+    assert "--in-place" in command and stuck.record["motion"]["in_place"] is True
+
+
+def test_each_move_says_whether_it_stays_in_place(tmp_path, motions):
+    # Loops travel nowhere in a game; one-offs keep their travel. presets.json says which, per move.
+    shipped = {p["id"]: p for p in aa.presets()}
+    for move in ("idle", "walk", "run", "sneak", "strafe_left", "walk_b"):
+        assert aa.default_in_place(shipped[move]) is True, move
+    for move in ("jump", "roll", "punch", "death", "cheer", "kata"):
+        assert aa.default_in_place(shipped[move]) is False, move
+
+
 def test_repeating_presets_are_listed_in_one_place():
     for preset in ("idle", "walk", "run", "sneak", "strafe",
                    "walk_b", "run_b", "walk_woman", "strafe_left"):

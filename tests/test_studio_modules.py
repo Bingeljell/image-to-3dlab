@@ -1337,11 +1337,26 @@ def test_without_blender_finish_says_so_before_anyone_clicks():
 
 
 @needs_node
+def test_the_in_place_switch_follows_the_move_you_pick():
+    """Loops stay put and one-offs travel, so the switch has to bring each move's own answer."""
+    out = _run("steps.js", """
+      const presets = [{ id: 'walk', label: 'Walk', in_place: true },
+                       { id: 'jump', label: 'Jump', in_place: false }];
+      const html = m.stepBody('animated', { kind: 'character', rigged: 'a/k_rigged.glb', clips: [] },
+                              { presets });
+      console.log(JSON.stringify({
+        has: html.includes('data-k="inplace"'),
+        checked: /data-k="inplace" checked/.test(html),
+        chips: [...html.matchAll(/data-preset="([a-z_]+)" data-in-place="([01])"/g)].map((r) => [r[1], r[2]]) }));""")
+    assert out == {"has": True, "checked": True, "chips": [["walk", "1"], ["jump", "0"]]}
+
+
+@needs_node
 def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
     out = _run("steps.js", f"""
       const knight = {json.dumps(KNIGHT)}, sheet = {json.dumps(SHEET)};
       const s = {{ backend: 'pixal3d', detail: {{ faces: 32000, hero: true }}, photo: true, edgeFade: true, nudge: false,
-                   texture: 2048, preset: 'walk', speed: 1.2, spread: 5, rigSource: 'finished' }};
+                   texture: 2048, preset: 'walk', speed: 1.2, spread: 5, inPlace: true, rigSource: 'finished' }};
       const plans = {{ model: m.chainPlan('model', knight, s), finished: m.chainPlan('finished', knight, s),
         rigged: m.chainPlan('rigged', knight, s), rawRig: m.chainPlan('rigged', knight, {{ ...s, rigSource: 'model' }}),
         animated: m.chainPlan('animated', knight, s), split: m.chainPlan('finished', sheet, s),
@@ -1355,7 +1370,8 @@ def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
     assert out["model"]["steps"] == ["model"] and out["model"]["engine"] == "pixal3d"
     assert out["rigged"]["made"]["finished"] == "finish/k/k_40k.glb" and "model" not in out["rigged"]["made"]
     assert out["rawRig"]["made"]["model"] == "a/k.glb" and "finished" not in out["rawRig"]["made"]
-    assert out["animated"]["firstMove"] == "walk" and out["animated"]["moveSettings"] == {"speed": 1.2, "arm_spread": 5}
+    assert out["animated"]["firstMove"] == "walk"
+    assert out["animated"]["moveSettings"] == {"speed": 1.2, "arm_spread": 5, "in_place": True}
     assert out["split"]["steps"] == ["split"]
     assert out["noPicture"] is None   # the chain's Finish needs a picture: the card handles that case
 

@@ -3927,7 +3927,8 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 rigged = resolve_animate_model(str(body.get("model", "")), OUTPUT_ROOT)
                 job = ANIMATE_JOBS.create_animation(rigged, str(body.get("preset", "")),
-                                                    body.get("arm_spread", 0), body.get("speed"))
+                                                    body.get("arm_spread", 0), body.get("speed"),
+                                                    body.get("in_place"))
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return

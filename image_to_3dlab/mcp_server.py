@@ -355,6 +355,10 @@ ADVANCED: dict[str, dict[str, Any]] = {
     "arms_away": {
         "step": "animated", "type": "float", "min": 0, "max": 25, "default": 0, "unit": "degrees",
         "what": "Moves hanging arms outward so bulky characters (armour, big shoulders) don't hide hands in hips."},
+    "in_place": {
+        "step": "animated", "type": "bool", "default": "the move's own default",
+        "what": "Play the move on the spot instead of letting it travel. Loops (walk, run, sneak, strafe, "
+                "idle) are in place by default; one-offs (jump, roll, kicks) keep their travel."},
     "keep_everything": {
         "step": "model", "type": "bool", "default": False,
         "what": "The 3D step keeps its in-between textures, meshes and caches (several GB) for inspection."},
@@ -398,7 +402,13 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
     finish = finish_choices(detail, pixel_match, adv["edge_fade"], adv["nudge"])
     if adv["texture_size"] != ADVANCED["texture_size"]["default"]:
         finish["texture_size"] = adv["texture_size"]
-    move = {k: v for k, v in (("speed", adv["speed"]), ("arm_spread", adv["arms_away"])) if v}
+    move: dict[str, Any] = {}
+    if adv["speed"]:
+        move["speed"] = adv["speed"]
+    if adv["arms_away"]:
+        move["arm_spread"] = adv["arms_away"]
+    if adv["in_place"] is not None:      # false is a real choice here, so test for None
+        move["in_place"] = adv["in_place"]
     return finish, move
 
 
@@ -631,7 +641,8 @@ def list_moves(studio: Studio) -> dict[str, Any]:
     if not payload.get("installed"):
         return {"installed": False, "note": "Animation is not set up. The studio's Setup page installs it."}
     return {"installed": True, "default": first_move(payload["presets"]),
-            "moves": [{"id": p["id"], "label": p["label"], "seconds": p.get("seconds")} for p in payload["presets"]]}
+            "moves": [{"id": p["id"], "label": p["label"], "seconds": p.get("seconds"),
+                       "in_place": p.get("in_place", False)} for p in payload["presets"]]}
 
 
 def create(studio: Studio, *, want: str, description: str = "", image_path: str | None = None,

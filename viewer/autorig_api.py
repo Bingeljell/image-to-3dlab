@@ -270,6 +270,17 @@ def repeats(preset_id: str) -> bool:
     return preset_id.startswith(LOOPING_PRESETS)
 
 
+def default_in_place(preset: dict[str, Any]) -> bool:
+    """Whether this move stays in place unless the person says otherwise.
+
+    Loops walk, run and strafe on the spot, as a game's locomotion does; one-offs such as jump,
+    roll and the kicks keep their travel. `presets.json` carries the answer per move, so the tab,
+    the API and agents all read it from there; a preset without it falls back to the loop rule.
+    """
+    return bool(preset.get("in_place", repeats(str(preset.get("id", "")))))
+
+
+
 def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float,
                     speed: float = 1.0, repeat: bool = False, in_place: bool = False) -> list[str]:
     command = [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
@@ -393,7 +404,7 @@ class AnimateJobManager:
             return self._claim(job)
 
     def create_animation(self, rigged: Path, preset_id: str, arm_spread: Any,
-                         speed: Any = None) -> AnimateJob:
+                         speed: Any = None, in_place: Any = None) -> AnimateJob:
         with self.lock:
             if self.busy():
                 raise RuntimeError("an Animate job is already running")
@@ -405,18 +416,24 @@ class AnimateJobManager:
                 raise ValueError(f"no such preset: {preset_id!r}")
             spread = clamp_spread(arm_spread)
             pace = clamp_speed(speed, preset)
+            if in_place is None:
+                keep = default_in_place(preset)
+            elif isinstance(in_place, bool):
+                keep = in_place
+            else:
+                raise ValueError("in place is true or false")
             stem = rigged.name.removesuffix("_rigged.glb")
             result = run / f"{stem}_{preset_id}.glb"
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
             record["motion"]["speed"] = pace
             record["motion"]["loop"] = repeats(preset_id)
-            record["motion"]["in_place"] = repeats(preset_id)
+            record["motion"]["in_place"] = keep
             record["motion"]["grounded"] = True
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
                                                result, spread, pace, repeats(preset_id),
-                                               repeats(preset_id)), REPO)],
+                                               keep), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)
 

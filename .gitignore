@@ -4,6 +4,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 .ruff_cache/
 output/
 

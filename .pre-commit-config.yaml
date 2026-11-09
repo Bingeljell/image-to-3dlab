@@ -1,0 +1,42 @@
+# Git hooks. The runner is pre-commit, with pre-commit-uv so hook environments
+# are built by uv:
+#   uv tool install pre-commit --with pre-commit-uv
+#   pre-commit install
+#
+# Ruff stays on v0.16.1, the pin in pyproject.toml. A newer ruff-pre-commit
+# rev brings new default rules. uv-lock stays on 0.13.7, the rev in the uv
+# pre-commit guide.
+default_install_hook_types: [pre-commit, commit-msg]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=3072"]
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.7
+    hooks:
+      - id: uv-lock
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        types_or: [python, pyi]
+        # --fix rewrites safe findings. --exit-non-zero-on-fix makes the
+        # commit stop so those rewrites are reviewed and staged. Without
+        # it, the commit keeps the unfixed text.
+        args: [--fix, --exit-non-zero-on-fix]
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        # Local commit message only. Pull request titles are not checked on GitHub.
+        stages: [commit-msg]
+        args: [feat, fix, docs, refactor, test, perf, build, chore]

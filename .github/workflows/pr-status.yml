@@ -1,0 +1,86 @@
+name: pull-request-status
+
+# A note on the pull request when Linters or Tests failed. A green run removes it.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  pull-requests: write
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect the failures
+        if: github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          gh run view "$RUN_ID" --repo "${{ github.repository }}" --log-failed > /tmp/failed.log || true
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          text = re.sub(r"\x1b\[[0-9;]*m", "", Path("/tmp/failed.log").read_text(errors="replace"))
+          hooks, tests = [], []
+          for line in text.splitlines():
+              body = line.split("\t")[-1].strip()
+              if body.endswith("Failed") and "..." in body:
+                  name = body.split(".", 1)[0].strip()
+                  if name and name not in hooks:
+                      hooks.append(name)
+              if body.startswith("FAILED "):
+                  name = body.removeprefix("FAILED ").split(" - ", 1)[0].strip()
+                  if name and name not in tests:
+                      tests.append(name)
+          lines = [
+              "### Thank you for your contribution!",
+              "",
+              "A few of the checks did not pass:",
+              "",
+          ]
+          if hooks:
+              lines += ["**File checks**", "", *(f"- {name}" for name in hooks), ""]
+          if tests:
+              lines += ["**Tests**", "", *(f"- `{name}`" for name in tests), ""]
+          if not hooks and not tests:
+              lines += ["The run failed before it named a check.", ""]
+          lines += [
+              "We will gladly review your PR after the green light 🟢!",
+              "",
+              f"[Open the run]({os.environ['RUN_URL']})",
+          ]
+          Path("/tmp/comment.md").write_text("\n".join(lines) + "\n")
+          PY
+      - name: Find the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          # workflow_run.pull_requests is empty for a pull request from a fork.
+          number=$(gh api "repos/${{ github.repository }}/pulls" -f head="${HEAD_OWNER}:${HEAD_BRANCH}" -f state=open --jq "[.[] | select(.head.sha == \"${HEAD_SHA}\") | .number][0] // .[0].number")
+          if [ -z "$number" ] || [ "$number" = "null" ]; then
+            echo "No open pull request for ${HEAD_OWNER}:${HEAD_BRANCH} (${HEAD_SHA})" >&2
+            exit 1
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+      - uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88
+        if: github.event.workflow_run.conclusion == 'failure'
+        with:
+          header: ci
+          number: ${{ steps.pr.outputs.number }}
+          path: /tmp/comment.md
+      - uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88
+        if: github.event.workflow_run.conclusion != 'failure'
+        with:
+          header: ci
+          delete: true
+          number: ${{ steps.pr.outputs.number }}

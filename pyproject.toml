@@ -22,7 +22,23 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.2", "ruff==0.16.1"]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=7",
+    "ruff==0.16.1",
+]
 
 [tool.uv]
 package = false
+
+[tool.coverage.run]
+branch = true
+source = ["image_to_3dlab", "viewer"]
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.coverage.html]
+directory = "htmlcov"

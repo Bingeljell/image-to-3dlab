@@ -25,7 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An **In place** switch on the Animate tab, one answer per move: loops (walk, jog, sneak, strafe,
   idle) play on the spot by default, one-offs (jump, roll, kicks) keep their travel, and either can
   be flipped for the move you are making. Agents get the same choice.
-
 - Every 3D file now says it was made with AssetFurnace, with the app version, in its own metadata.
   The licence record that travels with each file says the same, separately from the model's licence.
 - Pixal3D runs leave their licence record as `<run>.provenance.json`, the name every other route
@@ -36,9 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   once and in the background, and kept for next time.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
 - The lab is a uv project on Python 3.11. `pyproject.toml` and `uv.lock` replace the root
   `requirements.txt`, `requirements-dev.txt` and `requirements.lock`. Installers still
   use uv; they do not require mise.
+
+### Removed
+- Moves that did not read well: Roundhouse kick, Flying kick, the second takes of Walk, Jump,
+  Roll, Hit react, Cheer, Wave, Sit down and Dance, and the old Run and Strafe left.
 
 ### Fixed
 - The one-line installers work again on 0.5.7 and older releases. They had moved to `uv.lock`
@@ -87,6 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.7] - 2026-11-03
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Installing the lighter background remover now removes the older, heavier copy it replaces (224 MB), once
   the new one loads. Runs still on the older copy say where to get the lighter one, and so do agents.
 
@@ -105,6 +113,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.5] - 2026-11-02
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Cutting the subject out of a picture uses less than half the memory (about 4 GB instead of 9.5 GB) and is
   faster, with the same result. Same background remover, a leaner file (181 MB). Existing installs keep
   working; Setup & Status offers the new file.
@@ -146,6 +157,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when the step finishes and in the Library.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Front + back no longer needs Qwen-Image: any installed picture engine can draw the back.
   Qwen-Image's own setup now includes the small vision projector its skins and back views need.
 - A setup card names each download. The header and each file show the measured size when the bytes are here, and the advertised size when they are not. Two files from the same Qwen repo no longer look like one.
@@ -368,6 +382,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   picked, above its name, and gives small files in KB instead of "0.0 MB".
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **Pictures are about twice as fast on a Mac** (about 2 minutes instead of 4), back views too.
   The picture engine moves to a newer stable-diffusion.cpp whose last step takes 10 seconds
   instead of over 2 minutes. Same model, same quality. Every machine now gets this tested
@@ -480,6 +497,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of crashing.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Setup & Status no longer says AMD support is coming, and the How-to page says the lab runs
   on NVIDIA and AMD as well as Apple Silicon.
 
@@ -556,6 +576,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forward.", with a narrower step than the plain walk.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Characters made in the studio now ask for slightly larger, clearly defined eyes, and the picture
   guide explains why: realistic faces no longer come out with a dark-rimmed shelf for eyes.
 - **Finish** offers three tested detail levels: 10,000 (light), **20,000 (game-ready, the new
@@ -624,6 +647,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The face count now shows bottom left of the viewer.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Pictures take 8 steps instead of 10 by default: about a fifth faster, with no visible
   difference in side-by-side tests. You can still raise it in Create.
 
@@ -676,6 +702,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   graphics and report less than they can use.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - On Linux, the Blender that Setup & Status installed is used before any Blender on
   your PATH, which can be too old or bring its own Python.
 
@@ -714,6 +743,9 @@ Free, local, no account.
 - Rename an asset by clicking its title; hide assets without deleting them.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **New name: AssetFurnace.** A darker ember look and a new wordmark. The repo keeps its
   name, so existing links and clones still work.
 - **Each try is a new try.** Pictures and 3D models now get a fresh random seed every
@@ -732,6 +764,9 @@ Free, local, no account.
 ## [0.3.9] - 2026-10-04
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **Pixal3D models now face the front.** Pixal3D writes models facing away from glTF's
   front, so viewers and game engines showed their backs first. Each run is now turned
   half a turn as it is saved, together with the camera Pixel Match projects through, so
@@ -770,6 +805,9 @@ Free, local, no account.
   instead of asking you to put a native release on your PATH.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **The Props tab's names box is easier to fill in.** It fits a 3x3 sheet, takes commas
   as well as new lines, and when two names land on one line it says which line and how
   to fix it. Its hint now says to follow the order in the picture, which an image model
@@ -831,6 +869,9 @@ Free, local, no account.
   `~/blender-lts`, no admin rights. Finish finds it.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **Pixal3D on NVIDIA installs the ready-made build** instead of compiling one, so setup
   takes a fraction of the time, most of all on machines with few CPU cores. It runs 12
   steps instead of 8, a small cost on NVIDIA. An old driver still gets a local compile,
@@ -901,6 +942,9 @@ Free, local, no account.
   rig tools need it; the viewer never installs it for you.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **Finish no longer repaints by default.** Pixal3D models arrive painted and Pixel Match
   keeps the front exact, so a finish takes seconds instead of minutes and needs no extra
   download. **Also repaint the sides and back** is still there (Apple Silicon, needs the
@@ -950,6 +994,9 @@ Free, local, no account.
   outline of the old background colour.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Generated images now save to `output/images/` instead of `output/images/research_only/`.
   Each image's provenance record still carries Qwen-Image's licence.
 - Pixal3D now runs 8 sampling steps instead of 12 by default: 15-30% faster, with the
@@ -991,6 +1038,9 @@ Free, local, no account.
   derived projects to credit image-to-3dlab. Model weights keep their own licences.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - Qwen-Image: the pictures you generate are yours, following Qwen's
   [21 Sept statement](https://x.com/QwenDevs/status/2101917379785838660) that outputs are
   not part of the licensed materials. A 3D model made from one no longer counts as
@@ -1157,6 +1207,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   finished in a batch are comparable. Emits `I2L_STAGE::` progress lines.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **Generation timings no longer read as hardware-neutral advice.** "10 steps is enough"
   and "1024 is slowest" were written on one Mac; on a fast GPU the extra step costs under
   a second and the advice inverts. The hints now give the mechanism rather than the
@@ -1524,6 +1577,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   — and nothing pointed at it.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - `blender_joint_markers.send` takes an optional read timeout; it was hard-coded to 300s.
 
 
@@ -1623,6 +1679,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   child.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **Xiong's Hunyuan3D-MLX shape+paint port moved from `vendor/hunyuan-mlx-paint`
   (git-ignored) into this repo's tracked tree at `hunyuan_mlx/`.** It's MIT-licensed code,
   so cloning this repo alone now gets it; only `weights/` (git-ignored) needs a separate
@@ -1742,6 +1801,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   two versions stale with the two most output-affecting fixes coupled to it.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **The old `docs/` tree (60 files: `docs/legacy/` plus every dated session-investigation
   doc) is no longer tracked.** It was our own working notes, not something a user of this
   repo needs, and it had accumulated broken cross-references as things moved. It now lives
@@ -1804,6 +1866,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   percentages were substantially counting flipped faces, not missing geometry.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **`docs/self-inflicted-damage.md` is the new entry point** for mesh-quality work. It
   documents both defects above, how the official TRELLIS.2 HuggingFace demo exposed them as
   a control group, and which earlier conclusions are withdrawn — notably "painted markings
@@ -1832,6 +1897,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   measurements are not repeated.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **The tear metric is a diagnostic, not a gate.** It cannot see a dead texture, a missing
   sheen or a thin marking, and Flicker's score halved while the mesh visibly got worse.
   Judge with the four-panel comparison instead. `docs/finishing.md` carries a banner.
@@ -1883,6 +1951,9 @@ One line installs it, and the same line updates it. Windows is wired up but unte
   L desaturates, measured at 13% loss. A test caught it.
 
 ### Changed
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk.
+
 - **The recipe is per-subject and human-judged.** Bark wants matte with strong derived
   relief; glazed ceramic wants gloss and *no* relief, because an albedo-derived normal map
   turns painted markings into dents. Ambient occlusion is the only step that transferred

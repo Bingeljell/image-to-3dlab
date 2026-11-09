@@ -63,6 +63,9 @@ SPEED_RANGE = (0.5, 2.0)
 # Clips that return to their first pose: walk, run, idle, sneak and strafe, including their
 # takes and variants (walk_b, walk_woman, strafe_left). One place, shared by the tab.
 LOOPING_PRESETS = ("idle", "walk", "run", "sneak", "strafe")
+# Old names for moves that were renamed or whose second take became the move. A saved plan or an
+# agent asking by the old name still gets the move that replaced it; the list lives in presets.json
+# so the studio, this API and the MCP all read one answer.
 
 SKINTOKENS_LICENSE = {
     "name": "MIT",
@@ -87,6 +90,17 @@ def installed(root: Path = SKINTOKENS) -> bool:
 
 
 # ---------------------------------------------------------------------------- presets
+
+
+def aliases(root: Path = MOTIONS) -> dict[str, str]:
+    """Old move name -> the id it means now."""
+    index = _read_json(root / "presets.json") or {}
+    return {str(k): str(v) for k, v in (index.get("aliases") or {}).items()}
+
+
+def resolve_move(preset_id: str, root: Path = MOTIONS) -> str:
+    """The preset a request means: an old name maps to the move that replaced it."""
+    return aliases(root).get(preset_id, preset_id)
 
 
 def presets(root: Path = MOTIONS) -> list[dict[str, Any]]:
@@ -411,9 +425,11 @@ class AnimateJobManager:
             run = rig_run_of(rigged)
             if run is None:
                 raise ValueError("pick a rigged model first")
+            preset_id = resolve_move(preset_id, self.motions)
             preset = next((p for p in presets(self.motions) if p["id"] == preset_id), None)
             if preset is None:
-                raise ValueError(f"no such preset: {preset_id!r}")
+                offered = ", ".join(p["id"] for p in presets(self.motions))
+                raise ValueError(f"no such preset: {preset_id!r}. The moves are: {offered}")
             spread = clamp_spread(arm_spread)
             pace = clamp_speed(speed, preset)
             if in_place is None:

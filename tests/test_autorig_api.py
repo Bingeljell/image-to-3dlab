@@ -37,7 +37,7 @@ def motions(tmp_path):
     root.mkdir()
     (root / "walk.npz").write_bytes(b"x")
     (root / "kick.npz").write_bytes(b"x")
-    (root / "presets.json").write_text(json.dumps({"presets": [
+    (root / "presets.json").write_text(json.dumps({"aliases": {"walk_old": "walk"}, "presets": [
         {"id": "walk", "label": "Walk", "seconds": 4},
         {"id": "kick", "label": "Kick", "seconds": 2, "speed": 1.25},
         {"id": "missing", "label": "No file"},
@@ -121,6 +121,30 @@ def test_animate_command_loops_repeating_clips_and_leaves_actions_alone(tmp_path
     assert "--no-ground" not in walk
 
 
+def test_an_old_move_name_still_finds_the_move_that_replaced_it(tmp_path, motions):
+    # Run, Wave, Sit down and Strafe left were renamed or folded into their second take; a saved
+    # plan or an agent asking by the old name must still get the move, not "no such preset".
+    assert aa.resolve_move("run") == "run_b" and aa.resolve_move("strafe_left") == "strafe_left_b"
+    assert aa.resolve_move("walk") == "walk"           # a current name is left alone
+    manager = aa.AnimateJobManager(tmp_path / "animate", motions)
+    run = tmp_path / "animate" / "knight__rig__20261005-120000"
+    rigged = _glb(run / "knight_rigged.glb")
+    job = manager.create_animation(rigged, "walk_old", 0)      # the fixture's alias
+    assert job.result == run / "knight_walk.glb"
+    manager.finish(job)
+    with pytest.raises(ValueError, match="The moves are"):
+        manager.create_animation(rigged, "nonsense", 0)
+
+
+def test_each_move_says_whether_it_stays_in_place(tmp_path, motions):
+    # Loops travel nowhere in a game; one-offs keep their travel. presets.json says which, per move.
+    shipped = {p["id"]: p for p in aa.presets()}
+    for move in ("idle", "walk", "run_b", "sneak", "strafe_left_b", "walk_woman"):
+        assert aa.default_in_place(shipped[move]) is True, move
+    for move in ("jump", "roll", "punch", "death", "cheer", "kata", "sit_b"):
+        assert aa.default_in_place(shipped[move]) is False, move
+
+
 def test_the_in_place_switch_reaches_the_retarget_command(tmp_path, motions):
     manager = aa.AnimateJobManager(tmp_path / "animate", motions)
     run = tmp_path / "animate" / "knight__rig__20261005-120000"
@@ -142,15 +166,6 @@ def test_the_in_place_switch_reaches_the_retarget_command(tmp_path, motions):
     stuck = manager.create_animation(rigged, "kick", 0, in_place=True)  # flipped on
     (command, _), = stuck.commands
     assert "--in-place" in command and stuck.record["motion"]["in_place"] is True
-
-
-def test_each_move_says_whether_it_stays_in_place(tmp_path, motions):
-    # Loops travel nowhere in a game; one-offs keep their travel. presets.json says which, per move.
-    shipped = {p["id"]: p for p in aa.presets()}
-    for move in ("idle", "walk", "run", "sneak", "strafe_left", "walk_b"):
-        assert aa.default_in_place(shipped[move]) is True, move
-    for move in ("jump", "roll", "punch", "death", "cheer", "kata"):
-        assert aa.default_in_place(shipped[move]) is False, move
 
 
 def test_repeating_presets_are_listed_in_one_place():
@@ -342,20 +357,25 @@ def test_speed_defaults_to_the_presets_own_and_can_be_overridden(tmp_path, motio
         aa.AnimateJobManager(tmp_path / "animate", motions).create_animation(rigged, "walk", 0, 5)
 
 
-def test_primary_moves_are_the_first_take():
-    """A second take ends in `_b`. Everything else, including Walk (woman), is the move itself."""
+def test_a_hidden_second_take_always_has_a_visible_first_one():
+    """A take kept alongside another stays hidden (`take` 1) and keeps its `_b` id. When a move was
+    kept as its second take only (Jog is Run B), that take becomes the move: it shows, id unchanged."""
     path = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "motions" / "presets.json"
     shipped = json.loads(path.read_text())["presets"]
-    primary = [preset for preset in shipped if not str(preset["id"]).endswith("_b")]
-    assert "walk_woman" in {preset["id"] for preset in primary}
-    assert [preset["id"] for preset in primary if preset.get("take")] == []
+    primary = {p["id"] for p in shipped if not p.get("take")}
+    assert "walk_woman" in primary and "run_b" in primary and "walk_b" not in primary
+    for preset in shipped:
+        if preset.get("take"):
+            assert str(preset["id"]).endswith("_b"), preset["id"]
+            assert str(preset["id"]).removesuffix("_b") in primary, preset["id"]
 
 
 def test_the_shipped_preset_moves_are_all_in_the_repo():
     """The moves live in git: a fresh clone with an empty motions folder offers no moves."""
     shipped = aa.presets()
-    assert len(shipped) >= 42, len(shipped)  # 21 moves, takes A and B
-    assert {"idle", "walk", "run", "dance"} <= {p["id"] for p in shipped}
+    assert len(shipped) >= 29, len(shipped)  # the reviewed move set, takes A and B where both are kept
+    assert {"idle", "walk", "run_b", "dance"} <= {p["id"] for p in shipped}
+    assert not {"roundhouse", "flying_kick"} & {p["id"] for p in shipped}
 
 
 def test_free_ports_are_two_different_ports_that_bind():

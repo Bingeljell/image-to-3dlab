@@ -692,6 +692,7 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     if "animated" in steps:
         moves = studio.get("api/animate/models")
         presets = moves.get("presets", []) if moves.get("installed") else []
+        move = (moves.get("aliases") or {}).get(move, move)   # a renamed move keeps its old name working
         if move and move not in {p["id"] for p in presets}:
             raise StudioError(f"No move {move!r}. list_moves shows them.")
         move = move or first_move(presets)
@@ -795,6 +796,7 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     if "animated" in steps:
         moves = studio.get("api/animate/models")
         presets = moves.get("presets", []) if moves.get("installed") else []
+        move = (moves.get("aliases") or {}).get(move, move)   # a renamed move keeps its old name working
         if move and move not in {p["id"] for p in presets}:
             raise StudioError(f"No move {move!r}. list_moves shows them.")
         form["first_move"] = move or first_move(presets) or ""

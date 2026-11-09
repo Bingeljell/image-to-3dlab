@@ -1,6 +1,12 @@
 {
   "schema_version": 1,
   "license": "Clips made with NVIDIA Kimodo (NVIDIA Open Model License). NVIDIA claims no ownership of outputs.",
+  "aliases": {
+    "run": "run_b",
+    "wave": "wave_b",
+    "sit": "sit_b",
+    "strafe_left": "strafe_left_b"
+  },
   "presets": [
     {
       "id": "idle",
@@ -33,18 +39,8 @@
       "take": 0
     },
     {
-      "id": "walk_b",
-      "label": "Walk (take B)",
-      "seconds": 4.0,
-      "in_place": true,
-      "prompt": "A person walks forward.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
       "id": "walk_woman",
-      "label": "Walk (woman)",
+      "label": "Walk (female)",
       "seconds": 4.0,
       "in_place": true,
       "prompt": "A woman walks forward.",
@@ -53,24 +49,14 @@
       "take": 0
     },
     {
-      "id": "run",
-      "label": "Run",
+      "id": "run_b",
+      "label": "Jog",
       "seconds": 3.0,
       "in_place": true,
       "prompt": "A person runs forward.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
       "take": 0
-    },
-    {
-      "id": "run_b",
-      "label": "Run (take B)",
-      "seconds": 3.0,
-      "in_place": true,
-      "prompt": "A person runs forward.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
     },
     {
       "id": "jump",
@@ -83,17 +69,7 @@
       "take": 0
     },
     {
-      "id": "jump_b",
-      "label": "Jump (take B)",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person jumps up in place.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "wave",
+      "id": "wave_b",
       "label": "Wave",
       "seconds": 3.0,
       "in_place": false,
@@ -103,18 +79,8 @@
       "take": 0
     },
     {
-      "id": "wave_b",
-      "label": "Wave (take B)",
-      "seconds": 3.0,
-      "in_place": false,
-      "prompt": "A person waves with their right hand.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
       "id": "punch",
-      "label": "Punch",
+      "label": "Hook",
       "seconds": 2.0,
       "in_place": false,
       "prompt": "A person throws a punch with their right fist.",
@@ -124,13 +90,13 @@
     },
     {
       "id": "punch_b",
-      "label": "Punch (take B)",
+      "label": "Jab",
       "seconds": 2.0,
       "in_place": false,
       "prompt": "A person throws a punch with their right fist.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
-      "take": 1
+      "take": 0
     },
     {
       "id": "kick",
@@ -183,17 +149,7 @@
       "take": 0
     },
     {
-      "id": "dance_b",
-      "label": "Dance (take B)",
-      "seconds": 5.0,
-      "in_place": false,
-      "prompt": "A person dances happily.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "sit",
+      "id": "sit_b",
       "label": "Sit down",
       "seconds": 3.0,
       "in_place": false,
@@ -203,18 +159,8 @@
       "take": 0
     },
     {
-      "id": "sit_b",
-      "label": "Sit down (take B)",
-      "seconds": 3.0,
-      "in_place": false,
-      "prompt": "A person sits down on the ground.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
       "id": "sneak",
-      "label": "Sneak",
+      "label": "Sneaky walk",
       "seconds": 4.0,
       "in_place": true,
       "prompt": "A person sneaks forward in a crouch.",
@@ -233,7 +179,7 @@
       "take": 1
     },
     {
-      "id": "strafe_left",
+      "id": "strafe_left_b",
       "label": "Strafe left",
       "seconds": 3.0,
       "in_place": true,
@@ -241,16 +187,6 @@
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
       "take": 0
-    },
-    {
-      "id": "strafe_left_b",
-      "label": "Strafe left (take B)",
-      "seconds": 3.0,
-      "in_place": true,
-      "prompt": "A person sidesteps to the left.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
     },
     {
       "id": "death",
@@ -283,16 +219,6 @@
       "take": 0
     },
     {
-      "id": "hit_react_b",
-      "label": "Hit react (take B)",
-      "seconds": 2.0,
-      "in_place": false,
-      "prompt": "A person gets hit in the chest and staggers backward.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
       "id": "cheer",
       "label": "Cheer",
       "seconds": 3.0,
@@ -303,16 +229,6 @@
       "take": 0
     },
     {
-      "id": "cheer_b",
-      "label": "Cheer (take B)",
-      "seconds": 3.0,
-      "in_place": false,
-      "prompt": "A person raises both arms in the air and cheers.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
       "id": "roll",
       "label": "Roll",
       "seconds": 3.0,
@@ -321,16 +237,6 @@
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
       "take": 0
-    },
-    {
-      "id": "roll_b",
-      "label": "Roll (take B)",
-      "seconds": 3.0,
-      "in_place": false,
-      "prompt": "A person does a forward roll on the ground.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
     },
     {
       "id": "kata",
@@ -348,46 +254,6 @@
       "seconds": 5,
       "in_place": false,
       "prompt": "A person performs a martial arts kata with fast punches and blocks.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "roundhouse",
-      "label": "Roundhouse kick",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person does a high roundhouse kick.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 0
-    },
-    {
-      "id": "roundhouse_b",
-      "label": "Roundhouse kick (take B)",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person does a high roundhouse kick.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 1
-    },
-    {
-      "id": "flying_kick",
-      "label": "Flying kick",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person jumps and does a flying kick.",
-      "made_with": "Kimodo-SOMA-RP-v1.1",
-      "seed": 1,
-      "take": 0
-    },
-    {
-      "id": "flying_kick_b",
-      "label": "Flying kick (take B)",
-      "seconds": 2.5,
-      "in_place": false,
-      "prompt": "A person jumps and does a flying kick.",
       "made_with": "Kimodo-SOMA-RP-v1.1",
       "seed": 1,
       "take": 1

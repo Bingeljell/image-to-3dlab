@@ -37,7 +37,8 @@ CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True,
      "caveat": "Not licensed in the EU, UK or South Korea.", "human_expected": "12 GB", "best_for": "Detail",
      "weights": [{"label": "shape", "source": "tencent/x", "human_expected": "12 GB", "present": False}]},
 ]}
-PRESETS = {"installed": True, "presets": [{"id": "idle", "label": "Idle", "take": 0}, {"id": "idle_b", "label": "Idle B", "take": 1},
+PRESETS = {"installed": True, "aliases": {"wave_old": "wave"},
+           "presets": [{"id": "idle", "label": "Idle", "take": 0}, {"id": "idle_b", "label": "Idle B", "take": 1},
                                           {"id": "wave", "label": "Wave", "take": 0}]}
 KNIGHT = {"id": "aaaaaaaaaaaa", "name": "knight", "kind": "character", "stage": "finished", "updated": 0,
           "picture": "images/k/k.png", "model": "k/k.glb", "finished": "finish/k/k_20k.glb", "clips": [], "props": [],
@@ -221,6 +222,12 @@ def test_an_animated_character_can_be_given_another_move(studio):
     ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="wave")
     form = sent(studio)
     assert json.loads(form["steps"]) == ["animated"] and form["first_move"] == "wave"
+
+
+def test_an_old_move_name_still_asks_for_the_move_that_replaced_it(studio):
+    # "wave" became "wave_b" when the second take was kept; the old name must keep working.
+    ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="wave_old")
+    assert sent(studio)["first_move"] == "wave"
 
 
 def test_remaking_a_move_it_already_has_says_so(studio):

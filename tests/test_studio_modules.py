@@ -1352,6 +1352,22 @@ def test_the_in_place_switch_follows_the_move_you_pick():
 
 
 @needs_node
+def test_the_speed_slider_starts_at_the_move_s_own_speed():
+    """Hook and Jab ship at 1.3x, but the slider always said 1 and sent 1, so the studio played
+    them slow while agents got 1.3x (review, 2026-11-10). Each chip carries its speed."""
+    out = _run("steps.js", """
+      const presets = [{ id: 'punch', label: 'Hook', speed: 1.3 },
+                       { id: 'walk', label: 'Walk', in_place: true }];
+      const html = m.stepBody('animated', { kind: 'character', rigged: 'a/k_rigged.glb', clips: [] },
+                              { presets });
+      console.log(JSON.stringify({
+        slider: (html.match(/data-k="speed"[^>]*value="([0-9.]+)"/) || [])[1],
+        shown: (html.match(/data-o="speed">([^<]+)</) || [])[1],
+        chips: [...html.matchAll(/data-preset="([a-z_]+)"[^>]*data-speed="([0-9.]+)"/g)].map((r) => [r[1], r[2]]) }));""")
+    assert out == {"slider": "1.3", "shown": "1.30×", "chips": [["punch", "1.3"], ["walk", "1"]]}
+
+
+@needs_node
 def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
     out = _run("steps.js", f"""
       const knight = {json.dumps(KNIGHT)}, sheet = {json.dumps(SHEET)};

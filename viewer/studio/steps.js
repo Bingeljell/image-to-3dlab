@@ -292,9 +292,10 @@ function movePicker(asset, ctx, cta) {
   if (!presets.length) return '<p class="hint">No preset moves are installed.</p>';
   const have = new Set(asset.clips.map((c) => c.name));
   const stays = !!presets[0].in_place;
-  return `<div class="moves" role="group" aria-label="Moves">${presets.map((p, i) => `<button class="chip" data-preset="${esc(p.id)}" data-in-place="${p.in_place ? 1 : 0}" aria-pressed="${i === 0}" ${have.has(p.id) ? 'data-tip="Already made: making it again replaces it"' : ''}>${esc(p.label)}${have.has(p.id) ? ' ✓' : ''}</button>`).join('')}</div>
+  const pace = (p) => Number(p.speed) || 1;   // strikes ship faster: Hook and Jab 1.3x, One-two 1.5x
+  return `<div class="moves" role="group" aria-label="Moves">${presets.map((p, i) => `<button class="chip" data-preset="${esc(p.id)}" data-in-place="${p.in_place ? 1 : 0}" data-speed="${pace(p)}" aria-pressed="${i === 0}" ${have.has(p.id) ? 'data-tip="Already made: making it again replaces it"' : ''}>${esc(p.label)}${have.has(p.id) ? ' ✓' : ''}</button>`).join('')}</div>
     <details class="adv"><summary>Advanced</summary>
-      <label class="field">Speed <output data-o="speed">1.00×</output><input type="range" data-k="speed" min="0.5" max="2" step="0.05" value="1"></label>
+      <label class="field">Speed <output data-o="speed">${pace(presets[0]).toFixed(2)}×</output><input type="range" data-k="speed" min="0.5" max="2" step="0.05" value="${pace(presets[0])}"></label>
       <label class="field" data-tip="Bulky characters (armour, big shoulders) can hide their hands in their hips. This moves hanging arms outward a little; raised arms are left alone.">Arms away from body <output data-o="spread">0°</output><input type="range" data-k="spread" min="0" max="25" step="1" value="0"></label>
       <label class="field" data-tip="Loops (walk, run, sneak, strafe, idle) play on the spot, as a game's locomotion does; one-offs (jump, roll, kicks) keep their travel. Flip it if a loop slides away or a one-off should stay put.">In place<input type="checkbox" data-k="inplace" ${stays ? 'checked' : ''}></label>
     </details>
@@ -308,6 +309,11 @@ export function wireStep(card, stepId, asset, ctx) {
   card.querySelectorAll('[data-preset]').forEach((chip) => chip.onclick = () => {
     card.querySelectorAll('[data-preset]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
     if (placed) placed.checked = chip.dataset.inPlace === '1';   // each move brings its own default
+    const s = k('speed');                                         // ...and its own speed
+    if (s && chip.dataset.speed) {
+      s.value = chip.dataset.speed;
+      card.querySelector('[data-o="speed"]').textContent = `${Number(s.value).toFixed(2)}×`;
+    }
   });
   const speed = k('speed'), spread = k('spread'), engine = k('engine');
   if (speed) speed.oninput = () => { card.querySelector('[data-o="speed"]').textContent = `${Number(speed.value).toFixed(2)}×`; };

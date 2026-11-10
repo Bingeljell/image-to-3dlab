@@ -83,6 +83,9 @@ LOOP_SPEED_SHARE = 0.35
 LOOP_BLEND_FROM_PERCENT = 2.0   # a seam this wide or narrower blends in the base frames
 LOOP_BLEND_PER_PERCENT = 0.8
 LOOP_BLEND_MAX = 14
+#: After blending, the wrap has to be at least this share of a normal frame step: any closer and
+#: the last pose is the first one twice, which shows as a stutter.
+DUPLICATE_SHARE = 0.5
 # SOMA's foot joints, per side. A rig may lack the toe (three-bone legs), so whichever of
 # these its mapping has is used.
 FOOT_JOINTS = ("Foot", "ToeBase")
@@ -865,6 +868,34 @@ def blend_loop(frames, start: int, end: int, blend_frames: int = LOOP_BLEND_FRAM
     return clipped[:-1]
 
 
+def _step_gaps(frames, rest, parents, order, height: float, up=Z_UP) -> list[float]:
+    """The largest joint move between each frame and the next, in shared units."""
+    return [loop_gap([a, b], rest, parents, order, height, up)
+            for a, b in zip(frames, frames[1:])]
+
+
+def trim_duplicate_tail(frames, rest, parents, order, height: float, up=Z_UP,
+                        share: float = DUPLICATE_SHARE):
+    """Drop trailing frames that sit on top of the first pose.
+
+    A clip that is already a clean loop ends with a copy of its first frame. `blend_loop` drops
+    that copy, but blending pulls the frame before it almost onto the first pose, so the wrap
+    can still be a hair apart and the move stutters. Keep dropping the tail until the wrap is
+    at least SHARE of a normal frame step away.
+    """
+    frames = list(frames)
+    if len(frames) < 3 or height <= 0:
+        return frames
+    gaps = _step_gaps(frames, rest, parents, order, height, up)
+    step = float(np.median(gaps)) if gaps else 0.0
+    if step <= 0:
+        return frames
+    while len(frames) > 2 and loop_gap([frames[-1], frames[0]], rest, parents, order,
+                                       height, up) < share * step:
+        frames = frames[:-1]
+    return frames
+
+
 def _subtree(root: str, parents: dict[str, str | None]) -> list[str]:
     kids = _children(parents)
     out, stack = [], [root]
@@ -1173,6 +1204,7 @@ def main() -> None:  # pragma: no cover - needs bpy
         seam_gap = loop_gap(frames, rest, parents, order, height, up)
         blend = seam_blend_frames(seam_gap, height)
         frames = blend_loop(frames, 0, len(frames), blend, up=up)
+        frames = trim_duplicate_tail(frames, rest, parents, order, height, up)
     if not args.no_ground:
         frames = plant_feet(frames, rest, parents, order, tails, mapping, floor, height, up)
         frames = lift_above_floor(frames, rest, parents, order, tails, mapping, floor, up,

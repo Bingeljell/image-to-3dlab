@@ -826,3 +826,34 @@ def test_planted_tilt_says_how_far_a_planted_foot_is_from_rest():
     out = kr.plant_feet(posed, rest, parents, order, tails, mapping, floor, 1.6, up)
     after = kr.planted_tilt(out, rest, parents, order, tails, mapping, floor, 1.6, up)
     assert before > 10.0 and after < 1.5
+
+
+def _clean_loop_frames(parents, heads, roles, frames=21, period=10):
+    """A clip that already ends with a copy of its first frame: frame N == frame 0."""
+    rest, order = _rest_mats(parents, heads)
+    root = heads[order[0]]
+    out = []
+    for t in range(frames):
+        angle = 0.5 * np.sin(2 * np.pi * (t % period) / period)
+        c, s = np.cos(angle), np.sin(angle)
+        world = {b: np.eye(3) for b in order}
+        world[roles["Larm"]] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+        out.append((world, root + np.array([0, 0.03 * (t % period), 0])))
+    return out, rest, order
+
+
+def test_a_clean_loop_does_not_end_on_a_copy_of_its_first_pose():
+    """The sprint clip already is a clean loop: its last frame is its first. Blending the seam
+    pulled the frame before it onto the same pose, so the exported clip showed that pose twice
+    and the run stuttered at the wrap."""
+    parents, heads, roles = _humanoid()
+    frames, rest, order = _clean_loop_frames(parents, heads, roles)
+    height = 1.6
+    blended = kr.blend_loop(frames, 0, len(frames), kr.LOOP_BLEND_FRAMES)
+    trimmed = kr.trim_duplicate_tail(blended, rest, parents, order, height)
+    gaps = [kr.loop_gap([a, b], rest, parents, order, height) for a, b in zip(trimmed, trimmed[1:])]
+    step = float(np.median(gaps))
+    wrap = kr.loop_gap([trimmed[-1], trimmed[0]], rest, parents, order, height)
+    assert wrap >= 0.5 * step, f"wrap {wrap:.4f} is a duplicate of {step:.4f}"
+    assert wrap < 2.5 * step, "the tail lost a real frame"
+    assert len(trimmed) < len(frames)

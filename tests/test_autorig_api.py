@@ -131,6 +131,16 @@ def test_an_old_move_name_still_finds_the_move_that_replaced_it(tmp_path, motion
     shipped = {p["id"] for p in aa.presets()}
     for old in ("idle_b", "fight_stance", "punch_combo", "run", "wave", "sit", "strafe_left"):
         assert aa.resolve_move(old) in shipped, old    # every alias lands on a move that exists
+    # Every move id 0.5.8 shipped still works, except the moves dropped on purpose.
+    dropped = {"kata", "kata_b", "sword_swing", "sword_swing_b", "roundhouse", "roundhouse_b",
+               "flying_kick", "flying_kick_b"}
+    v058 = {"cheer", "cheer_b", "dance", "dance_b", "death", "death_b", "fight_stance",
+            "fight_stance_b", "hit_react", "hit_react_b", "idle", "idle_b", "jump", "jump_b",
+            "kick", "kick_b", "punch", "punch_b", "punch_combo", "punch_combo_b", "roll", "roll_b",
+            "run", "run_b", "sit", "sit_b", "sneak", "sneak_b", "strafe_left", "strafe_left_b",
+            "walk", "walk_b", "walk_woman", "wave", "wave_b"} | dropped
+    for old in sorted(v058 - dropped):
+        assert aa.resolve_move(old) in shipped, old
     manager = aa.AnimateJobManager(tmp_path / "animate", motions)
     run = tmp_path / "animate" / "knight__rig__20261005-120000"
     rigged = _glb(run / "knight_rigged.glb")

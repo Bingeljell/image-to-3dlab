@@ -8,7 +8,14 @@
     "strafe_left": "strafe_left_b",
     "idle_b": "idle_restless",
     "fight_stance": "fight_stance_b",
-    "punch_combo": "punch_combo_b"
+    "punch_combo": "punch_combo_b",
+    "walk_b": "walk",
+    "jump_b": "jump",
+    "kick_b": "kick",
+    "dance_b": "dance",
+    "hit_react_b": "hit_react",
+    "cheer_b": "cheer",
+    "roll_b": "roll"
   },
   "presets": [
     {

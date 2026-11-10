@@ -803,7 +803,8 @@ def moving_frames(frames, height: float | None, up=Z_UP,
 def loop_candidates(frames, rest, parents, order, up=Z_UP,
                     min_frames: int = LOOP_MIN_FRAMES,
                     min_share: float = LOOP_MIN_SHARE,
-                    height: float | None = None) -> list[tuple[int, int, float]]:
+                    height: float | None = None,
+                    moving: np.ndarray | None = None) -> list[tuple[int, int, float]]:
     """The best frame pair for each distinct cycle length, best match first.
 
     Each entry is ``(start, end, distance)``; `end` is excluded and `distance` is the
@@ -812,7 +813,8 @@ def loop_candidates(frames, rest, parents, order, up=Z_UP,
     a mirrored half-step (left leg forward vs right leg forward) counting as a match.
 
     With HEIGHT (a travelling clip), a cycle's ends must be frames that are actually
-    moving: see `moving_frames`.
+    moving: see `moving_frames`. A clip already pulled in place has no travel left to measure,
+    so the caller passes MOVING, worked out on the clip before that step.
     """
     frames = list(frames)
     n = len(frames)
@@ -824,7 +826,7 @@ def loop_candidates(frames, rest, parents, order, up=Z_UP,
     heads = _pose_heads(frames, rest, parents, order)
     root_index = order.index(order[0])
     relative = heads - _horizontal(heads[:, root_index], up)[:, None, :]
-    usable = moving_frames(frames, height, up)
+    usable = moving if moving is not None else moving_frames(frames, height, up)
     spots = range(n) if usable is None else [i for i in range(n) if usable[i]]
     by_length: dict[int, tuple[int, int, float]] = {}
     for start in spots:
@@ -851,7 +853,7 @@ def best_loop(frames, rest, parents, order, up=Z_UP,
 
 
 def loop_trim(frames, rest, parents, order, up=Z_UP, height: float | None = None,
-              keep_whole: bool = False):
+              keep_whole: bool = False, moving: np.ndarray | None = None):
     """(start, end, candidates) for --loop: the best cycle, or every frame when kept whole.
 
     Moves built from distinct beats (an idle that looks left, then right) have no repeating
@@ -860,7 +862,7 @@ def loop_trim(frames, rest, parents, order, up=Z_UP, height: float | None = None
     """
     if keep_whole:
         return 0, len(frames), []
-    candidates = loop_candidates(frames, rest, parents, order, up, height=height)
+    candidates = loop_candidates(frames, rest, parents, order, up, height=height, moving=moving)
     if not candidates:
         return 0, len(frames), []
     start, end, _ = candidates[0]
@@ -1216,6 +1218,7 @@ def main() -> None:  # pragma: no cover - needs bpy
         clear_arms(frames, rest, parents, order, tails, clearance)
 
     before_travel = horizontal_travel(frames, up)
+    travelling = list(frames)          # the loop picker needs the travel in_place takes away
     if args.in_place:
         frames = in_place_frames(frames, up)
 
@@ -1238,7 +1241,8 @@ def main() -> None:  # pragma: no cover - needs bpy
     trim = None
     if args.loop:
         start, end, candidates = loop_trim(frames, rest, parents, order, up, height,
-                                           keep_whole=args.keep_whole)
+                                           keep_whole=args.keep_whole,
+                                           moving=moving_frames(travelling, height, up))
         trim = (start, end, candidates)
         frames = frames[start:end]
     if not args.no_ground:

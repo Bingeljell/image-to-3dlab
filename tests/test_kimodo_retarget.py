@@ -862,3 +862,24 @@ def test_a_clean_loop_does_not_end_on_a_copy_of_its_first_pose():
     assert wrap >= 0.5 * step, f"wrap {wrap:.4f} is a duplicate of {step:.4f}"
     assert wrap < 2.5 * step, "the tail lost a real frame"
     assert len(trimmed) < len(frames)
+
+
+def test_a_clip_pulled_in_place_still_skips_its_standing_start():
+    """In place runs before the loop picker and leaves no travel to measure, so the picker
+    takes which frames move from the clip before that step."""
+    parents, heads, roles = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    root = heads[order[0]]
+    frames = []
+    for t in range(36):
+        world = {b: np.eye(3) for b in order}
+        if t >= 6:
+            angle = 0.5 * np.sin(2 * np.pi * (t - 6) / 10)
+            c, s = np.cos(angle), np.sin(angle)
+            world[roles["Larm"]] = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
+        frames.append((world, root + np.array([0, 0.0 if t < 6 else 0.04 * (t - 6), 0])))
+    placed = kr.in_place_frames(frames)
+    assert kr.moving_frames(placed, height=1.6) is None   # nothing left to measure
+    start, _, _ = kr.loop_trim(placed, rest, parents, order, height=1.6,
+                               moving=kr.moving_frames(frames, height=1.6))
+    assert start >= 6, "a still frame must not start the cycle"

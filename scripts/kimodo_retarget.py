@@ -556,6 +556,12 @@ def ground_frames(frames, rest, parents, order, tails, mapping, floor: float,
     required = np.maximum(floor - low, 0.0)
     smoothed = _moving_average(required, smooth_frames)
     lift = np.maximum(smoothed, required)
+    # ...except a move whose feet never reach the floor at all: it hovers. The crouch sneak
+    # floated 5.6 cm on the space marine (2026-11-10). Lower the whole move until its lowest
+    # foot touches; a jump is untouched, because its feet are on the floor before take-off.
+    hover = float((low - floor).min())
+    if hover > 0:
+        lift = lift - hover
     return [(world_rot, root_pos + float(offset) * up)
             for (world_rot, root_pos), offset in zip(frames, lift)]
 

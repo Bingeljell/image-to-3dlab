@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-11-10
+
 ### Added
 - Pull requests run the file checks, then the test suite; a failed run leaves one note listing
   the failed checks, removed again by a green run. Commit checks are available locally with pre-commit.

@@ -720,18 +720,21 @@ def plant_feet(frames, rest, parents, order, tails, mapping, floor: float, heigh
 
 def planted_tilt(frames, rest, parents, order, tails, mapping, floor: float, height: float,
                  up=Z_UP, tolerance: float = PLANT_TOLERANCE) -> float:
-    """The worst planted toe tip's height above its rest height, as a share of body height."""
+    """The worst planted toe tip's height above the ankle, against its rest height, as a share of
+    body height. Measured against the ankle, not the floor: how high the whole character stands
+    is grounding's business, and a bent stance would otherwise read as a tilted toe."""
     worst = 0.0
     for foot, toe in _foot_sides(mapping, rest):
         tip_bone = toe or foot
-        rest_tip = float(tails[tip_bone] @ up)
+        rest_gap = float(tails[tip_bone] @ up) - float(rest[foot][:3, 3] @ up)
         rest_lift = float(rest[foot][:3, 3] @ up) - floor
         for world, root in frames:
             pose = pose_matrices(rest, parents, order, world, root)
-            if float(pose[foot][:3, 3] @ up) - floor > rest_lift + tolerance * height:
+            ankle = float(pose[foot][:3, 3] @ up)
+            if ankle - floor > rest_lift + tolerance * height:
                 continue
             tip = _tip(pose, rest, tails, tip_bone)
-            worst = max(worst, abs(float(tip @ up) - rest_tip))
+            worst = max(worst, abs(float(tip @ up) - ankle - rest_gap))
     return float(worst / height)
 
 
@@ -1260,7 +1263,7 @@ def main() -> None:  # pragma: no cover - needs bpy
     if args.loop:
         start, end, candidates = trim
         if args.keep_whole:
-            detail = f"; kept all {len(frames) + 1} frames, blend {blend}"
+            detail = f"; kept whole, blend {blend}"
         else:
             runner = ""
             if len(candidates) > 1:
@@ -1273,7 +1276,8 @@ def main() -> None:  # pragma: no cover - needs bpy
     print(f"feet: planted toe tip {100 * after_tilt:.2f}% of height off its rest height "
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
-          f"({'trimmed' if args.loop else 'off'}, {len(frames)} frames){detail}")
+          f"({'kept whole' if args.keep_whole else 'trimmed' if args.loop else 'off'}, "
+          f"{len(frames)} frames){detail}")
     print(f"in place: root travel {100 * before_travel / height:.1f}% -> "
           f"{100 * after_travel / height:.1f}% of height "
           f"({'on' if args.in_place else 'off'})")

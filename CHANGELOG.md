@@ -33,8 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - A move that keeps its whole clip has its seam blended, so the restless idle no longer jumps
   when it repeats.
-- A planted foot keeps the angle it was built with instead of copying the preset skeleton's:
-  toes no longer tilt up while the foot is on the ground.
+- A planted foot keeps the sole angle it was built with instead of copying the preset
+  skeleton's: the toe is levelled at the ball, so no toe tips up while the foot is down.
 - Animated characters keep their feet on the floor, and repeating moves (walk, run, idle, sneak,
   strafe) no longer jump when they restart.
 - A Hero-finished head no longer grows a second set of ears. The body's old head, kept as a

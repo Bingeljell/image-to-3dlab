@@ -28,6 +28,7 @@ trim a repeating clip to its best cycle and blend the seam.
 from __future__ import annotations
 
 import argparse
+import itertools
 from pathlib import Path
 
 import numpy as np
@@ -631,66 +632,107 @@ def tilt_to_pitch(head, tail, angle: float, up=Z_UP) -> np.ndarray:
     return _rotate_about(axis, -angle)
 
 
+def _foot_sides(mapping: dict[str, str], rest) -> list[tuple[str, str | None]]:
+    """(foot bone, toe bone or None) for each side of the rig."""
+    sides = []
+    for side in ("Left", "Right"):
+        foot = next((b for b, role in mapping.items()
+                     if role == f"{side}Foot" and b in rest), None)
+        toe = next((b for b, role in mapping.items()
+                    if role == f"{side}ToeBase" and b in rest), None)
+        if foot is not None:
+            sides.append((foot, toe))
+    return sides
+
+
+def _tip(frames_pose, rest, tails, bone):
+    return posed_segments(rest, frames_pose, tails, [bone])[bone][1]
+
+
 def plant_feet(frames, rest, parents, order, tails, mapping, floor: float, height: float,
                up=Z_UP, tolerance: float = PLANT_TOLERANCE,
                smooth_frames: int = PLANT_SMOOTH_FRAMES):
-    """Tilt each planted foot back to the character's own rest sole angle.
+    """Put a planted foot back on the sole angle the character was built with.
 
-    The retarget copies the standard skeleton's foot angle onto feet that rest at a different
-    one, so a planted toe ends up tilted: measured on two rigs, the toe sat 3-8% of the body's
-    height above the heel, where at rest it sat level or slightly down. While a foot is on the
-    floor, turn the foot (and its toes) about the ankle by the difference, so the sole keeps
-    the angle the character was built with. A foot in the air is left alone: a jump's pointed
-    toe is the move, not a bug.
+    The retarget copies the preset skeleton's foot angle onto a rig whose feet rest at another
+    one, so a planted toe ends up pointing up: on the marine it sat 2.2 cm above the heel,
+    where at rest it sat level. Judging by the foot bone alone is not enough there, because on
+    these rigs the foot bone points almost straight down into the boot (a rest pitch near -76
+    degrees) and says little about the sole; the bend at the ball is a separate bone.
+
+    So, while a foot is on the floor, put the toe back at its rest bend and then turn the foot
+    and its toes about the ankle until the toe tip sits at the height it has at rest. A foot in
+    the air is left alone: a jump's pointed toe is the move, not a bug.
     """
     frames = list(frames)
-    feet = [b for b, role in mapping.items() if role in ("LeftFoot", "RightFoot") and b in rest]
-    if not frames or not feet or height <= 0:
+    sides = _foot_sides(mapping, rest)
+    if not frames or not sides or height <= 0:
         return frames
     moved = [(dict(world), np.array(root, dtype=float)) for world, root in frames]
-    for bone in feet:
-        segment = _subtree(bone, parents)
-        rest_pitch = foot_pitch(rest[bone][:3, 3], tails[bone], up)
-        # The ankle sits above the sole by the foot's own height, so "on the floor" is measured
-        # against the ankle's rest height above it, not against the floor itself.
-        rest_lift = float(rest[bone][:3, 3] @ up) - floor
-        turn, planted = [], []
+    for foot, toe in sides:
+        chain = _subtree(foot, parents)
+        tip_bone = toe or foot
+        rest_ankle = float(rest[foot][:3, 3] @ up)
+        rest_lift = rest_ankle - floor                      # the ankle rides this high at rest
+        rest_tip_gap = float(tails[tip_bone] @ up) - rest_ankle   # the tip above the ankle
+        bend = (rest[foot][:3, :3].T @ rest[toe][:3, :3]) if toe is not None else None
+        turns, planted = [], []
         for world, root in frames:
             pose = pose_matrices(rest, parents, order, world, root)
-            head, tail = posed_segments(rest, pose, tails, [bone])[bone]
-            on = float(head @ up) - floor <= rest_lift + tolerance * height
+            ankle = pose[foot][:3, 3]
+            on = float(ankle @ up) - floor <= rest_lift + tolerance * height
             planted.append(on)
-            turn.append(foot_pitch(head, tail, up) - rest_pitch if on else 0.0)
+            if not on:
+                turns.append(0.0)
+                continue
+            probe = dict(world)
+            if toe is not None:
+                probe[toe] = probe[foot] @ bend             # the rest bend at the ball
+            tip = _tip(pose_matrices(rest, parents, order, probe, root), rest, tails, tip_bone)
+            arm = np.asarray(tip) - ankle
+            span = float(np.linalg.norm(arm))
+            if span < 1e-9:
+                turns.append(0.0)
+                continue
+            have = float(np.arcsin(np.clip(float(arm @ up) / span, -1.0, 1.0)))
+            want = float(np.arcsin(np.clip(rest_tip_gap / span, -1.0, 1.0)))
+            turns.append(have - want)                       # tilt_to_pitch takes off this much
         if not any(planted):
             continue
-        # Smooth so a foot that touches and lifts turns back gradually; the exact angle is
-        # kept wherever smoothing alone would still leave the planted toe out.
-        smoothed = _moving_average(np.array(turn), smooth_frames)
-        angle = np.where(np.abs(turn) > np.abs(smoothed), turn, smoothed)
+        smoothed = _moving_average(np.array(turns), smooth_frames)
+        # Keep the exact turn on a planted foot; let smoothing carry a foot that lifts.
+        angle = np.where(planted & (np.abs(turns) > np.abs(smoothed)), turns, smoothed)
         for index, (world, root) in enumerate(moved):
-            if abs(angle[index]) < 1e-9:
+            if not planted[index]:
                 continue
-            pose = pose_matrices(rest, parents, order, frames[index][0], frames[index][1])
-            head, tail = posed_segments(rest, pose, tails, [bone])[bone]
-            spin = tilt_to_pitch(head, tail, float(angle[index]), up)
-            for b in segment:
+            if toe is not None:
+                world[toe] = world[foot] @ bend
+            if abs(float(angle[index])) < 1e-9:
+                continue
+            pose = pose_matrices(rest, parents, order, world, root)
+            ankle = pose[foot][:3, 3]
+            tip = _tip(pose, rest, tails, tip_bone)
+            spin = tilt_to_pitch(ankle, tip, float(angle[index]), up)
+            for b in chain:
                 world[b] = spin @ np.asarray(world[b])
     return moved
 
 
 def planted_tilt(frames, rest, parents, order, tails, mapping, floor: float, height: float,
                  up=Z_UP, tolerance: float = PLANT_TOLERANCE) -> float:
-    """The worst planted foot's angle away from its rest angle, in degrees."""
+    """The worst planted toe tip's height above its rest height, as a share of body height."""
     worst = 0.0
-    for bone in [b for b, role in mapping.items() if role in ("LeftFoot", "RightFoot") and b in rest]:
-        rest_pitch = foot_pitch(rest[bone][:3, 3], tails[bone], up)
-        rest_lift = float(rest[bone][:3, 3] @ up) - floor
+    for foot, toe in _foot_sides(mapping, rest):
+        tip_bone = toe or foot
+        rest_tip = float(tails[tip_bone] @ up)
+        rest_lift = float(rest[foot][:3, 3] @ up) - floor
         for world, root in frames:
             pose = pose_matrices(rest, parents, order, world, root)
-            head, tail = posed_segments(rest, pose, tails, [bone])[bone]
-            if float(head @ up) - floor <= rest_lift + tolerance * height:
-                worst = max(worst, abs(foot_pitch(head, tail, up) - rest_pitch))
-    return float(np.degrees(worst))
+            if float(pose[foot][:3, 3] @ up) - floor > rest_lift + tolerance * height:
+                continue
+            tip = _tip(pose, rest, tails, tip_bone)
+            worst = max(worst, abs(float(tip @ up) - rest_tip))
+    return float(worst / height)
 
 
 def horizontal_travel(frames, up=Z_UP) -> float:
@@ -871,7 +913,7 @@ def blend_loop(frames, start: int, end: int, blend_frames: int = LOOP_BLEND_FRAM
 def _step_gaps(frames, rest, parents, order, height: float, up=Z_UP) -> list[float]:
     """The largest joint move between each frame and the next, in shared units."""
     return [loop_gap([a, b], rest, parents, order, height, up)
-            for a, b in zip(frames, frames[1:])]
+            for a, b in itertools.pairwise(frames)]
 
 
 def trim_duplicate_tail(frames, rest, parents, order, height: float, up=Z_UP,
@@ -1228,7 +1270,7 @@ def main() -> None:  # pragma: no cover - needs bpy
                       f"distance {100 * candidates[0][2] / height:.2f}%{runner}, blend {blend})")
     print(f"grounding: penetration {100 * before_pen:.2f}% -> {100 * after_pen:.2f}% of height "
           f"({'off' if args.no_ground else 'on'})")
-    print(f"feet: planted toe {after_tilt:.1f}° off its rest angle "
+    print(f"feet: planted toe tip {100 * after_tilt:.2f}% of height off its rest height "
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
           f"({'trimmed' if args.loop else 'off'}, {len(frames)} frames){detail}")

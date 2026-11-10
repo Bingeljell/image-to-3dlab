@@ -618,7 +618,8 @@ def test_ground_frames_lifts_every_penetrating_frame_onto_the_floor():
 
 def test_grounding_never_pulls_an_airborne_frame_down():
     """A jump, flying kick or a run's flight phase has both feet above the floor. Grounding
-    may only lift, so those frames keep their height instead of being flattened."""
+    may only lift, so those frames keep their height instead of being flattened. The take-off
+    frame stands on the floor, as in a real jump."""
     parents, heads, _ = _humanoid()
     rest, order = _rest_mats(parents, heads)
     _, tails = _rest_and_tails(parents, heads)
@@ -626,10 +627,29 @@ def test_grounding_never_pulls_an_airborne_frame_down():
     base = heads[order[0]]
     floor = kr._rest_floor(rest, tails, mapping)
     frames = [({b: np.eye(3) for b in order}, base + np.array([0, 0, dz]))
-              for dz in (0.4, 0.6, 0.5)]
+              for dz in (0.0, 0.4, 0.6, 0.5)]
     grounded = kr.ground_frames(frames, rest, parents, order, tails, mapping, floor)
     for before, after in zip(frames, grounded):
         assert after[1][2] == pytest.approx(before[1][2])
+
+
+def test_a_move_that_never_touches_the_floor_is_lowered_onto_it():
+    """The crouch sneak hovered 5.6 cm above the floor for its whole clip on the space marine
+    (2026-11-10). A move whose feet never reach the floor comes down until the lowest one does,
+    and keeps its own ups and downs."""
+    parents, heads, _ = _humanoid()
+    rest, order = _rest_mats(parents, heads)
+    _, tails = _rest_and_tails(parents, heads)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    base = heads[order[0]]
+    floor = kr._rest_floor(rest, tails, mapping)
+    frames = [({b: np.eye(3) for b in order}, base + np.array([0, 0, dz]))
+              for dz in (0.06, 0.08, 0.07)]
+    grounded = kr.ground_frames(frames, rest, parents, order, tails, mapping, floor)
+    low = (kr._foot_track(grounded, rest, parents, order, tails, mapping) @ kr.Z_UP).min(axis=1)
+    assert low.min() == pytest.approx(floor, abs=1e-9)
+    heights = [after[1][2] - before[1][2] for before, after in zip(frames, grounded)]
+    assert heights == pytest.approx([-0.06] * 3)
 
 
 def test_lift_above_floor_raises_only_the_frames_that_dip():

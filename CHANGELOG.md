@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Crouch sneak no longer floats above the floor. A move whose feet never reach the floor is
+  lowered until they do; jumps keep their height.
+
 ## [0.5.9] - 2026-11-10
 
 ### Added

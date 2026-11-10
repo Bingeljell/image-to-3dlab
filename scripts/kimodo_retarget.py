@@ -935,23 +935,30 @@ def _step_gaps(frames, rest, parents, order, height: float, up=Z_UP) -> list[flo
 
 
 def trim_duplicate_tail(frames, rest, parents, order, height: float, up=Z_UP,
-                        share: float = DUPLICATE_SHARE):
-    """Drop trailing frames that sit on top of the first pose.
+                        share: float = DUPLICATE_SHARE, tries: int = 2):
+    """Drop trailing frames that repeat the first pose, for a clip kept whole.
 
-    A clip that is already a clean loop ends with a copy of its first frame. `blend_loop` drops
-    that copy, but blending pulls the frame before it almost onto the first pose, so the wrap
-    can still be a hair apart and the move stutters. Keep dropping the tail until the wrap is
-    at least SHARE of a normal frame step away.
+    A clip that is already a clean loop ends with a copy of its first frame, and `blend_loop`
+    pulls the frame before that copy almost onto the first pose too, so the wrap can still be a
+    duplicate: the sprint sat 0.003 apart against a 0.086 step and the run stuttered. Keep
+    dropping the tail until the wrap is at least SHARE of a normal frame step away.
+
+    Only for a clip kept whole. A trimmed loop's seam is deliberately blended onto the first
+    pose; dropping a frame there would open the seam again (a walk's went 2.2% to 5.6%).
     """
     frames = list(frames)
-    if len(frames) < 3 or height <= 0:
+    if len(frames) < 4 or height <= 0:
         return frames
     gaps = _step_gaps(frames, rest, parents, order, height, up)
     step = float(np.median(gaps)) if gaps else 0.0
     if step <= 0:
         return frames
-    while len(frames) > 2 and loop_gap([frames[-1], frames[0]], rest, parents, order,
-                                       height, up) < share * step:
+    for _ in range(max(0, tries)):
+        if len(frames) <= 3:
+            break
+        wrap = loop_gap([frames[-1], frames[0]], rest, parents, order, height, up)
+        if wrap >= share * step:
+            break
         frames = frames[:-1]
     return frames
 
@@ -1266,7 +1273,8 @@ def main() -> None:  # pragma: no cover - needs bpy
         seam_gap = loop_gap(frames, rest, parents, order, height, up)
         blend = seam_blend_frames(seam_gap, height)
         frames = blend_loop(frames, 0, len(frames), blend, up=up)
-        frames = trim_duplicate_tail(frames, rest, parents, order, height, up)
+        if args.keep_whole:
+            frames = trim_duplicate_tail(frames, rest, parents, order, height, up)
     if not args.no_ground:
         frames = plant_feet(frames, rest, parents, order, tails, mapping, floor, height, up)
         frames = lift_above_floor(frames, rest, parents, order, tails, mapping, floor, up,

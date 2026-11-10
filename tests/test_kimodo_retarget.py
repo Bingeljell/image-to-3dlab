@@ -880,7 +880,7 @@ def test_a_clean_loop_does_not_end_on_a_copy_of_its_first_pose():
     step = float(np.median(gaps))
     wrap = kr.loop_gap([trimmed[-1], trimmed[0]], rest, parents, order, height)
     assert wrap >= 0.5 * step, f"wrap {wrap:.4f} is a duplicate of {step:.4f}"
-    assert wrap < 2.5 * step, "the tail lost a real frame"
+    assert wrap <= 2.0 * step, "the tail lost a real frame"
     assert len(trimmed) < len(frames)
 
 

@@ -37,7 +37,8 @@ CATALOG = {"host": {"label": "Apple Silicon Mac"}, "front_back": {"ready": True,
      "caveat": "Not licensed in the EU, UK or South Korea.", "human_expected": "12 GB", "best_for": "Detail",
      "weights": [{"label": "shape", "source": "tencent/x", "human_expected": "12 GB", "present": False}]},
 ]}
-PRESETS = {"installed": True, "presets": [{"id": "idle", "label": "Idle", "take": 0}, {"id": "idle_b", "label": "Idle B", "take": 1},
+PRESETS = {"installed": True, "aliases": {"wave_old": "wave"},
+           "presets": [{"id": "idle", "label": "Idle", "take": 0}, {"id": "idle_b", "label": "Idle B", "take": 1},
                                           {"id": "wave", "label": "Wave", "take": 0}]}
 KNIGHT = {"id": "aaaaaaaaaaaa", "name": "knight", "kind": "character", "stage": "finished", "updated": 0,
           "picture": "images/k/k.png", "model": "k/k.glb", "finished": "finish/k/k_20k.glb", "clips": [], "props": [],
@@ -221,6 +222,12 @@ def test_an_animated_character_can_be_given_another_move(studio):
     ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="wave")
     form = sent(studio)
     assert json.loads(form["steps"]) == ["animated"] and form["first_move"] == "wave"
+
+
+def test_an_old_move_name_still_asks_for_the_move_that_replaced_it(studio):
+    # "wave" became "wave_b" when the second take was kept; the old name must keep working.
+    ms.continue_asset(studio, asset_id=DANCER["id"], up_to="animated", move="wave_old")
+    assert sent(studio)["first_move"] == "wave"
 
 
 def test_remaking_a_move_it_already_has_says_so(studio):
@@ -499,7 +506,7 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
     assert set(out["advanced"]) == {"edge_fade", "nudge", "texture_size", "rig_from", "speed", "arms_away",
-                                    "keep_everything"}
+                                    "in_place", "keep_everything"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
 
@@ -511,7 +518,7 @@ def test_every_studio_control_has_an_mcp_twin():
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
-            "speed": "speed", "spread": "arms_away", "keep": "keep_everything",
+            "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
             "picengine": "picture_engine", "change": "back_change"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."

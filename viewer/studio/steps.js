@@ -291,10 +291,13 @@ function movePicker(asset, ctx, cta) {
   const presets = ctx.presets.filter((p) => !p.take);
   if (!presets.length) return '<p class="hint">No preset moves are installed.</p>';
   const have = new Set(asset.clips.map((c) => c.name));
-  return `<div class="moves" role="group" aria-label="Moves">${presets.map((p, i) => `<button class="chip" data-preset="${esc(p.id)}" aria-pressed="${i === 0}" ${have.has(p.id) ? 'data-tip="Already made: making it again replaces it"' : ''}>${esc(p.label)}${have.has(p.id) ? ' ✓' : ''}</button>`).join('')}</div>
+  const stays = !!presets[0].in_place;
+  const pace = (p) => Number(p.speed) || 1;   // strikes ship faster: Hook and Jab 1.3x, One-two 1.5x
+  return `<div class="moves" role="group" aria-label="Moves">${presets.map((p, i) => `<button class="chip" data-preset="${esc(p.id)}" data-in-place="${p.in_place ? 1 : 0}" data-speed="${pace(p)}" aria-pressed="${i === 0}" ${have.has(p.id) ? 'data-tip="Already made: making it again replaces it"' : ''}>${esc(p.label)}${have.has(p.id) ? ' ✓' : ''}</button>`).join('')}</div>
     <details class="adv"><summary>Advanced</summary>
-      <label class="field">Speed <output data-o="speed">1.00×</output><input type="range" data-k="speed" min="0.5" max="2" step="0.05" value="1"></label>
+      <label class="field">Speed <output data-o="speed">${pace(presets[0]).toFixed(2)}×</output><input type="range" data-k="speed" min="0.5" max="2" step="0.05" value="${pace(presets[0])}"></label>
       <label class="field" data-tip="Bulky characters (armour, big shoulders) can hide their hands in their hips. This moves hanging arms outward a little; raised arms are left alone.">Arms away from body <output data-o="spread">0°</output><input type="range" data-k="spread" min="0" max="25" step="1" value="0"></label>
+      <label class="check" data-tip="Loops (walk, run, sneak, strafe, idle) play on the spot, as a game's locomotion does; one-offs (jump, roll, kicks) keep their travel. Flip it if a loop slides away or a one-off should stay put."><input type="checkbox" data-k="inplace" ${stays ? 'checked' : ''}><span>In place <span class="hint">stays on the spot instead of moving forward. Each move picks its own default.</span></span></label>
     </details>
     <button class="primary" data-run="animated">${cta}</button>`;
 }
@@ -302,8 +305,15 @@ function movePicker(asset, ctx, cta) {
 /** Wire a step card's controls. `ctx.onDone(asset)` reloads the Library afterwards. */
 export function wireStep(card, stepId, asset, ctx) {
   const k = (key) => card.querySelector(`[data-k="${key}"]`);
+  const placed = k('inplace');
   card.querySelectorAll('[data-preset]').forEach((chip) => chip.onclick = () => {
     card.querySelectorAll('[data-preset]').forEach((c) => c.setAttribute('aria-pressed', String(c === chip)));
+    if (placed) placed.checked = chip.dataset.inPlace === '1';   // each move brings its own default
+    const s = k('speed');                                         // ...and its own speed
+    if (s && chip.dataset.speed) {
+      s.value = chip.dataset.speed;
+      card.querySelector('[data-o="speed"]').textContent = `${Number(s.value).toFixed(2)}×`;
+    }
   });
   const speed = k('speed'), spread = k('spread'), engine = k('engine');
   if (speed) speed.oninput = () => { card.querySelector('[data-o="speed"]').textContent = `${Number(speed.value).toFixed(2)}×`; };
@@ -322,7 +332,7 @@ export function wireStep(card, stepId, asset, ctx) {
       backend: engine?.value || ctx.engines[0]?.id,
       detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value),
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
-      speed: Number(speed?.value || 1), spread: Number(spread?.value || 0),
+      speed: Number(speed?.value || 1), spread: Number(spread?.value || 0), inPlace: !!placed?.checked,
       rigSource: k('rigsource')?.value || 'finished',
       change: k('change')?.value?.trim() || '',
       backEngine: card.querySelector('[data-backengine]')?.value || '',
@@ -336,7 +346,7 @@ export function wireStep(card, stepId, asset, ctx) {
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
         : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture })),
       rigged: () => startRig(asset, settings.rigSource),
-      animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread) }[stepId];
+      animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread, settings.inPlace) }[stepId];
     const note = button.dataset.humanoid === 'no'
       ? 'Rigging anyway. Preset moves only fit humanoids, so this one can be downloaded and animated in Blender. The rig may be wonky.' : '';
     await runInCard(card, run, ctx, stepId, note);
@@ -376,7 +386,7 @@ export function chainPlan(stepId, asset, settings) {
   if (stepId === 'animated') {
     if (!asset.rigged || !settings.preset) return null;
     return { ...base, steps: ['animated'], made, firstMove: settings.preset,
-      moveSettings: { speed: settings.speed, arm_spread: settings.spread } };
+      moveSettings: { speed: settings.speed, arm_spread: settings.spread, in_place: !!settings.inPlace } };
   }
   return null;
 }
@@ -411,9 +421,9 @@ async function startRig(asset, source = 'finished') {
   return { kind: 'animate', start: await postStart('/api/animate/rig', form) };
 }
 
-async function startAnimate(asset, preset, speed, arm_spread) {
+async function startAnimate(asset, preset, speed, arm_spread, in_place) {
   if (!preset) throw new Error('Pick a move first.');
-  return { kind: 'animate', start: await postStart('/api/animate/play', JSON.stringify({ model: asset.rigged, preset, speed, arm_spread })) };
+  return { kind: 'animate', start: await postStart('/api/animate/play', JSON.stringify({ model: asset.rigged, preset, speed, arm_spread, in_place })) };
 }
 
 const settingsOf = (card) => card.dataset.lastPreset || null;

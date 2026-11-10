@@ -29,6 +29,8 @@ HEAD_FLOOR_PERCENTILE = 5
 OUTLINE_GROW_PX = 4       # the least margin round the real head's outline
 OUTLINE_GROW_SHARE = 0.1  # else a tenth of the head's width
 LINER_SHRINK = 0.04       # the body's own head, kept as a liner under the new hair, shrinks this much
+LINER_TUCK = 0.97         # a liner vertex outside the new head pulls back to this of its surface
+LINER_REACH = 1.5         # liner work stops this many skull radii from the neck's centre line
 COLLAR_RATIO = 1.15       # a slice this much wider than the neck above it is a collar, not more neck
 MIN_SLICE_POINTS = 20     # fewer points than this in a slice and its width is noise
 
@@ -254,6 +256,57 @@ def liner_split(vertices: np.ndarray, real: np.ndarray, shrink: float) -> tuple[
     return moved, real & (vertices[:, 2] > centre[2])
 
 
+def tuck_liner(vertices: np.ndarray, faces: np.ndarray, liner: np.ndarray, head, cut: float,
+               axis: np.ndarray, radius: float, keep: float = LINER_TUCK,
+               reach: float = LINER_REACH) -> tuple[np.ndarray, np.ndarray]:
+    """(vertices with the old head's liner pulled inside HEAD, which faces to drop).
+
+    The liner is the body's own head, kept under the new hair. An old head with more volume than
+    the new one -- hair, or ears the new head does not have -- pokes out beside the new ears as a
+    second set of them (the space marine, 2026-11-09). So: a ray from the new head's centre out
+    through each liner vertex. A vertex outside the head is pulled to KEEP of the NEAREST hit.
+    The nearest hit is the skull; the farthest is often an ear, which parks old skin just inside
+    the ear and still shows.
+
+    Only beside the head: above CUT, within REACH skull radii of the neck's centre line (AXIS as
+    x, z; RADIUS the skull's), and further sideways than behind. Below those are shoulders and
+    collar, and tucking them pulled the collar up into a cape. The back of the liner stays put
+    because it is what fills the gap under the hair: pulled in, the new head's own neck shows
+    through that gap (the space marine, 2026-11-09). Liner vertices with no head behind them --
+    a ray that misses -- are dropped with their faces: nothing can hide them.
+    """
+    moved = vertices.copy()
+    empty = np.zeros(len(faces), bool)
+    if not liner.any() or radius <= 0:
+        return moved, empty
+
+    centre = np.array([axis[0], cut + 0.55 * (head.vertices[:, 1].max() - cut), axis[1]])
+    sideways = np.abs(vertices[:, 0] - axis[0])
+    behind = np.abs(vertices[:, 2] - axis[1])
+    idx = np.flatnonzero(liner & (vertices[:, 1] > cut) & (np.hypot(sideways, behind) < reach * radius)
+                         & (sideways > behind))
+    if not len(idx):
+        return moved, empty
+
+    d = vertices[idx] - centre
+    dist = np.linalg.norm(d, axis=1)
+    dirs = d / np.maximum(dist, 1e-12)[:, None]
+    hits, ray_of, _ = head.ray.intersects_location(
+        np.repeat(centre[None], len(idx), 0), dirs, multiple_hits=True)
+    # With no hits at all, some trimesh ray engines (Linux CI) return a flat (0,) array, not (0, 3).
+    hits = np.asarray(hits, dtype=float).reshape(-1, 3)
+    ray_of = np.asarray(ray_of, dtype=int).reshape(-1)
+    nearest = np.full(len(idx), np.inf)
+    np.minimum.at(nearest, ray_of, np.linalg.norm(hits - centre, axis=1))
+    missed = ~np.isfinite(nearest)
+    poke = ~missed & (dist > keep * nearest)
+    moved[idx[poke]] = centre + dirs[poke] * (keep * nearest[poke])[:, None]
+
+    failed = np.zeros(len(vertices), bool)
+    failed[idx[missed]] = True
+    return moved, failed[faces].any(axis=1)
+
+
 def graft(full, head, full_box, head_box, crop, head_width, bone, shape, grow=None, liner=LINER_SHRINK,
           cut_at=None):
     """Swap FULL's head region for HEAD (both trimesh meshes; HEAD is moved in place).
@@ -264,8 +317,8 @@ def graft(full, head, full_box, head_box, crop, head_width, bone, shape, grow=No
     1. The real head: FULL's head bones. 2. HEAD placed by the crop box, then on the real
     head at the same centre and height. 3. Fine line-up, position only. 4. FULL loses the
     front half of its head region (the back half stays, shrunk by LINER, as a liner under
-    the new hair; LINER=0 drops it all); HEAD keeps what lands inside the real head's
-    outline, grown a little. Returns (body, head part, report).
+    the new hair, tucked inside HEAD; LINER=0 drops it all); HEAD keeps what lands inside the
+    real head's outline, grown a little. Returns (body, head part, report).
     """
     import trimesh
 
@@ -302,9 +355,21 @@ def graft(full, head, full_box, head_box, crop, head_width, bone, shape, grow=No
     keep &= in_head
     body_mesh = full.copy()
     body_mesh.vertices, gone = liner_split(full.vertices, swap, liner)
-    body = body_mesh.submesh([np.flatnonzero(~gone[full.faces].any(axis=1))], append=True)
+    # The liner is only safe if it stays inside the new head: an old head with more volume pokes
+    # out beside the new ears. Above the neck and near the skull only, or the collar gets pulled
+    # up with it (2026-10-30). With no neck cut, start the guard at the head region's floor.
+    above = cut if cut is not None else float(np.percentile(full.vertices[real, 1], 2))
+    if axis is None:
+        axis, ring = neck_ring(full.vertices, real, above)
+    tight = body_mesh.vertices.copy()
+    body_mesh.vertices, liner_miss = tuck_liner(tight, full.faces, swap & ~gone, head, above,
+                                                axis, ring)
+    tucked = int(np.any(body_mesh.vertices != tight, axis=1).sum())
+    drop = gone[full.faces].any(axis=1) | liner_miss
+    body = body_mesh.submesh([np.flatnonzero(~drop)], append=True)
     part = head.submesh([np.flatnonzero(keep[head.faces].all(axis=1))], append=True)
     report = {"head_bones": picked, "outline_margin_px": int(grow), "liner_shrink": liner,
+              "liner_tucked": tucked, "liner_dropped_faces": int(liner_miss.sum()),
               "cut_at": None if cut is None else round(cut, 4),
               "neck_ring": None if ring is None else round(ring, 4),
               "scale_to_real_head": round(float(place[0, 0]), 4),

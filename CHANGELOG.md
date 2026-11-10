@@ -11,13 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull requests run the file checks, then the test suite; a failed run leaves one note listing
   the failed checks, removed again by a green run. Commit checks are available locally with pre-commit.
 - A line-coverage report for the package and the viewer: `uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=html`. It writes `htmlcov/` and leaves `scripts/` out.
+- An **In place** switch on the Animate tab, one answer per move: loops (walk, jog, sneak, strafe,
+  idle) play on the spot by default, one-offs (jump, roll, kicks) keep their travel, and either can
+  be flipped for the move you are making. Agents get the same choice.
+- New moves: **Sprint**, **Crouch sneak**, **Zombie walk**, **Robot dance**, a **One-two** punch combo,
+  a second death, **Death 2** (knocked to the knees, then down), and **Strafe right** (the mirror of
+  Strafe left).
+- Two new idles replace the old ones: **Idle (subtle)** breathes and looks left and right, **Idle
+  (restless)** does the same with more life. Both play their whole clip instead of a cut-down loop.
 
 ### Changed
 - The development commands in the README use `uv run pytest`.
 - `uv run pytest` finds the package without `PYTHONPATH=.`. `pytest.ini` sets `pythonpath = .`.
+- Move names read like what they do: Jog (was Run take B), Sneaky walk, Hook and Jab for the two
+  punches, and Walk (female) for the female walk. Old names still work for saved plans and agents.
+- Hook and Jab play at 1.3x speed by default, so they land with some snap.
+
+### Removed
+- Moves that did not read well: Roundhouse kick, Flying kick, Kata, Sword swing (it comes back once
+  characters can hold a sword), the second takes of Walk, Jump, Roll, Hit react, Cheer, Wave, Sit down,
+  Dance and Kick, and the first takes of Run, Strafe left, Fighting stance and Punch combo.
 
 ### Fixed
 - A failed check on a pull request from a fork still leaves a note. GitHub leaves the pull request list empty on those runs, so the note is found from the branch instead.
+- Animated characters keep their feet on the floor, and repeating moves (walk, run, idle, sneak,
+  strafe) no longer jump when they restart.
+- A move that keeps its whole clip has its seam blended, so the restless idle no longer jumps
+  when it repeats.
+- A planted foot keeps the sole angle it was built with instead of copying the preset
+  skeleton's: the toe is levelled at the ball, so no toe tips up while the foot is down.
+- A Hero-finished head no longer grows a second set of ears. The body's old head, kept as a
+  liner under the new hair, carried more volume than the new head and poked out beside it; the
+  liner is now tucked inside the new head, above the neck only, and faces with no new head
+  behind them are dropped.
 
 ## [0.5.8] - 2026-11-08
 

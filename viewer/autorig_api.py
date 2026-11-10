@@ -60,6 +60,12 @@ RIG_SECONDS = 70.0
 ANIMATE_SECONDS = 12.0
 MAX_ARM_SPREAD = 30.0
 SPEED_RANGE = (0.5, 2.0)
+# Clips that return to their first pose: walk, run, idle, sneak and strafe, including their
+# takes and variants (walk_b, walk_woman, strafe_left). One place, shared by the tab.
+LOOPING_PRESETS = ("idle", "walk", "run", "sneak", "strafe")
+# Old names for moves that were renamed or whose second take became the move. A saved plan or an
+# agent asking by the old name still gets the move that replaced it; the list lives in presets.json
+# so the studio, this API and the MCP all read one answer.
 
 SKINTOKENS_LICENSE = {
     "name": "MIT",
@@ -84,6 +90,17 @@ def installed(root: Path = SKINTOKENS) -> bool:
 
 
 # ---------------------------------------------------------------------------- presets
+
+
+def aliases(root: Path = MOTIONS) -> dict[str, str]:
+    """Old move name -> the id it means now."""
+    index = _read_json(root / "presets.json") or {}
+    return {str(k): str(v) for k, v in (index.get("aliases") or {}).items()}
+
+
+def resolve_move(preset_id: str, root: Path = MOTIONS) -> str:
+    """The preset a request means: an old name maps to the move that replaced it."""
+    return aliases(root).get(preset_id, preset_id)
 
 
 def presets(root: Path = MOTIONS) -> list[dict[str, Any]]:
@@ -262,10 +279,50 @@ def rig_commands(source: Path, result: Path) -> list[tuple[list[str], Path]]:
     ]
 
 
+def repeats(preset_id: str) -> bool:
+    """Whether a preset is a cycle, so the retargeter should trim and blend its loop."""
+    return preset_id.startswith(LOOPING_PRESETS)
+
+
+def loops(preset: dict[str, Any]) -> bool:
+    """Whether to trim this move to its best cycle. `presets.json` can say no with `"loop": false`
+    for a move made of distinct beats (an idle that looks left, then right) or a clip that is
+    already a clean loop; trimming those would cut the beats out. Otherwise the name rule decides."""
+    return bool(preset.get("loop", repeats(str(preset.get("id", "")))))
+
+
+def keeps_whole(preset: dict[str, Any]) -> bool:
+    """A move that says `"loop": false` keeps every frame and only has its seam blended.
+
+    It still gets `--loop` so the seam is smoothed at the wrap; without `--keep-whole` the picker
+    would trim it back to its longest matching pair and cut the beats out.
+    """
+    return preset.get("loop") is False
+
+
+def default_in_place(preset: dict[str, Any]) -> bool:
+    """Whether this move stays in place unless the person says otherwise.
+
+    Loops walk, run and strafe on the spot, as a game's locomotion does; one-offs such as jump,
+    roll and the kicks keep their travel. `presets.json` carries the answer per move, so the tab,
+    the API and agents all read it from there; a preset without it falls back to the loop rule.
+    """
+    return bool(preset.get("in_place", repeats(str(preset.get("id", "")))))
+
+
+
 def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float,
-                    speed: float = 1.0) -> list[str]:
-    return [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
-            "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
+                    speed: float = 1.0, repeat: bool = False, in_place: bool = False,
+                    keep_whole: bool = False) -> list[str]:
+    command = [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
+               "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
+    if repeat or keep_whole:
+        command.append("--loop")
+    if keep_whole:
+        command.append("--keep-whole")
+    if in_place:
+        command.append("--in-place")
+    return command
 
 
 def clamp_speed(value: Any, preset: dict[str, Any]) -> float:
@@ -380,26 +437,40 @@ class AnimateJobManager:
             return self._claim(job)
 
     def create_animation(self, rigged: Path, preset_id: str, arm_spread: Any,
-                         speed: Any = None) -> AnimateJob:
+                         speed: Any = None, in_place: Any = None) -> AnimateJob:
         with self.lock:
             if self.busy():
                 raise RuntimeError("an Animate job is already running")
             run = rig_run_of(rigged)
             if run is None:
                 raise ValueError("pick a rigged model first")
+            preset_id = resolve_move(preset_id, self.motions)
             preset = next((p for p in presets(self.motions) if p["id"] == preset_id), None)
             if preset is None:
-                raise ValueError(f"no such preset: {preset_id!r}")
+                offered = ", ".join(p["id"] for p in presets(self.motions))
+                raise ValueError(f"no such preset: {preset_id!r}. The moves are: {offered}")
             spread = clamp_spread(arm_spread)
             pace = clamp_speed(speed, preset)
+            if in_place is None:
+                keep = default_in_place(preset)
+            elif isinstance(in_place, bool):
+                keep = in_place
+            else:
+                raise ValueError("in place is true or false")
             stem = rigged.name.removesuffix("_rigged.glb")
             result = run / f"{stem}_{preset_id}.glb"
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
             record["motion"]["speed"] = pace
+            whole = keeps_whole(preset)
+            record["motion"]["loop"] = loops(preset)
+            record["motion"]["keep_whole"] = whole
+            record["motion"]["in_place"] = keep
+            record["motion"]["grounded"] = True
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
-                                               result, spread, pace), REPO)],
+                                               result, spread, pace, loops(preset),
+                                               keep, whole), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)
 

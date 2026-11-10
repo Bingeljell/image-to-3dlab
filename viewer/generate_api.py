@@ -57,6 +57,9 @@ from autorig_api import (
     ANIMATE_JOBS,
 )
 from autorig_api import (
+    aliases as animate_aliases,
+)
+from autorig_api import (
     cancel_job as cancel_animate_job,
 )
 from autorig_api import (
@@ -3622,6 +3625,7 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 self._send_json(200, {"models": animate_models(OUTPUT_ROOT),
                                       "presets": animate_presets(),
+                                      "aliases": animate_aliases(),
                                       "installed": autorig_installed()})
             except Exception as exc:
                 self._send_json(500, {"error": str(exc)})
@@ -3927,7 +3931,8 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 rigged = resolve_animate_model(str(body.get("model", "")), OUTPUT_ROOT)
                 job = ANIMATE_JOBS.create_animation(rigged, str(body.get("preset", "")),
-                                                    body.get("arm_spread", 0), body.get("speed"))
+                                                    body.get("arm_spread", 0), body.get("speed"),
+                                                    body.get("in_place"))
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Pull requests run the file checks, then the test suite; a failed run leaves one note listing
+  the failed checks, removed again by a green run. Commit checks are available locally with pre-commit.
+- A line-coverage report for the package and the viewer: `uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=html`. It writes `htmlcov/` and leaves `scripts/` out.
+
+### Changed
+- The development commands in the README use `uv run pytest`.
+- `uv run pytest` finds the package without `PYTHONPATH=.`. `pytest.ini` sets `pythonpath = .`.
+
+### Fixed
+- A failed check on a pull request from a fork still leaves a note. GitHub leaves the pull request list empty on those runs, so the note is found from the branch instead.
+
 ## [0.5.8] - 2026-11-08
 
 ### Added

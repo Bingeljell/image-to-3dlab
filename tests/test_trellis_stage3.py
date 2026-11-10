@@ -121,6 +121,17 @@ def _install_fake_trellis(monkeypatch):
     )
 
 
+def pytorch_has_mps() -> bool:
+    backend = getattr(torch.backends, "mps", None)
+    return bool(backend is not None and backend.is_available())
+
+
+needs_mps = pytest.mark.skipif(
+    not pytorch_has_mps(),
+    reason="PyTorch is not linked with MPS",
+)
+
+
 def _run_main(monkeypatch, tmp_path: Path, *, preprocessed: bool = False, transparent: bool = False):
     _FakePipeline.recorded = {}
     _install_fake_trellis(monkeypatch)
@@ -327,6 +338,21 @@ def test_runner_can_target_the_clean_space_port_and_stop_after_sampling():
     assert "load_rembg=False" in source
 
 
+def test_mps_gate_follows_the_pytorch_build(monkeypatch):
+    class _Mps:
+        def __init__(self, ok: bool):
+            self.ok = ok
+
+        def is_available(self):
+            return self.ok
+
+    monkeypatch.setattr(torch.backends, "mps", _Mps(False), raising=False)
+    assert pytorch_has_mps() is False
+    monkeypatch.setattr(torch.backends, "mps", _Mps(True), raising=False)
+    assert pytorch_has_mps() is True
+
+
+@needs_mps
 def test_opaque_image_loads_pipeline_without_rembg_and_cuts_out(tmp_path, monkeypatch):
     recorded, fake_matte = _run_main(monkeypatch, tmp_path)
     assert recorded["kwargs"]["load_rembg"] is False
@@ -337,6 +363,7 @@ def test_opaque_image_loads_pipeline_without_rembg_and_cuts_out(tmp_path, monkey
     assert metadata["experiment"]["matted_with"] == "u2net"
 
 
+@needs_mps
 def test_preprocessed_image_skips_matting_and_loads_pipeline_without_rembg(tmp_path, monkeypatch):
     recorded, fake_matte = _run_main(monkeypatch, tmp_path, preprocessed=True)
     assert recorded["kwargs"]["load_rembg"] is False
@@ -345,6 +372,7 @@ def test_preprocessed_image_skips_matting_and_loads_pipeline_without_rembg(tmp_p
     assert metadata["experiment"]["matted_with"] is None
 
 
+@needs_mps
 def test_transparent_image_skips_matting_and_loads_pipeline_without_rembg(tmp_path, monkeypatch):
     recorded, fake_matte = _run_main(monkeypatch, tmp_path, transparent=True)
     assert recorded["kwargs"]["load_rembg"] is False

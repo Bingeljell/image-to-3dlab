@@ -358,10 +358,16 @@ def test_the_image_route_answers_the_readiness_question_like_any_other():
 
 
 def test_readiness_names_missing_weights_by_label_not_by_path():
-    """A path is not an answer to "what is missing"; the label is what the card shows."""
+    """A path is not an answer to "what is missing"; the label is what the card shows.
+
+    Two Qwen files share one Hugging Face repo. Both names stay in the map.
+    """
     payload = bc.readiness("qwen-image")
-    labels = {w["label"] for w in payload["weights"].values()}
-    assert set(payload["missing_weights"]) <= labels
+    labels = {w["label"] for w in bc.BY_ID["qwen-image"].describe()["weights"]}
+    named = {w["label"] for w in payload["weights"].values()}
+    assert named == labels
+    assert len(payload["weights"]) == len(labels)
+    assert set(payload["missing_weights"]) <= named
 
 
 def test_a_route_that_cannot_run_here_is_never_reported_ready():

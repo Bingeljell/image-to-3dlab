@@ -176,7 +176,10 @@ def test_with_only_light_installed_the_standard_card_reads_not_installed(tmp_pat
     monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
     for w in cards["flux-image-light"].weights:
         _cache_file(w, 1000)
-    light, standard = cards["flux-image-light"].describe(), cards["flux-image"].describe()
+    # Name the machine. A plain Linux runner is "other", and both cards
+    # answer "unsupported" there before they look at the files.
+    light, standard = (cards["flux-image-light"].describe(bc.APPLE),
+                       cards["flux-image"].describe(bc.APPLE))
     assert light["state"] in ("ready", "missing")    # "missing" only if the engine build is absent
     assert standard["state"] != "partial", "the shared VAE must not make it look half-downloaded"
     assert standard["action"] != "resume"
@@ -187,7 +190,7 @@ def test_with_only_standard_installed_the_light_card_reads_not_installed(tmp_pat
     monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
     for w in cards["flux-image"].weights:
         _cache_file(w, 1000)
-    assert cards["flux-image-light"].describe()["state"] != "partial"
+    assert cards["flux-image-light"].describe(bc.APPLE)["state"] != "partial"
 
 
 def test_each_card_counts_only_its_own_files_in_a_shared_cache(tmp_path, monkeypatch):

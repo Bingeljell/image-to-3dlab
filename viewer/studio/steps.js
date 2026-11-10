@@ -297,7 +297,7 @@ function movePicker(asset, ctx, cta) {
     <details class="adv"><summary>Advanced</summary>
       <label class="field">Speed <output data-o="speed">${pace(presets[0]).toFixed(2)}×</output><input type="range" data-k="speed" min="0.5" max="2" step="0.05" value="${pace(presets[0])}"></label>
       <label class="field" data-tip="Bulky characters (armour, big shoulders) can hide their hands in their hips. This moves hanging arms outward a little; raised arms are left alone.">Arms away from body <output data-o="spread">0°</output><input type="range" data-k="spread" min="0" max="25" step="1" value="0"></label>
-      <label class="field" data-tip="Loops (walk, run, sneak, strafe, idle) play on the spot, as a game's locomotion does; one-offs (jump, roll, kicks) keep their travel. Flip it if a loop slides away or a one-off should stay put.">In place<input type="checkbox" data-k="inplace" ${stays ? 'checked' : ''}></label>
+      <label class="check" data-tip="Loops (walk, run, sneak, strafe, idle) play on the spot, as a game's locomotion does; one-offs (jump, roll, kicks) keep their travel. Flip it if a loop slides away or a one-off should stay put."><input type="checkbox" data-k="inplace" ${stays ? 'checked' : ''}><span>In place <span class="hint">stays on the spot instead of moving forward. Each move picks its own default.</span></span></label>
     </details>
     <button class="primary" data-run="animated">${cta}</button>`;
 }

@@ -761,3 +761,68 @@ def test_a_wider_seam_blends_more_frames():
     wide = kr.seam_blend_frames(0.09, 1.6)               # a sprint's 9% seam
     assert 5 < wide <= kr.LOOP_BLEND_MAX
     assert kr.seam_blend_frames(0.5, 1.6) == kr.LOOP_BLEND_MAX   # never longer than the cap
+
+
+def _planted_rig(tilt_deg=20.0, frames=6):
+    """A humanoid standing on the floor, the left foot tilted toes-up by TILT_DEG."""
+    parents, heads, roles = _humanoid()
+    rest, tails = _rest_and_tails(parents, heads)
+    order = _order(parents)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    up = np.array([0.0, 0.0, 1.0])
+    angle = np.radians(tilt_deg)
+    c, s = np.cos(angle), np.sin(angle)
+    rx = np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    world = {b: np.eye(3) for b in order}
+    world[roles["Lfoot"]] = rx
+    floor = kr._rest_floor(rest, tails, mapping, up)
+    # Stand the body on the floor with that tilted foot: the foot's lowest joint sits on it.
+    pose = kr.pose_matrices(rest, parents, order, world, heads[order[0]])
+    feet = [b for b, role in mapping.items() if role in ("LeftFoot", "RightFoot")]
+    segs = kr.posed_segments(rest, pose, tails, feet)
+    low = min(float(point @ up) for head, tail in segs.values() for point in (head, tail))
+    root = heads[order[0]] - (low - floor) * up
+    posed = [(dict(world), root) for _ in range(frames)]
+    return parents, heads, roles, rest, tails, order, mapping, up, posed, floor
+
+
+def _left_foot_pitch(rest, tails, order, parents, roles, up, frame):
+    pose = kr.pose_matrices(rest, parents, order, *frame)
+    head, tail = kr.posed_segments(rest, pose, tails, [roles["Lfoot"]])[roles["Lfoot"]]
+    return kr.foot_pitch(head, tail, up)
+
+
+def test_a_planted_toe_keeps_the_character_s_own_sole_angle():
+    """The retarget copies the standard skeleton's foot angle, so a planted toe tilted up (3-8%
+    of height on two real rigs). Planted feet keep the character's own rest sole angle."""
+    parents, heads, roles, rest, tails, order, mapping, up, posed, floor = _planted_rig()
+    height = 1.6
+    rest_pitch = kr.foot_pitch(heads[roles["Lfoot"]], tails[roles["Lfoot"]], up)
+    tilted = _left_foot_pitch(rest, tails, order, parents, roles, up, posed[0])
+    assert tilted > rest_pitch + np.radians(10)   # the toe is up before the fix
+
+    out = kr.plant_feet(posed, rest, parents, order, tails, mapping, floor, height, up)
+    assert _left_foot_pitch(rest, tails, order, parents, roles, up, out[0]) == pytest.approx(
+        rest_pitch, abs=np.radians(1.5))
+    # The foot that was already level is untouched.
+    rhead = kr.pose_matrices(rest, parents, order, *out[0])
+    head, tail = kr.posed_segments(rest, rhead, tails, [roles["Rfoot"]])[roles["Rfoot"]]
+    assert kr.foot_pitch(head, tail, up) == pytest.approx(
+        kr.foot_pitch(heads[roles["Rfoot"]], tails[roles["Rfoot"]], up), abs=1e-6)
+
+
+def test_a_foot_in_the_air_keeps_its_pointed_toe():
+    """A jump's pointed toe is the move, not a bug: only a foot on the floor is levelled."""
+    parents, _, roles, rest, tails, order, mapping, up, posed, floor = _planted_rig()
+    airborne = [(world, root + np.array([0, 0, 0.6])) for world, root in posed]
+    out = kr.plant_feet(airborne, rest, parents, order, tails, mapping, floor, 1.6, up)
+    for (world, root), (new_world, new_root) in zip(airborne, out):
+        assert np.allclose(np.asarray(world[roles["Lfoot"]]), np.asarray(new_world[roles["Lfoot"]]))
+
+
+def test_planted_tilt_says_how_far_a_planted_foot_is_from_rest():
+    parents, _, _, rest, tails, order, mapping, up, posed, floor = _planted_rig()
+    before = kr.planted_tilt(posed, rest, parents, order, tails, mapping, floor, 1.6, up)
+    out = kr.plant_feet(posed, rest, parents, order, tails, mapping, floor, 1.6, up)
+    after = kr.planted_tilt(out, rest, parents, order, tails, mapping, floor, 1.6, up)
+    assert before > 10.0 and after < 1.5

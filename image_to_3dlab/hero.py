@@ -293,6 +293,9 @@ def tuck_liner(vertices: np.ndarray, faces: np.ndarray, liner: np.ndarray, head,
     dirs = d / np.maximum(dist, 1e-12)[:, None]
     hits, ray_of, _ = head.ray.intersects_location(
         np.repeat(centre[None], len(idx), 0), dirs, multiple_hits=True)
+    # With no hits at all, some trimesh ray engines (Linux CI) return a flat (0,) array, not (0, 3).
+    hits = np.asarray(hits, dtype=float).reshape(-1, 3)
+    ray_of = np.asarray(ray_of, dtype=int).reshape(-1)
     nearest = np.full(len(idx), np.inf)
     np.minimum.at(nearest, ray_of, np.linalg.norm(hits - centre, axis=1))
     missed = ~np.isfinite(nearest)

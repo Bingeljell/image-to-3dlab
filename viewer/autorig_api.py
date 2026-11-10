@@ -291,6 +291,15 @@ def loops(preset: dict[str, Any]) -> bool:
     return bool(preset.get("loop", repeats(str(preset.get("id", "")))))
 
 
+def keeps_whole(preset: dict[str, Any]) -> bool:
+    """A move that says `"loop": false` keeps every frame and only has its seam blended.
+
+    It still gets `--loop` so the seam is smoothed at the wrap; without `--keep-whole` the picker
+    would trim it back to its longest matching pair and cut the beats out.
+    """
+    return preset.get("loop") is False
+
+
 def default_in_place(preset: dict[str, Any]) -> bool:
     """Whether this move stays in place unless the person says otherwise.
 
@@ -303,11 +312,14 @@ def default_in_place(preset: dict[str, Any]) -> bool:
 
 
 def animate_command(rigged: Path, motion: Path, result: Path, arm_spread: float,
-                    speed: float = 1.0, repeat: bool = False, in_place: bool = False) -> list[str]:
+                    speed: float = 1.0, repeat: bool = False, in_place: bool = False,
+                    keep_whole: bool = False) -> list[str]:
     command = [str(venv_python()), str(RETARGET), "--rig", str(rigged), "--motion", str(motion),
                "--out", str(result), "--arm-spread", f"{arm_spread:g}", "--speed", f"{speed:g}"]
-    if repeat:
+    if repeat or keep_whole:
         command.append("--loop")
+    if keep_whole:
+        command.append("--keep-whole")
     if in_place:
         command.append("--in-place")
     return command
@@ -450,13 +462,15 @@ class AnimateJobManager:
             record = animation_record(_read_json(rigged.with_suffix(".provenance.json")),
                                       preset, spread)
             record["motion"]["speed"] = pace
+            whole = keeps_whole(preset)
             record["motion"]["loop"] = loops(preset)
+            record["motion"]["keep_whole"] = whole
             record["motion"]["in_place"] = keep
             record["motion"]["grounded"] = True
             job = AnimateJob(uuid.uuid4().hex, "animate", run, result,
                              [(animate_command(rigged, self.motions / f"{preset_id}.npz",
                                                result, spread, pace, loops(preset),
-                                               keep), REPO)],
+                                               keep, whole), REPO)],
                              ANIMATE_SECONDS, record)
             return self._claim(job)
 

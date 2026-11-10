@@ -37,9 +37,11 @@ def motions(tmp_path):
     root.mkdir()
     (root / "walk.npz").write_bytes(b"x")
     (root / "kick.npz").write_bytes(b"x")
+    (root / "idle.npz").write_bytes(b"x")
     (root / "presets.json").write_text(json.dumps({"aliases": {"walk_old": "walk"}, "presets": [
         {"id": "walk", "label": "Walk", "seconds": 4},
         {"id": "kick", "label": "Kick", "seconds": 2, "speed": 1.25},
+        {"id": "idle", "label": "Idle (restless)", "seconds": 7, "loop": False},
         {"id": "missing", "label": "No file"},
         {"id": "../evil", "label": "Bad id"},
     ]}))
@@ -64,7 +66,7 @@ def test_resolve_refuses_anything_not_offered(output):
 
 
 def test_presets_need_a_file_and_a_safe_id(motions):
-    assert [p["id"] for p in aa.presets(motions)] == ["walk", "kick"]
+    assert [p["id"] for p in aa.presets(motions)] == ["walk", "kick", "idle"]
 
 
 def test_rig_job_copies_the_source_and_records_both_licences(tmp_path):
@@ -171,6 +173,27 @@ def test_the_in_place_switch_reaches_the_retarget_command(tmp_path, motions):
     assert "--in-place" in command and stuck.record["motion"]["in_place"] is True
 
 
+def test_a_move_that_keeps_its_whole_clip_only_has_its_seam_blended(tmp_path, motions):
+    """The restless idle is 7 s of distinct beats; trimming it cut 5 s out, so it keeps every
+    frame and the retargeter only blends the seam. It still passes --loop for that blend."""
+    manager = aa.AnimateJobManager(tmp_path / "animate", motions)
+    run = tmp_path / "animate" / "knight__rig__20261005-120000"
+    rigged = _glb(run / "knight_rigged.glb")
+    job = manager.create_animation(rigged, "idle", 0)
+    (command, _), = job.commands
+    assert "--loop" in command and "--keep-whole" in command
+    assert job.record["motion"]["loop"] is False and job.record["motion"]["keep_whole"] is True
+    manager.finish(job)
+    # A normal loop is blended but trimmed, and a one-off gets neither flag.
+    walk = manager.create_animation(rigged, "walk", 0)
+    (command, _), = walk.commands
+    assert "--loop" in command and "--keep-whole" not in command
+    manager.finish(walk)
+    kick = manager.create_animation(rigged, "kick", 0)
+    (command, _), = kick.commands
+    assert "--loop" not in command and "--keep-whole" not in command
+
+
 def test_repeating_presets_are_listed_in_one_place():
     for preset in ("idle", "walk", "run", "sneak", "strafe",
                    "walk_b", "run_b", "walk_woman", "strafe_left"):
@@ -194,8 +217,9 @@ def test_a_move_can_keep_its_whole_clip(tmp_path):
     rigged = _glb(tmp_path / "animate" / "knight__rig__20261005-120000" / "knight_rigged.glb")
     job = aa.AnimateJobManager(tmp_path / "animate", motions).create_animation(rigged, "idle", 0)
     (command, _), = job.commands
-    assert "--loop" not in command and "--in-place" in command
-    assert job.record["motion"]["loop"] is False
+    # It keeps every frame but still passes --loop, so the retargeter blends the seam.
+    assert "--loop" in command and "--keep-whole" in command and "--in-place" in command
+    assert job.record["motion"]["loop"] is False and job.record["motion"]["keep_whole"] is True
 
 
 def test_the_shipped_moves_keep_whole_clips_and_strike_faster():

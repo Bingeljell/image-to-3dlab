@@ -633,9 +633,16 @@ def tilt_to_pitch(head, tail, angle: float, up=Z_UP) -> np.ndarray:
 
 
 def _foot_sides(mapping: dict[str, str], rest) -> list[tuple[str, str | None]]:
-    """(foot bone, toe bone or None) for each side of the rig."""
+    """(foot bone, toe bone or None) for each side of the rig.
+
+    A leg of three bones has no Shin in the mapping: `_spread` stretches hip, knee, ankle over
+    Leg, Foot, ToeBase, so its "Foot" is the knee. Planting that would pull a swinging lower
+    leg down to the floor, so such a side is left out: it has no toe to level anyway.
+    """
     sides = []
     for side in ("Left", "Right"):
+        if f"{side}Shin" not in mapping.values():
+            continue
         foot = next((b for b, role in mapping.items()
                      if role == f"{side}Foot" and b in rest), None)
         toe = next((b for b, role in mapping.items()

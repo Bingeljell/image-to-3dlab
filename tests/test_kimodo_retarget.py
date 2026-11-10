@@ -864,6 +864,26 @@ def test_a_clean_loop_does_not_end_on_a_copy_of_its_first_pose():
     assert len(trimmed) < len(frames)
 
 
+def test_a_three_bone_leg_is_not_planted_by_its_knee():
+    """Hip, knee, ankle spread over Leg, Foot, ToeBase make the knee the "Foot". Planting that
+    pulled a swinging lower leg down to the floor (review, 2026-11-10), so such legs are skipped."""
+    parents, heads = _three_bone_legs(+1)
+    rest, tails = _rest_and_tails(parents, heads)
+    order = _order(parents)
+    mapping, _ = kr.map_skintokens_to_soma(parents, heads)
+    assert "LeftShin" not in mapping.values()
+    assert kr._foot_sides(mapping, rest) == []
+    knee = next(b for b, role in mapping.items() if role == "LeftFoot")
+    world = {b: np.eye(3) for b in order}
+    c, s = np.cos(1.2), np.sin(1.2)
+    world[knee] = np.array([[1, 0, 0], [0, c, -s], [0, s, c]])   # heel kicked back
+    frames = [(dict(world), heads[order[0]])] * 4
+    floor = kr._rest_floor(rest, tails, mapping)
+    out = kr.plant_feet(frames, rest, parents, order, tails, mapping, floor, 1.6)
+    for (before, _), (after, _) in zip(frames, out):
+        assert all(np.allclose(np.asarray(before[b]), np.asarray(after[b])) for b in before)
+
+
 def test_a_clip_pulled_in_place_still_skips_its_standing_start():
     """In place runs before the loop picker and leaves no travel to measure, so the picker
     takes which frames move from the clip before that step."""

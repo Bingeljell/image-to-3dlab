@@ -619,6 +619,39 @@ def test_front_and_back_views_share_one_rig_half_a_turn_apart(tmp_path):
         assert Image.open(folder / "view_000.png").size == (size, size)
 
 
+def test_four_views_put_each_camera_on_its_side(tmp_path):
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir)
+    for folder in (model_dir, paint_dir):
+        rig = json.loads((folder / "transforms.json").read_text())
+        names = [frame["file_path"] for frame in rig["frames"]]
+        assert names == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]  # front, right, back, left
+        where = {f["file_path"]: np.array(f["transform_matrix"])[:3, 3] for f in rig["frames"]}
+        d = np.linalg.norm(where["view_000.png"])
+        assert np.allclose(where["view_000.png"], (0, -d, 0))
+        # the subject faces the front camera, so its own right side is at -X and its left at +X
+        assert np.allclose(where["view_270.png"], (-d, 0, 0), atol=1e-9)
+        assert np.allclose(where["view_090.png"], (d, 0, 0), atol=1e-9)
+        assert np.allclose(where["view_180.png"], (0, d, 0), atol=1e-9)
+        assert all((folder / name).is_file() for name in names)
+
+
+def test_front_and_back_through_write_views_keep_their_rig(tmp_path):
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    px.write_views({"front": cut, "back": cut}, tmp_path / "a", tmp_path / "a.svviews")
+    px.write_front_back_views(cut, cut, tmp_path / "b", tmp_path / "b.svviews")
+    assert (tmp_path / "a" / "transforms.json").read_text() == (tmp_path / "b" / "transforms.json").read_text()
+
+
+def test_side_pictures_need_the_back_and_each_other():
+    assert px.views_problem(back=None, right=Path("r.png"), left=Path("l.png"))
+    assert px.views_problem(back=Path("b.png"), right=Path("r.png"), left=None)
+    assert px.views_problem(back=Path("b.png"), right=Path("r.png"), left=Path("l.png")) is None
+    assert px.views_problem(back=Path("b.png"), right=None, left=None) is None
+    assert px.views_problem(back=None, right=None, left=None) is None
+
+
 def test_paint_copies_keep_a_bigger_pictures_detail(tmp_path):
     big = _cut(1024, 1024, (400, 50, 620, 980))
     px.write_front_back_views(big, big, tmp_path / "in", tmp_path / "out.svviews")

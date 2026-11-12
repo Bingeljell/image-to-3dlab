@@ -58,6 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own; hair, capes and gear keep their names under the nearest body bone. Also for agents
   (`advanced={"bone_names": "unity"}`), and `scripts/name_bones.py` does it for a model rigged
   before. The names live in `image_to_3dlab/bone_names.py`, one table per engine (#237).
+- `scripts/unity_humanoid_names.py` renames a rigged character's bones from `bone_0`... to Unity
+  Humanoid names (Hips, Spine, ... LeftToes) or Mixamo names, so game engines map the skeleton
+  on their own (#237).
+- `scripts/game_ready.py` makes a rigged character ready for a game engine in one go: a cleaned
+  mesh, one material with one texture atlas (the normal map's detail baked into the colour), the
+  real height with the feet on the floor, engine bone names, at most 4 bones per vertex, every
+  move kept. Optional: brighter for small on-screen figures (or `auto`, as much as the figure
+  takes), glowing accents in a chosen colour (thin lines only, if asked), fingers folded into the
+  hands. A report says what an engine would still trip over.
+- `scripts/pixal3d_generate.py --right --left`: build from four pictures (front, right side, back,
+  left side) instead of two, so the sides come from your pictures too and Finish paints them.
 
 ### Fixed
 - The Windows installer's anonymous started / stopped / finished count reaches the site.

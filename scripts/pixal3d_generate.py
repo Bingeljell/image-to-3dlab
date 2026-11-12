@@ -155,6 +155,17 @@ GAUGE_CAMERA = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, -1.0, -2.83564091],
                          [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
 HALF_TURN = np.diag([-1.0, -1.0, 1.0, 1.0])
 VIEW_SIZE = 768
+# Where each picture's camera stands, in degrees about the vertical axis. The subject faces the
+# front camera (at -Y), so its own right side is at -X (270) and its left at +X (90).
+SIDES = {"front": 0, "right": 270, "back": 180, "left": 90}
+SIDE_ORDER = ("front", "right", "back", "left")  # frame 0 is the main view
+
+
+def turn(degrees: float) -> np.ndarray:
+    """A turn of the camera rig about the vertical (Z) axis."""
+    c, s = np.cos(np.radians(degrees)), np.sin(np.radians(degrees))
+    return np.round(np.array([[c, -s, 0.0, 0.0], [s, c, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0],
+                              [0.0, 0.0, 0.0, 1.0]]), 12)
 
 
 def pad_view(cut_out, size: int = VIEW_SIZE):
@@ -176,11 +187,34 @@ def pad_view(cut_out, size: int = VIEW_SIZE):
     return canvas
 
 
-def _rig(fov: float = DEFAULT_FOV) -> dict:
-    frames = [("view_000.png", GAUGE_CAMERA), ("view_180.png", HALF_TURN @ GAUGE_CAMERA)]
+def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back")) -> dict:
+    frames = [(f"view_{SIDES[side]:03d}.png", turn(SIDES[side]) @ GAUGE_CAMERA) for side in sides]
     return {"camera_angle_x": fov, "mesh_scale": 1, "frames": [
         {"file_path": name, "transform_matrix": matrix.tolist(), "camera_angle_x": fov}
         for name, matrix in frames]}
+
+
+def write_views(cuts: dict, model_dir: Path, paint_dir: Path) -> None:
+    """Stage the cut-outs of each side ("front", "right", "back", "left") with one camera rig,
+    for Pixal3D (`model_dir`, 768 px) and for Pixel Match (`paint_dir`, at least the pictures'
+    own size). Front and back alone is the usual case; all four add the sides.
+    """
+    sides = tuple(side for side in SIDE_ORDER if side in cuts)
+    paint_size = max(VIEW_SIZE, *(n for cut in cuts.values() for n in cut.size))
+    for folder, size in ((model_dir, VIEW_SIZE), (paint_dir, paint_size)):
+        folder.mkdir(parents=True, exist_ok=True)
+        for side in sides:
+            pad_view(cuts[side], size).save(folder / f"view_{SIDES[side]:03d}.png")
+        (folder / "transforms.json").write_text(json.dumps(_rig(sides=sides), indent=2) + "\n")
+
+
+def views_problem(back: Path | None, right: Path | None, left: Path | None) -> str | None:
+    """Why a set of extra pictures cannot be used together, or None."""
+    if (right is None) != (left is None):
+        return "give both sides, --right and --left, or neither"
+    if right is not None and back is None:
+        return "side pictures go with a back picture: give --back too"
+    return None
 
 
 def write_front_back_views(front, back, model_dir: Path, paint_dir: Path) -> None:
@@ -191,12 +225,7 @@ def write_front_back_views(front, back, model_dir: Path, paint_dir: Path) -> Non
     way, so a 1024 picture keeps its detail in the paint; the camera is angle-based, so
     the same rig serves both sizes.
     """
-    paint_size = max(VIEW_SIZE, *front.size, *back.size)
-    for folder, size in ((model_dir, VIEW_SIZE), (paint_dir, paint_size)):
-        folder.mkdir(parents=True, exist_ok=True)
-        pad_view(front, size).save(folder / "view_000.png")
-        pad_view(back, size).save(folder / "view_180.png")
-        (folder / "transforms.json").write_text(json.dumps(_rig(), indent=2) + "\n")
+    write_views({"front": front, "back": back}, model_dir, paint_dir)
 
 
 def build_multiview_command(views: Path, output: Path, res: int, seed: int,
@@ -553,6 +582,11 @@ def main() -> int:
         help="a picture of the back (scripts/make_back_view.py draws one): builds from front "
              "and back with the multi-view weights, and Finish paints from both",
     )
+    parser.add_argument("--right", type=Path, default=None,
+                        help="a picture of the subject's right side; with --left and --back the model "
+                             "is built from four views and Finish paints the sides too")
+    parser.add_argument("--left", type=Path, default=None,
+                        help="a picture of the subject's left side, with --right and --back")
     parser.add_argument("--models", type=Path, default=None,
                         help="weights folder (default: single-view, or multi-view with --back)")
     parser.add_argument("--cli", type=Path, default=CLI)
@@ -564,7 +598,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    for picture in (args.image, args.back, args.reuse_shape):
+    problem = views_problem(args.back, args.right, args.left)
+    if problem:
+        raise SystemExit(problem)
+    for picture in (args.image, args.back, args.right, args.left, args.reuse_shape):
         if picture is not None and not picture.is_file():
             raise SystemExit(f"not found: {picture}")
     if args.reuse_shape is not None and not shape_supported(args.cli):
@@ -623,19 +660,27 @@ def main() -> int:
         from PIL import Image
 
         back = args.back.resolve()
-        with Image.open(back) as opened:
-            back_cut = opened.convert("RGBA") if has_alpha(back) else None
-        if back_cut is None:
-            back_path, _ = matte(back, args.output.with_name(f"{args.output.stem}__back_matted.png"))
-            back_cut = Image.open(back_path).convert("RGBA")
+
+        def cut_out(picture: Path, side: str):
+            """The picture as RGBA: its own matte if it has one, else one made beside the output."""
+            with Image.open(picture) as opened:
+                if has_alpha(picture):
+                    return opened.convert("RGBA")
+            path, _ = matte(picture, args.output.with_name(f"{args.output.stem}__{side}_matted.png"))
+            return Image.open(path).convert("RGBA")
+
         with Image.open(image) as opened:
-            front_cut = opened.convert("RGBA")
+            cuts = {"front": opened.convert("RGBA")}
+        cuts["back"] = cut_out(back, "back")
+        if args.right is not None:
+            cuts["right"] = cut_out(args.right.resolve(), "right")
+            cuts["left"] = cut_out(args.left.resolve(), "left")
         model_views = args.output.with_suffix(".mvinput")
-        write_front_back_views(front_cut, back_cut, model_views,
-                               args.output.with_suffix(".svviews"))
+        write_views(cuts, model_views, args.output.with_suffix(".svviews"))
         command = build_multiview_command(model_views, args.output, args.res, args.seed,
                                           args.models, args.cli, args.gss, args.gsh)
-        print(f"[pixal3d] front + back: {image.name} + {back.name}", flush=True)
+        print(f"[pixal3d] {' + '.join(side for side in SIDE_ORDER if side in cuts)}: "
+              f"{image.name} + {back.name}", flush=True)
     else:
         command = build_command(
             image, args.output, args.res, args.seed, args.fov,
@@ -684,6 +729,10 @@ def main() -> int:
                       seconds=seconds, steps=steps)
     if args.back is not None:
         record["back_input"] = {"path": str(args.back), "sha256": sha256_file(args.back)}
+        for side in ("right", "left"):
+            picture = getattr(args, side)
+            if picture is not None:
+                record[f"{side}_input"] = {"path": str(picture), "sha256": sha256_file(picture)}
         record["parameters"]["views"] = "front + back"
     if save_shape is not None and save_shape.is_file():
         record["shape"] = save_shape.name

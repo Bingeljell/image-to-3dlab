@@ -54,8 +54,9 @@ def scrub(text: str, home: str) -> str:
 
 def _chip(system: str) -> str:
     """The chip or graphics card, best effort: an empty string when it can't be told."""
-    commands = {"macos": ["sysctl", "-n", "machdep.cpu.brand_string"],
-                "linux": ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]}
+    nvidia = ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]
+    # Windows too: the NVIDIA driver puts nvidia-smi on the PATH there as well.
+    commands = {"macos": ["sysctl", "-n", "machdep.cpu.brand_string"], "linux": nvidia, "windows": nvidia}
     command = commands.get(system)
     if not command:
         return ""

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Report a bug names an NVIDIA graphics card on Windows too, not just "Windows · AMD64".
 - Walks, jogs, sneaks and strafes loop smoothly again: 0.5.9 could drop a frame where they
   repeat, which left a small hitch.
 - Crouch sneak no longer floats above the floor. A move whose feet never reach the floor is

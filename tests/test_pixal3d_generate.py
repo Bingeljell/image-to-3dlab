@@ -637,6 +637,24 @@ def test_four_views_put_each_camera_on_its_side(tmp_path):
         assert all((folder / name).is_file() for name in names)
 
 
+def _extent(image):
+    ys, xs = np.nonzero(np.asarray(image)[..., 3] > 127)
+    return xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+
+
+def test_four_views_share_one_scale_so_a_long_vehicle_stays_long(tmp_path):
+    # a van: narrow and tall from the front and the back, three times as long from the side
+    front = _cut(400, 400, (150, 100, 250, 300))   # 100 wide, 200 high
+    side = _cut(800, 400, (100, 100, 700, 300))    # 600 long, 200 high
+    px.write_views({"front": front, "right": side, "back": front, "left": side}, tmp_path / "in", tmp_path / "o.svviews")
+    from PIL import Image
+    _, fh = _extent(Image.open(tmp_path / "in" / "view_000.png"))
+    sw, sh = _extent(Image.open(tmp_path / "in" / "view_270.png"))
+    assert sh == pytest.approx(fh, abs=2)               # the same height in every view
+    assert sw / sh == pytest.approx(3.0, rel=0.02)      # the side keeps its length
+    assert sw <= 0.9 * 768 + 2                          # and still fits
+
+
 def test_front_and_back_through_write_views_keep_their_rig(tmp_path):
     cut = _cut(400, 400, (150, 40, 250, 360))
     px.write_views({"front": cut, "back": cut}, tmp_path / "a", tmp_path / "a.svviews")

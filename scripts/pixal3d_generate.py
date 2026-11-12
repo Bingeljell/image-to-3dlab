@@ -187,6 +187,33 @@ def pad_view(cut_out, size: int = VIEW_SIZE):
     return canvas
 
 
+def pad_views(cuts: dict, size: int = VIEW_SIZE) -> dict:
+    """Every view on its own transparent square at one shared scale: the subject has the same
+    height in each, and the widest view fills 90% of the square.
+
+    Fitting each view on its own (`pad_view`) is right for one picture, but it would draw a van's
+    long side as large as its narrow front, and Pixal3D would build a short box from that.
+    """
+    from PIL import Image
+
+    subjects = {}
+    for side, cut in cuts.items():
+        rgba = cut.convert("RGBA")
+        box = rgba.getchannel("A").point(lambda a: 255 if a > 128 else 0).getbbox()
+        subjects[side] = rgba.crop(box) if box else rgba
+    widest = max(max(s.width, s.height) / s.height for s in subjects.values())
+    height = 0.9 * size / widest
+    out = {}
+    for side, subject in subjects.items():
+        scale = height / subject.height
+        resized = subject.resize((max(1, round(subject.width * scale)),
+                                  max(1, round(subject.height * scale))), Image.LANCZOS)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        canvas.paste(resized, ((size - resized.width) // 2, (size - resized.height) // 2), resized)
+        out[side] = canvas
+    return out
+
+
 def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back")) -> dict:
     frames = [(f"view_{SIDES[side]:03d}.png", turn(SIDES[side]) @ GAUGE_CAMERA) for side in sides]
     return {"camera_angle_x": fov, "mesh_scale": 1, "frames": [
@@ -203,8 +230,9 @@ def write_views(cuts: dict, model_dir: Path, paint_dir: Path) -> None:
     paint_size = max(VIEW_SIZE, *(n for cut in cuts.values() for n in cut.size))
     for folder, size in ((model_dir, VIEW_SIZE), (paint_dir, paint_size)):
         folder.mkdir(parents=True, exist_ok=True)
+        padded = pad_views(cuts, size)
         for side in sides:
-            pad_view(cuts[side], size).save(folder / f"view_{SIDES[side]:03d}.png")
+            padded[side].save(folder / f"view_{SIDES[side]:03d}.png")
         (folder / "transforms.json").write_text(json.dumps(_rig(sides=sides), indent=2) + "\n")
 
 

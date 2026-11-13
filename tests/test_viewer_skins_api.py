@@ -685,3 +685,11 @@ def test_the_module_imports_on_its_own():
     viewer = Path(__file__).resolve().parents[1] / "viewer"
     code = f"import sys; sys.path.insert(0, {str(viewer)!r}); import skins_api"
     subprocess.run([sys.executable, "-I", "-c", code], check=True, cwd="/")
+
+
+def test_a_skin_of_an_older_pixal3d_model_keeps_its_route():
+    # Finished before the setting existed, with a dump kept: it took Pixal3D's clean-up at any
+    # face count, so its skin must too, or the 8k mesh changes under the rig.
+    assert sk.legacy_cleanup({"faces": 8000}, native=True)["cleanup"] == "fast"
+    assert "cleanup" not in sk.legacy_cleanup({"faces": 8000}, native=False)
+    assert sk.legacy_cleanup({"faces": 8000, "cleanup": "auto"}, native=True)["cleanup"] == "auto"

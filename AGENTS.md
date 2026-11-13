@@ -25,6 +25,13 @@ route) behind one CLI, with license provenance as a first-class concern.
 4. **Local rules first.** If `AGENTS.local.md` exists, read it before anything else and follow it.
    It is git-ignored on purpose: never commit it or quote it in commits, PRs or docs.
 
+## Studio text is for the user
+
+Name every option by what it does, not where it came from ("Rebuild", not "Classic"; "Fast",
+not "Pixal3D's own"). Each hint gets one line: what it does, and when to pick it. The studio,
+the agent tools and the command line use the same words. Before you ship any text, read it
+as someone who has never seen this repo.
+
 ## Layout
 
 | Path | What lives here |

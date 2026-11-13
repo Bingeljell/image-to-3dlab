@@ -90,13 +90,21 @@ def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: in
         return None
 
 
-def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool) -> bool:
+# Below this many faces Pixal3D's own clean-up tears thin parts (a crane's lattice, a hook)
+# and leaves holes, where the classic route stays clean; at 20k the two are about equal (#244).
+NATIVE_MIN_FACES = 10_000
+
+
+def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool,
+                 faces: int = NATIVE_MIN_FACES) -> bool:
     """Whether this run takes Pixal3D's own clean-up instead of the classic retopology.
 
     Needs the run's dump and a post-replay build. Full detail keeps the generator's mesh,
-    so there is nothing to clean up again.
+    so there is nothing to clean up again, and a game budget under NATIVE_MIN_FACES takes
+    the classic route, which keeps thin parts whole at low face counts.
     """
-    return native_dump is not None and not keep_mesh and replay_available
+    return (native_dump is not None and not keep_mesh and replay_available
+            and faces >= NATIVE_MIN_FACES)
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
@@ -351,7 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-dump", type=Path, default=None,
         help="Pixal3D's own clean-up input (<run>.post.bin, saved by pixal3d_generate.py): "
              "rerun Pixal3D's clean-up at --faces instead of retopologising. Cleaner on "
-             "every model tested. Falls back to the classic route when post-replay is missing",
+             "models at 10k faces and up; below that, and when post-replay is missing, the "
+             "classic route runs instead",
     )
     parser.add_argument(
         "--steps-dir", type=Path, default=None,
@@ -424,7 +433,8 @@ def main() -> int:
     started = time.time()
     timings: dict[str, float] = {}
 
-    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available())
+    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available(),
+                          args.faces)
     native_record = None
     retopo_glb = steps["retopo"]
     step = time.time()

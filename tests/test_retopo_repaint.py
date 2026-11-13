@@ -288,6 +288,17 @@ def test_the_pixal3d_route_needs_a_dump_and_post_replay(dump, keep_mesh, availab
     assert rr.finish_route(dump, keep_mesh, available) is expected
 
 
+@pytest.mark.parametrize("faces, expected", [
+    (5_000, False),   # a mobile budget: Pixal3D's clean-up tore the crane's lattice here (#244)
+    (8_000, False),
+    (9_999, False),
+    (10_000, True),
+    (20_000, True),   # game detail: the two routes come out about equal
+])
+def test_low_face_budgets_take_the_classic_route(faces, expected):
+    assert rr.finish_route(Path("run.post.bin"), False, True, faces) is expected
+
+
 def test_the_dump_is_a_required_input_when_given(tmp_path):
     args = rr.build_parser().parse_args(
         ["in.glb", "in.png", "out.glb", "--skip-paint", "--native-dump", "run.post.bin"])

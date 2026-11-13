@@ -43,7 +43,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import patch_skintokens_portable as portable
 
-from image_to_3dlab import host
+from image_to_3dlab import cuda_arch, host
 
 UPSTREAM = "https://github.com/VAST-AI-Research/SkinTokens.git"
 COMMIT = "273b691d35989d71cd17ff2895fdc735097b92d1"
@@ -186,6 +186,19 @@ def this_machines_index() -> str | None:
                        amd=host.has_amd_gpu(), rocm=host.rocm_version())
 
 
+def nvidia_problem() -> str | None:
+    """Why this NVIDIA card cannot run Rig at all, in one plain sentence; None when it can.
+
+    Asked before anything is fetched: the architectures our CUDA torch builds carry start at
+    sm_75, so a card below that (a Quadro P5000 is 6.1) would install two gigabytes and then
+    die on its first kernel with `CUDA error: no kernel image is available`. This is the
+    cheap half of the same check Rig makes with the torch it was actually given.
+    """
+    if not host.has_nvidia_gpu():
+        return None
+    return cuda_arch.setup_problem(host.compute_capability(), cuda_arch.card_name())
+
+
 def prove_torch_on_amd(python: Path, probe=None) -> None:
     """Launch one kernel with the torch just installed, before anything is built on it.
 
@@ -275,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
 
     build = not args.weights_only
     weights = not args.build_only
+    # A card Rig cannot run on stops here, before any of it is fetched.
+    unsupported = nvidia_problem() if build else None
+    if unsupported:
+        print(f"\n{unsupported}\nAuto-rig cannot run on this machine, so nothing was downloaded.",
+              file=sys.stderr)
+        return 1
     # Worked out before asking, so the prompt names the route and an unusable driver or
     # ROCm stops here rather than after the yes.
     index = this_machines_index() if build else None

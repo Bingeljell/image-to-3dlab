@@ -42,10 +42,13 @@ if str(REPO) not in sys.path:
 
 import usage_api
 
-from image_to_3dlab import host, processes
+from image_to_3dlab import cuda_arch, host, processes
 from image_to_3dlab.provenance import set_glb_generator, write_provenance
 
 OUTPUT_ROOT = REPO / "output" / "animate"
+# Where the activity list and Report a bug read failures from: the output folder itself, not
+# the animate one, or a refused Rig would be nowhere either of them looks.
+ACTIVITY_ROOT = REPO / "output"
 SKINTOKENS = REPO / "vendor" / "SkinTokens"
 RETARGET = REPO / "scripts" / "kimodo_retarget.py"
 CLEAN_WEIGHTS = REPO / "scripts" / "clean_skin_weights.py"
@@ -442,9 +445,12 @@ def estimated_pct(elapsed: float, expected: float) -> int:
 
 
 class AnimateJobManager:
-    def __init__(self, output_root: Path = OUTPUT_ROOT, motions: Path = MOTIONS):
+    def __init__(self, output_root: Path = OUTPUT_ROOT, motions: Path = MOTIONS,
+                 activity_root: Path | None = None):
         self.output_root = output_root
         self.motions = motions
+        # A test builds a manager over a temp folder and keeps its history there too.
+        self.activity_root = activity_root or output_root
         self.jobs: dict[str, AnimateJob] = {}
         self.active: str | None = None
         self.lock = threading.Lock()
@@ -527,7 +533,7 @@ class AnimateJobManager:
                 self.active = None  # Job's done!
 
 
-ANIMATE_JOBS = AnimateJobManager()
+ANIMATE_JOBS = AnimateJobManager(activity_root=ACTIVITY_ROOT)
 
 
 def _tick(job: AnimateJob, stop: threading.Event) -> None:
@@ -548,10 +554,52 @@ def rig_fit(glb: Path) -> dict[str, Any]:
         return {}
 
 
+def card_problem(python: Path | None = None) -> str | None:
+    """Why the rig cannot run on this card, in one plain sentence; None when it can.
+
+    SkinTokens runs on the torch in its own venv, so that is the torch that matters: this
+    asks it what it was built for, and the card what it is. No model is loaded either way.
+    """
+    return cuda_arch.card_problem(python or venv_python())
+
+
+def write_history(job: AnimateJob, manager: AnimateJobManager, note: str) -> None:
+    """One line in output/.activity.jsonl for a failed Rig or Animate (what, why, and the log).
+
+    Successes are not listed: the studio shows the result, and the file says what it is.
+    A failure has to reach Report a bug, which reads the newest error record (`note` and
+    `log`), or the sentence we wrote for the user never leaves the browser.
+    """
+    from activity_api import append_history
+
+    append_history(manager.activity_root, {
+        "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "chain": f"{job.kind}-{job.id}",
+        "title": job.record.get("name") or job.directory.name,
+        "want": "character",
+        "step": "rigged" if job.kind == "rig" else "animated",
+        "result": job.status,
+        "seconds": round(time.monotonic() - job.started, 1),
+        "note": note,
+        "made": None,
+        "log": "\n".join(job.log_lines)[-3000:],
+    })
+
+
 def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
     stop = threading.Event()
     try:
         job.status = "running"
+        if job.kind == "rig":
+            # Before the ~8 GB model is loaded: a card this torch has no code for would die
+            # on its first kernel, and die with a CUDA traceback (Quadro P5000, 2026-11-13).
+            unsupported = card_problem()
+            if unsupported:
+                job.append_log(unsupported)
+                job.status = "error"
+                job.emit({"phase": "error", "message": unsupported})
+                write_history(job, manager, unsupported)
+                return
         job.emit({"phase": "queued", "overall_pct": 0,
                   "message": "Starting the auto-rig" if job.kind == "rig" else "Starting"})
         threading.Thread(target=_tick, args=(job, stop), daemon=True).start()
@@ -594,6 +642,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                       "message": f"{job.kind} step exited with code {code}"
                       if code else f"{job.kind} step wrote no GLB",
                       "log_tail": "\n".join(job.log_lines)[-6000:]})
+            write_history(job, manager, job.events[-1]["message"])
         else:
             set_glb_generator(job.result)   # the rigger's or Blender's own value is not ours
             write_provenance(job.result.with_suffix(".provenance.json"), job.record)
@@ -614,6 +663,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
     except Exception as exc:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
+        write_history(job, manager, str(exc))
     finally:
         stop.set()
         job.directory.joinpath("pid").unlink(missing_ok=True)

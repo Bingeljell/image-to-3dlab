@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rig works again on new installs. A library it uses (diffusers 0.43, out 12 Nov) broke
   it at start-up; setup now holds it at the last good version, and an install that already
   has the broken one is fixed the next time you rig.
+- Rig says what is wrong when the graphics card is older than it supports, instead of dying on
+  a CUDA `no kernel image` traceback: "Your graphics card (NVIDIA Quadro P5000) is older than
+  Rig supports: it needs an NVIDIA RTX 20-series or newer." The sentence reaches the studio and
+  Report a bug, and Setup refuses such a card before downloading anything.
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up
   there, since Pixal3D's own tore lattices, dropped small parts and left holes at small game
   budgets.

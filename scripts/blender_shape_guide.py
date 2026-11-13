@@ -31,7 +31,7 @@ def arg(name, default=None):
 
 
 OUT = os.path.abspath(arg("--out", HERE))
-NAME = "bus_v2"
+NAME = arg("--name", "bus_v2")
 DO_AO = "--no-ao" not in ARGS
 TEX = int(arg("--tex", "4096"))     # atlas size
 SS = 2                              # supersampling while painting
@@ -83,6 +83,10 @@ PRESETS = {
     "bus_12m": BUS_12M,
     # the same bus with its side windows spread by the kit's rule instead of placed by hand
     "bus_12m_rule": dict(BUS_12M, window_pitch=(1.40, 0.10), window_span={-1: (-4.48, 5.12), 1: (-5.40, 5.12)}),
+    # the first bus from numbers alone: 9 m, two doors, windows by rule (the interior still assumes 12 m, so it is off)
+    "midibus_9m": dict(BUS_12M, front=4.45, rear=-4.46, axles=(2.15, -2.15), doors=[(2.82, 3.72), (-0.55, 0.65)],
+                       band_rear={-1: -3.12, 1: -4.02}, window_pitch=(1.40, 0.10),
+                       window_span={-1: (-2.98, 3.62), 1: (-3.90, 3.62)}, hatches=(-1.40,), interior=False),
 }
 SPEC = PRESETS[arg("--preset", "bus_12m")]
 W = SPEC["half_width"]
@@ -131,8 +135,9 @@ for _n, _ya, _sx, _k in (("wheel_FL", YA_F, -1, "F"), ("wheel_FR", YA_F, 1, "F")
 for _k, (_y0, _y1) in enumerate(DOORS):
     PIVOTS["door_%da" % (_k + 1)] = (XDC, _y1 - 0.02, ZD0)      # front leaf, hinge at its front edge
     PIVOTS["door_%db" % (_k + 1)] = (XDC, _y0 + 0.02, ZD0)      # rear leaf, hinge at its rear edge
-OBJECTS = ["body", "wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR", "door_1a", "door_1b", "door_2a", "door_2b",
-           "door_3a", "door_3b", "interior"]
+OBJECTS = (["body", "wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR"]
+           + ["door_%d%s" % (k + 1, leaf) for k in range(len(DOORS)) for leaf in "ab"]
+           + (["interior"] if SPEC.get("interior", True) else []))
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -415,7 +420,7 @@ def build_body(b):
         for (y0, y1) in (WIN_L if sx < 0 else WIN_R):
             holes.append(side_recess(b, sx, y0, y1, WIN_Z0, WIN_Z1, 0.07, 0.03, 0.02, "glass"))
         if sx < 0:                                         # engine air intake at the left rear
-            holes.append(side_recess(b, sx, -5.45, -4.78, 1.40, 2.30, 0.0, 0.025, 0.02, "grille"))
+            holes.append(side_recess(b, sx, YR + 0.51, YR + 1.18, 1.40, 2.30, 0.0, 0.025, 0.02, "grille"))
         else:
             for k, (y0, y1) in enumerate(DOORS):           # door openings with their jambs
                 rect = ((y0, ZD0), (y1, ZD0), (y1, ZD1), (y0, ZD1))
@@ -629,7 +634,8 @@ def build_all():
         ym = (y0 + y1) / 2
         build_door_leaf(b, "door_%da" % (k + 1), ym, y1)
         build_door_leaf(b, "door_%db" % (k + 1), y0, ym)
-    build_interior(b)
+    if SPEC.get("interior", True):
+        build_interior(b)
     return b
 
 
@@ -983,8 +989,8 @@ def detail_side(P, sx):
     if sx < 0:
         for k in range(15):                                 # slats of the engine air intake
             z = 1.44 + k * 0.057
-            P.rect(-5.42, z, -4.81, z + 0.014, (0.16, 0.16, 0.165))
-        P.frame(-4.30, 0.62, -3.85, 0.95, 0.01, GREY)       # fuel flap
+            P.rect(YR + 0.54, z, YR + 1.15, z + 0.014, (0.16, 0.16, 0.165))
+        P.frame(YR + 1.66, 0.62, YR + 2.11, 0.95, 0.01, GREY)       # fuel flap
     for y in (Y_SIDE0 + 0.9, -0.9, Y_SIDE1 - 0.5):          # small amber side markers on the skirt
         P.rect(y - 0.05, 0.60, y + 0.05, 0.635, C["amber"])
 
@@ -1001,9 +1007,9 @@ def detail_ac(P):
 
 
 def detail_pod(P):
-    P.rrect(-0.58, -5.08, 0.58, -4.32, 0.03, (0.24, 0.24, 0.25))
+    P.rrect(-0.58, YR + 0.88, 0.58, YR + 1.64, 0.03, (0.24, 0.24, 0.25))
     for k in range(9):
-        y = -5.05 + k * 0.08
+        y = YR + 0.91 + k * 0.08
         P.rect(-0.55, y, 0.55, y + 0.03, (0.50, 0.51, 0.52))
 
 

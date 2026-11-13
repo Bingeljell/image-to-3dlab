@@ -685,3 +685,25 @@ def test_the_module_imports_on_its_own():
     viewer = Path(__file__).resolve().parents[1] / "viewer"
     code = f"import sys; sys.path.insert(0, {str(viewer)!r}); import skins_api"
     subprocess.run([sys.executable, "-I", "-c", code], check=True, cwd="/")
+
+
+def test_skin_finish_preserves_the_models_height(output, monkeypatch):
+    import io
+    import sys
+
+    import trimesh
+
+    from scripts import retopo_repaint as worker
+
+    _, skin = _ready(output)
+    skin.base['finish']['height_m'] = 1.8
+    command = sk.finish_command(output, skin)
+    assert command[command.index('--height-m') + 1] == '1.8'
+    source = Path(command[3])
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(trimesh.Scene(trimesh.creation.box(extents=(1, 4, 1))).export(file_type='glb'))
+    monkeypatch.setattr(worker, 'preflight', lambda *a: ('blender', None))
+    monkeypatch.setattr(sys, 'argv', command[2:] + ['--keep-mesh', '--skip-compress'])
+    assert worker.main() == 0
+    result = trimesh.load(io.BytesIO(Path(command[5]).read_bytes()), file_type='glb', force='scene')
+    assert result.bounds[:, 1] == pytest.approx([0, 1.8])

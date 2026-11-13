@@ -68,6 +68,7 @@ SETTING_BOUNDS: dict[str, tuple[float, float]] = {
     "paint_steps": (1, 50),
     "paint_tex": (1024, 4096),
     "texture_size": (256, 4096),
+    "height_m": (0.01, 100.0),
 }
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -76,7 +77,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
-    "high_detail": False, "hero": False,
+    "high_detail": False, "hero": False, "height_m": None,
 }
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
@@ -135,6 +136,8 @@ def normalise_settings(raw: dict[str, Any]) -> dict[str, Any]:
     settings = dict(DEFAULT_SETTINGS)
     for key, value in raw.items():
         if key not in DEFAULT_SETTINGS:
+            continue
+        if key == "height_m" and value is None:
             continue
         if key in BOOL_SETTINGS:
             settings[key] = bool(value)
@@ -221,6 +224,8 @@ def build_command(
         "--texture-size", str(settings["texture_size"]),
     ]
     record = job.asset_path.parent / "source.json"
+    if settings.get("height_m") is not None:
+        command += ["--height-m", str(settings["height_m"])]
     if record.is_file():
         command += ["--source-record", str(record)]
     if settings["skip_paint"]:
@@ -742,6 +747,10 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "log_tail": "\n".join(job.log_lines)[-8000:],
             })
         elif job.result_glb.is_file():
+            if hero and job.settings.get("height_m") is not None:
+                from image_to_3dlab.real_height import size_file
+
+                size_file(job.result_glb, job.settings["height_m"])
             if hero and not job.record_path.is_file():
                 provenance = job.result_glb.with_suffix(".provenance.json")
                 if provenance.is_file():

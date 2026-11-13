@@ -305,6 +305,8 @@ def build_parser() -> argparse.ArgumentParser:
              "faces from the side (needs --views). Recommended for realistic humans",
     )
     parser.add_argument("--atlas", type=int, default=2048)
+    parser.add_argument("--height-m", type=float, default=None,
+                        help="finished height in metres, applied before rigging")
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(
         "--voxel", type=float, default=0.004,
@@ -567,6 +569,10 @@ def main() -> int:
         args.output.write_bytes(current.read_bytes())
         report = []
 
+    if args.height_m is not None:
+        from image_to_3dlab.real_height import set_height
+
+        args.output.write_bytes(set_height(args.output.read_bytes(), args.height_m))
     set_glb_generator(args.output)   # the finished file, after every export that touched it
     record = {
         "resumed": args.resume,

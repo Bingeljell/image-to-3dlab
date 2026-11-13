@@ -45,6 +45,21 @@ EMIT = dict(blue=(0.06, 0.28, 1.0), tail=(0.55, 0.02, 0.02))
 E_BLUE = EMIT['blue']
 E_RED = (0.85, 0.04, 0.03)
 
+# the van family's presets (the kit's numbers; the ambulance is the hand-built original)
+AMBULANCE = dict(box=(1.025, -3.35, 0.62, 0.40, 2.74), rear_axle=-1.825, livery="ambulance", lightbar=True)
+PRESETS = {
+    "ambulance": AMBULANCE,
+    # a long panel van: the box 0.8 m longer with the rear axle following, a plain livery for the picture model
+    "van_long": dict(AMBULANCE, box=(1.025, -4.15, 0.62, 0.40, 2.74), rear_axle=-2.30, livery="plain", lightbar=False),
+    # a box van: a wider, taller and longer box
+    "box_van": dict(AMBULANCE, box=(1.10, -3.95, 0.62, 0.40, 3.05), rear_axle=-2.15, livery="plain", lightbar=False),
+}
+SPEC = PRESETS[arg("--preset", "ambulance")]
+LIVERY = SPEC["livery"]
+if LIVERY == "plain":      # no ambulance markings: red and yellow become the body's white, the blue lights go dark
+    C = dict(C, yellow=C["white"], red=C["white"], blue=C["dark"])
+    EMIT = dict(tail=EMIT["tail"])
+
 # ----------------------------------------------------------------------------
 # builder
 # ----------------------------------------------------------------------------
@@ -104,9 +119,10 @@ def tab(table, x):
 # ----------------------------------------------------------------------------
 # dimensions
 # ----------------------------------------------------------------------------
-BX, BY0, BY1, BZ0, BZ1 = 1.025, -3.35, 0.62, 0.40, 2.74      # patient box
+BX, BY0, BY1, BZ0, BZ1 = SPEC["box"]                         # the box (the ambulance's patient box)
 BR, BNS = 0.07, 3                                            # box edge radius / segments
-RA_Y, RA_Z, RA_R, RA_N = -1.825, 0.36, 0.46, 12              # rear wheel arch
+RA_Y = SPEC["rear_axle"]
+RA_Z, RA_R, RA_N = 0.36, 0.46, 12                            # rear wheel arch
 FA_Y, FA_Z, FA_R = 2.50, 0.36, 0.44                          # front wheel arch
 WHEEL_R, WHEEL_W = 0.36, 0.26
 CAB_W = 0.97
@@ -325,15 +341,16 @@ def build_all():
     for sx, sn in ((-1, 'L'), (1, 'R')):
         build_flare(b, 'flF' + sn, FA_Y, FA_Z, 0.425, 0.505, CAB_W + 0.028, CAB_W, CAB_W - 0.09, sx)
         build_flare(b, 'flR' + sn, RA_Y, RA_Z, 0.452, 0.53, BX + 0.028, BX, BX - 0.09, sx)
-    build_lightbar(b)
-    # corner beacons on the box roof
-    for sx, sn in ((-1, 'L'), (1, 'R')):
-        xa, xb_ = sorted((sx * 0.77, sx * 1.037))
-        b.box(xa, xb_, 0.33, 0.632, 2.64, 2.85, 'clF' + sn, 'blue', top_inset=0.04, zmid=2.80)
-        b.box(xa, xb_, -3.362, -3.06, 2.64, 2.85, 'clR' + sn, 'blue', top_inset=0.04, zmid=2.80)
+    if SPEC["lightbar"]:
+        build_lightbar(b)
+        # corner beacons on the box roof
+        for sx, sn in ((-1, 'L'), (1, 'R')):
+            xa, xb_ = sorted((sx * 0.77, sx * (BX + 0.012)))
+            b.box(xa, xb_, BY1 - 0.29, BY1 + 0.012, BZ1 - 0.10, BZ1 + 0.11, 'clF' + sn, 'blue', top_inset=0.04, zmid=BZ1 + 0.06)
+            b.box(xa, xb_, BY0 - 0.012, BY0 + 0.29, BZ1 - 0.10, BZ1 + 0.11, 'clR' + sn, 'blue', top_inset=0.04, zmid=BZ1 + 0.06)
     # roof equipment
-    b.box(-0.48, 0.48, -0.02, 0.50, 2.70, 2.845, 'ac', 'ac', dens=0.85, top_inset=0.035, zmid=2.80)
-    b.box(-0.27, 0.27, -3.25, -2.99, 2.70, 2.785, 'vent', 'ac', dens=0.85, top_inset=0.025, zmid=2.755)
+    b.box(-0.48, 0.48, BY1 - 0.64, BY1 - 0.12, BZ1 - 0.04, BZ1 + 0.105, 'ac', 'ac', dens=0.85, top_inset=0.035, zmid=BZ1 + 0.06)
+    b.box(-0.27, 0.27, BY0 + 0.10, BY0 + 0.36, BZ1 - 0.04, BZ1 + 0.045, 'vent', 'ac', dens=0.85, top_inset=0.025, zmid=BZ1 + 0.015)
     # front bumper (prism following the nose)
     half = [(1.0, 3.02), (1.0, 3.12), (0.965, 3.30), (0.92, 3.41), (0.87, 3.47), (0.80, 3.50)]
     poly = half + [(-x, y) for (x, y) in reversed(half)]
@@ -344,13 +361,13 @@ def build_all():
     b.rings([[(x, y, 0.26) for (x, y) in poly], [(x, y, 0.61) for (x, y) in poly]], btag,
             cap0=dict(part='bumpF', mat='under', dens=0.2), cap1=dict(part='bumpF', mat='black', dens=0.8))
     # rear step / bumper, tail light housings
-    b.box(-0.94, 0.94, -3.50, -3.33, 0.33, 0.43, 'stepR', 'black', dens=0.6)
+    b.box(-0.94, 0.94, BY0 - 0.15, BY0 + 0.02, 0.33, 0.43, 'stepR', 'black', dens=0.6)
     for sx, sn in ((-1, 'L'), (1, 'R')):
         xa, xb_ = sorted((sx * 0.74, sx * 1.0))
-        b.box(xa, xb_, -3.385, -3.34, 0.47, 0.67, 'tail' + sn, 'tail', dens=0.9)
+        b.box(xa, xb_, BY0 - 0.035, BY0 + 0.01, 0.47, 0.67, 'tail' + sn, 'tail', dens=0.9)
         # mud flaps behind rear wheels, cab entry steps
         xa, xb_ = sorted((sx * 0.72, sx * 1.01))
-        b.box(xa, xb_, -2.375, -2.35, 0.10, 0.42, 'flap' + sn, 'black', dens=0.3)
+        b.box(xa, xb_, RA_Y - 0.55, RA_Y - 0.525, 0.10, 0.42, 'flap' + sn, 'black', dens=0.3)
         xa, xb_ = sorted((sx * 0.80, sx * 0.995))
         b.box(xa, xb_, 1.02, 2.0, 0.24, 0.31, 'cstep' + sn, 'black', dens=0.4)
         # mirrors: arm + housing
@@ -367,9 +384,9 @@ def build_all():
         b.box(xa, xb_, 1.08, 1.25, 1.215, 1.255, 'hdl' + sn, 'black', dens=0.4)
     # rear door lock bars
     for x in (-0.07, 0.07):
-        b.box(x - 0.015, x + 0.015, -3.372, -3.345, 1.25, 2.30, 'bar%d' % (x > 0), 'silver', dens=0.4)
+        b.box(x - 0.015, x + 0.015, BY0 - 0.022, BY0 + 0.005, 1.25, BZ1 - 0.44, 'bar%d' % (x > 0), 'silver', dens=0.4)
     # chassis block
-    b.box(-0.42, 0.42, -3.25, 3.0, 0.20, 0.45, 'chassis', 'under', dens=0.1)
+    b.box(-0.42, 0.42, BY0 + 0.10, 3.0, 0.20, 0.45, 'chassis', 'under', dens=0.1)
     return b
 
 
@@ -836,6 +853,8 @@ TXT_Z = 1.95
 
 
 def blue_light(P, h0, v0, h1, v1):
+    if LIVERY == "plain":
+        return
     P.rrect(h0 - 0.02, v0 - 0.02, h1 + 0.02, v1 + 0.02, 0.02, D_)
     P.rrect(h0, v0, h1, v1, 0.015, C['blue'], emit=E_BLUE)
 

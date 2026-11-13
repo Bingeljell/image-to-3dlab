@@ -188,3 +188,15 @@ def test_summarise_rejects_a_script_with_no_docstring(tmp_path):
     sample.write_text("import os\n", encoding="utf-8")
     with pytest.raises(ValueError, match="no module docstring"):
         summarise(sample)
+
+
+def test_the_package_and_pyproject_agree_on_the_version():
+    # pyproject.toml sat at 0.5.8 through the 0.5.9 release; the installer reads it to
+    # report which release it was running.
+    import tomllib
+
+    import image_to_3dlab
+
+    root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["version"] == image_to_3dlab.__version__

@@ -935,10 +935,10 @@ def test_the_cleanup_choice_reaches_the_worker_only_when_not_auto():
     job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
     auto = finish.normalise_settings({})
     assert auto["cleanup"] == "auto" and "--cleanup" not in finish.build_command(job, auto)
-    command = finish.build_command(job, finish.normalise_settings({"cleanup": "classic"}))
-    assert command[command.index("--cleanup") + 1] == "classic"
+    command = finish.build_command(job, finish.normalise_settings({"cleanup": "rebuild"}))
+    assert command[command.index("--cleanup") + 1] == "rebuild"
 
 
 def test_an_unknown_cleanup_is_refused_before_anything_runs():
     with pytest.raises(ValueError, match="cleanup must be one of"):
-        finish.normalise_settings({"cleanup": "fast"})
+        finish.normalise_settings({"cleanup": "quick"})

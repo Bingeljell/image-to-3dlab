@@ -398,7 +398,7 @@ default:
 1. **Retopologise**: rebuilds the mesh with far fewer faces, keeping thin parts intact.
    For Pixal3D models made in the lab, Finish uses Pixal3D's own clean-up instead: cleaner
    models, in seconds. Below 10,000 faces it keeps the classic route, which holds thin parts
-   together at small budgets. Finish's Advanced panel can force either one (Clean-up).
+   together at small budgets. Finish's Advanced panel can force either one (Clean-up: Fast or Rebuild).
 2. **Repaint** (optional, Apple Silicon): hands the clean mesh to Hunyuan 2.1 PBR and
    paints from the source art. Pixal3D output rarely needs it, so it is off by default
    (`--skip-paint` on the CLI) and a finish takes seconds instead of ~6 minutes.

@@ -94,7 +94,9 @@ def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: in
 # and leaves holes, where the classic route stays clean; at 20k the two are about equal (#244).
 NATIVE_MIN_FACES = 10_000
 # Which clean-up Finish uses: "auto" picks by face count, the other two force one route.
-CLEANUPS = ("auto", "pixal3d", "classic")
+# "fast" is Pixal3D's clean-up (shrinks the mesh as it is, keeps its texture); "rebuild" is the
+# classic route (a sealed new surface, shrunk and re-baked), which keeps thin parts whole.
+CLEANUPS = ("auto", "fast", "rebuild")
 
 
 def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool,
@@ -103,14 +105,14 @@ def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bo
 
     Needs the run's dump and a post-replay build. Full detail keeps the generator's mesh,
     so there is nothing to clean up again. On "auto", a game budget under NATIVE_MIN_FACES
-    takes the classic route, which keeps thin parts whole at low face counts; "pixal3d"
-    asks for Pixal3D's route at any count, "classic" never takes it.
+    takes the classic route, which keeps thin parts whole at low face counts; "fast"
+    asks for Pixal3D's route at any count, "rebuild" never takes it.
     """
     if cleanup not in CLEANUPS:
         raise ValueError(f"cleanup is one of {', '.join(CLEANUPS)}, got {cleanup!r}")
-    if cleanup == "classic" or native_dump is None or keep_mesh or not replay_available:
+    if cleanup == "rebuild" or native_dump is None or keep_mesh or not replay_available:
         return False
-    return cleanup == "pixal3d" or faces >= NATIVE_MIN_FACES
+    return cleanup == "fast" or faces >= NATIVE_MIN_FACES
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
@@ -370,8 +372,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--cleanup", choices=CLEANUPS, default="auto",
-        help="which clean-up a Pixal3D model gets: auto (Pixal3D's own from 10k faces, "
-             "classic below, where Pixal3D's tears thin parts), pixal3d or classic at any count",
+        help="how Finish shrinks a Pixal3D model: fast (shrinks it as it is, keeps its "
+             "texture), rebuild (a sealed new surface first, so thin parts don't tear), or auto "
+             "(rebuild below 10k faces, fast from 10k up)",
     )
     parser.add_argument(
         "--steps-dir", type=Path, default=None,

@@ -1002,9 +1002,9 @@ def test_mcp_uploaded_model_can_finish_without_picture(tmp_path, studio):
 
 
 def test_the_cleanup_choice_travels_with_the_plan_unless_auto(studio):
-    ms.create(studio, want="character", description="a knight", advanced={"cleanup": "classic"})
-    assert json.loads(sent(studio)["finish_settings"]) == {"cleanup": "classic"}
+    ms.create(studio, want="character", description="a knight", advanced={"cleanup": "rebuild"})
+    assert json.loads(sent(studio)["finish_settings"]) == {"cleanup": "rebuild"}
     ms.create(studio, want="character", description="a knight", advanced={"cleanup": "auto"})
     assert "finish_settings" not in sent(studio)
     with pytest.raises(ms.StudioError, match="cleanup is one of"):
-        ms.read_advanced({"cleanup": "fast"})
+        ms.read_advanced({"cleanup": "quick"})

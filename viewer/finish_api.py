@@ -81,7 +81,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 
 # Settings that are one of a fixed set of words. "cleanup" picks Finish's clean-up route for a
 # Pixal3D model (scripts/retopo_repaint.py CLEANUPS); other engines always take the classic one.
-CHOICE_SETTINGS: dict[str, tuple[str, ...]] = {"cleanup": ("auto", "pixal3d", "classic")}
+CHOICE_SETTINGS: dict[str, tuple[str, ...]] = {"cleanup": ("auto", "fast", "rebuild")}
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
                  "high_detail", "hero"}

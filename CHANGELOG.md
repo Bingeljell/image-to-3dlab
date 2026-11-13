@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Finish's Advanced panel (and the agent tools) can pick the clean-up for a Pixal3D model:
-  Auto, Pixal3D's own, or Classic.
+- Finish's Advanced panel (and the agent tools) can pick how a Pixal3D model is cut down to
+  its face count: Fast, Rebuild (keeps thin parts from tearing), or Auto.
 
 ### Fixed
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up

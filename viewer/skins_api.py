@@ -166,7 +166,7 @@ def legacy_cleanup(finish: dict[str, Any], native: bool) -> dict[str, Any]:
     """
     if "cleanup" in finish or not native:
         return finish
-    return {**finish, "cleanup": "pixal3d"}
+    return {**finish, "cleanup": "fast"}
 
 
 @dataclass

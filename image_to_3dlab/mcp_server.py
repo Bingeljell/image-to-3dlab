@@ -344,10 +344,11 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "what": "Pixel Match first fits each picture onto the model's outline before painting.",
         "try_off_when": "a feature shows up twice (a ghost eye) or slides off its place, often on a turned head."},
     "cleanup": {
-        "step": "finished", "type": "str", "choices": ["auto", "pixal3d", "classic"], "default": "auto",
-        "what": "How Finish shrinks a Pixal3D model. auto: Pixal3D's own clean-up from 10k faces (fast, keeps its "
-                "texture), the classic Blender route below. Other engines always use classic.",
-        "try_off_when": "set classic if thin parts (a lattice, a hook, fingers) tear or holes open; set pixal3d to "
+        "step": "finished", "type": "str", "choices": ["auto", "fast", "rebuild"], "default": "auto",
+        "what": "How Finish cuts a Pixal3D model down to its face count. fast: shrinks it as it is and keeps its "
+                "texture, in seconds. rebuild: a sealed new surface first, so thin parts don't tear. auto: rebuild "
+                "below 10k faces, fast from 10k up. Other engines always rebuild.",
+        "try_off_when": "set rebuild if thin parts (fingers, rails, a lattice) tear or holes open; set fast to "
                         "compare at a small budget."},
     "texture_size": {
         "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,

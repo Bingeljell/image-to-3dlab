@@ -257,3 +257,10 @@ def test_venv_python_uses_the_windows_layout_on_windows(tmp_path, monkeypatch):
     assert ba.venv_python(tmp_path) == tmp_path / ".venv" / "Scripts" / "python.exe"
     monkeypatch.setattr(ba.host.os, "name", "posix")
     assert ba.venv_python(tmp_path) == tmp_path / ".venv" / "bin" / "python"
+
+
+def test_setup_holds_diffusers_below_the_release_that_broke_rig(tmp_path):
+    # diffusers 0.43.0 removed the LayerNorm SkinTokens imports at start-up; upstream has no ceiling.
+    _, requirements = ba.pip_commands("uv", tmp_path / "python", tmp_path, None)
+    assert "diffusers<0.43" in requirements
+    assert requirements.index("diffusers<0.43") < requirements.index("-r")

@@ -5,6 +5,7 @@ kit spreads them by a rule; the bus it started from is the yardstick.
 """
 
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -49,3 +50,38 @@ def test_a_stretch_too_short_for_a_window_stays_closed():
 def test_the_pitch_must_leave_room_for_glass():
     with pytest.raises(ValueError, match="pitch"):
         sg.spread_windows(-3.0, 3.0, pitch=0.20, pillar=0.20)
+
+
+# --- the interior: seats and poles by rule ----------------------------------------------------
+
+HOUSINGS = [(2.62, 3.88), (-3.28, -2.02)]       # the 12 m bus's wheel housings (axle +- 0.63)
+
+
+def test_one_seat_sits_centred_on_each_wheel_housing():
+    rows = sg.seat_rows(-4.73, 4.25, pitch=0.80, depth=0.44, housings=HOUSINGS)
+    high = [y0 for y0, on_housing in rows if on_housing]
+    # the hand-built bus has them at 3.0 and -2.9 (rear edges); centred on the housings they come out within 5 cm
+    assert [round(y, 2) for y in sorted(high, reverse=True)] == [3.03, -2.87]
+
+
+def test_floor_seats_keep_clear_of_doors_and_housings_and_stay_in_the_room():
+    doors = [(3.92, 5.22), (-0.10, 1.25), (-4.62, -3.32)]
+    rows = sg.seat_rows(-4.73, 4.25, pitch=0.80, depth=0.44, keep_out=doors, housings=HOUSINGS)
+    for y0, on_housing in rows:
+        y1 = y0 + 0.44
+        assert -4.73 - 1e-9 <= y0 and y1 <= 4.25 + 1e-9
+        if not on_housing:
+            for a, b in doors + HOUSINGS:
+                assert y1 <= a or y0 >= b
+
+
+def test_seats_run_front_to_back_at_the_pitch_on_a_wall_without_doors():
+    rows = sg.seat_rows(-2.0, 2.0, pitch=0.80, depth=0.44)
+    starts = [y0 for y0, _ in rows]
+    assert starts == sorted(starts, reverse=True)
+    assert all(abs((a - b) - 0.80) < 1e-9 for a, b in pairwise(starts))
+
+
+def test_handrail_poles_stand_at_both_edges_of_every_door_behind_the_driver():
+    poles = sg.door_poles([(3.92, 5.22), (-0.10, 1.25)], x=0.50, front_limit=4.30)
+    assert sorted(poles) == sorted([(0.50, 3.92), (0.50, -0.10), (0.50, 1.25)])

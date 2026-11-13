@@ -394,7 +394,7 @@ def test_a_new_move_is_traced_to_its_character():
 
 # --------------------------------------------------------------------------- Finish choices
 def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
-    source = (REPO / "viewer" / "studio" / "steps.js").read_text()
+    source = (REPO / "viewer" / "studio" / "steps.js").read_text(encoding="utf-8")
     menu = source[source.index("function finishDetail("):]
     menu = menu[: menu.index("</select>")]
     studio_values = set(re.findall(r'<option value="([^"]+)"', menu)) - {"custom"}
@@ -520,7 +520,7 @@ def test_options_lists_the_main_and_every_advanced_knob():
 
 def test_every_studio_control_has_an_mcp_twin():
     """The studio's Create and Steps controls, each matched to its main or advanced MCP knob."""
-    source = "".join((REPO / "viewer" / "studio" / f).read_text() for f in ("steps.js", "create.js"))
+    source = "".join((REPO / "viewer" / "studio" / f).read_text(encoding="utf-8") for f in ("steps.js", "create.js"))
     controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",

@@ -23,7 +23,7 @@ def _run(body: str):
     url = (REPO / "viewer" / "studio" / "skins.js").as_uri()
     program = f"import * as m from {json.dumps(url)};\nconst url = (r) => '/output/' + r;\n{body}"
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True, encoding="utf-8")
     return json.loads(result.stdout)
 
 

@@ -335,6 +335,10 @@ def full_detail_refusal(steps: list[str], choices: dict[str, Any], asset: dict[s
 # The studio's Advanced knobs, for agents. `options` hands this to them as it is, and
 # `read_advanced` accepts exactly these keys; a test checks every studio control has a twin.
 ADVANCED: dict[str, dict[str, Any]] = {
+    "height_m": {
+        "step": "finished", "type": "float", "min": 0.01, "max": 100,
+        "default": "1.8 for characters; unchanged for props",
+        "what": "Height in metres, applied before rigging."},
     "upright": {
         "step": "finished", "type": "bool", "default": "on for props, off for characters",
         "what": "Straightens a prop that leans because the picture was taken from above. Turn off if it is meant to lean."},
@@ -346,6 +350,13 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "step": "finished", "type": "bool", "default": True,
         "what": "Pixel Match first fits each picture onto the model's outline before painting.",
         "try_off_when": "a feature shows up twice (a ghost eye) or slides off its place, often on a turned head."},
+    "cleanup": {
+        "step": "finished", "type": "str", "choices": ["auto", "fast", "rebuild"], "default": "auto",
+        "what": "How Finish cuts a Pixal3D model down to its face count. fast: shrinks it as it is and keeps its "
+                "texture, in seconds. rebuild: a sealed new surface first, so thin parts don't tear. auto: rebuild "
+                "below 10k faces, fast from 10k up. Other engines always rebuild.",
+        "try_off_when": "set rebuild if thin parts (fingers, rails, a lattice) tear or holes open; set fast to "
+                        "compare at a small budget."},
     "texture_size": {
         "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,
         "what": "Pixel size of the finished model's texture. Bigger is sharper and a bigger file."},
@@ -405,6 +416,8 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
     finish = finish_choices(detail, pixel_match, adv["edge_fade"], adv["nudge"])
     if adv["texture_size"] != ADVANCED["texture_size"]["default"]:
         finish["texture_size"] = adv["texture_size"]
+    if adv["cleanup"] not in (None, "auto"):
+        finish["cleanup"] = adv["cleanup"]
     move: dict[str, Any] = {}
     if adv["speed"]:
         move["speed"] = adv["speed"]
@@ -722,6 +735,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     if adv["keep_everything"] and "model" in steps:
         form["keep_everything"] = "1"
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
+    if adv["height_m"] is not None or want == "character":
+        choices["height_m"] = adv["height_m"] if adv["height_m"] is not None else 1.8
     if adv["upright"] is not None or want == "prop":
         choices["upright"] = adv["upright"] if adv["upright"] is not None else True
     refused = full_detail_refusal(steps, choices)
@@ -771,6 +786,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         made.pop("finished", None)                      # the rig step then takes the raw model
         made.pop("rigged", None)
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
+    if adv["height_m"] is not None or want == "character":
+        choices["height_m"] = adv["height_m"] if adv["height_m"] is not None else 1.8
     if adv["upright"] is not None or want == "prop":
         choices["upright"] = adv["upright"] if adv["upright"] is not None else True
     refused = full_detail_refusal(steps, choices, {**asset, "finished": made.get("finished")})

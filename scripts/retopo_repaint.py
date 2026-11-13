@@ -90,13 +90,29 @@ def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: in
         return None
 
 
-def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool) -> bool:
+# Below this many faces Pixal3D's own clean-up tears thin parts (a crane's lattice, a hook)
+# and leaves holes, where the classic route stays clean; at 20k the two are about equal (#244).
+NATIVE_MIN_FACES = 10_000
+# Which clean-up Finish uses: "auto" picks by face count, the other two force one route.
+# "fast" is Pixal3D's clean-up (shrinks the mesh as it is, keeps its texture); "rebuild" is the
+# classic route (a sealed new surface, shrunk and re-baked), which keeps thin parts whole.
+CLEANUPS = ("auto", "fast", "rebuild")
+
+
+def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool,
+                 faces: int = NATIVE_MIN_FACES, cleanup: str = "auto") -> bool:
     """Whether this run takes Pixal3D's own clean-up instead of the classic retopology.
 
     Needs the run's dump and a post-replay build. Full detail keeps the generator's mesh,
-    so there is nothing to clean up again.
+    so there is nothing to clean up again. On "auto", a game budget under NATIVE_MIN_FACES
+    takes the classic route, which keeps thin parts whole at low face counts; "fast"
+    asks for Pixal3D's route at any count, "rebuild" never takes it.
     """
-    return native_dump is not None and not keep_mesh and replay_available
+    if cleanup not in CLEANUPS:
+        raise ValueError(f"cleanup is one of {', '.join(CLEANUPS)}, got {cleanup!r}")
+    if cleanup == "rebuild" or native_dump is None or keep_mesh or not replay_available:
+        return False
+    return cleanup == "fast" or faces >= NATIVE_MIN_FACES
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
@@ -305,6 +321,8 @@ def build_parser() -> argparse.ArgumentParser:
              "faces from the side (needs --views). Recommended for realistic humans",
     )
     parser.add_argument("--atlas", type=int, default=2048)
+    parser.add_argument("--height-m", type=float, default=None,
+                        help="finished height in metres, applied before rigging")
     parser.add_argument("--upright", action="store_true", help="stand a single prop upright after painting")
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(
@@ -352,7 +370,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-dump", type=Path, default=None,
         help="Pixal3D's own clean-up input (<run>.post.bin, saved by pixal3d_generate.py): "
              "rerun Pixal3D's clean-up at --faces instead of retopologising. Cleaner on "
-             "every model tested. Falls back to the classic route when post-replay is missing",
+             "models at 10k faces and up; below that, and when post-replay is missing, the "
+             "classic route runs instead",
+    )
+    parser.add_argument(
+        "--cleanup", choices=CLEANUPS, default="auto",
+        help="how Finish shrinks a Pixal3D model: fast (shrinks it as it is, keeps its "
+             "texture), rebuild (a sealed new surface first, so thin parts don't tear), or auto "
+             "(rebuild below 10k faces, fast from 10k up)",
     )
     parser.add_argument(
         "--steps-dir", type=Path, default=None,
@@ -425,7 +450,8 @@ def main() -> int:
     started = time.time()
     timings: dict[str, float] = {}
 
-    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available())
+    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available(),
+                          args.faces, args.cleanup)
     native_record = None
     retopo_glb = steps["retopo"]
     step = time.time()
@@ -573,6 +599,11 @@ def main() -> int:
         _run(headless(args.blender, "blender_upright.py") + [str(args.output), str(upright)],
              args.output.with_suffix(".upright.log"), "upright")
         upright.replace(args.output)
+
+    if args.height_m is not None:
+        from image_to_3dlab.real_height import set_height
+
+        args.output.write_bytes(set_height(args.output.read_bytes(), args.height_m))
     set_glb_generator(args.output)   # the finished file, after every export that touched it
     record = {
         "resumed": args.resume,

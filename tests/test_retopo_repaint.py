@@ -288,6 +288,17 @@ def test_the_pixal3d_route_needs_a_dump_and_post_replay(dump, keep_mesh, availab
     assert rr.finish_route(dump, keep_mesh, available) is expected
 
 
+@pytest.mark.parametrize("faces, expected", [
+    (5_000, False),   # a mobile budget: Pixal3D's clean-up tore the crane's lattice here (#244)
+    (8_000, False),
+    (9_999, False),
+    (10_000, True),
+    (20_000, True),   # game detail: the two routes come out about equal
+])
+def test_low_face_budgets_take_the_classic_route(faces, expected):
+    assert rr.finish_route(Path("run.post.bin"), False, True, faces) is expected
+
+
 def test_the_dump_is_a_required_input_when_given(tmp_path):
     args = rr.build_parser().parse_args(
         ["in.glb", "in.png", "out.glb", "--skip-paint", "--native-dump", "run.post.bin"])
@@ -439,3 +450,30 @@ def test_worker_rejects_malformed_explicit_record_before_work(tmp_path, monkeypa
                                     "--source-record", str(record), "--skip-paint"])
     with pytest.raises(ValueError, match="licence record"):
         rr.main()
+
+
+@pytest.mark.parametrize("cleanup, faces, expected", [
+    ("rebuild", 20_000, False),   # forced rebuild, even where fast would be picked
+    ("fast", 5_000, True),        # forced fast, even at a small budget
+    ("auto", 5_000, False),
+    ("auto", 20_000, True),
+])
+def test_the_cleanup_choice_overrides_the_face_count(cleanup, faces, expected):
+    assert rr.finish_route(Path("run.post.bin"), False, True, faces, cleanup) is expected
+
+
+@pytest.mark.parametrize("dump, keep_mesh, available", [
+    (None, False, True), (Path("run.post.bin"), True, True), (Path("run.post.bin"), False, False),
+])
+def test_forcing_pixal3d_still_needs_a_dump_and_post_replay(dump, keep_mesh, available):
+    assert rr.finish_route(dump, keep_mesh, available, 20_000, "fast") is False
+
+
+def test_an_unknown_cleanup_is_refused():
+    with pytest.raises(ValueError, match="cleanup"):
+        rr.finish_route(Path("run.post.bin"), False, True, 20_000, "quick")
+
+
+def test_the_worker_takes_the_cleanup_flag():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb"]).cleanup == "auto"
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb", "--cleanup", "rebuild"]).cleanup == "rebuild"

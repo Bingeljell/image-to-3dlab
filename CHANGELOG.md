@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to guess materials (605 MB, MIT), which it showed as ready without and then failed on its
   first run; and its texture baker no longer crashes under current PyTorch
   (`scripts/patch_sf3d_mps_queue.py`, applied by setup, which rebuilds an older install).
+- **Detailed vehicles from a few numbers** (`scripts/shape_guide.py`): a city bus or a box van with its wheels
+  and doors as separate parts on their pivots, an interior behind the doors and one atlas, from a preset
+  (`bus_12m`, `midibus_9m`, `ambulance`, `van_long`, `box_van`) or a JSON file that sets your own numbers. It
+  writes the parts model and a joined copy, the shape guide for multi-view runs and for Pixel Match.
 
 ## [0.5.10] - 2026-11-13
 

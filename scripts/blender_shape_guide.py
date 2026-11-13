@@ -1,25 +1,34 @@
-# build_bus_v2.py - the route (b) city bus (docs/route-b-models.md, Entwuerfe/25_fable_bus-blockout_brief.md).
+# blender_shape_guide.py - the bus family of the shape-guide kit (scripts/shape_guide.py runs it).
 #
-# A generic modern 12 m European low-floor city bus, built by code: the final game mesh, kept as built.
-#   blender -b -P build_bus_v2.py -- [--out <dir>] [--tex 4096] [--no-ao]
+# A generic modern low-floor city bus, built by code from a preset's numbers: the shape guide for multi-view runs
+# and, kept as built, a game mesh that Pixel Match can paint.
+#   blender -b -P blender_shape_guide.py -- [--out <dir>] [--preset bus_12m|bus_12m_rule|midibus_9m] [--name <name>]
+#                                           [--tex 4096] [--spec <spec.json>] [--no-ao]
 #
 # Writes into --out (default: this script's folder):
-#   bus_v2_parts.glb / .blend   body, wheel_FL/FR/RL/RR, door_1a..3b, interior: separate objects, origin at the pivot
-#   bus_v2_joined.glb           the same faces as one mesh, transforms applied, same UVs and material
-#   bus_v2_basecolor.png        the 4096 px atlas with the flat part colours (the livery guide)
+#   <name>_parts.glb / .blend   body, wheel_FL/FR/RL/RR, door_1a.., interior: separate objects, origin at the pivot
+#   <name>_joined.glb           the same faces as one mesh, transforms applied, same UVs and material
+#   <name>_basecolor.png        the atlas with the flat part colours (a livery guide for a picture model)
 #
 # Frame (Blender): +Y is the front, +X the bus's right side (the kerb side with the doors), Z up, ground at z = 0,
-# origin at the ground centre. That is the facing of Fable's ambulance.glb (front = -Z in glTF).
+# origin at the ground centre; the same facing as the van family (front = -Z in glTF).
 #
 # How the body is made: a box whose edges are rounded by a mapping (deform), with grid lines where the features sit.
 # The front and the rear are grids wrapped around the corners (wrap_grid), with tapered recesses and steps for the
 # windscreen, the display, the lights, the grilles and the bumpers. The flat sides are triangulated around their
 # holes (tri_fill): recessed windows, door openings, wheel arches. Every face carries tags: the object it belongs to,
 # its colour, and the UV chart it is projected into; the charts are packed into one atlas and painted here.
-import bpy, bmesh, math, sys, os, time
+import contextlib
+import math
+import os
+import sys
+import time
+
+import bmesh
+import bpy
 import numpy as np
 from mathutils import Vector
-from mathutils.geometry import tessellate_polygon, delaunay_2d_cdt
+from mathutils.geometry import delaunay_2d_cdt, tessellate_polygon
 
 T0 = time.time()
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,43 +51,43 @@ WHEEL_SEGS = 32
 # ---------------------------------------------------------------------------------------------------------------------
 # colours (sRGB display values): the livery guide
 # ---------------------------------------------------------------------------------------------------------------------
-C = dict(
-    skin=(0.88, 0.885, 0.87),        # white body
-    yellow=(0.94, 0.75, 0.10),       # the band at the window sill
-    black=(0.035, 0.035, 0.04),      # window frames, pillars, door frames
-    bumper=(0.06, 0.06, 0.065),
-    glass=(0.13, 0.18, 0.24),        # dark glass
-    display=(0.018, 0.018, 0.02),    # destination display (Flow paints the route number)
-    tyre=(0.07, 0.07, 0.075), rim=(0.68, 0.69, 0.70), hub=(0.45, 0.46, 0.47),
-    under=(0.045, 0.045, 0.047),     # underside, wheel wells
-    lamp=(0.97, 0.93, 0.80),         # warm white headlights
-    amber=(0.95, 0.55, 0.08), tail=(0.72, 0.05, 0.05), revers=(0.90, 0.90, 0.88),
-    grille=(0.075, 0.075, 0.08), ac=(0.74, 0.75, 0.75), hatch=(0.66, 0.67, 0.68),
-    mirror=(0.45, 0.53, 0.60), trim=(0.09, 0.09, 0.095), plate=(0.90, 0.90, 0.88), jamb=(0.05, 0.05, 0.055),
-    floor=(0.30, 0.31, 0.32), wall=(0.24, 0.245, 0.25), ceil=(0.29, 0.295, 0.30), housing=(0.22, 0.225, 0.23),
-    seat=(0.12, 0.25, 0.52), pole=(0.92, 0.74, 0.12), dash=(0.11, 0.11, 0.115),
-)
+C = {
+    "skin": (0.88, 0.885, 0.87),        # white body
+    "yellow": (0.94, 0.75, 0.10),       # the band at the window sill
+    "black": (0.035, 0.035, 0.04),      # window frames, pillars, door frames
+    "bumper": (0.06, 0.06, 0.065),
+    "glass": (0.13, 0.18, 0.24),        # dark glass
+    "display": (0.018, 0.018, 0.02),    # destination display (Flow paints the route number)
+    "tyre": (0.07, 0.07, 0.075), "rim": (0.68, 0.69, 0.70), "hub": (0.45, 0.46, 0.47),
+    "under": (0.045, 0.045, 0.047),     # underside, wheel wells
+    "lamp": (0.97, 0.93, 0.80),         # warm white headlights
+    "amber": (0.95, 0.55, 0.08), "tail": (0.72, 0.05, 0.05), "revers": (0.90, 0.90, 0.88),
+    "grille": (0.075, 0.075, 0.08), "ac": (0.74, 0.75, 0.75), "hatch": (0.66, 0.67, 0.68),
+    "mirror": (0.45, 0.53, 0.60), "trim": (0.09, 0.09, 0.095), "plate": (0.90, 0.90, 0.88), "jamb": (0.05, 0.05, 0.055),
+    "floor": (0.30, 0.31, 0.32), "wall": (0.24, 0.245, 0.25), "ceil": (0.29, 0.295, 0.30), "housing": (0.22, 0.225, 0.23),
+    "seat": (0.12, 0.25, 0.52), "pole": (0.92, 0.74, 0.12), "dash": (0.11, 0.11, 0.115),
+}
 
 # ---------------------------------------------------------------------------------------------------------------------
 # the vehicle's numbers (metres): a preset of the kit; the next steps derive more of the layout from them
 # ---------------------------------------------------------------------------------------------------------------------
-BUS_12M = dict(
-    half_width=1.275,            # half width of the body (2.55 m)
-    front=5.95, rear=-5.96,      # front / rear plane of the box; the bumpers add 0.05 / 0.04 -> 12.0 m
-    skirt=0.27, roof=2.98,       # skirt bottom, roof
-    radii=(0.30, 0.24, 0.36, 0.24),          # edge radii: across, up, along (front), along (rear)
-    screen=(1.18, 8.5, 0.07),    # windscreen: rake starts at this height, rake in degrees, bow of the front
-    rear_screen=(1.50, 3.0, 0.04),
-    wheel_radius=0.50,           # tyres 1.0 m across
-    axles=(3.25, -2.65),         # front, rear: front overhang 2.75 m, wheelbase 5.9 m
-    tyre_width=dict(F=0.30, R=0.60),         # single front tyres, twin rear tyres
-    door_opening=(0.34, 2.40),   # floor height at the doors .. top of the opening
-    doors=[(3.92, 5.22), (-0.10, 1.25), (-4.62, -3.32)],      # y0, y1 of doors 1, 2, 3 on the right side
-    glass=(1.30, 2.44),          # side glass, bottom .. top
-    band_rear={-1: -4.62, 1: -5.52},         # rear end of the black window band, left / right side
-    windows_left=[(3.92, 5.12), (2.52, 3.82), (1.12, 2.42), (-0.28, 1.02), (-1.68, -0.38), (-3.08, -1.78), (-4.48, -3.18)],
-    windows_right=[(2.52, 3.82), (1.37, 2.42), (-1.68, -0.22), (-3.08, -1.78), (-5.40, -4.74)],
-)
+BUS_12M = {
+    "half_width": 1.275,            # half width of the body (2.55 m)
+    "front": 5.95, "rear": -5.96,      # front / rear plane of the box; the bumpers add 0.05 / 0.04 -> 12.0 m
+    "skirt": 0.27, "roof": 2.98,       # skirt bottom, roof
+    "radii": (0.30, 0.24, 0.36, 0.24),          # edge radii: across, up, along (front), along (rear)
+    "screen": (1.18, 8.5, 0.07),    # windscreen: rake starts at this height, rake in degrees, bow of the front
+    "rear_screen": (1.50, 3.0, 0.04),
+    "wheel_radius": 0.50,           # tyres 1.0 m across
+    "axles": (3.25, -2.65),         # front, rear: front overhang 2.75 m, wheelbase 5.9 m
+    "tyre_width": {"F": 0.30, "R": 0.60},         # single front tyres, twin rear tyres
+    "door_opening": (0.34, 2.40),   # floor height at the doors .. top of the opening
+    "doors": [(3.92, 5.22), (-0.10, 1.25), (-4.62, -3.32)],      # y0, y1 of doors 1, 2, 3 on the right side
+    "glass": (1.30, 2.44),          # side glass, bottom .. top
+    "band_rear": {-1: -4.62, 1: -5.52},         # rear end of the black window band, left / right side
+    "windows_left": [(3.92, 5.12), (2.52, 3.82), (1.12, 2.42), (-0.28, 1.02), (-1.68, -0.38), (-3.08, -1.78), (-4.48, -3.18)],
+    "windows_right": [(2.52, 3.82), (1.37, 2.42), (-1.68, -0.22), (-3.08, -1.78), (-5.40, -4.74)],
+}
 PRESETS = {
     "bus_12m": BUS_12M,
     # the same bus with its side windows spread by the kit's rule instead of placed by hand
@@ -89,6 +98,13 @@ PRESETS = {
                        window_span={-1: (-2.98, 3.62), 1: (-3.90, 3.62)}, hatches=(-1.40,), interior_rule=True),
 }
 SPEC = PRESETS[arg("--preset", "bus_12m")]
+if arg("--spec"):                 # a spec file: numbers set on top of the preset (shape_guide.py --spec)
+    sys.path.insert(0, HERE)
+    import json
+
+    import shape_guide as _sg
+    with open(arg("--spec"), encoding="utf-8") as _f:
+        SPEC = dict(SPEC, **_sg.overrides(json.load(_f).get("set", {})))
 W = SPEC["half_width"]
 YF, YR = SPEC["front"], SPEC["rear"]
 ZB, ZT = SPEC["skirt"], SPEC["roof"]
@@ -133,10 +149,10 @@ PIVOTS = {"body": (0.0, 0.0, 0.0), "interior": (0.0, 0.0, 0.0)}
 for _n, _ya, _sx, _k in (("wheel_FL", YA_F, -1, "F"), ("wheel_FR", YA_F, 1, "F"), ("wheel_RL", YA_R, -1, "R"), ("wheel_RR", YA_R, 1, "R")):
     PIVOTS[_n] = (_sx * (XO - WHEEL_W[_k] / 2), _ya, WHEEL_R)
 for _k, (_y0, _y1) in enumerate(DOORS):
-    PIVOTS["door_%da" % (_k + 1)] = (XDC, _y1 - 0.02, ZD0)      # front leaf, hinge at its front edge
-    PIVOTS["door_%db" % (_k + 1)] = (XDC, _y0 + 0.02, ZD0)      # rear leaf, hinge at its rear edge
+    PIVOTS[f"door_{_k + 1}a"] = (XDC, _y1 - 0.02, ZD0)      # front leaf, hinge at its front edge
+    PIVOTS[f"door_{_k + 1}b"] = (XDC, _y0 + 0.02, ZD0)      # rear leaf, hinge at its rear edge
 OBJECTS = (["body", "wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR"]
-           + ["door_%d%s" % (k + 1, leaf) for k in range(len(DOORS)) for leaf in "ab"]
+           + [f"door_{k + 1}{leaf}" for k in range(len(DOORS)) for leaf in "ab"]
            + (["interior"] if SPEC.get("interior", True) else []))
 
 
@@ -176,8 +192,8 @@ class Builder:
             return [(x0 + ins, y0 + ins, z), (x1 - ins, y0 + ins, z), (x1 - ins, y1 - ins, z), (x0 + ins, y1 - ins, z)]
         rr = [rect(z0, 0.0)]
         rr += [rect(zmid, 0.0), rect(z1, top_inset)] if top_inset > 0 else [rect(z1, 0.0)]
-        t = dict(obj=obj, part=part, mat=mat, dens=dens)
-        self.rings(rr, lambda s, i, q: dict(t), cap0=dict(obj=obj, part=part, mat=bottom, dens=dens * 0.3), cap1=dict(t))
+        t = {"obj": obj, "part": part, "mat": mat, "dens": dens}
+        self.rings(rr, lambda s, i, q: dict(t), cap0={"obj": obj, "part": part, "mat": bottom, "dens": dens * 0.3}, cap1=dict(t))
 
 
 def inside(poly, x, y):
@@ -235,7 +251,7 @@ def deform(x, y, z):
     dx, dy, dz = (x - cx) / RX, (y - cy) / ry, (z - cz) / RZ
     n = math.sqrt(dx * dx + dy * dy + dz * dz)
     if n < 1e-9:
-        raise ValueError("deform: (%g, %g, %g) is not on the box surface" % (x, y, z))
+        raise ValueError(f"deform: ({x:g}, {y:g}, {z:g}) is not on the box surface")
     ux, uy, uz = dx / n, dy / n, dz / n
     px, py, pz = cx + RX * ux, cy + ry * uy, cz + RZ * uz
     if y >= YF - RYF - 1e-6:                              # the front end: raked windscreen, bowed in plan
@@ -258,7 +274,7 @@ class Body:
         return self.cache[key]
 
 
-T_BODY = dict(obj="body", part="body")
+T_BODY = {"obj": "body", "part": "body"}
 T_SIDE = {-1: dict(T_BODY, chart=("body", "-X"), view="-X"), 1: dict(T_BODY, chart=("body", "+X"), view="+X")}
 T_FRONT = dict(T_BODY, chart=("body", "+Y"), view="+Y")
 T_REAR = dict(T_BODY, chart=("body", "-Y"), view="-Y")
@@ -355,11 +371,11 @@ def build_body(b):
         return "black" if 4 <= j <= 6 else "skin"          # the mask around the windscreen and the display
 
     blocks_f = [
-        dict(i0=0, i1=16, j0=0, j1=1, depth=-0.05, taper=0.025, mat="bumper", rmat="bumper"),
-        dict(i0=4, i1=7, j0=2, j1=3, depth=0.025, taper=0.02, mat="lamp"),
-        dict(i0=9, i1=12, j0=2, j1=3, depth=0.025, taper=0.02, mat="lamp"),
-        dict(i0=4, i1=12, j0=4, j1=5, depth=0.02, taper=0.02, mat="glass"),
-        dict(i0=4, i1=12, j0=6, j1=7, depth=0.025, taper=0.02, mat="display"),
+        {"i0": 0, "i1": 16, "j0": 0, "j1": 1, "depth": -0.05, "taper": 0.025, "mat": "bumper", "rmat": "bumper"},
+        {"i0": 4, "i1": 7, "j0": 2, "j1": 3, "depth": 0.025, "taper": 0.02, "mat": "lamp"},
+        {"i0": 9, "i1": 12, "j0": 2, "j1": 3, "depth": 0.025, "taper": 0.02, "mat": "lamp"},
+        {"i0": 4, "i1": 12, "j0": 4, "j1": 5, "depth": 0.02, "taper": 0.02, "mat": "glass"},
+        {"i0": 4, "i1": 12, "j0": 6, "j1": 7, "depth": 0.025, "taper": 0.02, "mat": "display"},
     ]
     base_f = wrap_grid(b, body, fp, ZLF, col_f, mat_f, blocks_f)
 
@@ -371,12 +387,12 @@ def build_body(b):
         return T_SIDE[1] if (x0 == W and x1 == W) else (T_SIDE[-1] if (x0 == -W and x1 == -W) else T_REAR)
 
     blocks_r = [
-        dict(i0=0, i1=16, j0=0, j1=1, depth=-0.04, taper=0.02, mat="bumper", rmat="bumper"),
-        dict(i0=7, i1=9, j0=2, j1=3, depth=0.025, taper=0.02, mat="grille"),
-        dict(i0=7, i1=9, j0=4, j1=5, depth=0.025, taper=0.02, mat="grille"),
-        dict(i0=4, i1=6, j0=3, j1=5, depth=0.02, taper=0.015, mat="tail"),
-        dict(i0=10, i1=12, j0=3, j1=5, depth=0.02, taper=0.015, mat="tail"),
-        dict(i0=6, i1=10, j0=6, j1=7, depth=0.025, taper=0.02, mat="glass"),
+        {"i0": 0, "i1": 16, "j0": 0, "j1": 1, "depth": -0.04, "taper": 0.02, "mat": "bumper", "rmat": "bumper"},
+        {"i0": 7, "i1": 9, "j0": 2, "j1": 3, "depth": 0.025, "taper": 0.02, "mat": "grille"},
+        {"i0": 7, "i1": 9, "j0": 4, "j1": 5, "depth": 0.025, "taper": 0.02, "mat": "grille"},
+        {"i0": 4, "i1": 6, "j0": 3, "j1": 5, "depth": 0.02, "taper": 0.015, "mat": "tail"},
+        {"i0": 10, "i1": 12, "j0": 3, "j1": 5, "depth": 0.02, "taper": 0.015, "mat": "tail"},
+        {"i0": 6, "i1": 10, "j0": 6, "j1": 7, "depth": 0.025, "taper": 0.02, "mat": "glass"},
     ]
     base_r = wrap_grid(b, body, rp, ZLR, col_r, lambda i, j: "skin", blocks_r)
 
@@ -400,7 +416,7 @@ def build_body(b):
                 b.f([body.node(x, ysl[i], zc[j]), body.node(x, ysl[i + 1], zc[j]), body.node(x, ysl[i + 1], zc[j + 1]),
                      body.node(x, ysl[i], zc[j + 1])], mat="skin", **T_SIDE[sx])
         for ax, ya in (("F", YA_F), ("R", YA_R)):          # wheel arches and wells
-            name = "well_%s%s" % (ax, "L" if sx < 0 else "R")
+            name = "well_{}{}".format(ax, "L" if sx < 0 else "R")
             arc = [(ya + RA * math.cos(t0 + (math.pi - 2 * t0) * k / NA), WHEEL_R + RA * math.sin(t0 + (math.pi - 2 * t0) * k / NA))
                    for k in range(NA + 1)]                 # front end -> over the top -> rear end
             A = [b.v(x, y, z) for (y, z) in arc]
@@ -430,7 +446,7 @@ def build_body(b):
                 for e in range(4):
                     e2 = (e + 1) % 4
                     luv = {lo[e]: (per[e], 0.0), lo[e2]: (per[e + 1], 0.0), li[e2]: (per[e + 1], W - XI), li[e]: (per[e], W - XI)}
-                    b.f([lo[e], lo[e2], li[e2], li[e]], obj="body", part="jamb%d" % (k + 1), chart="jamb%d" % (k + 1), luv=luv,
+                    b.f([lo[e], lo[e2], li[e2], li[e]], obj="body", part=f"jamb{k + 1}", chart=f"jamb{k + 1}", luv=luv,
                         mat="jamb", dens=0.6)
                 holes.append(lo)
         tri_fill(b, outer, holes, lambda p: (p[1], p[2]), mat="skin", **T_SIDE[sx])
@@ -454,10 +470,10 @@ def loft_y(b, stations, z0, obj, part, mat, dens=0.9):
     for (y, h, w) in stations:
         c = min(0.07, 0.4 * h)
         rings.append([(w, y, z0), (w, y, z0 + h - c), (w - c, y, z0 + h), (-(w - c), y, z0 + h), (-w, y, z0 + h - c), (-w, y, z0)])
-    t = dict(obj=obj, part=part, mat=mat, dens=dens)
+    t = {"obj": obj, "part": part, "mat": mat, "dens": dens}
 
     def tag(s, i, q):
-        return dict(obj=obj, part=part, mat="under", dens=dens * 0.2) if i == 5 else dict(t)
+        return {"obj": obj, "part": part, "mat": "under", "dens": dens * 0.2} if i == 5 else dict(t)
 
     b.rings(rings, tag, cap0=dict(t), cap1=dict(t))
 
@@ -479,16 +495,16 @@ def build_roof_and_mirrors(b):
     loft_y(b, [(YF - 4.75, 0.12, 0.90), (YF - 4.45, 0.31, 0.95), (YF - 1.75, 0.31, 0.95), (YF - 1.10, 0.14, 0.90)], z0, "body", "ac", "ac")
     loft_y(b, [(YR + 0.61, 0.07, 0.70), (YR + 0.81, 0.16, 0.75), (YR + 1.71, 0.16, 0.75), (YR + 1.96, 0.07, 0.70)], z0, "body", "pod", "ac")
     for k, yc in enumerate(HATCHES):
-        b.box(-0.42, 0.42, yc - 0.42, yc + 0.42, z0, ZT + 0.07, "body", "hatch%d" % k, "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.04)
+        b.box(-0.42, 0.42, yc - 0.42, yc + 0.42, z0, ZT + 0.07, "body", f"hatch{k}", "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.04)
     b.box(-0.17, 0.17, YF - 0.97, YF - 0.75, z0, ZT + 0.06, "body", "antenna", "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.03)
     for sx, sn in ((-1, "L"), (1, "R")):
         # the arm leaves the body above the windscreen corner and reaches forward and outward
         tube(b, [(sx * 1.21, YF - 0.65, 2.66), (sx * 1.33, YF - 0.29, 2.63), (sx * 1.40, YF - 0.04, 2.47)], 0.028, 6,
-             dict(obj="body", part="mirA" + sn, mat="black", dens=0.8))
+             {"obj": "body", "part": "mirA" + sn, "mat": "black", "dens": 0.8})
         xa, xb = sorted((sx * 1.30, sx * 1.50))
         hs = [[(xa, y, 2.02), (xb, y, 2.02), (xb, y, 2.50), (xa, y, 2.50)] for y in (YF - 0.09, YF - 0.015)]
         hs.append([(xa + 0.03, YF + 0.015, 2.05), (xb - 0.03, YF + 0.015, 2.05), (xb - 0.03, YF + 0.015, 2.47), (xa + 0.03, YF + 0.015, 2.47)])
-        t = dict(obj="body", part="mir" + sn, mat="black", dens=0.8)
+        t = {"obj": "body", "part": "mir" + sn, "mat": "black", "dens": 0.8}
         b.rings(hs, lambda s, i, q, t=t: dict(t), cap0=dict(t, mat="mirror"), cap1=dict(t))
 
 
@@ -510,7 +526,7 @@ def build_wheel(b, name, ya, sx, twin):
     acc = [0.0]
     for k in range(1, nt):
         acc.append(acc[-1] + math.hypot(tread[k][0] - tread[k - 1][0], tread[k][1] - tread[k - 1][1]))
-    T = dict(obj=name, part=name)
+    T = {"obj": name, "part": name}
 
     def tag(s, i, q):
         if s == 0:
@@ -528,7 +544,7 @@ def build_wheel(b, name, ya, sx, twin):
 
 def build_door_leaf(b, name, ya, yb):
     """one door leaf between ya and yb: a black frame around glass, on both faces."""
-    T = dict(obj=name, part=name)
+    T = {"obj": name, "part": name}
     fr, frb, gd, gt = 0.065, 0.14, 0.012, 0.012            # frame width, bottom rail, glass depth, taper
 
     def face(x, sgn, view, dens):
@@ -555,7 +571,7 @@ def build_door_leaf(b, name, ya, yb):
 def seat(b, part, xa, xb, y0, z0, zs, zbk, depth=0.44, bt=0.09):
     """a seat block facing the front: base and backrest in one piece."""
     prof = [(y0, z0), (y0 + depth, z0), (y0 + depth, zs), (y0 + bt, zs), (y0 + bt, zbk), (y0, zbk)]
-    t = dict(obj="interior", part=part, mat="seat", dens=0.3)
+    t = {"obj": "interior", "part": part, "mat": "seat", "dens": 0.3}
 
     def tag(s, i, q):
         return dict(t, mat="under", dens=0.1) if i == 0 else dict(t)
@@ -564,7 +580,7 @@ def seat(b, part, xa, xb, y0, z0, zs, zbk, depth=0.44, bt=0.09):
 
 
 def build_interior(b):
-    R = dict(obj="interior", part="room", inward=True, dens=0.2)
+    R = {"obj": "interior", "part": "room", "inward": True, "dens": 0.2}
     c = {}
     for sx in (-1, 1):
         for y in (YI0, YI1):
@@ -589,7 +605,7 @@ def build_interior(b):
     for sx, sn in ((-1, "L"), (1, "R")):
         for ax, ya in (("F", YA_F), ("R", YA_R)):
             xa, xb = sorted((sx * 0.55, sx * (XI + 0.01)))
-            b.box(xa, xb, ya - 0.63, ya + 0.63, ZF - 0.01, zh, "interior", "housing_%s%s" % (ax, sn), "housing", dens=0.3)
+            b.box(xa, xb, ya - 0.63, ya + 0.63, ZF - 0.01, zh, "interior", f"housing_{ax}{sn}", "housing", dens=0.3)
     # double seats along both walls (rear edge y0 of each), on the floor or on a wheel housing
     zf = ZF - 0.01
     rule_poles = None
@@ -608,9 +624,9 @@ def build_interior(b):
         xa, xb = sorted((sx * 0.24, sx * 1.12))
         for k, (y0, high) in enumerate(rows[sx]):
             if high:
-                seat(b, "seat_%s%d" % (sn, k), xa, xb, y0, zh - 0.01, zh + 0.26, zh + 0.74)
+                seat(b, f"seat_{sn}{k}", xa, xb, y0, zh - 0.01, zh + 0.26, zh + 0.74)
             else:
-                seat(b, "seat_%s%d" % (sn, k), xa, xb, y0, zf, ZF + 0.46, ZF + 0.94)
+                seat(b, f"seat_{sn}{k}", xa, xb, y0, zf, ZF + 0.46, ZF + 0.94)
     seat(b, "seat_bench", -1.12, 1.12, YI0 + 0.02, zf, ZF + 0.60, ZF + 1.12, depth=0.50)
     # the driver's place: seat, dashboard, steering wheel, a partition behind the seat
     seat(b, "seat_driver", -0.85, -0.37, YF - 1.50, zf, ZF + 0.52, ZF + 1.12, depth=0.46)
@@ -620,16 +636,16 @@ def build_interior(b):
     e1, e2 = Vector((1, 0, 0)), Vector((0.0, 0.866, 0.5))
     sw = [[tuple(cen + axis * o + 0.21 * (math.cos(2 * math.pi * i / 10) * e1 + math.sin(2 * math.pi * i / 10) * e2)) for i in range(10)]
           for o in (-0.02, 0.02)]
-    t = dict(obj="interior", part="steering", mat="dash", dens=0.3)
+    t = {"obj": "interior", "part": "steering", "mat": "dash", "dens": 0.3}
     b.rings(sw, lambda s, i, q: dict(t), cap0=dict(t), cap1=dict(t))
     # handrail poles at the doors and two rails under the ceiling
     poles = rule_poles if rule_poles is not None else [(0.50, 3.92), (0.50, -0.10), (0.50, 1.25), (0.50, -4.62), (0.50, -3.32), (-0.20, 0.78), (-0.20, -2.00)]
     for k, (x, y) in enumerate(poles):
-        b.box(x - 0.02, x + 0.02, y - 0.02, y + 0.02, zf, ZC + 0.01, "interior", "pole%d" % k, "pole", dens=0.3, bottom="pole")
+        b.box(x - 0.02, x + 0.02, y - 0.02, y + 0.02, zf, ZC + 0.01, "interior", f"pole{k}", "pole", dens=0.3, bottom="pole")
     for k, x in enumerate((-0.50, 0.50)):
-        b.box(x - 0.017, x + 0.017, YR + 1.06, YF - 1.75, 2.06, 2.10, "interior", "rail%d" % k, "pole", dens=0.3, bottom="pole")
+        b.box(x - 0.017, x + 0.017, YR + 1.06, YF - 1.75, 2.06, 2.10, "interior", f"rail{k}", "pole", dens=0.3, bottom="pole")
     for k, (x, y) in enumerate([(-0.50, YR + 1.06), (-0.50, YF - 1.75), (0.50, YR + 1.06), (0.50, YF - 1.75), (-0.50, -0.3), (0.50, -1.2)]):
-        b.box(x - 0.015, x + 0.015, y - 0.015, y + 0.015, 2.09, ZC + 0.01, "interior", "hanger%d" % k, "pole", dens=0.3, bottom="pole")
+        b.box(x - 0.015, x + 0.015, y - 0.015, y + 0.015, 2.09, ZC + 0.01, "interior", f"hanger{k}", "pole", dens=0.3, bottom="pole")
 
 
 def build_all():
@@ -642,8 +658,8 @@ def build_all():
     build_wheel(b, "wheel_RR", YA_R, 1, True)
     for k, (y0, y1) in enumerate(DOORS):
         ym = (y0 + y1) / 2
-        build_door_leaf(b, "door_%da" % (k + 1), ym, y1)
-        build_door_leaf(b, "door_%db" % (k + 1), y0, ym)
+        build_door_leaf(b, f"door_{k + 1}a", ym, y1)
+        build_door_leaf(b, f"door_{k + 1}b", y0, ym)
     if SPEC.get("interior", True):
         build_interior(b)
     return b
@@ -692,7 +708,7 @@ def make_bmesh(b):
             bmesh.ops.reverse_faces(bm, faces=comp)
             flipped += 1
     bm.normal_update()
-    print("BUILD shells: %d, flipped: %d" % (shells, flipped))
+    print(f"BUILD shells: {shells}, flipped: {flipped}")
     return bm, tags
 
 
@@ -830,7 +846,7 @@ def pack_islands(isl):
         I.x, I.y, I.w, I.h = x, y, w, h
         I.ppm = BASE_PPM * I.dens * scale
     used = sum(w * h for (w, h) in sizes)
-    print("BUILD atlas %d px: %d charts, main density %.1f px/m, rect fill %.1f %%" % (TEX, len(L), BASE_PPM * scale, 100.0 * used / TEX / TEX))
+    print(f"BUILD atlas {TEX} px: {len(L)} charts, main density {BASE_PPM * scale:.1f} px/m, rect fill {100.0 * used / TEX / TEX:.1f} %")
     return scale
 
 
@@ -1173,7 +1189,7 @@ def mesh_object(scene, bm, tags, name, pivot, keep, mat):
         mod.weight = 60
         bpy.ops.object.modifier_apply(modifier=mod.name)
     except Exception as e:
-        print("BUILD weighted normal failed on %s: %s" % (name, e))
+        print(f"BUILD weighted normal failed on {name}: {e}")
     return ob
 
 
@@ -1198,8 +1214,8 @@ def check_uv_overlap(me, n=2048):
             e = s * ((c[0] - a[0]) * (Y - a[1]) - (c[1] - a[1]) * (X - a[0])) / ln > 0.75      # inside by 0.75 px
             m = e if m is None else (m & e)
         cnt[y0:y1, x0:x1] += m.astype(np.uint8)
-    print("BUILD uv range u %.4f..%.4f v %.4f..%.4f | texels of a %d grid claimed by more than one triangle: %d of %d" % (
-        uvs[:, 0].min(), uvs[:, 0].max(), uvs[:, 1].min(), uvs[:, 1].max(), n, int((cnt > 1).sum()), int((cnt > 0).sum())))
+    print(f"BUILD uv range u {uvs[:, 0].min():.4f}..{uvs[:, 0].max():.4f} v {uvs[:, 1].min():.4f}..{uvs[:, 1].max():.4f} | "
+          f"texels of a {n} grid claimed by more than one triangle: {int((cnt > 1).sum())} of {int((cnt > 0).sum())}")
 
 
 def check_shells(bm, tags):
@@ -1233,10 +1249,8 @@ def main():
     check_shells(bm, tags)
 
     mat = bpy.data.materials.new("M_" + NAME)
-    try:
+    with contextlib.suppress(Exception):      # older Blender: nodes are on by default
         mat.use_nodes = True
-    except Exception:
-        pass
     nt = mat.node_tree
     bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
     bsdf.inputs["Roughness"].default_value = 0.55
@@ -1264,10 +1278,8 @@ def main():
         node.image = aoimg
         nt.nodes.active = node
         scene.render.bake.margin = 8
-        try:
+        with contextlib.suppress(Exception):  # older Blender has no margin type
             scene.render.bake.margin_type = "EXTEND"
-        except Exception:
-            pass
         bpy.ops.object.select_all(action="DESELECT")
         joined.select_set(True)
         bpy.context.view_layer.objects.active = joined
@@ -1283,7 +1295,7 @@ def main():
         for I in isl.values():          # wheels turn: no baked shadow on them
             if I.obj.startswith("wheel"):
                 ao[I.y:I.y + I.h, I.x:I.x + I.w] = 1.0
-        print("BUILD AO baked (%.1f s), mean %.3f" % (time.time() - T0, float(ao.mean())))
+        print(f"BUILD AO baked ({time.time() - T0:.1f} s), mean {float(ao.mean()):.3f}")
         col *= (1.0 - 0.5 * (1.0 - np.clip(ao, 0, 1)))[:, :, None]
     col = dilate(col, cov, PAD + 2)
     tex_path = os.path.join(OUT, NAME + "_basecolor.png")
@@ -1299,13 +1311,13 @@ def main():
             o.select_set(True)
         bpy.context.view_layer.objects.active = objs[0]
         bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_yup=True, export_apply=True)
-        print("BUILD wrote %s (%.2f MB)" % (path, os.path.getsize(path) / 1e6))
+        print(f"BUILD wrote {path} ({os.path.getsize(path) / 1e6:.2f} MB)")
 
     co = np.array([v.co[:] for v in joined.data.vertices])
     mn, mx = co.min(axis=0), co.max(axis=0)
     total = len(joined.data.polygons)
-    print("BUILD joined: %d triangles, %d vertices, bounds min %s max %s, size %s" % (
-        total, len(co), np.round(mn, 3), np.round(mx, 3), np.round(mx - mn, 3)))
+    print(f"BUILD joined: {total} triangles, {len(co)} vertices, bounds min {np.round(mn, 3)} max {np.round(mx, 3)}, "
+          f"size {np.round(mx - mn, 3)}")
     export(os.path.join(OUT, NAME + "_joined.glb"), [joined])
     jm = joined.data
     bpy.data.objects.remove(joined)
@@ -1315,8 +1327,8 @@ def main():
     for name in OBJECTS:
         ob = mesh_object(scene, bm, tags, name, PIVOTS[name], lambda t, name=name: t["obj"] == name, mat)
         parts.append(ob)
-        print("BUILD part %-9s origin (%7.3f, %7.3f, %6.3f)  triangles %5d  vertices %5d" % (
-            name, ob.location.x, ob.location.y, ob.location.z, len(ob.data.polygons), len(ob.data.vertices)))
+        print(f"BUILD part {name:<9} origin ({ob.location.x:7.3f}, {ob.location.y:7.3f}, {ob.location.z:6.3f})  "
+              f"triangles {len(ob.data.polygons):5d}  vertices {len(ob.data.vertices):5d}")
     assert sum(len(o.data.polygons) for o in parts) == total
     bm.free()
     export(os.path.join(OUT, NAME + "_parts.glb"), parts)
@@ -1325,7 +1337,7 @@ def main():
     bpy.ops.wm.save_as_mainfile(filepath=blend)
     if os.path.isfile(blend + "1"):       # Blender's backup of the file a rebuild replaced
         os.remove(blend + "1")
-    print("BUILD wrote %s (%.2f MB), done in %.1f s" % (blend, os.path.getsize(blend) / 1e6, time.time() - T0))
+    print(f"BUILD wrote {blend} ({os.path.getsize(blend) / 1e6:.2f} MB), done in {time.time() - T0:.1f} s")
 
 
 main()

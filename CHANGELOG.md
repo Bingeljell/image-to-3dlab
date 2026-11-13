@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-11-13
+
 ### Added
 - The installer counts one anonymous **started / stopped / finished** event (no id, no
   address) so a machine it turns away, like an old graphics card, is not invisible.

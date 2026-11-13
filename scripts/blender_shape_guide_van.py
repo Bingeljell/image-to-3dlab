@@ -25,7 +25,7 @@ PAD = 3 * TEX // 1024             # gutter px (each side of every island), 3 at 
 NAME = arg("--name", "ambulance")
 # the kit's parts: each wheel is its own object on its axle (Fable's tags wFL.. -> the kit's names)
 WHEELS = {"wFL": "wheel_FL", "wFR": "wheel_FR", "wRL": "wheel_RL", "wRR": "wheel_RR"}
-BASE_PPM = 120.0    # px per metre before the auto-fit scale
+BASE_PPM = 120.0 * TEX / 1024   # px per metre before the auto-fit scale (120 at a 1024 atlas)
 WHEEL_SEGS = 24
 
 # ----------------------------------------------------------------------------

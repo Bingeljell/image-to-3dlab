@@ -13,6 +13,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
 import autorig_api as aa
 
 
+@pytest.fixture(autouse=True)
+def no_real_rig_install(tmp_path_factory, monkeypatch):
+    """Jobs here never reach this machine's real auto-rig.
+
+    Before a Rig job, run_job asks the installed SkinTokens Python about the graphics card and
+    reads its diffusers version. On a machine with Rig installed that reached the real venv,
+    and a test that fakes subprocess.Popen broke inside the probe instead of where it meant to.
+    """
+    monkeypatch.setattr(aa, "SKINTOKENS", tmp_path_factory.mktemp("no-skintokens"))
+    monkeypatch.setattr(aa.cuda_arch, "probe", lambda *a, **k: None)
+
+
 def _glb(path: Path, payload: bytes = valid_glb()) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)

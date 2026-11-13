@@ -79,7 +79,12 @@ BUS_12M = dict(
     windows_left=[(3.92, 5.12), (2.52, 3.82), (1.12, 2.42), (-0.28, 1.02), (-1.68, -0.38), (-3.08, -1.78), (-4.48, -3.18)],
     windows_right=[(2.52, 3.82), (1.37, 2.42), (-1.68, -0.22), (-3.08, -1.78), (-5.40, -4.74)],
 )
-SPEC = BUS_12M
+PRESETS = {
+    "bus_12m": BUS_12M,
+    # the same bus with its side windows spread by the kit's rule instead of placed by hand
+    "bus_12m_rule": dict(BUS_12M, window_pitch=(1.40, 0.10), window_span={-1: (-4.48, 5.12), 1: (-5.40, 5.12)}),
+}
+SPEC = PRESETS[arg("--preset", "bus_12m")]
 W = SPEC["half_width"]
 YF, YR = SPEC["front"], SPEC["rear"]
 ZB, ZT = SPEC["skirt"], SPEC["roof"]
@@ -111,6 +116,12 @@ WIN_Z0, WIN_Z1 = SPEC["glass"]
 BAND_Y0 = SPEC["band_rear"]
 WIN_L = SPEC["windows_left"]
 WIN_R = SPEC["windows_right"]
+if "window_pitch" in SPEC:      # the kit's rule (shape_guide.spread_windows) instead of hand-placed windows
+    sys.path.insert(0, HERE)
+    import shape_guide as sg
+    _pitch, _pillar = SPEC["window_pitch"]
+    WIN_L = sg.spread_windows(*SPEC["window_span"][-1], pitch=_pitch, pillar=_pillar)
+    WIN_R = sg.spread_windows(*SPEC["window_span"][1], pitch=_pitch, pillar=_pillar, keep_out=DOORS)
 Y_SIDE0, Y_SIDE1 = YR + RYR + BOW_R, YF - RYF - BOW_F      # where the flat sides end (the yellow band stops there)
 
 PIVOTS = {"body": (0.0, 0.0, 0.0), "interior": (0.0, 0.0, 0.0)}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -96,6 +97,29 @@ def test_the_copied_text_has_the_message_and_the_details():
 @pytest.mark.parametrize("system, expected", [("darwin", "macOS"), ("linux", "Linux"), ("win32", "Windows")])
 def test_the_machine_line_starts_with_the_system(system, expected):
     assert br.machine_summary(sys_platform=system, chip=lambda: "Some GPU").startswith(expected)
+
+
+def test_windows_names_its_nvidia_card(monkeypatch):
+    # The NVIDIA driver puts nvidia-smi on the PATH on Windows too. Without it a Windows report
+    # said only "Windows · AMD64" (#192), and the card is the first thing a GPU bug needs.
+    asked = []
+
+    def nvidia_smi(command, **kwargs):
+        asked.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="NVIDIA GeForce RTX 4070 Ti SUPER\n")
+
+    monkeypatch.setattr(br.subprocess, "run", nvidia_smi)
+    assert br._chip("windows") == "NVIDIA GeForce RTX 4070 Ti SUPER"
+    assert asked[0][0] == "nvidia-smi"
+
+
+def test_windows_without_nvidia_smi_names_no_card(monkeypatch):
+    # An AMD or Intel card, or no driver: the report goes out without a card, as before.
+    def missing(command, **kwargs):
+        raise FileNotFoundError(command[0])
+
+    monkeypatch.setattr(br.subprocess, "run", missing)
+    assert br._chip("windows") == ""
 
 
 def test_every_spelling_of_a_windows_home_folder_is_hidden():

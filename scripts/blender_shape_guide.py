@@ -83,10 +83,10 @@ PRESETS = {
     "bus_12m": BUS_12M,
     # the same bus with its side windows spread by the kit's rule instead of placed by hand
     "bus_12m_rule": dict(BUS_12M, window_pitch=(1.40, 0.10), window_span={-1: (-4.48, 5.12), 1: (-5.40, 5.12)}),
-    # the first bus from numbers alone: 9 m, two doors, windows by rule (the interior still assumes 12 m, so it is off)
+    # the first bus from numbers alone: 9 m, two doors, windows and interior by rule
     "midibus_9m": dict(BUS_12M, front=4.45, rear=-4.46, axles=(2.15, -2.15), doors=[(2.82, 3.72), (-0.55, 0.65)],
                        band_rear={-1: -3.12, 1: -4.02}, window_pitch=(1.40, 0.10),
-                       window_span={-1: (-2.98, 3.62), 1: (-3.90, 3.62)}, hatches=(-1.40,), interior=False),
+                       window_span={-1: (-2.98, 3.62), 1: (-3.90, 3.62)}, hatches=(-1.40,), interior_rule=True),
 }
 SPEC = PRESETS[arg("--preset", "bus_12m")]
 W = SPEC["half_width"]
@@ -592,8 +592,18 @@ def build_interior(b):
             b.box(xa, xb, ya - 0.63, ya + 0.63, ZF - 0.01, zh, "interior", "housing_%s%s" % (ax, sn), "housing", dens=0.3)
     # double seats along both walls (rear edge y0 of each), on the floor or on a wheel housing
     zf = ZF - 0.01
-    rows = {-1: [(3.0, True), (1.95, False), (1.15, False), (0.35, False), (-0.45, False), (-1.25, False), (-2.9, True), (-4.1, False)],
-            1: [(3.0, True), (1.75, False), (-0.75, False), (-1.55, False), (-2.9, True)]}
+    rule_poles = None
+    if SPEC.get("interior_rule"):       # the kit's rule (shape_guide.seat_rows, door_poles) instead of placed rows
+        sys.path.insert(0, HERE)
+        import shape_guide as sg
+        housings = [(ya - 0.63, ya + 0.63) for ya in (YA_F, YA_R)]
+        start = YI0 + 0.02 + 0.50 + 0.05            # in front of the rear bench
+        rows = {-1: sg.seat_rows(start, YF - 1.70, 0.80, 0.44, housings=housings),
+                1: sg.seat_rows(start, YF - 1.70, 0.80, 0.44, keep_out=DOORS, housings=housings)}
+        rule_poles = sg.door_poles(DOORS, 0.50, YF - 1.65)
+    else:
+        rows = {-1: [(3.0, True), (1.95, False), (1.15, False), (0.35, False), (-0.45, False), (-1.25, False), (-2.9, True), (-4.1, False)],
+                1: [(3.0, True), (1.75, False), (-0.75, False), (-1.55, False), (-2.9, True)]}
     for sx, sn in ((-1, "L"), (1, "R")):
         xa, xb = sorted((sx * 0.24, sx * 1.12))
         for k, (y0, high) in enumerate(rows[sx]):
@@ -613,12 +623,12 @@ def build_interior(b):
     t = dict(obj="interior", part="steering", mat="dash", dens=0.3)
     b.rings(sw, lambda s, i, q: dict(t), cap0=dict(t), cap1=dict(t))
     # handrail poles at the doors and two rails under the ceiling
-    poles = [(0.50, 3.92), (0.50, -0.10), (0.50, 1.25), (0.50, -4.62), (0.50, -3.32), (-0.20, 0.78), (-0.20, -2.00)]
+    poles = rule_poles if rule_poles is not None else [(0.50, 3.92), (0.50, -0.10), (0.50, 1.25), (0.50, -4.62), (0.50, -3.32), (-0.20, 0.78), (-0.20, -2.00)]
     for k, (x, y) in enumerate(poles):
         b.box(x - 0.02, x + 0.02, y - 0.02, y + 0.02, zf, ZC + 0.01, "interior", "pole%d" % k, "pole", dens=0.3, bottom="pole")
     for k, x in enumerate((-0.50, 0.50)):
-        b.box(x - 0.017, x + 0.017, -4.9, 4.2, 2.06, 2.10, "interior", "rail%d" % k, "pole", dens=0.3, bottom="pole")
-    for k, (x, y) in enumerate([(-0.50, -4.9), (-0.50, 4.2), (0.50, -4.9), (0.50, 4.2), (-0.50, -0.3), (0.50, -1.2)]):
+        b.box(x - 0.017, x + 0.017, YR + 1.06, YF - 1.75, 2.06, 2.10, "interior", "rail%d" % k, "pole", dens=0.3, bottom="pole")
+    for k, (x, y) in enumerate([(-0.50, YR + 1.06), (-0.50, YF - 1.75), (0.50, YR + 1.06), (0.50, YF - 1.75), (-0.50, -0.3), (0.50, -1.2)]):
         b.box(x - 0.015, x + 0.015, y - 0.015, y + 0.015, 2.09, ZC + 0.01, "interior", "hanger%d" % k, "pole", dens=0.3, bottom="pole")
 
 

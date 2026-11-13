@@ -65,6 +65,7 @@ def test_transition_schedule():
         assert 0 <= g <= p <= 1
 
 
+@pytest.mark.symlinks
 def test_same_file_follows_a_link(tmp_path):
     source = tmp_path / "input.blend"
     source.write_text("keep")
@@ -83,6 +84,7 @@ def test_refuse_open_blend_stops_on_the_opened_file(tmp_path):
     pipeline.refuse_open_blend(tmp_path / "out.blend", "")
 
 
+@pytest.mark.symlinks
 def test_no_overwrite_or_input_alias(tmp_path):
     source = tmp_path / "input.blend"
     source.write_text("keep")

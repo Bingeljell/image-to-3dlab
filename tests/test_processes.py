@@ -106,7 +106,7 @@ def test_no_viewer_module_uses_posix_only_process_calls():
     """Every job start/stop in the viewer goes through image_to_3dlab.processes."""
     offenders = []
     for path in sorted((REPO / "viewer").glob("*.py")):
-        for number, line in enumerate(path.read_text().splitlines(), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             code = line.split("#", 1)[0]
             if re.search(r"os\.killpg\(|start_new_session\s*=\s*True", code):
                 offenders.append(f"{path.name}:{number}")
@@ -129,6 +129,7 @@ def test_a_malformed_pid_record_is_rejected(text):
         processes.parse_pid_record(text)
 
 
+@pytest.mark.posix
 def test_this_process_is_alive_and_a_free_pid_is_not():
     assert processes.process_alive(os.getpid(), windows=False)
     assert not processes.process_alive(2**22 + 12345, windows=False)

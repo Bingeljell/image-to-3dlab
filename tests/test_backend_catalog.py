@@ -58,6 +58,7 @@ def test_no_weight_set_contains_another(tmp_path):
                 assert outer not in inner.parents, f"{backend.id}: {inner} sits inside {outer}"
 
 
+@pytest.mark.symlinks
 def test_symlinked_files_are_counted_once(tmp_path):
     """The Hugging Face cache links `snapshots/` at `blobs/`, so following both doubles
     every byte and a 15 GB backend reports 30 GB."""
@@ -72,6 +73,7 @@ def test_symlinked_files_are_counted_once(tmp_path):
     assert total == 1000, "the symlink was followed and counted a second time"
 
 
+@pytest.mark.symlinks
 def test_links_to_a_shared_blob_store_outside_the_folder_are_counted(tmp_path):
     """Newer huggingface_hub keeps the bytes in a store shared across repos and only
     links to them from `models--*`. Skipping links then reported 13.4 GB as 120 B."""
@@ -91,6 +93,7 @@ def test_links_to_a_shared_blob_store_outside_the_folder_are_counted(tmp_path):
     assert total == 1040, "the linked blob was skipped, or counted once per link"
 
 
+@pytest.mark.symlinks
 def test_a_dangling_link_is_skipped(tmp_path):
     (tmp_path / "gone.bin").symlink_to(tmp_path / "nowhere")
     assert bc._dir_state(tmp_path) == (False, 0)
@@ -655,9 +658,9 @@ def test_every_declared_probe_is_a_path():
 
 def test_the_setup_page_renders_the_hint():
     """Pinned in the page's own source: the payload alone proves nothing about the screen."""
-    source = (REPO / "viewer" / "studio" / "setup.js").read_text()
+    source = (REPO / "viewer" / "studio" / "setup.js").read_text(encoding="utf-8")
     assert "build_hint" in source
-    assert "setup-build-hint" in (REPO / "viewer" / "studio" / "setup.css").read_text()
+    assert "setup-build-hint" in (REPO / "viewer" / "studio" / "setup.css").read_text(encoding="utf-8")
 
 
 def test_trellis_shows_no_amd_note_because_it_runs_there():
@@ -736,7 +739,7 @@ def test_the_card_and_the_generator_read_the_same_variable():
     import trellis_route
 
     assert trellis_route.ROCM.model_repo  # sanity: the module loaded
-    source = (REPO / "scripts" / "trellis_route.py").read_text()
+    source = (REPO / "scripts" / "trellis_route.py").read_text(encoding="utf-8")
     assert bc.TRELLIS_MODEL_PATH_ENV in source, (
         f"the card reads {bc.TRELLIS_MODEL_PATH_ENV} but the generator does not set that name")
 

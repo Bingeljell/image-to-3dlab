@@ -40,6 +40,48 @@ os.environ["I3D_NO_USAGE"] = "1"
 
 import pytest
 
+_SYMLINKS: list[bool] = []
+
+
+def symlinks_allowed() -> bool:
+    """Whether this machine lets the user running the tests make a symlink.
+
+    Windows refuses without admin rights or Developer Mode (WinError 1314). The product does
+    not need them there (it falls back to hard links or copies), but some fixtures are built
+    from symlinks. Asked once, by trying, so an admin Windows runner still runs those tests.
+    """
+    if not _SYMLINKS:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "target"
+            target.write_text("x", encoding="utf-8")
+            try:
+                (Path(folder) / "link").symlink_to(target)
+                _SYMLINKS.append(True)
+            except OSError:
+                _SYMLINKS.append(False)
+    return _SYMLINKS[0]
+
+
+NO_SYMLINKS = "this machine refuses symlinks (Windows without admin rights or Developer Mode)"
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip `@pytest.mark.symlinks` where links are refused and `@pytest.mark.posix` on Windows."""
+    for item in items:
+        if "symlinks" in item.keywords and not symlinks_allowed():
+            item.add_marker(pytest.mark.skip(reason=NO_SYMLINKS))
+        if "posix" in item.keywords and sys.platform == "win32":
+            item.add_marker(pytest.mark.skip(reason="POSIX-only behaviour, not run on Windows"))
+
+
+@pytest.fixture
+def needs_symlinks():
+    """For a fixture built from symlinks: skips the test where they are refused."""
+    if not symlinks_allowed():
+        pytest.skip(NO_SYMLINKS)
+
 
 @pytest.fixture(autouse=True)
 def _private_model_folder(tmp_path_factory, monkeypatch):

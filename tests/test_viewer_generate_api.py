@@ -1022,6 +1022,7 @@ def test_a_prop_bake_waits_for_a_running_rig_rebind(tmp_path, monkeypatch):
     assert api.Handler._props_busy(None) is None
 
 
+@pytest.mark.posix
 def test_terminate_active_job_stops_picture_animate_skin_and_download(tmp_path, monkeypatch):
     """A server stop signals each of those children, not only generate and finish."""
     import signal
@@ -1119,6 +1120,7 @@ def test_terminate_active_job_is_a_noop_when_process_already_exited(tmp_path, mo
 
 # --- startup reconciliation of pid files a dead server left behind ---------------------
 
+@pytest.mark.posix
 def test_reconcile_annotates_and_clears_a_dead_orphan(tmp_path, monkeypatch):
     job_dir = tmp_path / "some-job"
     job_dir.mkdir()
@@ -1150,6 +1152,7 @@ def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
     assert not (job_dir / "pid").exists()
 
 
+@pytest.mark.posix
 def test_reconcile_survives_a_missing_run_log(tmp_path, monkeypatch):
     job_dir = tmp_path / "no-log-job"
     job_dir.mkdir()

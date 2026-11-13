@@ -485,6 +485,7 @@ def test_only_real_asset_ids_can_be_deleted(output):
     assert (output / "images").is_dir()
 
 
+@pytest.mark.symlinks
 def test_deleting_never_reaches_outside_output(output, tmp_path):
     import shutil
 

@@ -59,6 +59,7 @@ def test_announcement_names_the_tool_size_licence_and_destination():
     assert "MB" in text and "MIT" in text and "vendor/gltfpack" in text
 
 
+@pytest.mark.posix
 def test_installs_where_the_props_tab_already_looks(tmp_path, monkeypatch):
     archive = _zip("gltfpack")
     binary = boot.install(archive, _asset(archive), boot.target_dir(tmp_path))

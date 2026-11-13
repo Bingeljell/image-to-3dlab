@@ -7,6 +7,8 @@ import shlex
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 SHELLS = {
     "bootstrap_macos.sh": "bootstrap_sf3d.py",
@@ -36,6 +38,7 @@ def _fake_python(bin_dir: Path, record: Path) -> None:
     program.chmod(0o755)
 
 
+@pytest.mark.posix
 def test_the_shell_runs_the_python_installer_and_forwards_args(tmp_path):
     bindir = tmp_path / "bin"
     record = tmp_path / "args"
@@ -57,6 +60,7 @@ def test_the_shell_runs_the_python_installer_and_forwards_args(tmp_path):
         assert lines[1:] == ["--flag", "value"]
 
 
+@pytest.mark.posix
 def test_a_missing_python_exits_and_names_the_installer(tmp_path):
     # /usr/bin/python3 exists on macOS, so the path cannot include it.
     bindir = tmp_path / "bin"

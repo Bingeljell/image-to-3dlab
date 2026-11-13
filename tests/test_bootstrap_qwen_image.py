@@ -271,6 +271,7 @@ def test_install_refuses_an_unsupported_machine_before_touching_the_network(monk
         REAL_INSTALL_BINARY()
 
 
+@pytest.mark.symlinks
 def test_finish_install_flattens_and_marks_executable(tmp_path, monkeypatch):
     monkeypatch.setattr(boot.host, "os_family", lambda *a: "linux")
     nested = tmp_path / "build" / "bin"
@@ -287,6 +288,7 @@ def test_finish_install_flattens_and_marks_executable(tmp_path, monkeypatch):
     assert not (tmp_path / "build").exists()
 
 
+@pytest.mark.symlinks
 def test_symlinks_in_the_release_are_restored(tmp_path):
     """zipfile extracts a stored symlink as a text file holding its target, and the
     dynamic loader then dies with 'file too short' on the first versioned .so. The

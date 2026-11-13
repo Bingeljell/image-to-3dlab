@@ -967,6 +967,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
             job.error = no_gpu_help(platform)
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
+            usage_api.count_failed("picture", job.error)
         elif code != 0 or not job.output_path.exists():
             reason = failure_reason(job.log_lines)
             job.error = f"sd-cli exited with code {code}"
@@ -974,6 +975,7 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                 job.error += f": {reason}"
             job.set_status("error", error=job.error,
                            log="\n".join(list(job.log_lines)[-12:]))
+            usage_api.count_failed("picture", job.error)
         else:
             if job.paste_mask is not None and job.replaces is not None:
                 paste_through(job.replaces, job.output_path, job.paste_mask)
@@ -1008,9 +1010,11 @@ def run_job(job: ImageJob, manager: ImageJobManager,
     except MissingWeights as exc:
         job.error = str(exc)
         job.set_status("error", error=job.error, needs_setup=True)
+        usage_api.count_failed("picture", exc)
     except Exception as exc:
         job.error = f"{type(exc).__name__}: {exc}"
         job.set_status("error", error=job.error)
+        usage_api.count_failed("picture", exc)
     finally:
         for scratch in job.scratch:
             scratch.unlink(missing_ok=True)

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The installer counts one anonymous **started / stopped / finished** event (no id, no
+  address) so a machine it turns away, like an old graphics card, is not invisible.
+- Usage counts now also say which graphics card was used (a product name, never an
+  identifier), which of a short list of choices were picked (Hero, 512 px, surface maps off,
+  skins, cleanup mode...), and why jobs failed, as one of a fixed list of kinds (card too old,
+  missing package, out of memory, download, crash, other). The error text itself never leaves
+  the machine.
+- The usage statement is one sentence, in the same words, in the first-start notice, on the
+  About page, in the README and in both installers: "We collect anonymous data to make
+  AssetFurnace better: which steps you run, whether they work, and what computer you use.
+  Never your pictures, prompts, files or anything private. Turn it off any time on the About
+  page. See exactly what's sent."
 - Finish offers Height (m), with 1.8 m for characters and optional sizing for props.
   Models are centred on the floor before rigging.
 - Finish's Advanced panel (and the agent tools) can pick how a Pixal3D model is cut down to

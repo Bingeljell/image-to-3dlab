@@ -19,24 +19,83 @@ $Ref  = $env:I3D_REF
 $Yes  = $env:I3D_YES -eq "1"
 
 function Say($m) { Write-Host "[install] $m" -ForegroundColor Cyan }
-function Die($m) { Write-Host "[install] $m" -ForegroundColor Red; exit 1 }
+function Die($m, $Reason = "other") {
+    Write-Host "[install] $m" -ForegroundColor Red
+    Send-Event "stopped" $Reason -Wait
+    exit 1
+}
 function Confirm-Step($question) {
     if ($Yes) { return }
     if (-not [Environment]::UserInteractive) { Die "$question Nobody to ask, so stopping. Set `$env:I3D_YES = '1' to go ahead." }
     $answer = Read-Host "$question [y/N]"
-    if ($answer -notmatch '^(y|yes)$') { Die "Stopped. Nothing was changed." }
+    if ($answer -notmatch '^(y|yes)$') { Die "Stopped. Nothing was changed." "user_said_no" }
+}
+
+# --- Anonymous install events -------------------------------------------------------------
+# One tiny POST with a 3 second ceiling, hidden, in its own process: it can never fail the
+# install or hold it up. No id and no address; the site keeps daily counts by event, reason, os
+# and arch. The same promise as the app's counts: no pictures, prompts, files or anything private.
+# I3D_NO_USAGE and DO_NOT_TRACK turn it off, exactly as they turn the app's counts off.
+$EventUrl = if ($env:I3D_EVENT_URL) { $env:I3D_EVENT_URL } else { "https://assetfurnace.com/api/install-event" }
+$Arch = if ($env:PROCESSOR_ARCHITECTURE) { $env:PROCESSOR_ARCHITECTURE.ToLower() } else { "unknown" }
+# Replaced by the checkout's own number once there is one to read.
+$ScriptVersion = "unknown"
+
+function UsageOff {
+    foreach ($name in @("I3D_NO_USAGE", "DO_NOT_TRACK")) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value -and (@("1", "true", "yes") -contains $value.ToLower())) { return $true }
+    }
+    return $false
+}
+
+function Send-Event($Event, $Reason = $null, [switch]$Wait) {
+    if (-not $Event -or (UsageOff)) { return }
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if (-not $curl) { return }        # an event is never worth a failure
+    $payload = [ordered]@{ event = $Event; os = "windows"; arch = $Arch; version = $ScriptVersion }
+    if ($Reason) { $payload.reason = $Reason }
+    try {
+        # Compressed JSON has no spaces, so it survives as one command-line argument.
+        $body = $payload | ConvertTo-Json -Compress
+        $call = @("-fsS", "-m", "3", "-X", "POST", "-H", "Content-Type: application/json", "--data", $body, $EventUrl)
+        if ($Wait) {
+            # Stopped or finished: this is the last thing the script does, so give it the moment.
+            Start-Process -FilePath $curl.Source -ArgumentList $call -WindowStyle Hidden -Wait
+        } else {
+            Start-Process -FilePath $curl.Source -ArgumentList $call -WindowStyle Hidden | Out-Null
+        }
+    } catch { }
 }
 
 # 1. This machine
-if (-not [Environment]::Is64BitOperatingSystem) { Die "The lab needs 64-bit Windows." }
+if (-not [Environment]::Is64BitOperatingSystem) { Die "The lab needs 64-bit Windows." "unsupported_os" }
 $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
 $HasGpu = [bool]($smi -and ((& nvidia-smi -L) -match "GPU"))
 if ($HasGpu) { Say "Machine: Windows with an NVIDIA GPU" }
 else { Say "No NVIDIA GPU found (nvidia-smi lists none). The viewer will install, but no generation route will run here until one is." }
 
+Say "We collect anonymous data to make AssetFurnace better: which steps you run, whether they work, and what computer you use."
+Say "Never your pictures, prompts, files or anything private. Turn it off any time on the About page."
+Say "See exactly what's sent: https://assetfurnace.com/privacy#usage-counts"
+Send-Event "started"
+
+# The same check Rig makes before it loads its model, made before anything is downloaded: our
+# NVIDIA PyTorch carries code for RTX 20-series and newer (sm_75+), and an older card dies on
+# its first kernel. 2026-11-13: a Quadro P5000 (6.1) installed two gigabytes to find that out.
+if ($HasGpu) {
+    $Capability = (& nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>$null | Select-Object -First 1)
+    $CardName = (& nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1)
+    if ($Capability -match '^\s*(\d+)\.(\d+)') {
+        if (([int]$Matches[1] * 10 + [int]$Matches[2]) -lt 75) {
+            Die "Your graphics card ($($CardName.Trim())) is older than AssetFurnace supports: it needs an NVIDIA RTX 20-series or newer. Nothing was installed." "old_nvidia"
+        }
+    }
+}
+
 # 2. Tools
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Die "git is missing. Install it from https://git-scm.com/download/win, then run this again."
+    Die "git is missing. Install it from https://git-scm.com/download/win, then run this again." "no_git"
 }
 $uv = Get-Command uv -ErrorAction SilentlyContinue
 if (-not $uv) {
@@ -78,6 +137,11 @@ if (-not $Ref) {
     if (-not $Ref) { $Ref = "main" }
 }
 Say "Version: $Ref"
+$ProjectFile = Join-Path $Dir "pyproject.toml"
+if (Test-Path -LiteralPath $ProjectFile) {
+    $found = Select-String -LiteralPath $ProjectFile -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+    if ($found) { $ScriptVersion = $found.Matches[0].Groups[1].Value }   # what this machine is on now
+}
 git -C $Dir rev-parse --verify --quiet "refs/remotes/origin/$Ref" *> $null
 if ($LASTEXITCODE -eq 0) { git -C $Dir checkout --quiet -B $Ref "origin/$Ref" }
 else { git -C $Dir checkout --quiet $Ref }
@@ -168,3 +232,4 @@ Write-Host "    cd `"$Dir`"; .\lab"
 Write-Host ""
 Say "Then open Setup & Status to choose what to install. Nothing large downloads until you say so there."
 Say "Ctrl+C in that window stops it; .\lab starts it again. To update, stop it, run this installer again, then start it."
+Send-Event "finished" -Wait

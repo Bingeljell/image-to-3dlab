@@ -586,6 +586,7 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc),
                   "log_tail": "\n".join(job.log_lines)[-8000:]})
+        usage_api.count_failed("prop", exc)
     finally:
         if job.only:
             shutil.rmtree(job.staging, ignore_errors=True)

@@ -1737,6 +1737,7 @@ def _run_job(job: Job) -> None:
                 job.emit({"phase": "error",
                           "message": "generator exited 0 but produced no output file",
                           "log_tail": tail})
+                usage_api.count_failed("model", tail)
         else:
             tail = "\n".join(job.log_lines)[-8000:]
             job.status = "error"
@@ -1745,9 +1746,11 @@ def _run_job(job: Job) -> None:
                       "message": reason or f"generator exited with code {return_code}",
                       "exit_code": return_code,
                       "log_tail": tail})
+            usage_api.count_failed("model", return_code)
     except Exception as exc:  # process launch errors must reach the browser, not kill the server
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
+        usage_api.count_failed("model", exc)
     finally:
         _remove_pid_file(job.directory)
         JOBS.finish(job)
@@ -3811,6 +3814,7 @@ class Handler(SimpleHTTPRequestHandler):
             warning = gpu_busy_warning(busy)
             if warning:
                 job.append_log(warning)
+            usage_api.count_features(front_and_back=bool(settings.get("back_name")))
             threading.Thread(target=_run_job, args=(job,), daemon=True).start()
             self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
                                   "output_dir": str(job.directory.relative_to(REPO)),

@@ -5,16 +5,19 @@ On unless the person unticks the box on the About page (or sets `I3D_NO_USAGE=1`
 person has dismissed it or made a choice on About; counts wait on this computer till then.
 At most once a day, one small message goes to assetfurnace.com, and it is exactly what
 `payload` returns: a random id (made on this copy, not derived from the machine or the
-person), the day, the version, the kind of machine, and since the last message how many jobs
-were started from the studio and from an agent (the MCP server), how many finished, and
-whether an agent was used at all. No pictures, prompts, file names or paths, ever.
+person), the day, the version, the kind of machine and graphics card, and since the last
+message how many jobs were started from the studio and from an agent (the MCP server), how
+many finished, which failed and how, and which of a short list of choices were used. Every
+value comes from a closed list written here, never from an error message or the person. No
+pictures, prompts, file names or paths, ever.
 
 Turning it off deletes the id and every unsent count and remembers only "off", so turning it
 on again starts a new id. A state file that exists but cannot be read counts as off: a fault
 must never turn sharing back on. Offline, the counts wait, with one try per half hour.
 
-Counting is a nicety: every entry point the studio calls swallows its own errors, so a
-usage fault can never fail a job or a request.
+Counting is a nicety: every entry point the studio calls — including the ones called from
+inside a job's own error handling — swallows its own errors, so a usage fault can never fail a
+job or a request, and can never hide the error a person needs to see.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import functools
 import http.client
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -39,12 +43,13 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 import image_to_3dlab
-from image_to_3dlab.host import host_platform, os_family
+from image_to_3dlab.host import chip_name, host_platform, os_family
 
 USAGE_URL = os.environ.get("I3D_USAGE_URL", "https://assetfurnace.com/api/usage")
 POLICY_URL = "https://assetfurnace.com/privacy#usage-counts"
 STATE = REPO / "output" / ".usage.json"
-SCHEMA = 2
+SCHEMA = 3
+CARD_MAX = 64              # a graphics card name is a product name, short by nature
 COUNT_MAX = 10000          # the site refuses more of one kind in one message; the rest waits
 RETRY_SECONDS = 30 * 60    # offline or refused: one more try per half hour, not one per job
 LOCK = threading.RLock()   # every read and write of the state file; a job, a page and an agent can land together
@@ -71,6 +76,27 @@ STARTS = {
     ("api", "rig", "rebind"): "rig",
 }
 KINDS = frozenset(STARTS.values())
+
+# Why a job failed, as far as we can tell from our own error path. A closed list: the error
+# text never leaves the machine, only which of these it looked like. In order of asking, so
+# "out of memory" is not filed as a crash.
+FAILURE_KINDS = ("card_too_old", "missing_package", "out_of_memory", "download", "crashed", "other")
+CARD_TOO_OLD = re.compile(r"older than rig supports|no kernel image|unsupported gpu architecture")
+MISSING_PACKAGE = re.compile(r"modulenotfounderror|importerror|no module named|cannot import name")
+OUT_OF_MEMORY = re.compile(r"out of memory|outofmemory|memoryerror|\boom\b|\bkilled\b"
+                           r"|(?:exited with|exit) (?:code )?137")
+DOWNLOAD = re.compile(r"download|urlopen|urllib|huggingface|checksum|http error \d|connection (?:refused|reset)")
+CRASHED = re.compile(r"exited with code|exit code|exit \d|non-zero exit|stopped \(exit|returned non-zero"
+                     r"|without writing|wrote no glb")
+
+#: The height Finish gives a character when nobody asked for one (mcp_server and the studio both
+#: fill it in). Choosing it is not a choice, so it is not counted as one.
+DEFAULT_HEIGHT_M = 1.8
+
+# Choices worth knowing about, from a closed list. `x` means never: a typo in our own code is
+# a bug, not a new statistic.
+FEATURES = ("hero", "pixel_match_off", "skin", "cleanup_fast", "cleanup_rebuild", "height_set",
+            "upright_off", "surface_maps_drop", "texture_512", "front_back")
 
 
 def _quiet(default: Any = None) -> Callable:
@@ -196,6 +222,140 @@ def _number(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
+def classify_failure(reason: object) -> str:
+    """Which kind of failure this was, from FAILURE_KINDS. The text itself is never kept.
+
+    `reason` is whatever our own error path already has: the worker's log tail, the exception
+    that ended a job, or the exit code it left. Called in order of specificity, so a crash
+    that says "out of memory" is filed as memory rather than as a generic exit.
+    """
+    if isinstance(reason, bool):          # True is not an exit code, whatever Python thinks
+        return "other"
+    if isinstance(reason, int):
+        if reason in (137, -9):      # SIGKILL: the kernel's way of saying out of memory
+            return "out_of_memory"
+        return "crashed" if reason != 0 else "other"
+    if isinstance(reason, BaseException):
+        if isinstance(reason, ImportError):   # ModuleNotFoundError is an ImportError
+            return "missing_package"
+        text = f"{type(reason).__name__}: {reason}"
+    else:
+        text = str(reason or "")
+    low = text.lower()
+    for kind, pattern in (("card_too_old", CARD_TOO_OLD), ("missing_package", MISSING_PACKAGE),
+                          ("out_of_memory", OUT_OF_MEMORY), ("download", DOWNLOAD),
+                          ("crashed", CRASHED)):
+        if pattern.search(low):
+            return kind
+    return "other"
+
+
+def feature_keys(settings: dict[str, Any] | None = None, *, skin: bool = False,
+                 front_and_back: bool = False) -> list[str]:
+    """Which of FEATURES this job used, from the settings the job already carries.
+
+    Pure and closed: a key is named here or it is not counted, and a value nobody chose
+    (None, missing) counts as nothing. A skin is a job of its own; the Finish choices it
+    inherits from its model were counted when the model was finished.
+    """
+    settings = settings if isinstance(settings, dict) else {}
+    used = []
+    if settings.get("hero"):
+        used.append("hero")
+    if settings.get("skip_photo"):
+        used.append("pixel_match_off")
+    if skin:
+        used.append("skin")
+    if settings.get("cleanup") == "fast":
+        used.append("cleanup_fast")
+    elif settings.get("cleanup") == "rebuild":
+        used.append("cleanup_rebuild")
+    height = settings.get("height_m")
+    if (isinstance(height, (int, float)) and not isinstance(height, bool)
+            and abs(float(height) - DEFAULT_HEIGHT_M) > 1e-6):
+        used.append("height_set")   # 1.8 m is what every character gets; only another height is a choice
+    if settings.get("upright") is False:
+        used.append("upright_off")
+    if settings.get("drop_surface_maps"):
+        used.append("surface_maps_drop")
+    if settings.get("texture_size") == 512:
+        used.append("texture_512")
+    if front_and_back:
+        used.append("front_back")
+    return used
+
+
+@_quiet()
+def count_features(settings: dict[str, Any] | None = None, *, skin: bool = False,
+                   front_and_back: bool = False, state: Path | None = None,
+                   env: dict[str, str] | None = None) -> None:
+    """Count the choices a job was started with. Nothing when sharing is off.
+
+    A skin passes `skin=True` and no settings: its Finish choices are the model's, already
+    counted once, and counting them again per skin would make one choice look like several.
+    """
+    used = feature_keys(settings, skin=skin, front_and_back=front_and_back)
+    if not used:
+        return
+    with LOCK:
+        current = _read(state)
+        if not _sharing(current, env):
+            return
+        current = _with_id(current)
+        for feature in used:
+            _bump(current, "features", feature)
+        _write(state, current)
+    send_soon(state, env)
+
+
+@_quiet()
+def count_failed(step: str, reason: object, state: Path | None = None,
+                 env: dict[str, str] | None = None) -> None:
+    """One more job of `step` failed, filed by kind. The reason is classified, never sent.
+
+    An unknown step is dropped, not raised: this is called from our own error paths, and the
+    rule there is that counting can never fail a job. A typo would simply stop counting, so
+    `test_every_counted_failure_names_a_step_we_count` checks the names at the call sites.
+    """
+    if step not in KINDS:
+        return
+    _count_failed(step, classify_failure(reason), state, env)
+
+
+@_quiet()
+def _count_failed(step: str, kind: str, state: Path | None, env: dict[str, str] | None) -> None:
+    with LOCK:
+        current = _read(state)
+        if not _sharing(current, env):
+            return
+        current = _with_id(current)
+        failed = current.get("failed")
+        if not isinstance(failed, dict):
+            failed = current["failed"] = {}
+        counts = failed.get(step)
+        if not isinstance(counts, dict):
+            counts = failed[step] = {}
+        counts[kind] = _number(counts.get(kind)) + 1
+        _write(state, current)
+    send_soon(state, env)
+
+
+def card_name() -> str | None:
+    """This machine's graphics card (or Apple chip), as a product name, or None.
+
+    Cut to what the site accepts (printable ASCII, no path separators, 64 characters): an
+    odd name from a vendor must never cost the whole message. A product name, never a
+    host name, a path or anything that could pick out the person.
+    """
+    try:
+        name = chip_name()
+    except Exception:
+        return None
+    text = str(name or "").encode("ascii", "ignore").decode("ascii")
+    text = " ".join(text.replace("/", " ").replace("\\", " ").split())
+    return text[:CARD_MAX] or None
+
+
 def source_of(header: str | None) -> str:
     return AGENT if (header or "").strip().lower() == AGENT else "studio"
 
@@ -259,13 +419,39 @@ def _counts(value: Any) -> dict[str, int]:
             if isinstance(k, str) and _number(n) > 0}
 
 
+def _failures(value: Any) -> dict[str, dict[str, int]]:
+    """Clean failed counts: known steps, known kinds, real numbers. Junk in the file is dropped."""
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for step, counts in value.items():
+        if step not in KINDS or not isinstance(counts, dict):
+            continue
+        kept = {kind: min(_number(n), COUNT_MAX) for kind, n in counts.items()
+                if kind in FAILURE_KINDS and _number(n) > 0}
+        if kept:
+            out[step] = kept
+    return out
+
+
+def _features(value: Any) -> dict[str, int]:
+    """Clean feature counts: only the keys we named, so a hand-edited file sends no strangers."""
+    if not isinstance(value, dict):
+        return {}
+    return {k: min(_number(n), COUNT_MAX) for k, n in value.items()
+            if k in FEATURES and _number(n) > 0}
+
+
 def payload(current: dict[str, Any], day: str) -> dict[str, Any]:
     """Everything that is sent. The About page shows this too, so what it says is what goes."""
     started = current.get("started") if isinstance(current.get("started"), dict) else {}
     return {"schema_version": SCHEMA, "id": current.get("id"), "day": day,
             "version": image_to_3dlab.__version__, "os": os_family(), "machine": host_platform(),
+            "card": card_name(),
             "started": {source: _counts(started.get(source)) for source in SOURCES},
             "finished": _counts(current.get("finished")),
+            "failed": _failures(current.get("failed")),
+            "features": _features(current.get("features")),
             "agent": bool(current.get("agent_at"))}
 
 
@@ -286,6 +472,14 @@ def _take_off(latest: dict[str, Any], sent: dict[str, Any], started_at: float) -
     started = latest.get("started") if isinstance(latest.get("started"), dict) else {}
     latest["started"] = {s: minus(started.get(s), sent["started"].get(s, {})) for s in started}
     latest["finished"] = minus(latest.get("finished"), sent["finished"])
+    latest["features"] = minus(latest.get("features"), sent["features"])
+    failed = latest.get("failed") if isinstance(latest.get("failed"), dict) else {}
+    left: dict[str, dict[str, int]] = {}
+    for step, counts in failed.items():
+        remaining = minus(counts, sent["failed"].get(step, {}))
+        if remaining:
+            left[step] = remaining
+    latest["failed"] = left
     if sent["agent"] and float(latest.get("agent_at") or 0) <= started_at:
         latest.pop("agent_at", None)   # an agent call during the send stays for the next message
 

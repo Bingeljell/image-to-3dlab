@@ -243,6 +243,24 @@ def gpu_name(which: Callable = shutil.which, run: Callable = subprocess.run) -> 
     return out.strip().splitlines()[0].strip() if out.strip() else None
 
 
+def chip_name(which: Callable = shutil.which, run: Callable = subprocess.run,
+              family: str | None = None) -> str | None:
+    """What this machine runs its pictures on, as the system names it:
+
+    `Apple M5 Pro` on a Mac (the system-on-chip, graphics included), the card's own name on
+    NVIDIA (`NVIDIA GeForce RTX 4070`). None when the system will not say. A product name,
+    not an identifier: what a shop receipt would print.
+    """
+    if (family or os_family()) == "macos":
+        try:
+            out = run(["sysctl", "-n", "machdep.cpu.brand_string"], capture_output=True,
+                      text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return (out.stdout.strip() or None) if out.returncode == 0 else None
+    return gpu_name(which, run)
+
+
 @lru_cache(maxsize=1)
 def _cached_nvidia() -> bool:
     return has_nvidia_gpu()

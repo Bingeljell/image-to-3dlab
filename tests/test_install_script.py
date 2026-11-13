@@ -643,3 +643,152 @@ def test_windows_lab_starts_the_same_studio_as_the_shell_one():
     assert "image_to_3dlab.mcp_server" in shell and "image_to_3dlab.mcp_server" in text
     assert '.venv\\Scripts\\python.exe' in text and 'cd /d "%~dp0"' in text
     assert ".\\lab" in (REPO / "install.ps1").read_text()
+
+
+# --- anonymous install events, and the card check that stops before the download ------------
+
+def _with_tool(path: Path, name: str, body: str) -> None:
+    tool = path / name
+    tool.write_text("#!/bin/sh\n" + body)
+    tool.chmod(0o755)
+
+
+def _log_body_script(tmp_path: Path) -> str:
+    """A curl that records the JSON body it was handed, one message per line."""
+    return ('for arg in "$@"; do\n'
+            '  case "$arg" in\n'
+            f'    "{{"*) printf \'%s\\n\' "$arg" >> "{tmp_path}/events.log" ;;\n'
+            '  esac\n'
+            'done\n')
+
+
+def _events(tmp_path: Path) -> list[dict]:
+    """What the installer posted, parsed. The fake curl logs one JSON body per line."""
+    log = tmp_path / "events.log"
+    if not log.exists():
+        return []
+    import json as jsonlib
+    return [jsonlib.loads(line) for line in log.read_text().splitlines() if line.strip()]
+
+
+def event_run(tmp_path, upstream, fake_bin, *args, machine=("Darwin", "arm64"), env=None):
+    url = f"file://{tmp_path / 'events.log'}"
+    return run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(tmp_path / "lab"),
+               *args, machine=machine,
+               env={"I3D_EVENT_URL": url, **(env or {})})
+
+
+def test_the_installer_says_the_same_sentence_as_the_studio(tmp_path, upstream, fake_bin):
+    """One promise, one wording, every surface. This one prints it once, with the link URL."""
+    done = event_run(tmp_path, upstream, fake_bin, "--dry-run")
+    assert done.returncode == 0, done.stderr
+    out = done.stdout
+    assert "We collect anonymous data to make AssetFurnace better" in out
+    assert "which steps you run, whether they work, and what computer you use" in out
+    assert "Never your pictures, prompts, files or anything private" in out
+    assert "Turn it off any time on the About page" in out
+    assert "https://assetfurnace.com/privacy#usage-counts" in out
+
+
+def test_a_finished_install_reports_started_and_finished(tmp_path, upstream, fake_bin):
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    done = event_run(tmp_path, upstream, fake_bin, "--yes", "--no-start")
+    assert done.returncode == 0, done.stderr
+    events = _events(tmp_path)
+    assert [e["event"] for e in events] == ["started", "finished"]
+    # A fresh install has no checkout yet, so nobody knows which version it is: "unknown".
+    assert events[0] == {"event": "started", "os": "macos", "arch": "arm64", "version": "unknown"}
+    assert set(events[1]) == {"event", "os", "arch", "version"}
+
+
+def test_an_update_reports_the_version_it_is_updating_from(tmp_path, upstream, fake_bin):
+    """An update knows what is installed; it is the number in that checkout's pyproject."""
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    target = tmp_path / "lab"
+    _git(tmp_path, "clone", "-q", str(upstream), str(target))
+    (target / "pyproject.toml").write_text('[project]\nname = "lab"\nversion = "0.5.7"\n')
+    _git(target, "add", "pyproject.toml")
+    _git(target, "commit", "-q", "-m", "0.5.7")
+    done = run(tmp_path, fake_bin, "--repo", str(upstream), "--dir", str(target), "--yes",
+               "--no-start", env={"I3D_EVENT_URL": f"file://{tmp_path / 'events.log'}"})
+    assert done.returncode == 0, done.stderr
+    assert _events(tmp_path)[0]["version"] == "0.5.7"
+
+
+def test_an_intel_mac_reports_a_miss_and_why(tmp_path, upstream, fake_bin):
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    done = event_run(tmp_path, upstream, fake_bin, machine=("Darwin", "x86_64"))
+    assert done.returncode != 0 and "Intel" in done.stderr
+    (event,) = _events(tmp_path)
+    assert event["event"] == "stopped" and event["reason"] == "intel_mac"
+    assert event["os"] == "macos" and event["version"] == "unknown"
+
+
+def test_a_missing_git_reports_no_git(tmp_path, upstream, fake_bin):
+    """The PATH here has no git: that is the refusal, and the reason is in the closed list."""
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    (fake_bin / "git").unlink()
+    done = event_run(tmp_path, upstream, fake_bin)
+    assert done.returncode != 0 and "git is missing" in done.stderr
+    assert [e["reason"] for e in _events(tmp_path) if e["event"] == "stopped"] == ["no_git"]
+
+
+def test_a_stop_that_is_not_about_the_machine_reports_other(tmp_path, upstream, fake_bin):
+    """No uv and no terminal: the installer refuses before downloading, and still says why."""
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    (fake_bin / "uv").unlink()
+    done = event_run(tmp_path, upstream, fake_bin)
+    assert done.returncode != 0 and "Nobody to ask" in done.stderr
+    assert [e["reason"] for e in _events(tmp_path) if e["event"] == "stopped"] == ["other"]
+
+
+def test_the_environment_turns_the_install_events_off(tmp_path, upstream, fake_bin):
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    done = event_run(tmp_path, upstream, fake_bin, "--yes", "--no-start",
+                     env={"DO_NOT_TRACK": "1"})
+    assert done.returncode == 0, done.stderr
+    assert _events(tmp_path) == []
+
+
+def test_a_missing_curl_never_fails_the_install(tmp_path, upstream, fake_bin):
+    """The event is a nicety. curl is not a tool this installer requires."""
+    done = event_run(tmp_path, upstream, fake_bin, "--yes", "--no-start")
+    assert done.returncode == 0, done.stderr
+    assert "Done." in done.stdout
+
+
+def _nvidia(fake_bin: Path, capability: str, name: str = "NVIDIA Quadro P5000") -> None:
+    """An nvidia-smi that names one card and reports the capability asked for."""
+    _with_tool(fake_bin, "nvidia-smi", f'''case "$1" in
+  -L) echo "GPU 0: {name} (UUID: GPU-1)" ;;
+  --query-gpu=*)
+    case "$1" in
+      *compute_cap*) echo "{capability}" ;;
+      *name*) echo "{name}" ;;
+    esac ;;
+esac
+''')
+
+
+def test_an_old_nvidia_card_stops_with_a_sentence_and_reports_it(tmp_path, upstream, fake_bin):
+    """The same wall Rig hit, met before two gigabytes are downloaded (Quadro P5000, 6.1)."""
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    _nvidia(fake_bin, "6.1")
+    done = event_run(tmp_path, upstream, fake_bin, "--yes", machine=("Linux", "x86_64"),
+                     env={"I3D_KFD_NODES": str(tmp_path / "no-kfd")})
+    assert done.returncode != 0
+    assert "older than AssetFurnace supports" in done.stderr
+    assert "NVIDIA Quadro P5000" in done.stderr and "RTX 20-series" in done.stderr
+    assert "nothing was installed" in done.stderr.lower()
+    assert [e["reason"] for e in _events(tmp_path) if e["event"] == "stopped"] == ["old_nvidia"]
+
+
+def test_a_card_that_can_run_it_installs(tmp_path, upstream, fake_bin):
+    _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
+    _nvidia(fake_bin, "8.6", "NVIDIA GeForce RTX 3090")
+    done = event_run(tmp_path, upstream, fake_bin, "--yes", "--no-start",
+                     machine=("Linux", "x86_64"),
+                     env={"I3D_KFD_NODES": str(tmp_path / "no-kfd")})
+    assert done.returncode == 0, done.stderr
+    assert "Machine: Linux with an NVIDIA GPU" in done.stdout
+    assert [e["event"] for e in _events(tmp_path)] == ["started", "finished"]

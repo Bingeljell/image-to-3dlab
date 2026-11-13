@@ -1,7 +1,20 @@
-# Outbreak / method comparison M1 (Fable, hand-scripted Blender model)
-# Box ambulance van: procedural mesh + UV atlas + painted 1024 texture + AO bake.
-# Run:  blender -b -P build_ambulance.py -- [--no-ao]
-import bpy, bmesh, math, sys, os, time
+# blender_shape_guide_van.py - the box-van family of the shape-guide kit (scripts/shape_guide.py runs it).
+#
+# A box van with a rounded cab, built by code from a preset's numbers: procedural mesh, UV atlas, painted livery
+# guide (plain, or an ambulance's), ambient occlusion. Writes <name>_parts.glb (body, and each wheel on its axle),
+# <name>_joined.glb (one mesh, what the multi-view rig renders and Pixel Match paints), <name>.blend and the
+# albedo and emission maps.
+#   blender -b -P blender_shape_guide_van.py -- [--out <dir>] [--preset ambulance|van_long|box_van] [--name <name>]
+#                                               [--tex 1024] [--spec <spec.json>] [--no-ao]
+import contextlib
+import itertools
+import math
+import os
+import sys
+import time
+
+import bmesh
+import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.geometry import tessellate_polygon
@@ -23,7 +36,7 @@ TEX = int(arg("--tex", "1024"))   # final atlas size
 SS = 4 if TEX <= 1024 else 1      # supersampling for painting (a 4096 atlas needs none)
 PAD = 3 * TEX // 1024             # gutter px (each side of every island), 3 at 1024
 NAME = arg("--name", "ambulance")
-# the kit's parts: each wheel is its own object on its axle (Fable's tags wFL.. -> the kit's names)
+# the kit's parts: each wheel is its own object on its axle (the builder's tags wFL.. -> the kit's names)
 WHEELS = {"wFL": "wheel_FL", "wFR": "wheel_FR", "wRL": "wheel_RL", "wRR": "wheel_RR"}
 BASE_PPM = 120.0 * TEX / 1024   # px per metre before the auto-fit scale (120 at a 1024 atlas)
 WHEEL_SEGS = 24
@@ -31,22 +44,22 @@ WHEEL_SEGS = 24
 # ----------------------------------------------------------------------------
 # colours (sRGB display values)
 # ----------------------------------------------------------------------------
-C = dict(
-    white=(0.86, 0.865, 0.85), roofwhite=(0.83, 0.835, 0.82), alu=(0.70, 0.71, 0.72),
-    yellow=(0.84, 0.91, 0.10), red=(0.85, 0.11, 0.09), black=(0.055, 0.055, 0.06),
-    dark=(0.11, 0.11, 0.115), glass=(0.045, 0.06, 0.075), glass_hi=(0.10, 0.135, 0.165),
-    blue=(0.10, 0.27, 0.92), silver=(0.66, 0.68, 0.70), tyre=(0.075, 0.075, 0.08),
-    rim=(0.58, 0.59, 0.60), hub=(0.33, 0.34, 0.35), under=(0.045, 0.045, 0.047),
-    ac=(0.74, 0.75, 0.75), mirror=(0.42, 0.50, 0.56), amber=(0.95, 0.55, 0.08),
-    lamp=(0.84, 0.86, 0.88), tail=(0.70, 0.05, 0.05), dirt=(0.36, 0.32, 0.27),
-    plate=(0.88, 0.88, 0.86),
-)
-EMIT = dict(blue=(0.06, 0.28, 1.0), tail=(0.55, 0.02, 0.02))
+C = {
+    "white": (0.86, 0.865, 0.85), "roofwhite": (0.83, 0.835, 0.82), "alu": (0.70, 0.71, 0.72),
+    "yellow": (0.84, 0.91, 0.10), "red": (0.85, 0.11, 0.09), "black": (0.055, 0.055, 0.06),
+    "dark": (0.11, 0.11, 0.115), "glass": (0.045, 0.06, 0.075), "glass_hi": (0.10, 0.135, 0.165),
+    "blue": (0.10, 0.27, 0.92), "silver": (0.66, 0.68, 0.70), "tyre": (0.075, 0.075, 0.08),
+    "rim": (0.58, 0.59, 0.60), "hub": (0.33, 0.34, 0.35), "under": (0.045, 0.045, 0.047),
+    "ac": (0.74, 0.75, 0.75), "mirror": (0.42, 0.50, 0.56), "amber": (0.95, 0.55, 0.08),
+    "lamp": (0.84, 0.86, 0.88), "tail": (0.70, 0.05, 0.05), "dirt": (0.36, 0.32, 0.27),
+    "plate": (0.88, 0.88, 0.86),
+}
+EMIT = {"blue": (0.06, 0.28, 1.0), "tail": (0.55, 0.02, 0.02)}
 E_BLUE = EMIT['blue']
 E_RED = (0.85, 0.04, 0.03)
 
 # the van family's presets (the kit's numbers; the ambulance is the hand-built original)
-AMBULANCE = dict(box=(1.025, -3.35, 0.62, 0.40, 2.74), rear_axle=-1.825, livery="ambulance", lightbar=True)
+AMBULANCE = {"box": (1.025, -3.35, 0.62, 0.40, 2.74), "rear_axle": -1.825, "livery": "ambulance", "lightbar": True}
 PRESETS = {
     "ambulance": AMBULANCE,
     # a long panel van: the box 0.8 m longer with the rear axle following, a plain livery for the picture model
@@ -55,10 +68,17 @@ PRESETS = {
     "box_van": dict(AMBULANCE, box=(1.10, -3.95, 0.62, 0.40, 3.05), rear_axle=-2.15, livery="plain", lightbar=False),
 }
 SPEC = PRESETS[arg("--preset", "ambulance")]
+if arg("--spec"):                 # a spec file: numbers set on top of the preset (shape_guide.py --spec)
+    sys.path.insert(0, HERE)
+    import json
+
+    import shape_guide as _sg
+    with open(arg("--spec"), encoding="utf-8") as _f:
+        SPEC = dict(SPEC, **_sg.overrides(json.load(_f).get("set", {})))
 LIVERY = SPEC["livery"]
 if LIVERY == "plain":      # no ambulance markings: red and yellow become the body's white, the blue lights go dark
     C = dict(C, yellow=C["white"], red=C["white"], blue=C["dark"])
-    EMIT = dict(tail=EMIT["tail"])
+    EMIT = {"tail": EMIT["tail"]}
 
 # ----------------------------------------------------------------------------
 # builder
@@ -99,8 +119,8 @@ class Builder:
             rr += [rect(zmid, 0.0), rect(z1, top_inset)]
         else:
             rr += [rect(z1, 0.0)]
-        t = dict(part=part, mat=mat, dens=dens)
-        self.rings(rr, lambda s, i, q: dict(t), cap0=dict(part=part, mat='under', dens=dens * 0.3), cap1=dict(t))
+        t = {"part": part, "mat": mat, "dens": dens}
+        self.rings(rr, lambda s, i, q: dict(t), cap0={"part": part, "mat": 'under', "dens": dens * 0.3}, cap1=dict(t))
 
 
 def lerp(a, b, t):
@@ -110,7 +130,7 @@ def lerp(a, b, t):
 def tab(table, x):
     if x <= table[0][0]:
         return table[0][1]
-    for (x0, v0), (x1, v1) in zip(table, table[1:]):
+    for (x0, v0), (x1, v1) in itertools.pairwise(table):
         if x <= x1:
             return lerp(v0, v1, (x - x0) / (x1 - x0))
     return table[-1][1]
@@ -211,8 +231,8 @@ def build_box(b):
             s = s_f + arclen + (yr - y)
         return (s, x)
 
-    U = dict(part='box', mat='under', chart='box_under', luvf=under_uv, dens=0.14)
-    Wt = dict(part='box', mat='white')
+    U = {"part": 'box', "mat": 'under', "chart": 'box_under', "luvf": under_uv, "dens": 0.14}
+    Wt = {"part": 'box', "mat": 'white'}
     ring = {}
     A = {}
     for sx in (-1, 1):
@@ -255,14 +275,14 @@ def build_cab(b):
 
     def tag(s, i, q):
         if i == n - 1:
-            return dict(part='cab', mat='under', chart='cab_under', view='-Z', dens=0.14)
+            return {"part": 'cab', "mat": 'under', "chart": 'cab_under', "view": '-Z', "dens": 0.14}
         rl = i if i <= 9 else 19 - i
         if s_r <= s < s_c and rl >= 7:
-            return dict(part='cab', mat='glass', chart='cab_ws', view=ws_view, dens=0.8)
-        return dict(part='cab', mat='white')
+            return {"part": 'cab', "mat": 'glass', "chart": 'cab_ws', "view": ws_view, "dens": 0.8}
+        return {"part": 'cab', "mat": 'white'}
 
-    b.rings(rings, tag, cap0=dict(part='cab', mat='under', chart='cab_back', view='-Y', dens=0.1),
-            cap1=dict(part='cab', mat='yellow', view='+Y'))
+    b.rings(rings, tag, cap0={"part": 'cab', "mat": 'under', "chart": 'cab_back', "view": '-Y', "dens": 0.1},
+            cap1={"part": 'cab', "mat": 'yellow', "view": '+Y'})
 
 
 def build_wheel(b, name, yc, xo, sx):
@@ -279,15 +299,15 @@ def build_wheel(b, name, yc, xo, sx):
 
     def tag(s, i, q):
         if s == 0:
-            return dict(part=name, mat='tyre', chart=name + '_in', view=vin, dens=0.14)
+            return {"part": name, "mat": 'tyre', "chart": name + '_in', "view": vin, "dens": 0.14}
         if s == 1:
             luv = {q[0]: (i * du, 0.0), q[1]: ((i + 1) * du, 0.0), q[2]: ((i + 1) * du, wv), q[3]: (i * du, wv)}
-            return dict(part=name, mat='tyre', chart=name + '_tr', luv=luv, dens=0.45)
+            return {"part": name, "mat": 'tyre', "chart": name + '_tr', "luv": luv, "dens": 0.45}
         mat = 'tyre' if s <= 3 else ('rim' if s <= 5 else 'hub')
-        return dict(part=name, mat=mat, chart=name + '_out', view=vout, dens=0.7)
+        return {"part": name, "mat": mat, "chart": name + '_out', "view": vout, "dens": 0.7}
 
-    b.rings(rings, tag, cap0=dict(part=name, mat='tyre', chart=name + '_in', view=vin, dens=0.14),
-            cap1=dict(part=name, mat='hub', chart=name + '_out', view=vout, dens=0.7))
+    b.rings(rings, tag, cap0={"part": name, "mat": 'tyre', "chart": name + '_in', "view": vin, "dens": 0.14},
+            cap1={"part": name, "mat": 'hub', "chart": name + '_out', "view": vout, "dens": 0.7})
 
 
 def build_flare(b, name, yc, zc, r0, r1, x_out, x_body, x_in, sx, n=8):
@@ -303,14 +323,14 @@ def build_flare(b, name, yc, zc, r0, r1, x_out, x_body, x_in, sx, n=8):
 
     def tag(s, i, q):
         if i == 0:
-            return dict(part=name, mat='black', chart=name + '_o', view=vout, dens=0.7)
+            return {"part": name, "mat": 'black', "chart": name + '_o', "view": vout, "dens": 0.7}
         if i == 1:
             luv = {q[0]: (s * dth * r1, 0.0), q[1]: (s * dth * r1, 0.12), q[2]: ((s + 1) * dth * r1, 0.12), q[3]: ((s + 1) * dth * r1, 0.0)}
-            return dict(part=name, mat='under', chart=name + '_b', luv=luv, dens=0.14)
+            return {"part": name, "mat": 'under', "chart": name + '_b', "luv": luv, "dens": 0.14}
         luv = {q[0]: (s * dth * r0, 0.0), q[1]: (s * dth * r0, x_out - x_in), q[2]: ((s + 1) * dth * r0, x_out - x_in), q[3]: ((s + 1) * dth * r0, 0.0)}
-        return dict(part=name, mat='dark', chart=name + '_i', luv=luv, dens=0.3)
+        return {"part": name, "mat": 'dark', "chart": name + '_i', "luv": luv, "dens": 0.3}
 
-    capt = dict(part=name, mat='black', dens=0.3, view='-Z')
+    capt = {"part": name, "mat": 'black', "dens": 0.3, "view": '-Z'}
     b.rings(rings, tag, cap0=dict(capt), cap1=dict(capt))
 
 
@@ -324,10 +344,10 @@ def build_lightbar(b):
 
     def tag(s, i, q):
         if i == len(prof) - 1:
-            return dict(part='lbar', mat='under', dens=0.3)
-        return dict(part='lbar', mat=mats[s])
+            return {"part": 'lbar', "mat": 'under', "dens": 0.3}
+        return {"part": 'lbar', "mat": mats[s]}
 
-    b.rings(rings, tag, cap0=dict(part='lbar', mat='blue'), cap1=dict(part='lbar', mat='blue'))
+    b.rings(rings, tag, cap0={"part": 'lbar', "mat": 'blue'}, cap1={"part": 'lbar', "mat": 'blue'})
     b.box(-0.50, 0.50, yc - 0.09, yc + 0.09, 2.37, 2.446, 'lbar_base', 'dark', dens=0.5)
 
 
@@ -356,10 +376,10 @@ def build_all():
     poly = half + [(-x, y) for (x, y) in reversed(half)]
     def btag(s, i, q):
         if i == len(poly) - 1:
-            return dict(part='bumpF', mat='under', chart='bumpF_back', view='-Y', dens=0.1)
-        return dict(part='bumpF', mat='black', dens=0.8)
+            return {"part": 'bumpF', "mat": 'under', "chart": 'bumpF_back', "view": '-Y', "dens": 0.1}
+        return {"part": 'bumpF', "mat": 'black', "dens": 0.8}
     b.rings([[(x, y, 0.26) for (x, y) in poly], [(x, y, 0.61) for (x, y) in poly]], btag,
-            cap0=dict(part='bumpF', mat='under', dens=0.2), cap1=dict(part='bumpF', mat='black', dens=0.8))
+            cap0={"part": 'bumpF', "mat": 'under', "dens": 0.2}, cap1={"part": 'bumpF', "mat": 'black', "dens": 0.8})
     # rear step / bumper, tail light housings
     b.box(-0.94, 0.94, BY0 - 0.15, BY0 + 0.02, 0.33, 0.43, 'stepR', 'black', dens=0.6)
     for sx, sn in ((-1, 'L'), (1, 'R')):
@@ -377,14 +397,14 @@ def build_all():
         hs = [[(xa, 2.36, 1.44), (xb_, 2.36, 1.44), (xb_, 2.36, 1.74), (xa, 2.36, 1.74)],
               [(xa, 2.43, 1.44), (xb_, 2.43, 1.44), (xb_, 2.43, 1.74), (xa, 2.43, 1.74)],
               [(xa + 0.025, 2.46, 1.47), (xb_ - 0.025, 2.46, 1.47), (xb_ - 0.025, 2.46, 1.71), (xa + 0.025, 2.46, 1.71)]]
-        b.rings(hs, lambda s, i, q, sn=sn: dict(part='mir' + sn, mat='black', dens=0.6),
-                cap0=dict(part='mir' + sn, mat='mirror', dens=0.6), cap1=dict(part='mir' + sn, mat='black', dens=0.6))
+        b.rings(hs, lambda s, i, q, sn=sn: {"part": 'mir' + sn, "mat": 'black', "dens": 0.6},
+                cap0={"part": 'mir' + sn, "mat": 'mirror', "dens": 0.6}, cap1={"part": 'mir' + sn, "mat": 'black', "dens": 0.6})
         # cab door handles
         xa, xb_ = sorted((sx * 0.955, sx * 0.985))
         b.box(xa, xb_, 1.08, 1.25, 1.215, 1.255, 'hdl' + sn, 'black', dens=0.4)
     # rear door lock bars
     for x in (-0.07, 0.07):
-        b.box(x - 0.015, x + 0.015, BY0 - 0.022, BY0 + 0.005, 1.25, BZ1 - 0.44, 'bar%d' % (x > 0), 'silver', dens=0.4)
+        b.box(x - 0.015, x + 0.015, BY0 - 0.022, BY0 + 0.005, 1.25, BZ1 - 0.44, f'bar{int(x > 0)}', 'silver', dens=0.4)
     # chassis block
     b.box(-0.42, 0.42, BY0 + 0.10, 3.0, 0.20, 0.45, 'chassis', 'under', dens=0.1)
     return b
@@ -583,7 +603,7 @@ def pack_islands(isl):
         I.x, I.y, I.w, I.h = x, y, w, h
         I.ppm = BASE_PPM * I.dens * scale
     used = sum(w * h for (w, h) in sizes)
-    print("pack scale %.3f -> main density %.1f px/m, %d islands, rect fill %.1f%%" % (scale, BASE_PPM * scale, len(L), 100.0 * used / TEX / TEX))
+    print(f"pack scale {scale:.3f} -> main density {BASE_PPM * scale:.1f} px/m, {len(L)} islands, rect fill {100.0 * used / TEX / TEX:.1f}%")
     return scale
 
 
@@ -762,7 +782,7 @@ class Painter:
 
     def polyline(self, pts, width, col, closed=False, alpha=1.0):
         q = list(pts) + ([pts[0]] if closed else [])
-        for a, b in zip(q, q[1:]):
+        for a, b in itertools.pairwise(q):
             self.line(a, b, width, col, alpha)
 
     def text(self, s, h, v, cap, col, ang=0.0, bold=0.028, spacing=1.06, maxw=None, emit=None):
@@ -801,7 +821,7 @@ class Painter:
                 yy = lerp(0.50 * R, -0.50 * R, t)
                 xx = 0.15 * R * math.sin(t * math.pi * 3.0) * (1.0 - 0.45 * t)
                 pts.append(rot(xx, yy, ang))
-            for p, q in zip(pts, pts[1:]):
+            for p, q in itertools.pairwise(pts):
                 dx, dy = q[0] - p[0], q[1] - p[1]
                 ln = math.hypot(dx, dy) or 1.0
                 nx, ny = -dy / ln * 0.024 * R, dx / ln * 0.024 * R
@@ -1098,7 +1118,6 @@ def paint_bumper_front(P):
 
 
 def paint_tail(P):
-    I = P.I
     P.rect(-1.1, 0.47, 1.1, 0.67, C['tail'], emit=E_RED)
     for sx in (-1, 1):
         x0, x1 = sorted((sx * 0.74, sx * 0.81))
@@ -1116,7 +1135,7 @@ def paint_step_top(P):
 
 
 def dirt_side(P, noise, k=0.42, ztop=1.15):
-    (x0, y0, x1, y1), A, B = P.grid()
+    (x0, y0, x1, y1), _A, B = P.grid()
     nz = noise[y0:y1, x0:x1]
     al = k * (1.0 - sstep(0.30, ztop, B)) ** 1.6 * (0.45 + 0.75 * nz)
     al = al + 0.10 * sstep(0.45, 0.8, nz)
@@ -1124,7 +1143,7 @@ def dirt_side(P, noise, k=0.42, ztop=1.15):
 
 
 def dirt_flat(P, noise, k=0.16):
-    (x0, y0, x1, y1), A, B = P.grid()
+    (x0, y0, x1, y1), _A, _B = P.grid()
     nz = noise[y0:y1, x0:x1]
     P.blend(k * sstep(0.30, 0.85, nz) + 0.025, C['dirt'])
 
@@ -1140,7 +1159,7 @@ def paint_all(isl):
         if EMIT.get(I.bg):
             x0, y0, x1, y1 = cv.clip
             cv.emi[y0:y1, x0:x1] = np.asarray(EMIT[I.bg], np.float32)
-        multi = len(set(m for _, _, m in I.faces)) > 1
+        multi = len({m for _, _, m in I.faces}) > 1
         if multi:
             for fi, cs, m in I.faces:
                 if m != I.bg:
@@ -1187,7 +1206,6 @@ def paint_all(isl):
         elif isinstance(key, tuple) and key[0].startswith('cl') and key[1] != '-Z':
             # beacon: darker base line
             if key[1] in ('+X', '-X', '+Y', '-Y'):
-                h0 = -9
                 P.rect(-9, 2.60, 9, 2.665, D_)
     cv.clip = (0, 0, n, n)
     col = cv.col.reshape(TEX, SS, TEX, SS, 3).mean(axis=(1, 3))
@@ -1257,7 +1275,7 @@ def main():
     bpy.context.view_layer.objects.active = ob
     ob.select_set(True)
     bpy.context.view_layer.update()
-    print("mesh: %d verts, %d tris (ngons before triangulation: %d, sharp edges: %d)" % (len(me.vertices), len(me.polygons), ngons, nsharp))
+    print(f"mesh: {len(me.vertices)} verts, {len(me.polygons)} tris (ngons before triangulation: {ngons}, sharp edges: {nsharp})")
     # weighted normals so the big flat panels stay flat next to the rounded edges
     try:
         mod = ob.modifiers.new("WN", 'WEIGHTED_NORMAL')
@@ -1270,15 +1288,13 @@ def main():
     print("painting ... (%.1fs)" % (time.time() - T0))
     col, emi = paint_all(isl)
     print("painted (%.1fs)" % (time.time() - T0))
-    alb_path = os.path.join(OUT, "ambulance_albedo.png")
-    emi_path = os.path.join(OUT, "ambulance_emission.png")
+    alb_path = os.path.join(OUT, NAME + "_albedo.png")
+    emi_path = os.path.join(OUT, NAME + "_emission.png")
 
     # material
     mat = bpy.data.materials.new("M_Ambulance")
-    try:
+    with contextlib.suppress(Exception):      # older Blender: nodes are on by default
         mat.use_nodes = True
-    except Exception:
-        pass
     nt = mat.node_tree
     bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
     me.materials.append(mat)
@@ -1301,10 +1317,8 @@ def main():
         node.image = aoimg
         nt.nodes.active = node
         scene.render.bake.margin = 6
-        try:
+        with contextlib.suppress(Exception):  # older Blender has no margin type
             scene.render.bake.margin_type = 'EXTEND'
-        except Exception:
-            pass
         bpy.ops.object.select_all(action='DESELECT')
         ob.select_set(True)
         bpy.context.view_layer.objects.active = ob
@@ -1316,12 +1330,12 @@ def main():
         bpy.data.images.remove(aoimg)
         bpy.data.objects.remove(gob)
         bpy.data.meshes.remove(gm)
-        print("AO baked (%.1fs) mean %.3f" % (time.time() - T0, float(ao.mean())))
+        print(f"AO baked ({time.time() - T0:.1f}s) mean {float(ao.mean()):.3f}")
         aom = 1.0 - 0.62 * (1.0 - np.clip(ao, 0, 1)) ** 1.0
         col = col * aom[:, :, None]
 
-    alb = save_png(col, alb_path, "ambulance_albedo")
-    emg = save_png(emi, emi_path, "ambulance_emission")
+    alb = save_png(col, alb_path, NAME + "_albedo")
+    emg = save_png(emi, emi_path, NAME + "_emission")
     tex = nt.nodes.new('ShaderNodeTexImage')
     tex.image = alb
     tex.location = (-420, 300)
@@ -1334,11 +1348,13 @@ def main():
     bsdf.inputs['Roughness'].default_value = 0.55
     bsdf.inputs['Metallic'].default_value = 0.0
     export_kit(scene, ob, tags)
-    blend = os.path.join(OUT, "ambulance.blend")
+    blend = os.path.join(OUT, NAME + ".blend")
     bpy.ops.wm.save_as_mainfile(filepath=blend)
-    alb.filepath = "//ambulance_albedo.png"
-    emg.filepath = "//ambulance_emission.png"
+    alb.filepath = "//" + NAME + "_albedo.png"
+    emg.filepath = "//" + NAME + "_emission.png"
     bpy.ops.wm.save_mainfile()
+    if os.path.isfile(blend + "1"):       # Blender's backup from the second save
+        os.remove(blend + "1")
     print("saved", blend, "(%.1fs)" % (time.time() - T0))
 
 
@@ -1352,7 +1368,7 @@ def export_kit(scene, ob, tags):
             o.select_set(True)
         bpy.context.view_layer.objects.active = objs[0]
         bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_yup=True, export_apply=True)
-        print("KIT wrote %s (%.2f MB)" % (path, os.path.getsize(path) / 1e6))
+        print(f"KIT wrote {path} ({os.path.getsize(path) / 1e6:.2f} MB)")
 
     ob.name = NAME
     export(os.path.join(OUT, NAME + "_joined.glb"), [ob])
@@ -1380,8 +1396,8 @@ def export_kit(scene, ob, tags):
             pivot = Vector(((co.min(axis=0) + co.max(axis=0)) / 2).tolist())
             dup.data.transform(Matrix.Translation(-pivot))
             dup.location = pivot
-        print("KIT part %-9s origin (%7.3f, %7.3f, %6.3f)  triangles %5d" % (
-            name, dup.location.x, dup.location.y, dup.location.z, len(dup.data.polygons)))
+        print(f"KIT part {name:<9} origin ({dup.location.x:7.3f}, {dup.location.y:7.3f}, {dup.location.z:6.3f})  "
+              f"triangles {len(dup.data.polygons):5d}")
         parts.append(dup)
     assert sum(len(o.data.polygons) for o in parts) == len(ob.data.polygons)
     export(os.path.join(OUT, NAME + "_parts.glb"), parts)

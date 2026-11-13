@@ -85,3 +85,45 @@ def test_seats_run_front_to_back_at_the_pitch_on_a_wall_without_doors():
 def test_handrail_poles_stand_at_both_edges_of_every_door_behind_the_driver():
     poles = sg.door_poles([(3.92, 5.22), (-0.10, 1.25)], x=0.50, front_limit=4.30)
     assert sorted(poles) == sorted([(0.50, 3.92), (0.50, -0.10), (0.50, 1.25)])
+
+
+# --- the command line: presets, families, a spec file -----------------------------------------
+
+def test_every_preset_has_a_family_with_a_blender_builder():
+    for preset in sg.PRESETS:
+        family = sg.family_of(preset)
+        assert (HERE.parent / "scripts" / sg.FAMILIES[family]).is_file()
+
+
+def test_an_unknown_preset_names_the_known_ones():
+    with pytest.raises(SystemExit, match="midibus_9m"):
+        sg.family_of("tram")
+
+
+def test_a_spec_file_sets_numbers_on_top_of_its_preset(tmp_path):
+    spec = tmp_path / "van.json"
+    spec.write_text('{"preset": "van_long", "name": "delivery", "set": {"rear_axle": -2.4}}', encoding="utf-8")
+    loaded = sg.read_spec(spec)
+    assert loaded == {"preset": "van_long", "name": "delivery", "set": {"rear_axle": -2.4}}
+
+
+def test_a_spec_file_without_a_known_preset_is_refused(tmp_path):
+    spec = tmp_path / "bad.json"
+    spec.write_text('{"set": {"rear_axle": -2.4}}', encoding="utf-8")
+    with pytest.raises(SystemExit, match="preset"):
+        sg.read_spec(spec)
+
+
+def test_overrides_turn_side_keys_back_into_numbers():
+    # JSON has only string keys; the builders look sides up as -1 and 1
+    over = sg.overrides({"band_rear": {"-1": -3.1, "1": -4.0}, "doors": [[2.8, 3.7]], "livery": "plain"})
+    assert over == {"band_rear": {-1: -3.1, 1: -4.0}, "doors": [[2.8, 3.7]], "livery": "plain"}
+
+
+def test_the_blender_command_runs_the_family_builder_headless():
+    command = sg.blender_command(Path("blender"), "box_van", Path("out"), "truck", 4096, spec=Path("s.json"))
+    assert command[:2] == ["blender", "--background"]
+    assert any(part.endswith("blender_shape_guide_van.py") for part in command)
+    tail = command[command.index("--") + 1:]
+    assert tail[tail.index("--preset") + 1] == "box_van" and tail[tail.index("--name") + 1] == "truck"
+    assert tail[tail.index("--tex") + 1] == "4096" and tail[tail.index("--spec") + 1] == "s.json"

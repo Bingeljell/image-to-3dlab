@@ -10,12 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Finish offers Height (m), with 1.8 m for characters and optional sizing for props.
   Models are centred on the floor before rigging.
+- Finish's Advanced panel (and the agent tools) can pick how a Pixal3D model is cut down to
+  its face count: Fast, Rebuild (keeps thin parts from tearing), or Auto.
 
 ### Changed
 - The agent guide covers Windows: connect Claude Code and other agents with `lab.cmd`
   (tested on Windows 11), where it said Windows was not tested yet.
 
 ### Fixed
+- Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up
+  there, since Pixal3D's own tore lattices, dropped small parts and left holes at small game
+  budgets.
 - Report a bug names an NVIDIA graphics card on Windows too, not just "Windows · AMD64".
 - Walks, jogs, sneaks and strafes loop smoothly again: 0.5.9 could drop a frame where they
   repeat, which left a small hitch.

@@ -42,7 +42,7 @@ from backend_catalog import (
     human_bytes,
 )
 
-from image_to_3dlab import host, processes
+from image_to_3dlab import processes
 
 POLL_SECONDS = 2.0
 STALL_SECONDS = 90.0
@@ -164,15 +164,20 @@ def rebuild_download(backend_id: str, source: Path | None = None,
                      cli: Path | None = None) -> str | None:
     """What a Rebuild downloads, or None when it only recompiles.
 
-    A prebuilt (no source) without post-replay is upstream's old NVIDIA download; Rebuild
-    swaps it for our own, which has the patches.
+    A build with no source tree beside it is a prebuilt download. Rebuild swaps it for the
+    pinned release when it is older than that release — upstream's (no post-replay), or ours
+    from before r2, whose `post-replay` exits 1 on Windows (issue #192). The rule is
+    bootstrap_pixal3d.build_stale, so Setup and Rebuild cannot disagree about it.
     """
     if backend_id not in REBUILDS:
         return None
     source, cli = _pixal3d_paths(source, cli)
     if not cli.is_file() or source.is_file():
         return None
-    return None if host.executable(cli.parent, "post-replay").exists() else NEW_BUILD_SIZE
+    sys.path.insert(0, str(REPO / "scripts"))
+    import bootstrap_pixal3d
+
+    return NEW_BUILD_SIZE if bootstrap_pixal3d.build_stale(cli.parent) else None
 
 
 def also_fetches(backend_id: str) -> list[dict[str, str]]:
@@ -206,8 +211,8 @@ def also_fetches(backend_id: str) -> list[dict[str, str]]:
 
 def rebuild_reason(backend_id: str, source: Path | None = None,
                    cli: Path | None = None) -> str | None:
-    """Why this backend's build should be recompiled (or, for upstream's old prebuilt,
-    replaced), or None when it is fine as it is.
+    """Why this backend's build should be recompiled (or, for an older prebuilt, replaced),
+    or None when it is fine as it is.
 
     No trellis-cli means nothing is installed yet (the Set up button covers that).
     """
@@ -215,8 +220,8 @@ def rebuild_reason(backend_id: str, source: Path | None = None,
         return None
     source, cli = _pixal3d_paths(source, cli)
     if rebuild_download(backend_id, source, cli):
-        return ("An older download: the new one adds the new Finish and 8 sampling steps "
-                f"({NEW_BUILD_SIZE}).")
+        return ("An older download than the one this version pins: it swaps in the new "
+                f"Finish, 8 sampling steps and the Windows clean-up fix ({NEW_BUILD_SIZE}).")
     if not cli.is_file() or not source.is_file():
         return None
     sys.path.insert(0, str(REPO / "scripts"))

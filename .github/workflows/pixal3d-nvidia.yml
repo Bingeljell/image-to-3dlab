@@ -3,8 +3,9 @@ name: Pixal3D NVIDIA build
 # Our own NVIDIA download of pixal3d.cpp, for scripts/bootstrap_pixal3d.py to install.
 #
 # Why not upstream's: their CUDA 12 download is compiled for 2016-17 cards only (sm 60/61/70),
-# and lacks our three patches (8 steps, the clean-up dump the new Finish reruns, and shape reuse
-# for skins) and the post-replay tool. This builds the same pinned commit, with all three, for every card
+# and lacks our patches (8 steps, the clean-up dump the new Finish reruns, shape reuse for
+# skins, and the post-replay header fix for Windows) and the post-replay tool. This builds
+# the same pinned commit, with all of them, for every card
 # from the 20 series to the 50 series, and attaches it to a pre-release on this repo.
 #
 # Run by hand (Actions -> Pixal3D NVIDIA build -> Run workflow). The release is a
@@ -16,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. pixal3d-nvidia-c89126d-r1"
+        description: "Release tag, e.g. pixal3d-nvidia-c89126d-r2"
         required: true
 
 permissions:
@@ -67,6 +68,7 @@ jobs:
           python scripts/patch_pixal3d_dump_continue.py pixal3d/src/trellis_cli.cpp
           python scripts/patch_pixal3d_shape_reuse.py pixal3d/src/trellis_cli.cpp
           python scripts/patch_pixal3d_msvc.py pixal3d/src/uv_bake.cpp
+          python scripts/patch_pixal3d_header_read.py pixal3d/src/post_replay.cpp
 
       - name: MSVC dev shell (Windows)
         if: matrix.os == 'windows'
@@ -134,6 +136,10 @@ jobs:
           for marker in PIXAL3D_STEPS PIXAL3D_DUMP_CONTINUE PIXAL3D_LOAD_SHAPE; do
             grep -aq "$marker" dist/trellis-cli* || { echo "ERROR: $marker missing from trellis-cli"; exit 1; }
           done
+          # The header fix lives in post-replay, not trellis-cli (#192). Its comment is stripped
+          # from the binary; the message it prints is not.
+          grep -aq "ends early: its header says" dist/post-replay* ||
+            { echo "ERROR: the post-replay header fix is missing from post-replay"; exit 1; }
           echo "ASSET=$ASSET" >> "$GITHUB_ENV"
           echo "sha256: $(sha256sum "$ASSET")"
 

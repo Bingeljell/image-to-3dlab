@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Finish's Advanced panel (and the agent tools) can pick how a Pixal3D model is cut down to
   its face count: Fast, Rebuild (keeps thin parts from tearing), or Auto.
+- Finish has a **game budget**: pick 512, 1024, 2048 or 4096 px and the model's colour and
+  normal maps are that size instead of 2048, with metal-roughness capped at 1024 so the default
+  file does not grow. **Surface maps: Keep / Drop** drops the normal and metal-roughness maps
+  for a flat, matte model and smaller files, which is what a phone budget wants. Agents get both
+  as `texture_size` and `surface_maps`, and a skin finishes with its model's own choice.
 
 ### Changed
 - The agent guide covers Windows: connect Claude Code and other agents with `lab.cmd`

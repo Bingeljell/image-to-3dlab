@@ -693,3 +693,10 @@ def test_a_skin_of_an_older_pixal3d_model_keeps_its_route():
     assert sk.legacy_cleanup({"faces": 8000}, native=True)["cleanup"] == "fast"
     assert "cleanup" not in sk.legacy_cleanup({"faces": 8000}, native=False)
     assert sk.legacy_cleanup({"faces": 8000, "cleanup": "auto"}, native=True)["cleanup"] == "auto"
+def test_a_skin_finishes_with_its_models_own_texture_budget(output):
+    """A skin is repainted, not re-chosen: same size, same surface maps, or it is a different look."""
+    _asset, skin = _ready(output)
+    skin.base["finish"].update(texture_size=512, drop_surface_maps=True)
+    command = sk.finish_command(output, skin)
+    assert command[command.index("--texture-size") + 1] == "512"
+    assert "--drop-surface-maps" in command

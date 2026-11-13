@@ -172,6 +172,28 @@ def test_the_picture_step_sends_the_chosen_size_steps_and_seed(tmp_path):
                     "engine": None, "picture_only": True}
 
 
+def test_the_finish_step_carries_the_texture_budget_through_a_reload(tmp_path):
+    """A chain is what a reopened studio resumes: the game budget must survive the trip."""
+    from viewer.generate_api import parse_multipart
+
+    body, ctype = aa.multipart({"title": "x", "steps": json.dumps(["finished"]), "prompt": "a crate",
+                                "finish_settings": json.dumps({"texture_size": 512, "drop_surface_maps": True,
+                                                               "evil": 1})}, {})
+    chain = aa.chain_from_form(parse_multipart(ctype, body))
+    assert chain.finish_settings == {"texture_size": 512, "drop_surface_maps": True}
+
+    (tmp_path / "m").mkdir()
+    (tmp_path / "m" / "k.glb").write_bytes(b"x")
+
+    runner, jobs = _runner(tmp_path)
+    chain.made = {"model": "m/k.glb"}
+    runner.submit(chain, background=False)
+    _method, _path, sent = next(call for call in jobs.calls if call[1] == "/api/finish")
+    boundary = sent.split(b"\r\n", 1)[0][2:].decode()
+    fields = parse_multipart(f"multipart/form-data; boundary={boundary}", sent)
+    assert json.loads(fields["settings"]["value"]) == {"texture_size": 512, "drop_surface_maps": True}
+
+
 def test_the_picture_step_names_the_chosen_engine_and_whether_3d_follows(tmp_path):
     """Flux spends 8 steps on a picture that is the end product, 4 on one a 3D model is built from."""
     from viewer.generate_api import parse_multipart

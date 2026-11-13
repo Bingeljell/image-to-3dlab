@@ -74,7 +74,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "faces": 20000, "atlas": 2048, "angle": 89.0, "voxel": 0.004,
     "metallic": 0.25, "roughness": 0.65, "ior": 1.45,
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
-    "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
+    "texture_size": 2048, "drop_surface_maps": False,
+    "skip_paint": True, "skip_compress": False, "skip_bake": False,
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
     "high_detail": False, "hero": False, "cleanup": "auto",
 }
@@ -84,7 +85,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 CHOICE_SETTINGS: dict[str, tuple[str, ...]] = {"cleanup": ("auto", "fast", "rebuild")}
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
-                 "high_detail", "hero"}
+                 "high_detail", "hero", "drop_surface_maps"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -236,6 +237,8 @@ def build_command(
         command.append("--skip-paint")
     if settings["skip_compress"]:
         command.append("--skip-compress")
+    if settings.get("drop_surface_maps"):
+        command.append("--drop-surface-maps")
     if settings["skip_bake"]:
         command.append("--skip-bake")
     if settings.get("keep_mesh"):
@@ -264,6 +267,8 @@ def hero_command(job: FinishJob, settings: dict[str, Any]) -> list[str]:
         *(["--body-dump", str(job.dump_path)] if job.dump_path.is_file() else []),
         *(["--body-record", str(record)] if record.is_file() else []),
         "--body-faces", str(settings["faces"]),
+        "--texture-size", str(settings["texture_size"]),
+        *(["--drop-surface-maps"] if settings.get("drop_surface_maps") else []),
         "--result", str(job.result_glb),
     ]
 
@@ -708,6 +713,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
             job.settings["skip_paint"], job.settings["skip_compress"],
             job.settings.get("skip_bake", False), photo=uses_photo(job, job.settings),
             keep_mesh=bool(job.settings.get("keep_mesh")),
+            drop_surface_maps=bool(job.settings.get("drop_surface_maps")),
         )
         if hero:
             message = ("Starting Hero: the body is finished, then the head is built again on its own "

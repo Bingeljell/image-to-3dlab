@@ -48,7 +48,7 @@ def _png(size=(64, 64), seed=0, mode="RGB"):
     return buffer.getvalue()
 
 
-def _glb(images, *, material=None, extra_view=b"MESHDATA"):
+def _glb(images, *, material=None, extra_view=b"MESHDATA", textures=None, samplers=None):
     """Build a minimal but structurally real GLB carrying the given image blobs."""
     binary = bytearray()
     views = []
@@ -64,7 +64,8 @@ def _glb(images, *, material=None, extra_view=b"MESHDATA"):
     document = {
         "asset": {"version": "2.0"},
         "images": [{"bufferView": i, "mimeType": "image/png"} for i in range(len(images))],
-        "textures": [{"source": i} for i in range(len(images))],
+        "textures": textures if textures is not None
+                    else [{"source": i} for i in range(len(images))],
         "materials": [material or {"pbrMetallicRoughness": {
             "baseColorTexture": {"index": 0}}}],
         "bufferViews": views,
@@ -73,6 +74,8 @@ def _glb(images, *, material=None, extra_view=b"MESHDATA"):
         "accessors": [{"bufferView": mesh_view, "componentType": 5126, "count": 1,
                        "type": "VEC3"}],
     }
+    if samplers is not None:
+        document["samplers"] = samplers
     return cg.build_glb(document, bytes(binary)), mesh_view
 
 
@@ -264,3 +267,156 @@ def test_without_a_normal_size_the_normal_map_follows_the_other_data_maps():
     view = document["bufferViews"][1]
     with Image.open(io.BytesIO(binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]])) as image:
         assert max(image.size) == 64
+
+
+# --- a game budget at one size, and dropping the surface maps (#239) ------------------------
+
+def _three_maps(*, samplers=None, textures=None):
+    """A finished model's material: colour, metal-roughness and normal, at mixed sizes."""
+    material = {"pbrMetallicRoughness": {
+        "baseColorTexture": {"index": 0},
+        "metallicRoughnessTexture": {"index": 1},
+    }, "normalTexture": {"index": 2}}
+    return _glb([_png((512, 512)), _png((1024, 1024), seed=3), _png((1024, 1024), seed=4)],
+                material=material, textures=textures, samplers=samplers)
+
+
+def _size_of(document, binary, view_index):
+    view = document["bufferViews"][view_index]
+    blob = binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]]
+    with Image.open(io.BytesIO(blob)) as image:
+        return max(image.size)
+
+
+def test_the_tool_caps_every_map_at_the_size_it_is_given():
+    """The size policy is Finish's (retopo_repaint.texture_arguments); the tool obeys it.
+
+    Called with one number for all three, all three come out at it, so a caller that means
+    "512 everywhere" gets exactly that.
+    """
+    data, _ = _three_maps()
+    out, _report = cg.compress(data, max_size=256, map_size=256, normal_size=256)
+    document, binary = cg.parse_glb(out)
+    assert [_size_of(document, binary, i) for i in (0, 1, 2)] == [256, 256, 256]
+
+
+def test_dropping_the_surface_maps_leaves_one_colour_atlas():
+    data, _ = _three_maps()
+    out, report = cg.compress(data, max_size=512, map_size=512, normal_size=512,
+                              drop_surface_maps=True)
+    document, binary = cg.parse_glb(out)
+
+    assert len(document["images"]) == 1
+    assert len(document["textures"]) == 1
+    assert len(document["bufferViews"]) == 2          # the colour atlas and the mesh
+    assert [row["kind"] for row in report] == ["colour"]
+    assert _size_of(document, binary, 0) == 512
+
+
+def test_a_dropped_map_leaves_a_valid_flat_material():
+    data, _ = _three_maps()
+    out, _ = cg.compress(data, drop_surface_maps=True, roughness=0.4)
+    document, _binary = cg.parse_glb(out)
+
+    material = document["materials"][0]
+    assert material["pbrMetallicRoughness"]["baseColorTexture"]["index"] == 0
+    assert "metallicRoughnessTexture" not in material["pbrMetallicRoughness"]
+    assert material["pbrMetallicRoughness"]["metallicFactor"] == 0
+    assert material["pbrMetallicRoughness"]["roughnessFactor"] == pytest.approx(0.4)
+    assert "normalTexture" not in material and "occlusionTexture" not in material
+
+
+def test_a_dropped_map_leaves_no_orphan_texture_image_sampler_or_bytes():
+    """Every index in the file must still point at something, or readers drop the asset."""
+    samplers = [{"magFilter": 9729}, {"magFilter": 9728}, {"minFilter": 9986}]
+    textures = [{"source": 0, "sampler": 0}, {"source": 1, "sampler": 1},
+                {"source": 2, "sampler": 2}]
+    data, _mesh_view = _three_maps(samplers=samplers, textures=textures)
+    out, _ = cg.compress(data, drop_surface_maps=True)
+    document, binary = cg.parse_glb(out)
+
+    assert len(document["textures"]) == len(document["images"]) == len(document["samplers"]) == 1
+    assert document["samplers"] == [{"magFilter": 9729}]
+    assert document["textures"] == [{"source": 0, "sampler": 0}]
+    for view in document["bufferViews"]:
+        assert view["byteOffset"] + view["byteLength"] <= len(binary)
+    mesh = document["bufferViews"][document["accessors"][0]["bufferView"]]
+    assert binary[mesh["byteOffset"]:mesh["byteOffset"] + mesh["byteLength"]] == b"MESHDATA"
+
+
+def test_an_image_shared_by_colour_and_a_dropped_map_stays():
+    """Packing the normal into the albedo's image is legal; dropping the slot must not take it."""
+    material = {"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}},
+                "normalTexture": {"index": 1}}
+    # Both textures point at image 0: the albedo's.
+    data, _ = _glb([_png((128, 128))], material=material,
+                   textures=[{"source": 0}, {"source": 0}])
+    out, _ = cg.compress(data, drop_surface_maps=True)
+    document, _binary = cg.parse_glb(out)
+
+    assert len(document["images"]) == 1
+    assert document["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"] == 0
+    assert "normalTexture" not in document["materials"][0]
+
+
+def test_dropping_still_re_encodes_the_colour_map():
+    data, _ = _three_maps()
+    out, report = cg.compress(data, max_size=128, map_size=128, normal_size=128,
+                              drop_surface_maps=True)
+    assert report[0]["skipped"] is False
+    document, binary = cg.parse_glb(out)
+    assert _size_of(document, binary, 0) == 128
+
+
+def test_keeping_the_surface_maps_leaves_them_alone():
+    data, _ = _three_maps()
+    out, _ = cg.compress(data, max_size=512, map_size=512, normal_size=512,
+                         drop_surface_maps=False)
+    document, _binary = cg.parse_glb(out)
+    assert len(document["images"]) == 3
+    assert "normalTexture" in document["materials"][0]
+
+
+def _real_glb(material):
+    """A GLB a real reader can open: one triangle, and images where the material says."""
+    positions = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    binary = bytearray(positions)
+    views = [{"buffer": 0, "byteOffset": 0, "byteLength": len(positions)}]
+    for blob in (_png((128, 128)), _png((256, 256), seed=5), _png((256, 256), seed=6)):
+        binary += b"\x00" * (-len(binary) % 4)
+        views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(blob)})
+        binary += blob
+    document = {
+        "asset": {"version": "2.0"},
+        "images": [{"bufferView": i + 1, "mimeType": "image/png"} for i in range(3)],
+        "textures": [{"source": i} for i in range(3)],
+        "materials": [material],
+        "bufferViews": views,
+        "buffers": [{"byteLength": len(binary)}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3",
+                       "min": [0.0, 0.0, 0.0], "max": [1.0, 1.0, 0.0]}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "material": 0}]}],
+    }
+    return cg.build_glb(document, bytes(binary))
+
+
+def test_a_real_gltf_reader_loads_the_dropped_model():
+    """The whole point is a file a game engine opens: trimesh must find one valid material."""
+    trimesh = pytest.importorskip("trimesh")
+
+    material = {"pbrMetallicRoughness": {
+        "baseColorTexture": {"index": 0},
+        "metallicRoughnessTexture": {"index": 1},
+    }, "normalTexture": {"index": 2}}
+    data = _real_glb(material)
+    out, _ = cg.compress(data, max_size=128, map_size=128, normal_size=128,
+                         drop_surface_maps=True, roughness=0.5)
+    scene = trimesh.load(io.BytesIO(out), file_type="glb", force="scene")
+
+    (mesh,) = scene.geometry.values()
+    loaded = mesh.visual.material
+    assert loaded.baseColorTexture is not None
+    assert getattr(loaded, "normalTexture", None) is None
+    assert getattr(loaded, "metallicRoughnessTexture", None) is None
+    assert loaded.metallicFactor == 0
+    assert loaded.roughnessFactor == pytest.approx(0.5)

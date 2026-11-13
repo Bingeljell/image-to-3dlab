@@ -1227,6 +1227,44 @@ def test_finish_detail_sends_a_triangle_count_or_full_detail():
 
 
 @needs_node
+def test_finish_offers_a_game_budget_and_a_surface_maps_switch():
+    """Both are in Advanced, in the studio's plain words, exactly as #239 asked for them."""
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const html = m.stepBody('finished', { kind: 'character', picture: 'i/k.png', model: 'm/k.glb', finished: null, clips: [] }, ctx);
+      const sizes = [...html.matchAll(/<option value="(\\d+)"( selected)?>(\\d+ px)<\\/option>/g)].map((o) => o[1]);
+      const surface = html.match(/Surface maps<select data-k="surface">(.*?)<\\/select>/);
+      const choices = [...(surface?.[1] || '').matchAll(/value="(\\w+)"( selected)?>([^<]+)</g)].map((o) => [o[1], !!o[2], o[3]]);
+      console.log(JSON.stringify({ sizes, choices,
+        hint: /Bumps and shine\\. Drop them for a flat, matte look and smaller files, good for phones\\./.test(html),
+        sizeHint: /Size of the model's pictures\\. Smaller means smaller files; 512 suits a phone\\./.test(html) }));""")
+    assert out["sizes"] == ["512", "1024", "2048", "4096"]
+    assert out["choices"] == [["keep", True, "Keep"], ["drop", False, "Drop"]]
+    assert out["hint"] is True
+    assert out["sizeHint"] is True
+
+
+def test_the_texture_size_hint_is_plain_words():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const html = m.stepBody('finished', { kind: 'character', picture: 'i/k.png', model: 'm/k.glb', finished: null, clips: [] }, ctx);
+      console.log(JSON.stringify({ plain: /Size of the model's pictures\\. Smaller means smaller files; 512 suits a phone\\./.test(html),
+        shader: /metallic|normal map|albedo|atlas/i.test(html) }));""")
+    assert out == {"plain": True, "shader": False}
+
+
+@needs_node
+def test_the_finish_texture_choices_become_settings_with_one_size_for_every_map():
+    out = _run("steps.js", """console.log(JSON.stringify([
+      m.textureSettings({ texture: 512, surface: 'drop' }),
+      m.textureSettings({ texture: 2048, surface: 'keep' }),
+      m.textureSettings({})]));""")
+    assert out[0] == {"texture_size": 512, "drop_surface_maps": True}
+    assert out[1] == {"texture_size": 2048, "drop_surface_maps": False}
+    assert out[2] == {"texture_size": 2048, "drop_surface_maps": False}
+
+
+@needs_node
 def test_finish_offers_the_edge_fade_switch_on_by_default_only_with_a_picture():
     out = _run("steps.js", """
       const ctx = { presets: [], engines: [] };
@@ -1382,7 +1420,8 @@ def test_steps_panel_runs_go_through_a_chain_so_a_reload_picks_them_up():
     assert out["finished"]["steps"] == ["finished"]
     assert out["finished"]["made"] == {"picture": "images/k/k.png", "model": "a/k.glb"}
     assert out["finished"]["finishSettings"] == {"faces": 32000, "hero": True, "skip_photo": False,
-                                                 "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048}
+                                                 "skip_edge_fade": False, "skip_nudge": True, "texture_size": 2048,
+                                                 "drop_surface_maps": False}
     assert out["model"]["steps"] == ["model"] and out["model"]["engine"] == "pixal3d"
     assert out["rigged"]["made"]["finished"] == "finish/k/k_40k.glb" and "model" not in out["rigged"]["made"]
     assert out["rawRig"]["made"]["model"] == "a/k.glb" and "finished" not in out["rawRig"]["made"]

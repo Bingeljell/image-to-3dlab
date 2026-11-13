@@ -20,6 +20,14 @@ below the albedo's without anyone seeing it, but heavy quantisation shows up as 
 artifacts rather than as blur. The defaults follow that: 2048 for colour, 1024 for the
 rest, and quality 90 for both.
 
+**A game budget is one size, and sometimes one map.** Finish passes the chosen size for
+colour and normal, and caps metal-roughness at 1024 (`scripts/retopo_repaint.texture_arguments`),
+so a 512 budget is 512 everywhere while the default file stays the size it always was.
+`drop_surface_maps` goes further and removes the normal and metallic-roughness maps
+altogether — the material stays valid, just flat (`metallicFactor` 0 and a fixed roughness)
+— which is what a phone budget or a matte art style wants. Their images, textures, samplers
+and bytes leave the file with them (#239).
+
 **Format.** JPEG is the default, not WebP, even though WebP is smaller — 4.7 MB against
 3.5 on the Snag. JPEG is core glTF: no extension, nothing to negotiate, and it survives
 every converter on the way to a game engine, which for this project means USDZ. WebP has
@@ -49,6 +57,10 @@ BIN_CHUNK = 0x004E4942
 # A texture that feeds one of these slots is data, not colour: the shader reads its
 # channels as numbers. Everything else is looked at directly.
 DATA_SLOTS = ("metallicRoughnessTexture", "normalTexture", "occlusionTexture")
+# What "drop the surface maps" takes out of a material: bumps (normal) and shine
+# (metallic-roughness), and the occlusion map, which is a data map too and is often packed
+# into the same image as the other two.
+SURFACE_SLOTS = ("normalTexture", "occlusionTexture")
 
 MIME = {"webp": "image/webp", "jpeg": "image/jpeg", "png": "image/png"}
 
@@ -121,6 +133,140 @@ def _slot_images(document: dict, normal_only: bool) -> set[int]:
     return found
 
 
+def material_texture_indices(node: object) -> set[int]:
+    """Every texture index a material mentions, at any depth (extensions included)."""
+    found: set[int] = set()
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key.endswith("Texture") and isinstance(value, dict) and "index" in value:
+                found.add(value["index"])
+            else:
+                found |= material_texture_indices(value)
+    elif isinstance(node, list):
+        for item in node:
+            found |= material_texture_indices(item)
+    return found
+
+
+def strip_surface_maps(document: dict, roughness: float = 0.65) -> None:
+    """Make every material flat: no normal or metallic-roughness map, plain factors.
+
+    Metallic goes to 0 (a matte surface reflects almost nothing) and roughness to the
+    run's own value, so the asset keeps the look its other settings gave it. Occlusion is
+    removed too: it is a data map as well, and an ORM-packed one shares the metal-roughness
+    image, so keeping the slot would keep the bytes the drop exists to save.
+    """
+    for material in document.get("materials", []):
+        pbr = material.setdefault("pbrMetallicRoughness", {})
+        pbr.pop("metallicRoughnessTexture", None)
+        pbr["metallicFactor"] = 0.0
+        pbr["roughnessFactor"] = roughness
+        for slot in SURFACE_SLOTS:
+            material.pop(slot, None)
+
+
+def drop_views(document: dict, candidates: set[int]) -> set[int]:
+    """Remove bufferViews from `candidates` and move every reference to the shifted index.
+
+    A view is only removed when no accessor and no remaining image points at it: buffer
+    0 is shared by mesh attributes and textures, and a view holding vertices is not an
+    image's to delete. Returns the indices (old numbering) that went.
+    """
+    views = document.get("bufferViews", [])
+    used = {accessor["bufferView"] for accessor in document.get("accessors", [])
+            if "bufferView" in accessor}
+    for accessor in document.get("accessors", []):
+        sparse = accessor.get("sparse") or {}
+        for part in ("indices", "values"):
+            ref = sparse.get(part)
+            if isinstance(ref, dict) and "bufferView" in ref:
+                used.add(ref["bufferView"])
+    used |= {image["bufferView"] for image in document.get("images", [])
+             if "bufferView" in image}
+    dropped = {index for index in candidates if index not in used}
+    if not dropped:
+        return set()
+    after = {old: new for new, old in enumerate(i for i in range(len(views)) if i not in dropped)}
+    document["bufferViews"] = [views[i] for i in range(len(views)) if i not in dropped]
+    for accessor in document.get("accessors", []):
+        if "bufferView" in accessor:
+            accessor["bufferView"] = after[accessor["bufferView"]]
+        sparse = accessor.get("sparse") or {}
+        for part in ("indices", "values"):
+            ref = sparse.get(part)
+            if isinstance(ref, dict) and "bufferView" in ref:
+                ref["bufferView"] = after[ref["bufferView"]]
+    for image in document.get("images", []):
+        if "bufferView" in image:
+            image["bufferView"] = after[image["bufferView"]]
+    return dropped
+
+
+def prune_unused(document: dict) -> int:
+    """Drop textures, images, samplers and image bytes no material points at any more.
+
+    Called after the surface maps are stripped. Everything is found by reachability rather
+    than by remembering what was removed, so a hand-edited glTF that arrives with an orphan
+    to begin with is cleaned up the same way. Returns how many images went.
+    """
+    materials = document.get("materials", [])
+    used_textures = set().union(*(material_texture_indices(m) for m in materials)) if materials else set()
+    textures = document.get("textures", [])
+    kept = sorted(index for index in used_textures if 0 <= index < len(textures))
+    if len(kept) != len(textures):
+        after = {old: new for new, old in enumerate(kept)}
+        document["textures"] = textures = [textures[i] for i in kept]
+
+        def remap(node: object) -> None:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key.endswith("Texture") and isinstance(value, dict) and value.get("index") in after:
+                        value["index"] = after[value["index"]]
+                    else:
+                        remap(value)
+            elif isinstance(node, list):
+                for item in node:
+                    remap(item)
+
+        for material in materials:
+            remap(material)
+
+    images = document.get("images", [])
+    used_images = set()
+    for texture in textures:
+        source = texture.get("source")
+        if isinstance(source, int):
+            used_images.add(source)
+        for extension in texture.get("extensions", {}).values():
+            if isinstance(extension, dict) and isinstance(extension.get("source"), int):
+                used_images.add(extension["source"])
+    kept_images = sorted(index for index in used_images if 0 <= index < len(images))
+    dropped_count = len(images) - len(kept_images)
+    if dropped_count:
+        after_image = {old: new for new, old in enumerate(kept_images)}
+        orphans = {images[i]["bufferView"] for i in range(len(images))
+                   if i not in kept_images and "bufferView" in images[i]}
+        document["images"] = images = [images[i] for i in kept_images]
+        for texture in textures:
+            if isinstance(texture.get("source"), int):
+                texture["source"] = after_image[texture["source"]]
+            for extension in texture.get("extensions", {}).values():
+                if isinstance(extension, dict) and isinstance(extension.get("source"), int):
+                    extension["source"] = after_image[extension["source"]]
+        drop_views(document, orphans)
+
+    samplers = document.get("samplers", [])
+    used_samplers = sorted({texture["sampler"] for texture in textures
+                            if isinstance(texture.get("sampler"), int)})
+    if len(used_samplers) != len(samplers):
+        after_sampler = {old: new for new, old in enumerate(used_samplers)}
+        document["samplers"] = [samplers[i] for i in used_samplers]
+        for texture in textures:
+            if isinstance(texture.get("sampler"), int):
+                texture["sampler"] = after_sampler[texture["sampler"]]
+    return dropped_count
+
+
 def encode(image, fmt: str, quality: int, max_size: int | None) -> tuple[bytes, str]:
     """Re-encode one image, optionally capping its longest side."""
     from PIL import Image
@@ -171,18 +317,28 @@ def compress(
     max_size: int | None = 2048,
     map_size: int | None = 1024,
     normal_size: int | None = 2048,
+    drop_surface_maps: bool = False,
+    roughness: float = 0.65,
 ) -> tuple[bytes, list[dict]]:
     """Re-encode every embedded image. Returns (glb_bytes, per-image report).
 
     A normal map holds the edges of every block and bevel, which is what lets a light mesh
-    look crisp, so it gets `normal_size` (None: the same cap as the other data maps)."""
+    look crisp, so it gets `normal_size` (None: the same cap as the other data maps).
+    `drop_surface_maps` removes the normal and metallic-roughness maps instead of resizing
+    them; the material is left flat and valid (`roughness` is the factor it keeps)."""
     from PIL import Image
 
     document, binary = parse_glb(data)
+    if not document.get("images") or not document.get("bufferViews"):
+        return data, []
+
+    dropped = 0
+    if drop_surface_maps:
+        strip_surface_maps(document, roughness)
+        dropped = prune_unused(document)
+
     images = document.get("images", [])
     views = document.get("bufferViews", [])
-    if not images or not views:
-        return data, []
 
     data_images = data_texture_images(document)
     normal_images = normal_texture_images(document) if normal_size else set()
@@ -221,11 +377,12 @@ def compress(
             "skipped": False,
         })
 
-    if not replacements:
+    if not replacements and not dropped:
         return data, report
 
     # Rebuild the buffer so nothing is left orphaned: every view is copied in order,
-    # with the new image bytes substituted and offsets recomputed.
+    # with the new image bytes substituted and offsets recomputed. This is also what
+    # actually removes the bytes of a dropped map.
     rebuilt = bytearray()
     for view_index, view in enumerate(views):
         payload = replacements.get(view_index)
@@ -278,6 +435,15 @@ def main() -> int:
         help="Cap for the normal map, which carries the crisp edges of a light mesh and is "
              "worth more than the other data maps (0: the same cap as --map-size)",
     )
+    parser.add_argument(
+        "--drop-surface-maps", action="store_true",
+        help="Remove the normal and metallic-roughness maps instead of resizing them: flat "
+             "and matte, and smaller. The material keeps the base colour and --roughness",
+    )
+    parser.add_argument(
+        "--roughness", type=float, default=0.65,
+        help="The fixed roughness a dropped surface map leaves behind (--drop-surface-maps)",
+    )
     args = parser.parse_args()
 
     data = args.asset.read_bytes()
@@ -289,6 +455,8 @@ def main() -> int:
         max_size=args.max_size or None,
         map_size=args.map_size or None,
         normal_size=args.normal_size or None,
+        drop_surface_maps=args.drop_surface_maps,
+        roughness=args.roughness,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(out)
@@ -301,6 +469,8 @@ def main() -> int:
             f"  image {row['image']} [{row['kind']}] {where}"
             f"{row['before'] / 1048576:.2f} -> {row['after'] / 1048576:.2f} MB{note}"
         )
+    if args.drop_surface_maps:
+        print("  surface maps dropped: normal and metallic-roughness are gone, flat and matte")
     print(
         f"{args.asset.name}: {len(data) / 1048576:.1f} MB -> "
         f"{len(out) / 1048576:.1f} MB ({100 * len(out) / len(data):.0f}%)"

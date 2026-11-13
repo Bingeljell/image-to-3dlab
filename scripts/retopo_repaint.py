@@ -33,7 +33,11 @@ stage's face-count ceiling stops being reachable.
    repaint because the repaint re-unwraps: a map baked onto the retopo's UVs would land
    in the wrong place. Seconds, not minutes.
 4. **Compress** (`compress_glb_textures.py`). The paint stage emits two uncompressed
-   4096² PNGs, which is 30 MB of a 32 MB asset.
+   4096² PNGs, which is 30 MB of a 32 MB asset. `--texture-size` is the game budget: it
+   caps the colour and normal maps, and metal-roughness at 1024 so a default finish keeps
+   the size it always had. `--drop-surface-maps` goes further and leaves the model flat and
+   matte (no normal, no metallic-roughness), for a phone budget or an art style that wants
+   neither.
 
 **Surface response is per-asset and this does not guess it.** The retopology stage bakes
 only base colour, so `--metallic/--roughness/--ior` stand in for the source's material
@@ -90,17 +94,34 @@ def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: in
         return None
 
 
-def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool) -> bool:
+# Below this many faces Pixal3D's own clean-up tears thin parts (a crane's lattice, a hook)
+# and leaves holes, where the classic route stays clean; at 20k the two are about equal (#244).
+NATIVE_MIN_FACES = 10_000
+# Which clean-up Finish uses: "auto" picks by face count, the other two force one route.
+# "fast" is Pixal3D's clean-up (shrinks the mesh as it is, keeps its texture); "rebuild" is the
+# classic route (a sealed new surface, shrunk and re-baked), which keeps thin parts whole.
+CLEANUPS = ("auto", "fast", "rebuild")
+
+
+def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool,
+                 faces: int = NATIVE_MIN_FACES, cleanup: str = "auto") -> bool:
     """Whether this run takes Pixal3D's own clean-up instead of the classic retopology.
 
     Needs the run's dump and a post-replay build. Full detail keeps the generator's mesh,
-    so there is nothing to clean up again.
+    so there is nothing to clean up again. On "auto", a game budget under NATIVE_MIN_FACES
+    takes the classic route, which keeps thin parts whole at low face counts; "fast"
+    asks for Pixal3D's route at any count, "rebuild" never takes it.
     """
-    return native_dump is not None and not keep_mesh and replay_available
+    if cleanup not in CLEANUPS:
+        raise ValueError(f"cleanup is one of {', '.join(CLEANUPS)}, got {cleanup!r}")
+    if cleanup == "rebuild" or native_dump is None or keep_mesh or not replay_available:
+        return False
+    return cleanup == "fast" or faces >= NATIVE_MIN_FACES
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
-               photo: bool = False, keep_mesh: bool = False, calm: bool = False) -> list[str]:
+               photo: bool = False, keep_mesh: bool = False, calm: bool = False,
+               drop_surface_maps: bool = False) -> list[str]:
     """The stages this run will execute, in order.
 
     Named separately from the running of them so a caller — the viewer's job API, say —
@@ -109,9 +130,12 @@ def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
     to repaint or bake detail onto, just Pixel Match and the texture squeeze.
     `calm` (High detail) smooths small bumps where the pictures paint, so it needs them.
     `orient` turns round triangles a picture camera sees from behind (needs the pictures too).
+    `drop_surface_maps` is done by the compress stage, so asking for it runs that stage even
+    when compression itself was skipped: a drop that silently did nothing would be a lie.
     """
+    squeezing = not skip_compress or drop_surface_maps
     if keep_mesh:
-        return (["photo"] if photo else []) + ([] if skip_compress else ["compress"])
+        return (["photo"] if photo else []) + (["compress"] if squeezing else [])
     stages = ["retopologise"]
     if calm and photo:
         stages.append("calm")
@@ -123,9 +147,32 @@ def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
         stages.append("photo")
     if not skip_bake:
         stages.append("bake")
-    if not skip_compress:
+    if squeezing:
         stages.append("compress")
     return stages
+
+
+#: What a game budget stops the metal-roughness map at. It is 1024 today under a 2048 colour
+#: map, so making every map equal the chosen size would double every finished file for detail
+#: nobody asked for. The chosen size is a cap, not a new floor.
+DATA_MAP_CAP = 1024
+
+
+def texture_arguments(texture_size: int, drop_surface_maps: bool = False,
+                      roughness: float = 0.65) -> dict[str, object]:
+    """How the compress stage is asked: one size for the pictures, and whether they go.
+
+    Extracted so a test can read it without a Blender run. The chosen size applies to the
+    colour and normal maps; the metal-roughness map is capped at `DATA_MAP_CAP`, so the
+    default file is the size it always was. At 512 every map is 512: the cap is above it.
+    """
+    return {
+        "max_size": texture_size,
+        "map_size": min(texture_size, DATA_MAP_CAP),
+        "normal_size": texture_size,
+        "drop_surface_maps": drop_surface_maps,
+        "roughness": roughness,
+    }
 
 
 def headless(blender: Path, script: str) -> list[str]:
@@ -305,6 +352,9 @@ def build_parser() -> argparse.ArgumentParser:
              "faces from the side (needs --views). Recommended for realistic humans",
     )
     parser.add_argument("--atlas", type=int, default=2048)
+    parser.add_argument("--height-m", type=float, default=None,
+                        help="finished height in metres, applied before rigging")
+    parser.add_argument("--upright", action="store_true", help="stand a single prop upright after painting")
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(
         "--voxel", type=float, default=0.004,
@@ -319,7 +369,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--paint-steps", type=int, default=15)
     parser.add_argument("--paint-tex", type=int, default=4096)
     parser.add_argument("--texture-size", type=int, default=2048,
-                        help="cap for colour textures in the compress stage")
+                        help="the game budget: cap for the colour and normal maps in the "
+                             "compress stage (metal-roughness stops at 1024, as it always did)")
+    parser.add_argument(
+        "--drop-surface-maps", action="store_true",
+        help="leave the finished model flat and matte: no normal or metallic-roughness map "
+             "(smaller, for a phone budget), just the colour atlas at --texture-size",
+    )
     parser.add_argument("--skip-paint", action="store_true",
                         help="stop after retopology, keeping the transferred texture")
     parser.add_argument("--skip-bake", action="store_true",
@@ -351,7 +407,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--native-dump", type=Path, default=None,
         help="Pixal3D's own clean-up input (<run>.post.bin, saved by pixal3d_generate.py): "
              "rerun Pixal3D's clean-up at --faces instead of retopologising. Cleaner on "
-             "every model tested. Falls back to the classic route when post-replay is missing",
+             "models at 10k faces and up; below that, and when post-replay is missing, the "
+             "classic route runs instead",
+    )
+    parser.add_argument(
+        "--cleanup", choices=CLEANUPS, default="auto",
+        help="how Finish shrinks a Pixal3D model: fast (shrinks it as it is, keeps its "
+             "texture), rebuild (a sealed new surface first, so thin parts don't tear), or auto "
+             "(rebuild below 10k faces, fast from 10k up)",
     )
     parser.add_argument(
         "--steps-dir", type=Path, default=None,
@@ -417,14 +480,16 @@ def main() -> int:
     args.faces = face_target(args)
     calm = args.detail == "high"
     stages = stage_plan(args.skip_paint, args.skip_compress, args.skip_bake,
-                        photo=args.views is not None, keep_mesh=args.keep_mesh, calm=calm)
+                        photo=args.views is not None, keep_mesh=args.keep_mesh, calm=calm,
+                        drop_surface_maps=args.drop_surface_maps)
     print(f"[retopo-repaint] {args.source.name} -> {args.output.name}: "
           f"{' -> '.join(stages)}", flush=True)
 
     started = time.time()
     timings: dict[str, float] = {}
 
-    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available())
+    native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available(),
+                          args.faces, args.cleanup)
     native_record = None
     retopo_glb = steps["retopo"]
     step = time.time()
@@ -545,7 +610,7 @@ def main() -> int:
         timings["bake"] = round(time.time() - step, 1)
         current = baked
 
-    if not args.skip_compress:
+    if not args.skip_compress or args.drop_surface_maps:
         sys.path.insert(0, str(SCRIPTS))
         import importlib.util
 
@@ -556,17 +621,31 @@ def main() -> int:
         spec.loader.exec_module(compress_module)
 
         step = time.time()
-        emit_stage("compress", f"Compressing textures to {args.texture_size}px")
+        what = f"Compressing textures to {args.texture_size}px"
+        emit_stage("compress", what + (", surface maps dropped" if args.drop_surface_maps else ""))
         data = current.read_bytes()
-        out_bytes, report = compress_module.compress(data, max_size=args.texture_size)
+        out_bytes, report = compress_module.compress(
+            data, **texture_arguments(args.texture_size, args.drop_surface_maps, args.roughness))
         args.output.write_bytes(out_bytes)
         timings["compress"] = round(time.time() - step, 1)
         print(f"[compress] {len(data) / 1048576:.1f} -> "
               f"{len(out_bytes) / 1048576:.1f} MB", flush=True)
+        if args.drop_surface_maps:
+            print("[compress] surface maps dropped: flat and matte", flush=True)
     else:
         args.output.write_bytes(current.read_bytes())
         report = []
 
+    if args.upright:
+        upright = args.output.with_suffix(".upright.glb")
+        _run(headless(args.blender, "blender_upright.py") + [str(args.output), str(upright)],
+             args.output.with_suffix(".upright.log"), "upright")
+        upright.replace(args.output)
+
+    if args.height_m is not None:
+        from image_to_3dlab.real_height import set_height
+
+        args.output.write_bytes(set_height(args.output.read_bytes(), args.height_m))
     set_glb_generator(args.output)   # the finished file, after every export that touched it
     record = {
         "resumed": args.resume,
@@ -595,6 +674,10 @@ def main() -> int:
             "views": str(args.views), **(photo_record or {"reused": True}),
         },
         "textures": report,
+        "texture_budget": None if "compress" not in stages else {
+            "size": args.texture_size,
+            "surface_maps": "drop" if args.drop_surface_maps else "keep",
+        },
         "size_bytes": args.output.stat().st_size,
     }
     write_derived_sidecar(args.source, args.output, operation="finish", source_record=source_record,

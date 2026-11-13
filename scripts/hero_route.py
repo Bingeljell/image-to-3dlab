@@ -262,6 +262,24 @@ def finish_head(run: Run, raw: Path, picture: Path, clean: Path, head: Path, fac
         finish(run, clean, picture, views, head, faces, None)
 
 
+def compress_command(joined: Path, final: Path, texture_size: int = 2048,
+                     drop_surface_maps: bool = False) -> list[str]:
+    """The last squeeze: the chosen size for the pictures, and optionally no surface maps.
+
+    Extracted so a test can read it. A Hero Finish is still a Finish, so the studio's game
+    budget has to reach it or the control would silently do nothing on that route.
+    """
+    from retopo_repaint import DATA_MAP_CAP  # the one place the cap is decided
+
+    return [
+        PYTHON, COMPRESS, str(joined), str(final),
+        "--max-size", str(texture_size),
+        "--map-size", str(min(texture_size, DATA_MAP_CAP)),
+        "--normal-size", str(texture_size),
+        *(["--drop-surface-maps"] if drop_surface_maps else []),
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("picture", type=Path)
@@ -280,6 +298,13 @@ def main() -> int:
     parser.add_argument("--body-views", type=Path, default=None, help="that model's cameras (its .svviews folder)")
     parser.add_argument("--body-dump", type=Path, default=None, help="that model's clean-up dump (.post.bin)")
     parser.add_argument("--body-record", type=Path, default=None, help="that model's run record, for provenance")
+    parser.add_argument("--texture-size", type=int, default=2048,
+                        help="the game budget: longest side of every texture (colour, "
+                             "metallic-roughness, normal) in the final squeeze")
+    parser.add_argument(
+        "--drop-surface-maps", action="store_true",
+        help="leave the joined model flat and matte: no normal or metallic-roughness map",
+    )
     parser.add_argument("--result", type=Path, default=None, help="also copy the finished GLB here")
     args = parser.parse_args()
 
@@ -455,7 +480,7 @@ def main() -> int:
     if run.step("join", joined):
         run.run([autorig_api.venv_python(), BLENDER, "join", grafted, joined])
     if run.step("compress textures", final):
-        run.run([PYTHON, COMPRESS, joined, final])
+        run.run(compress_command(joined, final, args.texture_size, args.drop_surface_maps))
 
     # 7. check
     stage(run, "check", "Rendering the check sheet")

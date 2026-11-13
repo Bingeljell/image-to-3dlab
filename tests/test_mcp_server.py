@@ -424,12 +424,12 @@ def test_nudge_is_on_unless_asked_and_means_nothing_without_pixel_match():
 
 def test_nudge_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", advanced={"nudge": False})
-    assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True}
+    assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True, "upright": True}
 
 
 def test_edge_fade_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", finish_detail="full", advanced={"edge_fade": False})
-    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True}
+    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True, "upright": True}
 
 
 @pytest.mark.parametrize("detail", ["huge", "500", "999999"])
@@ -440,12 +440,19 @@ def test_unknown_finish_details_say_what_is_allowed(detail):
 
 def test_a_full_detail_finish_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", finish_detail="full")
-    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True}
+    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "upright": True}
 
 
 def test_no_finish_choice_leaves_finish_on_its_defaults(studio):
     ms.create(studio, want="prop", description="a barrel")
-    assert "finish_settings" not in sent(studio)
+    assert json.loads(sent(studio)["finish_settings"]) == {"upright": True}
+
+
+def test_upright_can_be_disabled_and_characters_default_off(studio):
+    ms.create(studio, want="prop", description="a barrel", advanced={"upright": False})
+    assert json.loads(sent(studio)["finish_settings"])["upright"] is False
+    ms.create(studio, want="character", description="a knight")
+    assert "upright" not in json.loads(sent(studio).get("finish_settings", "{}"))
 
 
 def test_full_detail_is_never_rigged(studio):
@@ -461,7 +468,7 @@ def test_finish_again_makes_a_new_version_at_another_detail(studio):
     ms.continue_asset(studio, asset_id=KNIGHT["id"], up_to="finished", again=True, finish_detail="full")
     form = sent(studio)
     assert json.loads(form["steps"]) == ["finished"]
-    assert json.loads(form["finish_settings"]) == {"keep_mesh": True}
+    assert json.loads(form["finish_settings"]) == {"keep_mesh": True, "height_m": 1.8}
     assert json.loads(form["made"])["model"] == "k/k.glb"
 
 
@@ -505,8 +512,8 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 # --------------------------------------------------------------------------- advanced knobs
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
-    assert set(out["advanced"]) == {"edge_fade", "nudge", "texture_size", "rig_from", "speed", "arms_away",
-                                    "in_place", "keep_everything"}
+    assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "surface_maps", "rig_from", "speed", "arms_away",
+                                    "in_place", "keep_everything", "height_m", "upright"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
 
@@ -517,9 +524,10 @@ def test_every_studio_control_has_an_mcp_twin():
     controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
-            "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
+            "edgefade": "edge_fade", "nudge": "nudge", "cleanup": "cleanup", "texture": "texture_size",
+            "surface": "surface_maps", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
-            "picengine": "picture_engine", "change": "back_change"}
+            "picengine": "picture_engine", "change": "back_change", "height": "height_m", "upright": "upright"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -540,15 +548,54 @@ def test_advanced_texture_speed_and_arms_travel_with_the_plan(studio):
     ms.create(studio, want="character", description="a knight",
               advanced={"texture_size": 4096, "speed": 1.5, "arms_away": 10, "keep_everything": True})
     form = sent(studio)
-    assert json.loads(form["finish_settings"]) == {"texture_size": 4096}
+    assert json.loads(form["finish_settings"]) == {"texture_size": 4096, "height_m": 1.8}
     assert json.loads(form["move_settings"]) == {"speed": 1.5, "arm_spread": 10}
     assert form["keep_everything"] == "1"
+
+
+def test_a_game_budget_travels_with_the_plan(studio):
+    """512 for the pictures, and a flat model for a phone: both reach Finish as settings."""
+    ms.create(studio, want="character", description="a knight",
+              advanced={"texture_size": 512, "surface_maps": False})
+    form = sent(studio)
+    finish = json.loads(form["finish_settings"])
+    assert finish["texture_size"] == 512 and finish["drop_surface_maps"] is True
+
+
+def test_keeping_the_surface_maps_adds_nothing(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"surface_maps": True})
+    assert "drop_surface_maps" not in json.loads(sent(studio).get("finish_settings", "{}"))
+
+
+def test_texture_size_takes_a_whole_budget_and_no_odd_counts(studio):
+    assert ms.ADVANCED["texture_size"]["choices"] == [512, 1024, 2048, 4096]
+
+
+def test_the_texture_size_knob_is_described_in_plain_words():
+    """AGENTS.md: shader words stay in code and docs, not in what an agent tells a user."""
+    what = ms.ADVANCED["texture_size"]["what"].lower()
+    assert "pictures" in what and "512" in what
+    assert not {"metallic", "roughness", "normal map", "albedo", "atlas"} & set(what.split())
+
+
+def test_surface_maps_is_on_by_default_and_explained():
+    spec = ms.ADVANCED["surface_maps"]
+    assert spec["default"] is True and spec["type"] == "bool"
+    assert "flat, matte" in spec["try_off_when"]
 
 
 def test_defaults_add_nothing_to_the_plan(studio):
     ms.create(studio, want="character", description="a knight", advanced={})
     form = sent(studio)
-    assert "finish_settings" not in form and "move_settings" not in form and "keep_everything" not in form
+    assert json.loads(form["finish_settings"]) == {"height_m": 1.8}
+    assert "move_settings" not in form and "keep_everything" not in form
+
+
+def test_prop_height_is_optional_and_can_be_set(studio):
+    ms.create(studio, want="prop", description="a barrel")
+    assert "height_m" not in json.loads(sent(studio).get("finish_settings", "{}"))
+    ms.create(studio, want="prop", description="a barrel", advanced={"height_m": 0.7})
+    assert json.loads(sent(studio)["finish_settings"])["height_m"] == 0.7
 
 
 def test_rig_from_the_raw_model_skips_finish(studio):
@@ -999,3 +1046,12 @@ def test_mcp_uploaded_model_can_finish_without_picture(tmp_path, studio):
     assert chain.status == "done", chain.error
     assert len(created) == 1
     assert (output / chain.made["finished"]).read_bytes() == b"finished"
+
+
+def test_the_cleanup_choice_travels_with_the_plan_unless_auto(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"cleanup": "rebuild"})
+    assert json.loads(sent(studio)["finish_settings"])["cleanup"] == "rebuild"
+    ms.create(studio, want="character", description="a knight", advanced={"cleanup": "auto"})
+    assert "cleanup" not in json.loads(sent(studio).get("finish_settings", "{}"))
+    with pytest.raises(ms.StudioError, match="cleanup is one of"):
+        ms.read_advanced({"cleanup": "quick"})

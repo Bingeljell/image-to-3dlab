@@ -929,3 +929,66 @@ def test_finish_preserves_source_license_through_rig_lookup(tmp_path, monkeypatc
     assert rig["license"] == source["license"]
     assert rig["source_record"]["source_record"]["model"] == source["model"]
     assert finish.find_source_record(job.result_glb.read_bytes(), tmp_path / "finish") is not None
+
+
+def test_the_cleanup_choice_reaches_the_worker_only_when_not_auto():
+    job = finish.FinishJob("0" * 32, Path("/tmp/fox__finish__20260921-122518"))
+    auto = finish.normalise_settings({})
+    assert auto["cleanup"] == "auto" and "--cleanup" not in finish.build_command(job, auto)
+    command = finish.build_command(job, finish.normalise_settings({"cleanup": "rebuild"}))
+    assert command[command.index("--cleanup") + 1] == "rebuild"
+
+
+def test_an_unknown_cleanup_is_refused_before_anything_runs():
+    with pytest.raises(ValueError, match="cleanup must be one of"):
+        finish.normalise_settings({"cleanup": "quick"})
+
+
+def test_upright_is_opt_in_at_the_finish_worker(tmp_path):
+    job = finish.FinishJob('prop', tmp_path)
+    defaults = finish.normalise_settings({})
+    assert defaults['upright'] is False
+    assert '--upright' not in finish.build_command(job, defaults)
+    assert '--upright' in finish.build_command(job, finish.normalise_settings({'upright': True}))
+
+
+# --- the game budget: one size for the pictures, and dropping the surface maps (#239) -------
+
+def test_512_is_a_texture_size_and_it_is_the_default_to_keep_surface_maps():
+    assert finish.normalise_settings({"texture_size": 512})["texture_size"] == 512
+    assert finish.normalise_settings({})["drop_surface_maps"] is False
+
+
+def test_dropping_the_surface_maps_is_a_flag_and_only_when_asked():
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    kept = finish.build_command(job, finish.normalise_settings({}))
+    assert "--drop-surface-maps" not in kept
+    dropped = finish.build_command(job, finish.normalise_settings({"drop_surface_maps": True}))
+    assert "--drop-surface-maps" in dropped
+
+
+def test_keeping_the_surface_maps_stays_false_rather_than_becoming_a_number():
+    """A skin carries the whole settings dict, false included: it must not turn into a flag."""
+    settings = finish.normalise_settings({"drop_surface_maps": False})
+    assert settings["drop_surface_maps"] is False
+    assert finish.build_command(finish.FinishJob("0" * 32, Path("/tmp/job")),
+                                settings).count("--drop-surface-maps") == 0
+
+
+def test_the_hero_route_gets_the_texture_budget_too():
+    """Hero is one of the detail levels on the same panel, so a drop there must apply."""
+    job = finish.FinishJob("0" * 32, Path("/tmp/finish-job"))
+    settings = finish.normalise_settings({"faces": 32000, "texture_size": 512,
+                                          "drop_surface_maps": True})
+    command = finish.hero_command(job, settings)
+    assert command[command.index("--texture-size") + 1] == "512"
+    assert "--drop-surface-maps" in command
+
+
+def test_the_progress_bar_lists_the_compress_stage_a_drop_needs(monkeypatch):
+    """A drop with compression skipped still squeezes the file, so the bar must show it."""
+    settings = finish.normalise_settings({"skip_compress": True, "drop_surface_maps": True})
+    plan = finish.worker_module().stage_plan(
+        settings["skip_paint"], settings["skip_compress"], settings["skip_bake"],
+        drop_surface_maps=settings["drop_surface_maps"])
+    assert "compress" in plan and plan[-1] == "compress"

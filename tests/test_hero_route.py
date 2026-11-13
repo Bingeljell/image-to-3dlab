@@ -220,3 +220,31 @@ def test_a_long_step_passes_on_a_line_now_and_then(capsys, tmp_path, monkeypatch
     monkeypatch.setattr(hero_route, "ECHO_SECONDS", 0)
     hero_route.Run(tmp_path).run([sys.executable, "-u", "-c", "print('[2/6] SS flow')"])
     assert any(line.endswith("[2/6] SS flow") for line in capsys.readouterr().out.splitlines())
+
+
+def test_the_hero_squeeze_takes_the_studios_game_budget():
+    """A Hero Finish is still a Finish: 512 there must mean 512 for its maps."""
+    from pathlib import Path
+
+    command = hero_route.compress_command(Path("joined.glb"), Path("hero.glb"), 512, True)
+    assert command[command.index("--max-size") + 1] == "512"
+    assert command[command.index("--map-size") + 1] == "512"
+    assert command[command.index("--normal-size") + 1] == "512"
+    assert "--drop-surface-maps" in command
+
+
+def test_the_hero_squeeze_stops_the_metal_map_at_the_same_cap():
+    """One rule for both routes: a 2048 Hero finish must be the size it always was."""
+    from pathlib import Path
+
+    command = hero_route.compress_command(Path("joined.glb"), Path("hero.glb"), 2048)
+    assert command[command.index("--max-size") + 1] == "2048"
+    assert command[command.index("--map-size") + 1] == "1024"
+    assert command[command.index("--normal-size") + 1] == "2048"
+
+
+def test_a_hero_run_keeping_its_surface_maps_is_not_asked_to_drop_them():
+    from pathlib import Path
+
+    command = hero_route.compress_command(Path("joined.glb"), Path("hero.glb"))
+    assert "--drop-surface-maps" not in command

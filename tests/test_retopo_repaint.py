@@ -288,6 +288,17 @@ def test_the_pixal3d_route_needs_a_dump_and_post_replay(dump, keep_mesh, availab
     assert rr.finish_route(dump, keep_mesh, available) is expected
 
 
+@pytest.mark.parametrize("faces, expected", [
+    (5_000, False),   # a mobile budget: Pixal3D's clean-up tore the crane's lattice here (#244)
+    (8_000, False),
+    (9_999, False),
+    (10_000, True),
+    (20_000, True),   # game detail: the two routes come out about equal
+])
+def test_low_face_budgets_take_the_classic_route(faces, expected):
+    assert rr.finish_route(Path("run.post.bin"), False, True, faces) is expected
+
+
 def test_the_dump_is_a_required_input_when_given(tmp_path):
     args = rr.build_parser().parse_args(
         ["in.glb", "in.png", "out.glb", "--skip-paint", "--native-dump", "run.post.bin"])
@@ -439,3 +450,72 @@ def test_worker_rejects_malformed_explicit_record_before_work(tmp_path, monkeypa
                                     "--source-record", str(record), "--skip-paint"])
     with pytest.raises(ValueError, match="licence record"):
         rr.main()
+
+
+@pytest.mark.parametrize("cleanup, faces, expected", [
+    ("rebuild", 20_000, False),   # forced rebuild, even where fast would be picked
+    ("fast", 5_000, True),        # forced fast, even at a small budget
+    ("auto", 5_000, False),
+    ("auto", 20_000, True),
+])
+def test_the_cleanup_choice_overrides_the_face_count(cleanup, faces, expected):
+    assert rr.finish_route(Path("run.post.bin"), False, True, faces, cleanup) is expected
+
+
+@pytest.mark.parametrize("dump, keep_mesh, available", [
+    (None, False, True), (Path("run.post.bin"), True, True), (Path("run.post.bin"), False, False),
+])
+def test_forcing_pixal3d_still_needs_a_dump_and_post_replay(dump, keep_mesh, available):
+    assert rr.finish_route(dump, keep_mesh, available, 20_000, "fast") is False
+
+
+def test_an_unknown_cleanup_is_refused():
+    with pytest.raises(ValueError, match="cleanup"):
+        rr.finish_route(Path("run.post.bin"), False, True, 20_000, "quick")
+
+
+def test_the_worker_takes_the_cleanup_flag():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb"]).cleanup == "auto"
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb", "--cleanup", "rebuild"]).cleanup == "rebuild"
+# --- the game budget: one size for the pictures, and dropping the surface maps (#239) -------
+
+@pytest.mark.parametrize("size, colour, normal, roughness_map", [
+    (512, 512, 512, 512),       # a phone budget: everything at 512, the cap is above it
+    (1024, 1024, 1024, 1024),
+    (2048, 2048, 2048, 1024),   # today's default file stays exactly the size it was
+    (4096, 4096, 4096, 1024),   # the cap is a cap, not a new floor
+])
+def test_one_chosen_size_reaches_the_maps_and_stops_at_the_metal_cap(size, colour, normal,
+                                                                    roughness_map):
+    """A 512 budget with a 2048 normal map is not a 512 budget; a 2048 budget must not
+    double the metal-roughness map every user has today either."""
+    arguments = rr.texture_arguments(size)
+    assert arguments["max_size"] == colour
+    assert arguments["normal_size"] == normal
+    assert arguments["map_size"] == roughness_map
+
+
+def test_dropping_the_surface_maps_and_the_roughness_that_replaces_them_are_passed_on():
+    arguments = rr.texture_arguments(1024, drop_surface_maps=True, roughness=0.4)
+    assert arguments["drop_surface_maps"] is True
+    assert arguments["roughness"] == 0.4
+    assert arguments["map_size"] == arguments["normal_size"] == 1024
+
+
+def test_the_worker_takes_the_size_and_the_drop_as_flags():
+    parser = rr.build_parser()
+    plain = parser.parse_args(["a.glb", "i.png", "o.glb"])
+    assert plain.texture_size == 2048 and plain.drop_surface_maps is False
+    asked = parser.parse_args(["a.glb", "i.png", "o.glb", "--texture-size", "512",
+                               "--drop-surface-maps"])
+    assert asked.texture_size == 512 and asked.drop_surface_maps is True
+
+
+def test_dropping_runs_the_compress_stage_even_when_compression_was_skipped():
+    """A drop that quietly did nothing would be a worse answer than a slower run."""
+    assert rr.stage_plan(True, True, drop_surface_maps=True) == ["retopologise", "bake", "compress"]
+    assert rr.stage_plan(True, True) == ["retopologise", "bake"]
+
+
+def test_a_full_detail_model_also_gets_the_drop():
+    assert rr.stage_plan(True, True, keep_mesh=True, drop_surface_maps=True) == ["compress"]

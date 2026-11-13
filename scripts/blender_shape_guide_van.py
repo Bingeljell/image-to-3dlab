@@ -79,6 +79,8 @@ LIVERY = SPEC["livery"]
 if LIVERY == "plain":      # no ambulance markings: red and yellow become the body's white, the blue lights go dark
     C = dict(C, yellow=C["white"], red=C["white"], blue=C["dark"])
     EMIT = {"tail": EMIT["tail"]}
+    E_BLUE = None
+PLATE = "RTW 112" if LIVERY == "ambulance" else ""       # a plain van gets a blank number plate
 
 # ----------------------------------------------------------------------------
 # builder
@@ -972,7 +974,8 @@ def paint_box_rear(P):
     # lower valance + number plate
     P.rect(-1.2, 0.2, 1.2, 0.60, D_)
     P.rect(-0.27, 0.455, 0.27, 0.575, C['plate'])
-    P.text("RTW 112", 0.0, 0.515, 0.065, K_, bold=0.02)
+    if PLATE:
+        P.text(PLATE, 0.0, 0.515, 0.065, K_, bold=0.02)
 
 
 def paint_box_front(P):
@@ -1110,7 +1113,8 @@ def paint_vent_top(P):
 
 def paint_bumper_front(P):
     P.rect(-0.27, 0.36, 0.27, 0.475, C['plate'])
-    P.text("RTW 112", 0.0, 0.4175, 0.062, K_, bold=0.02)
+    if PLATE:
+        P.text(PLATE, 0.0, 0.4175, 0.062, K_, bold=0.02)
     P.rrect(-0.55, 0.275, 0.55, 0.33, 0.015, (0.02, 0.02, 0.02))
     for sx in (-1, 1):
         P.circle(sx * 0.63, 0.40, 0.05, (0.30, 0.31, 0.32))

@@ -80,9 +80,15 @@ PREBUILT_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
 # testing a skin end to end on the new commit.
 MAC_COMMIT = "c89126d7c8daabcd7635c73bc826e33107bcd038"
 # Our own download of that commit (.github/workflows/pixal3d-nvidia.yml), not upstream's:
-# theirs is compiled for 2016-17 cards only and lacks our patches (8 steps, and the clean-up
-# dump the Pixal3D Finish reruns) and post-replay. A pre-release on this repo.
-PREBUILT_RELEASE = "pixal3d-nvidia-c89126d-r1"
+# theirs is compiled for 2016-17 cards only and lacks our patches (8 steps, the clean-up
+# dump the Pixal3D Finish reruns, skins) and post-replay. A pre-release on this repo. `-r2`
+# adds the post-replay header fix without which the Windows Finish always fell back to the
+# classic route (issue #192).
+PREBUILT_RELEASE = "pixal3d-nvidia-c89126d-r2"
+# Which release a build directory came from, written beside the binaries at install. A
+# prebuilt install from before this file existed cannot be told apart by version, so it
+# counts as stale and is swapped for the pinned one (build_stale).
+RELEASE_FILE = "PREBUILT_RELEASE"
 RELEASE_API = "https://api.github.com/repos/Bingeljell/image-to-3dlab/releases/tags/{tag}"
 
 # CUDA 12 rather than upstream's unversioned CUDA build (which is newer): CUDA 12 runs on
@@ -95,10 +101,12 @@ PREBUILTS = {
     "linux-nvidia": ("pixal3d-cuda12-linux-x64.tar.gz", "~910 MB"),
     "windows-nvidia": ("pixal3d-cuda12-windows-x64.zip", "~880 MB"),
 }
-# From the workflow run's log. A download that does not match is deleted, never unpacked.
+# From the workflow run's log ("sha256: ..."), pasted in after a release is built. A
+# download that does not match is deleted, never unpacked. Empty means nobody has pasted
+# the digest for the pinned release yet, and verify_download refuses rather than trusting it.
 PREBUILT_SHA256 = {
-    "pixal3d-cuda12-linux-x64.tar.gz": "ca59ac8ca42c5c3597c23ada69082c7e1ed57a860dd2f4ab7dbaefbc4510e315",
-    "pixal3d-cuda12-windows-x64.zip": "ecd0f9320384c6bedbbd774277a86beb8885e3afa5a13250687d025e53102175",
+    "pixal3d-cuda12-linux-x64.tar.gz": "",
+    "pixal3d-cuda12-windows-x64.zip": "",
 }
 
 # What the "Building (...)" line says, so a compile that runs for 20 minutes names the
@@ -264,12 +272,50 @@ def build_present() -> bool:
     return cli_path().exists()
 
 
-def build_stale(build: Path = BUILD) -> bool:
-    """An install from before our own download: upstream's prebuilt never had post-replay."""
-    return not host.executable(build, "post-replay").exists()
+def installed_release(build: Path | None = None) -> str | None:
+    """Which prebuilt release this build directory came from; None for a source build, or
+    for a download from before the install started recording it."""
+    path = (build or BUILD) / RELEASE_FILE
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8").strip() or None
+
+
+def record_release(build: Path | None = None, release: str = PREBUILT_RELEASE) -> None:
+    ((build or BUILD) / RELEASE_FILE).write_text(release + "\n", encoding="utf-8")
+
+
+def build_stale(build: Path | None = None) -> bool:
+    """An installed build that is not the prebuilt this repo pins.
+
+    Three cases, in order. No post-replay at all is upstream's old download, which lacks
+    every patch, so it goes on any OS. No recorded release is ours from before we recorded
+    one (r1) — unless the source tree is still beside the build, which means it was compiled
+    here and must not be swapped for a download. r1 is only broken on Windows, where MSVC
+    runs `fread(...)+fread(...)` right to left and reads the dump header backwards (issue
+    #192); GCC and Clang build the same code correctly, so a Linux r1 works and is left
+    alone rather than made to download 910 MB for nothing. Anything else compares releases.
+    """
+    build = build or BUILD
+    if not host.executable(build, "post-replay").exists():
+        return True
+    recorded = installed_release(build)
+    if recorded is None:
+        if (build.parent / "CMakeLists.txt").is_file():
+            return False
+        return host.os_family() == "windows"
+    return recorded != PREBUILT_RELEASE
 
 
 def verify_download(archive: Path, expected: str) -> None:
+    if not expected:
+        archive.unlink(missing_ok=True)
+        raise SystemExit(
+            f"{archive.name} has no recorded checksum for {PREBUILT_RELEASE}; deleted it "
+            "rather than unpack a download nobody checked. Build that release with "
+            ".github/workflows/pixal3d-nvidia.yml (Actions -> Pixal3D NVIDIA build) and paste "
+            "the sha256 it prints into PREBUILT_SHA256 in this script."
+        )
     digest = hashlib.sha256()
     with archive.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
@@ -333,7 +379,8 @@ def install_prebuilt(key: str) -> Path:
         cli = unpack_prebuilt(archive, BUILD)
     finally:
         archive.unlink(missing_ok=True)
-    print(f"Installed {cli}")
+    record_release()
+    print(f"Installed {cli} ({PREBUILT_RELEASE})")
     return cli
 
 
@@ -683,8 +730,9 @@ def build_decision(present: bool, rebuild: bool, kind: str, stale: bool = False)
     An existing build is normally left alone. `--rebuild` recompiles a source build so it
     picks up this repo's patches (the 8-step default needs scripts/patch_pixal3d_steps.py
     compiled in); only the changed files rebuild, so it takes minutes and fetches no
-    models. A prebuilt download has no source to patch, so it says so instead; upstream's
-    old one (`stale`) is swapped for ours, which has the patches.
+    models. A prebuilt download has no source to patch, so it says so instead; one older
+    than the pinned release (`stale`: upstream's, or ours before r2) is swapped by a plain
+    install, which is the only way a Windows install picks up the post-replay fix.
     """
     if not present or (kind == "prebuilt" and stale):
         return "install"

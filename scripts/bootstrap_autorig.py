@@ -69,8 +69,12 @@ CHECKPOINTS = (
 )
 WEIGHT_BYTES = sum(c.bytes for c in CHECKPOINTS)
 TORCH = ("torch", "torchvision")
+# diffusers 0.43.0 (2026-11-12) removed `diffusers.models.normalization.LayerNorm`, which
+# SkinTokens imports at start-up, so every Rig failed on a fresh install. Upstream asks for
+# `diffusers>=0.35.0` with no ceiling; this holds it below the release that broke it.
+DIFFUSERS_PIN = "diffusers<0.43"
 # Upstream's requirements.txt uses scipy without listing it.
-EXTRA_PACKAGES = ("scipy",)
+EXTRA_PACKAGES = ("scipy", DIFFUSERS_PIN)
 
 
 def venv_python(root: Path = VENDOR) -> Path:

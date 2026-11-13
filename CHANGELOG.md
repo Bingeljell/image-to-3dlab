@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The prompt guide now suggests eye-level pictures or prop sheets for upright props.
 
 ### Fixed
+- Rig works again on new installs. A library it uses (diffusers 0.43, out 12 Nov) broke
+  it at start-up; setup now holds it at the last good version, and an install that already
+  has the broken one is fixed the next time you rig.
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up
   there, since Pixal3D's own tore lattices, dropped small parts and left holes at small game
   budgets.

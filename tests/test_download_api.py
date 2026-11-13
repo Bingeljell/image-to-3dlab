@@ -14,6 +14,7 @@ from pathlib import Path
 # Plain import for the same reason `test_backend_catalog.py` uses one: `generate_api`
 # imports `download_api`, so a hand-loaded second copy leaves the two holding different
 # objects and a patch here never reaches the code being tested.
+import bootstrap_pixal3d as boot
 import download_api as dl
 import pytest
 
@@ -396,10 +397,11 @@ def test_a_build_from_before_skins_is_offered_a_rebuild(tmp_path):
 
 
 def test_nothing_installed_or_a_prebuilt_is_never_offered_a_rebuild(tmp_path):
-    """No binary is Set up's job; no source means a prebuilt, which cannot be patched."""
+    """No binary is Set up's job; a prebuilt of the pinned release has nothing to rebuild."""
     source, cli = _pixal3d_tree(tmp_path, patched=False, cli_newer=True)
     assert dl.rebuild_reason("pixal3d", source, tmp_path / "missing") is None
     (tmp_path / "post-replay").write_text("binary")   # our own prebuilt: nothing to patch
+    boot.record_release(tmp_path)     # ...of the pinned release
     assert dl.rebuild_reason("pixal3d", tmp_path / "missing", cli) is None
 
 
@@ -409,11 +411,41 @@ def test_upstreams_old_nvidia_download_is_offered_ours(tmp_path):
     cli = tmp_path / "trellis-cli"
     cli.write_text("binary")
     missing = tmp_path / "missing.cpp"
-    assert "new Finish" in dl.rebuild_reason("pixal3d", missing, cli)
+    assert "older download" in dl.rebuild_reason("pixal3d", missing, cli)
     assert dl.rebuild_download("pixal3d", missing, cli) == dl.NEW_BUILD_SIZE
     (tmp_path / "post-replay").write_text("binary")
+    boot.record_release(tmp_path)
     assert dl.rebuild_reason("pixal3d", missing, cli) is None
     assert dl.rebuild_download("pixal3d", missing, cli) is None
+
+
+def test_an_r1_download_is_offered_r2_on_windows_only(tmp_path, monkeypatch):
+    """r1 has post-replay but no record of its release, and it is only broken on Windows:
+    MSVC reads the header right to left, GCC does not, so a Linux r1 works and must not be
+    made to download 910 MB (#192)."""
+    cli = tmp_path / "trellis-cli"
+    cli.write_text("binary")
+    missing = tmp_path / "missing.cpp"
+
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: "linux")
+    boot.host.executable(tmp_path, "post-replay").write_text("binary")
+    assert dl.rebuild_download("pixal3d", missing, cli) is None   # works: leave it alone
+
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: "windows")
+    boot.host.executable(tmp_path, "post-replay").write_text("binary")
+    assert dl.rebuild_download("pixal3d", missing, cli) == dl.NEW_BUILD_SIZE
+    assert "Windows clean-up fix" in dl.rebuild_reason("pixal3d", missing, cli)
+
+
+def test_a_compiled_build_is_never_swapped_for_a_download(tmp_path):
+    """A source tree beside the build means it was compiled here; no release marker is
+    expected of it."""
+    cli = tmp_path / "build" / "trellis-cli"
+    cli.parent.mkdir()
+    cli.write_text("binary")
+    (cli.parent / "post-replay").write_text("binary")
+    (tmp_path / "CMakeLists.txt").write_text("project(pixal3d)")
+    assert dl.rebuild_download("pixal3d", tmp_path / "missing.cpp", cli) is None
 
 
 def test_a_source_rebuild_downloads_nothing(tmp_path):

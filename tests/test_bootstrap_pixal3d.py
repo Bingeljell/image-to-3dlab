@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import shutil
 import tarfile
 import types
 import zipfile
@@ -121,9 +123,22 @@ def test_the_nvidia_download_can_take_skins_like_the_mac_build():
     assert boot.PREBUILT_COMMIT[:7] in boot.PREBUILT_RELEASE
 
 
-def test_every_prebuilt_has_a_pinned_checksum():
+def test_every_prebuilt_has_a_checksum_or_a_refusal():
+    """A pinned release with no pasted digest must refuse to unpack, not trust the download.
+
+    The digests come from the workflow run's log, so they are empty in the commit that bumps
+    the release; `-r2` is exactly that state until its build is made.
+    """
     assert set(boot.PREBUILT_SHA256) == {name for name, _ in boot.PREBUILTS.values()}
-    assert all(len(h) == 64 for h in boot.PREBUILT_SHA256.values())
+    assert all(len(h) in (0, 64) for h in boot.PREBUILT_SHA256.values())
+
+
+def test_a_download_with_no_recorded_checksum_is_refused_and_removed(tmp_path):
+    archive = tmp_path / "a.tar.gz"
+    archive.write_bytes(b"built by nobody we can check")
+    with pytest.raises(SystemExit, match="no recorded checksum"):
+        boot.verify_download(archive, "")
+    assert not archive.exists()
 
 
 def test_a_download_with_the_wrong_checksum_is_refused_and_removed(tmp_path):
@@ -184,6 +199,43 @@ def test_an_archive_without_the_cli_is_an_error_not_a_silent_success(tmp_path, m
     _tarball(archive, {"./README": b"x"}, {})
     with pytest.raises(SystemExit, match="no trellis-cli"):
         boot.unpack_prebuilt(archive, tmp_path / "build")
+
+
+def test_an_install_records_the_release_it_came_from(tmp_path, monkeypatch):
+    """The marker is what lets setup tell r1 from r2 and swap an old download (#192)."""
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: "linux")
+    monkeypatch.setattr(boot, "VENDOR", tmp_path)
+    monkeypatch.setattr(boot, "BUILD", tmp_path / "build")
+    archive = tmp_path / "made" / boot.PREBUILTS["linux-nvidia"][0]
+    archive.parent.mkdir()
+    _tarball(archive, {"./trellis-cli": b"x", "./post-replay": b"x"}, {})
+
+    class Release:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def read(self):
+            return json.dumps(self.payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def urlopen(url, timeout=None):
+        return Release({"assets": [{"name": archive.name,
+                                    "browser_download_url": f"file://{archive}",
+                                    "size": archive.stat().st_size}]})
+
+    monkeypatch.setattr(boot.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(boot.urllib.request, "urlretrieve",
+                        lambda url, destination: shutil.copy2(archive, destination))
+    monkeypatch.setattr(boot, "verify_download", lambda archive, expected: None)
+    boot.install_prebuilt("linux-nvidia")
+
+    assert boot.installed_release(tmp_path / "build") == boot.PREBUILT_RELEASE
+    assert boot.build_stale(tmp_path / "build") is False
 
 
 def test_matting_model_is_moved_flat_where_trellis_cli_looks(tmp_path):
@@ -534,12 +586,58 @@ def test_upstreams_old_prebuilt_is_replaced_with_ours(rebuild):
     assert boot.build_decision(True, rebuild, "prebuilt", stale=True) == "install"
 
 
-def test_a_build_without_post_replay_is_stale(tmp_path, monkeypatch):
-    monkeypatch.setattr(boot.host, "os_family", lambda *a: "linux")
+@pytest.mark.parametrize("family", ["windows", "linux", "macos"])
+def test_a_build_without_post_replay_is_stale(tmp_path, monkeypatch, family):
+    """Upstream's NVIDIA download never had the tool, so setup swaps in ours on any OS."""
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: family)
     (tmp_path / "trellis-cli").write_text("x")
     assert boot.build_stale(tmp_path) is True
-    (tmp_path / "post-replay").write_text("x")
+
+
+@pytest.mark.parametrize("family, stale", [
+    ("windows", True),   # MSVC reads `fread(...)+fread(...)` right to left: the r1 bug
+    ("linux", False),    # GCC reads it left to right, so a Linux r1 works: no 910 MB download
+    ("macos", False),
+])
+def test_an_unrecorded_download_is_stale_on_windows_only(tmp_path, monkeypatch, family, stale):
+    """r1 has post-replay, so "no post-replay" alone left every Windows install on a
+    `post-replay` that exits 1 silently (issue #192, Ahnyth's last comment). Linux is fine,
+    and making it re-download a working build would be a lie about what it fixes."""
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: family)
+    (tmp_path / "trellis-cli").write_text("x")
+    boot.host.executable(tmp_path, "post-replay").write_text("x")   # .exe on Windows
+    assert boot.build_stale(tmp_path) is stale
+
+
+@pytest.mark.parametrize("family", ["windows", "linux"])
+def test_a_source_build_beside_its_tree_is_not_swapped_for_a_download(tmp_path, monkeypatch,
+                                                                     family):
+    """A compile here leaves vendor/pixal3d-cpp/CMakeLists.txt; it must not be replaced by
+    the prebuilt just because nobody wrote a release marker, on Windows too."""
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: family)
+    build = tmp_path / "build"
+    build.mkdir()
+    boot.host.executable(build, "post-replay").write_text("x")
+    (tmp_path / "CMakeLists.txt").write_text("project(pixal3d)")
+    assert boot.build_stale(build) is False
+
+
+@pytest.mark.parametrize("family", ["windows", "linux"])
+def test_a_recorded_release_is_stale_only_when_the_pin_moves(tmp_path, monkeypatch, family):
+    """Once a build records its release, the pin moving applies everywhere: a later r3 is a
+    real update on Linux too."""
+    monkeypatch.setattr(boot.host, "os_family", lambda *a: family)
+    boot.host.executable(tmp_path, "post-replay").write_text("x")
+    boot.record_release(tmp_path)
+    assert boot.installed_release(tmp_path) == boot.PREBUILT_RELEASE
     assert boot.build_stale(tmp_path) is False
+    boot.record_release(tmp_path, "pixal3d-nvidia-c89126d-r1")
+    assert boot.build_stale(tmp_path) is True
+
+
+def test_the_pinned_release_is_a_newer_build_than_r1(tmp_path):
+    """r2 is the one whose post-replay reads its header in one call."""
+    assert boot.PREBUILT_RELEASE.endswith("-r2")
 
 
 def test_rebuild_reaches_the_build_decision(monkeypatch, capsys):

@@ -272,6 +272,50 @@ def ensure_port_patch(root: Path = SKINTOKENS) -> str | None:
         return f"note: SkinTokens keeps its fixed ports ({exc})"
 
 
+def installed_version(root: Path, package: str) -> str | None:
+    """A package's version in SkinTokens' venv, read from its install record, not imported.
+
+    Importing would mean starting that venv's Python; the `*.dist-info` folder name already
+    says it (`diffusers-0.43.0.dist-info`). Windows keeps site-packages in `Lib/`."""
+    venv = root / ".venv"
+    for site in (*venv.glob("lib/python*/site-packages"), venv / "Lib" / "site-packages"):
+        for record in site.glob(f"{package}-*.dist-info"):
+            return record.name[len(package) + 1:-len(".dist-info")]
+    return None
+
+
+def diffusers_too_new(version: str | None) -> bool:
+    """Whether this diffusers is one SkinTokens cannot start with (see DIFFUSERS_PIN)."""
+    if not version:
+        return False
+    parts = []
+    for piece in version.split(".")[:2]:
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) >= (0, 43)
+
+
+def ensure_diffusers(root: Path = SKINTOKENS, runner=subprocess.run, uv: str | None = None) -> str | None:
+    """Step a too-new diffusers back down before Rig starts; a note for the log, or None.
+
+    Installs made before the pin got whatever was newest, and 0.43 broke every Rig. This
+    is a small package, not model weights, and the same one setup now installs."""
+    version = installed_version(root, "diffusers")
+    if not diffusers_too_new(version):
+        return None
+    if str(REPO / "scripts") not in sys.path:
+        sys.path.insert(0, str(REPO / "scripts"))
+    import bootstrap_autorig
+
+    uv = uv or host.find_uv()
+    if uv is None:
+        return (f"note: diffusers {version} cannot run the auto-rig and uv was not found to "
+                "fix it. Set up the auto-rig again in Setup & Status.")
+    runner([uv, "pip", "install", "--python", str(venv_python(root)), bootstrap_autorig.DIFFUSERS_PIN],
+           check=True, capture_output=True)
+    return f"note: diffusers {version} cannot run the auto-rig; installed {bootstrap_autorig.DIFFUSERS_PIN} instead"
+
+
 def rig_commands(source: Path, result: Path) -> list[tuple[list[str], Path]]:
     """SkinTokens, then a skin-weight clean-up: it sometimes weights fingertips to a toe,
     which stretches them into spikes once the hand moves (scripts/clean_skin_weights.py)."""
@@ -564,6 +608,12 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         for command, cwd in job.commands:
             if job.kind == "rig" and Path(cwd) == SKINTOKENS:
                 note = ensure_port_patch(SKINTOKENS)
+                if note:
+                    job.append_log(note)
+                try:
+                    note = ensure_diffusers(SKINTOKENS)
+                except (OSError, subprocess.CalledProcessError) as exc:
+                    note = f"note: could not repair diffusers for the auto-rig ({exc})"
                 if note:
                     job.append_log(note)
             job.process = subprocess.Popen(

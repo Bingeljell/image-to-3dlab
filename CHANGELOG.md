@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The prompt guide now suggests eye-level pictures or prop sheets for upright props.
 
 ### Fixed
+- Rig works again on new installs. A library it uses (diffusers 0.43, out 12 Nov) broke
+  it at start-up; setup now holds it at the last good version, and an install that already
+  has the broken one is fixed the next time you rig.
 - Rig says what is wrong when the graphics card is older than it supports, instead of dying on
   a CUDA `no kernel image` traceback: "Your graphics card (NVIDIA Quadro P5000) is older than
   Rig supports: it needs an NVIDIA RTX 20-series or newer." The sentence reaches the studio and
@@ -34,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there, since Pixal3D's own tore lattices, dropped small parts and left holes at small game
   budgets.
 - Report a bug names an NVIDIA graphics card on Windows too, not just "Windows · AMD64".
+- The Pixal3D **Finish** works on Windows from the NVIDIA download again. Its clean-up tool
+  read the saved dump's header in an order Visual Studio gets backwards, then exited without
+  a word, so every Windows Finish quietly fell back to the classic route. The new download
+  fixes it, and Setup & Status swaps an older one for you. (Diagnosed by Ahnyth in #192.)
 - Walks, jogs, sneaks and strafes loop smoothly again: 0.5.9 could drop a frame where they
   repeat, which left a small hitch.
 - Crouch sneak no longer floats above the floor. A move whose feet never reach the floor is

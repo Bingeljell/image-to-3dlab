@@ -293,3 +293,10 @@ def test_an_old_card_is_told_its_name(monkeypatch):
     monkeypatch.setattr(ba.host, "compute_capability", lambda: "61")
     monkeypatch.setattr(ba.cuda_arch, "card_name", lambda: "NVIDIA Quadro P5000")
     assert "Quadro P5000" in ba.nvidia_problem()
+
+
+def test_setup_holds_diffusers_below_the_release_that_broke_rig(tmp_path):
+    # diffusers 0.43.0 removed the LayerNorm SkinTokens imports at start-up; upstream has no ceiling.
+    _, requirements = ba.pip_commands("uv", tmp_path / "python", tmp_path, None)
+    assert "diffusers<0.43" in requirements
+    assert requirements.index("diffusers<0.43") < requirements.index("-r")

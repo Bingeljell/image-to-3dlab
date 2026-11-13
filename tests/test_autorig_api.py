@@ -568,3 +568,45 @@ def test_the_check_asks_the_venvs_own_torch(monkeypatch):
                         lambda python, run=None: seen.append(python) or None)
     aa.card_problem(Path("/venv/python"))
     assert seen == [Path("/venv/python")]
+
+
+def _site(root, windows=False):
+    site = root / ".venv" / ("Lib" if windows else "lib/python3.11") / "site-packages"
+    site.mkdir(parents=True)
+    return site
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_the_installed_diffusers_is_read_from_its_record(tmp_path, windows):
+    (_site(tmp_path, windows) / "diffusers-0.43.0.dist-info").mkdir()
+    assert aa.installed_version(tmp_path, "diffusers") == "0.43.0"
+    assert aa.installed_version(tmp_path / "nothing", "diffusers") is None
+
+
+@pytest.mark.parametrize("version, broken", [
+    ("0.40.0", False), ("0.42.1", False), ("0.43.0", True), ("0.43.0rc1", True), ("0.44.2", True),
+    ("1.0.0", True), (None, False),
+])
+def test_diffusers_from_0_43_cannot_run_the_rig(version, broken):
+    assert aa.diffusers_too_new(version) is broken
+
+
+def test_a_too_new_diffusers_is_stepped_down_before_rig(tmp_path):
+    (_site(tmp_path) / "diffusers-0.43.0.dist-info").mkdir()
+    ran = []
+    note = aa.ensure_diffusers(tmp_path, runner=lambda cmd, **kw: ran.append(cmd), uv="/bin/uv")
+    assert ran and ran[0][:3] == ["/bin/uv", "pip", "install"] and ran[0][-1] == "diffusers<0.43"
+    assert "0.43.0" in note
+
+
+def test_a_good_diffusers_is_left_alone(tmp_path):
+    (_site(tmp_path) / "diffusers-0.42.1.dist-info").mkdir()
+    ran = []
+    assert aa.ensure_diffusers(tmp_path, runner=lambda cmd, **kw: ran.append(cmd), uv="/bin/uv") is None
+    assert ran == []
+
+
+def test_no_uv_says_how_to_fix_it_instead_of_crashing(tmp_path, monkeypatch):
+    (_site(tmp_path) / "diffusers-0.43.0.dist-info").mkdir()
+    monkeypatch.setattr(aa.host, "find_uv", lambda *a, **k: None)
+    assert "Setup & Status" in aa.ensure_diffusers(tmp_path, runner=lambda *a, **k: None)

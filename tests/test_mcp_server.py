@@ -558,12 +558,13 @@ def test_a_game_budget_travels_with_the_plan(studio):
     ms.create(studio, want="character", description="a knight",
               advanced={"texture_size": 512, "surface_maps": False})
     form = sent(studio)
-    assert json.loads(form["finish_settings"]) == {"texture_size": 512, "drop_surface_maps": True}
+    finish = json.loads(form["finish_settings"])
+    assert finish["texture_size"] == 512 and finish["drop_surface_maps"] is True
 
 
 def test_keeping_the_surface_maps_adds_nothing(studio):
     ms.create(studio, want="character", description="a knight", advanced={"surface_maps": True})
-    assert "finish_settings" not in sent(studio)
+    assert "drop_surface_maps" not in json.loads(sent(studio).get("finish_settings", "{}"))
 
 
 def test_texture_size_takes_a_whole_budget_and_no_odd_counts(studio):

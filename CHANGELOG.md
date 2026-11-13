@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A single prop can stand upright at Finish: it straightens a prop that leans because the
+  picture was taken from above. On by default for props; turn it off if it is meant to lean.
+
 ### Changed
 - The agent guide covers Windows: connect Claude Code and other agents with `lab.cmd`
   (tested on Windows 11), where it said Windows was not tested yet.
+- The prompt guide now suggests eye-level pictures or prop sheets for upright props.
 
 ### Fixed
 - Report a bug names an NVIDIA graphics card on Windows too, not just "Windows · AMD64".

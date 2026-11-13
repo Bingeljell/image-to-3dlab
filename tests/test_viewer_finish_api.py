@@ -929,3 +929,11 @@ def test_finish_preserves_source_license_through_rig_lookup(tmp_path, monkeypatc
     assert rig["license"] == source["license"]
     assert rig["source_record"]["source_record"]["model"] == source["model"]
     assert finish.find_source_record(job.result_glb.read_bytes(), tmp_path / "finish") is not None
+
+
+def test_upright_is_opt_in_at_the_finish_worker(tmp_path):
+    job = finish.FinishJob('prop', tmp_path)
+    defaults = finish.normalise_settings({})
+    assert defaults['upright'] is False
+    assert '--upright' not in finish.build_command(job, defaults)
+    assert '--upright' in finish.build_command(job, finish.normalise_settings({'upright': True}))

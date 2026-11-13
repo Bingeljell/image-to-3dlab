@@ -305,6 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
              "faces from the side (needs --views). Recommended for realistic humans",
     )
     parser.add_argument("--atlas", type=int, default=2048)
+    parser.add_argument("--upright", action="store_true", help="stand a single prop upright after painting")
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(
         "--voxel", type=float, default=0.004,
@@ -567,6 +568,11 @@ def main() -> int:
         args.output.write_bytes(current.read_bytes())
         report = []
 
+    if args.upright:
+        upright = args.output.with_suffix(".upright.glb")
+        _run(headless(args.blender, "blender_upright.py") + [str(args.output), str(upright)],
+             args.output.with_suffix(".upright.log"), "upright")
+        upright.replace(args.output)
     set_glb_generator(args.output)   # the finished file, after every export that touched it
     record = {
         "resumed": args.resume,

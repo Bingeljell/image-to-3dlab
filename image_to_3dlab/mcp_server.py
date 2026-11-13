@@ -335,6 +335,9 @@ def full_detail_refusal(steps: list[str], choices: dict[str, Any], asset: dict[s
 # The studio's Advanced knobs, for agents. `options` hands this to them as it is, and
 # `read_advanced` accepts exactly these keys; a test checks every studio control has a twin.
 ADVANCED: dict[str, dict[str, Any]] = {
+    "upright": {
+        "step": "finished", "type": "bool", "default": "on for props, off for characters",
+        "what": "Straightens a prop that leans because the picture was taken from above. Turn off if it is meant to lean."},
     "edge_fade": {
         "step": "finished", "type": "bool", "default": True,
         "what": "Pixel Match fades your picture out where one part sits in front of another (an ear in front of a head).",
@@ -719,6 +722,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     if adv["keep_everything"] and "model" in steps:
         form["keep_everything"] = "1"
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
+    if adv["upright"] is not None or want == "prop":
+        choices["upright"] = adv["upright"] if adv["upright"] is not None else True
     refused = full_detail_refusal(steps, choices)
     if refused:
         raise StudioError(refused)
@@ -766,6 +771,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         made.pop("finished", None)                      # the rig step then takes the raw model
         made.pop("rigged", None)
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
+    if adv["upright"] is not None or want == "prop":
+        choices["upright"] = adv["upright"] if adv["upright"] is not None else True
     refused = full_detail_refusal(steps, choices, {**asset, "finished": made.get("finished")})
     if refused:
         raise StudioError(refused)

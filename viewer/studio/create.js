@@ -117,7 +117,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     backFile: null, backPreview: null,
     engine: engines[0]?.id, firstMove: presets.find((p) => !p.take)?.id,
     pic: { size: 1024, steps: 8, newEachTime: true, seed: 42, touched: false }, keep: false, hero: false,
-    details: {},
+    details: {}, upright: true,
     picEngine: pictureEngines.find((e) => e.installed)?.id || null,   // listed in the order we suggest for this machine
     frontBack: Boolean(frontBack?.ready) };  // the best result by default, when it can run
   // size and steps follow the picture engine and whether the picture is the end product, until you set them
@@ -195,6 +195,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
       <div class="q"><span class="qn">3</span><b>Steps</b><span class="hint">click a step to stop there</span></div>
       <div class="path">${plan.map((s, i) => `${i ? '<span class="arr">→</span>' : ''}<button type="button" class="pstep${active.includes(s) ? '' : ' skip'}" data-stop="${s}">${STEP_LABELS[s]}</button>`).join('')}</div>
       ${heroChoice(state, active, pixal)}
+      ${active.includes('finished') && state.want === 'prop' ? `<label class="check"><input type="checkbox" data-k="upright" ${state.upright ? 'checked' : ''}><span>Stand upright <span class="hint">Straightens a prop that leans because the picture was taken from above. Turn off if it is meant to lean.</span></span></label>` : ''}
       ${active.includes('animated') ? `<label class="field">First move<select data-k="move">${presets.filter((p) => !p.take).map((p) => `<option value="${esc(p.id)}" ${p.id === state.firstMove ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` : ''}
       ${active.includes('picture') ? `<details class="adv" data-detail="picture" ${state.details.picture ? 'open' : ''}><summary>Advanced: picture settings</summary>
         <div class="picset">
@@ -272,6 +273,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
     }
     q('[data-k="recipe"]')?.addEventListener('change', (e) => { state.useRecipe = e.target.checked; });
     q('[data-k="move"]')?.addEventListener('change', (e) => { state.firstMove = e.target.value; });
+    q('[data-k="upright"]')?.addEventListener('change', (e) => { state.upright = e.target.checked; });
     q('[data-k="engine"]')?.addEventListener('change', (e) => { state.engine = e.target.value; render(); const d = sheet.querySelector('[data-k="keep"]')?.closest('details'); if (d) d.open = true; });
     q('[data-k="keep"]')?.addEventListener('change', (e) => { state.keep = e.target.checked; });
     q('[data-k="picengine"]')?.addEventListener('change', (e) => {
@@ -323,7 +325,7 @@ export function openCreate({ stage, recipes, engines, presets, frontBack = null,
         backFile,
         modelSeed: active.includes('model') ? freshSeed() : null,   // a new 3D try each time, like the picture
         keepEverything: active.includes('model') && state.keep,
-        finishSettings: heroWanted(state, active, state.engine === 'pixal3d') ? { faces: 32000, hero: true } : null });
+        finishSettings: state.want === 'prop' ? { upright: state.upright } : heroWanted(state, active, state.engine === 'pixal3d') ? { faces: 32000, hero: true } : null });
     };
     if (firstRender) text?.focus();
     if (!firstRender) sheet.scrollTop = scrollTop;

@@ -27,6 +27,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 
 | Script | What it does |
 |---|---|
+| `blender_upright.py` | Stand a single prop upright and centre its base, headless. |
 | `bootstrap_macos.sh` | Hand off to bootstrap_sf3d.py, which installs Stable Fast 3D and asks before fetching weights. |
 | `bootstrap_trellis_macos.sh` | Hand off to bootstrap_trellis_space_macos.py, the pinned Mac TRELLIS installer. |
 | `bootstrap_trellis_space_macos.py` | Bootstrap TRELLIS.2 on macOS from Microsoft's pinned Space source. |

@@ -5,7 +5,8 @@ Context Protocol, the standard way agents plug in tools). Your agent can make pi
 models and animated characters, look at the results, and open them in the studio for you.
 Everything still runs on your own machine.
 
-Works on Mac and Linux; Windows is not tested yet. Install AssetFurnace first
+Works on Mac, Linux and Windows (on Windows, tested with Claude Code: see
+[On Windows](#on-windows)). Install AssetFurnace first
 ([Install](../README.md#install)). The examples below assume the
 default folder, `~/image-to-3dlab`. Change the path if you installed somewhere else.
 
@@ -48,6 +49,22 @@ kimi mcp add --transport stdio assetfurnace -- ~/image-to-3dlab/lab mcp
 **Anything else** that reads the common JSON config (Claude Desktop, Cursor and many more):
 ```json
 { "mcpServers": { "assetfurnace": { "command": "/Users/you/image-to-3dlab/lab", "args": ["mcp"] } } }
+```
+
+### On Windows
+
+Use `lab.cmd`, with its full path, in place of `~/image-to-3dlab/lab`. For Claude Code, in
+PowerShell (`$HOME\image-to-3dlab` is where the Windows installer puts it):
+```powershell
+claude mcp add assetfurnace -- $HOME\image-to-3dlab\lab.cmd mcp
+```
+Then `claude mcp list` should say `assetfurnace: ... - Connected`. The same works from a plain
+Command Prompt with `%USERPROFILE%` in place of `$HOME`. Tested on Windows 11: Claude Code 2.1
+connects (added from Windows PowerShell 5.1), and the tools answer (`status`, `list_engines`).
+
+Other agents take the same command: `lab.cmd` with the argument `mcp`. In the JSON config:
+```json
+{ "mcpServers": { "assetfurnace": { "command": "C:\\Users\\you\\image-to-3dlab\\lab.cmd", "args": ["mcp"] } } }
 ```
 
 **Clients that want a web address** (for example Muse Code): run

@@ -69,6 +69,15 @@ BUS_12M = dict(
     radii=(0.30, 0.24, 0.36, 0.24),          # edge radii: across, up, along (front), along (rear)
     screen=(1.18, 8.5, 0.07),    # windscreen: rake starts at this height, rake in degrees, bow of the front
     rear_screen=(1.50, 3.0, 0.04),
+    wheel_radius=0.50,           # tyres 1.0 m across
+    axles=(3.25, -2.65),         # front, rear: front overhang 2.75 m, wheelbase 5.9 m
+    tyre_width=dict(F=0.30, R=0.60),         # single front tyres, twin rear tyres
+    door_opening=(0.34, 2.40),   # floor height at the doors .. top of the opening
+    doors=[(3.92, 5.22), (-0.10, 1.25), (-4.62, -3.32)],      # y0, y1 of doors 1, 2, 3 on the right side
+    glass=(1.30, 2.44),          # side glass, bottom .. top
+    band_rear={-1: -4.62, 1: -5.52},         # rear end of the black window band, left / right side
+    windows_left=[(3.92, 5.12), (2.52, 3.82), (1.12, 2.42), (-0.28, 1.02), (-1.68, -0.38), (-3.08, -1.78), (-4.48, -3.18)],
+    windows_right=[(2.52, 3.82), (1.37, 2.42), (-1.68, -0.22), (-3.08, -1.78), (-5.40, -4.74)],
 )
 SPEC = BUS_12M
 W = SPEC["half_width"]
@@ -83,25 +92,25 @@ YMID = (-2.0, 2.0)              # grid lines along the roof and the cantrail
 ZLF = [ZB, 0.60, 0.66, 0.90, Z_WS0, 2.44, 2.50, ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]            # front rows
 ZLR = [ZB, 0.58, 0.66, 0.92, 1.10, 1.42, 1.62, 2.46, ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]      # rear rows
 
-WHEEL_R = 0.50                  # tyres 1.0 m across
-YA_F, YA_R = 3.25, -2.65        # axles: front overhang 2.75 m, wheelbase 5.9 m
+WHEEL_R = SPEC["wheel_radius"]
+YA_F, YA_R = SPEC["axles"]
 XO = W - 0.035                  # outer face of the tyres
 RA, NA = 0.57, 18               # wheel arch radius, segments
 XWI = 0.60                      # inner end of the wheel wells
-WHEEL_W = dict(F=0.30, R=0.60)  # single front tyres, twin rear tyres
+WHEEL_W = SPEC["tyre_width"]
 
-ZD0, ZD1 = 0.34, 2.40           # door opening = floor height at the doors .. top
-DOORS = [(3.92, 5.22), (-0.10, 1.25), (-4.62, -3.32)]      # y0, y1 of doors 1, 2, 3 on the right side
+ZD0, ZD1 = SPEC["door_opening"]
+DOORS = SPEC["doors"]
 XDO, XDI = W - 0.05, W - 0.09   # door leaves: outer face (recessed 5 cm), inner face
 XDC = (XDO + XDI) / 2
 XI = W - 0.12                   # inner wall of the body = side walls of the interior
 ZF, ZC = ZD0, 2.50              # interior floor, ceiling
 YI0, YI1 = -5.30, 5.38          # interior rear / front wall
 
-WIN_Z0, WIN_Z1 = 1.30, 2.44     # side glass
-BAND_Y0 = {-1: -4.62, 1: -5.52}  # rear end of the black window band, left / right side
-WIN_L = [(3.92, 5.12), (2.52, 3.82), (1.12, 2.42), (-0.28, 1.02), (-1.68, -0.38), (-3.08, -1.78), (-4.48, -3.18)]
-WIN_R = [(2.52, 3.82), (1.37, 2.42), (-1.68, -0.22), (-3.08, -1.78), (-5.40, -4.74)]
+WIN_Z0, WIN_Z1 = SPEC["glass"]
+BAND_Y0 = SPEC["band_rear"]
+WIN_L = SPEC["windows_left"]
+WIN_R = SPEC["windows_right"]
 Y_SIDE0, Y_SIDE1 = YR + RYR + BOW_R, YF - RYF - BOW_F      # where the flat sides end (the yellow band stops there)
 
 PIVOTS = {"body": (0.0, 0.0, 0.0), "interior": (0.0, 0.0, 0.0)}

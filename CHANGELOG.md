@@ -12,10 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Models are centred on the floor before rigging.
 - Finish's Advanced panel (and the agent tools) can pick how a Pixal3D model is cut down to
   its face count: Fast, Rebuild (keeps thin parts from tearing), or Auto.
+- A single prop can stand upright at Finish: it straightens a prop that leans because the
+  picture was taken from above. On by default for props; turn it off if it is meant to lean.
 
 ### Changed
 - The agent guide covers Windows: connect Claude Code and other agents with `lab.cmd`
   (tested on Windows 11), where it said Windows was not tested yet.
+- The prompt guide now suggests eye-level pictures or prop sheets for upright props.
 
 ### Fixed
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up

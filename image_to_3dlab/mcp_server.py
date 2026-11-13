@@ -339,6 +339,9 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "step": "finished", "type": "float", "min": 0.01, "max": 100,
         "default": "1.8 for characters; unchanged for props",
         "what": "Height in metres, applied before rigging."},
+    "upright": {
+        "step": "finished", "type": "bool", "default": "on for props, off for characters",
+        "what": "Straightens a prop that leans because the picture was taken from above. Turn off if it is meant to lean."},
     "edge_fade": {
         "step": "finished", "type": "bool", "default": True,
         "what": "Pixel Match fades your picture out where one part sits in front of another (an ear in front of a head).",
@@ -734,6 +737,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
     if adv["height_m"] is not None or want == "character":
         choices["height_m"] = adv["height_m"] if adv["height_m"] is not None else 1.8
+    if adv["upright"] is not None or want == "prop":
+        choices["upright"] = adv["upright"] if adv["upright"] is not None else True
     refused = full_detail_refusal(steps, choices)
     if refused:
         raise StudioError(refused)
@@ -783,6 +788,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     choices, move_settings = plan_extras(adv, finish_detail, pixel_match)
     if adv["height_m"] is not None or want == "character":
         choices["height_m"] = adv["height_m"] if adv["height_m"] is not None else 1.8
+    if adv["upright"] is not None or want == "prop":
+        choices["upright"] = adv["upright"] if adv["upright"] is not None else True
     refused = full_detail_refusal(steps, choices, {**asset, "finished": made.get("finished")})
     if refused:
         raise StudioError(refused)

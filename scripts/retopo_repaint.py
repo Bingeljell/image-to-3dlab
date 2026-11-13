@@ -323,6 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--atlas", type=int, default=2048)
     parser.add_argument("--height-m", type=float, default=None,
                         help="finished height in metres, applied before rigging")
+    parser.add_argument("--upright", action="store_true", help="stand a single prop upright after painting")
     parser.add_argument("--angle", type=float, default=89.0)
     parser.add_argument(
         "--voxel", type=float, default=0.004,
@@ -592,6 +593,12 @@ def main() -> int:
     else:
         args.output.write_bytes(current.read_bytes())
         report = []
+
+    if args.upright:
+        upright = args.output.with_suffix(".upright.glb")
+        _run(headless(args.blender, "blender_upright.py") + [str(args.output), str(upright)],
+             args.output.with_suffix(".upright.log"), "upright")
+        upright.replace(args.output)
 
     if args.height_m is not None:
         from image_to_3dlab.real_height import set_height

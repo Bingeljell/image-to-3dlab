@@ -49,6 +49,8 @@ or "no stray hairs".
 
 These have gone wrong more than once, but are less proven than the list above:
 
+- **Tilted single props.** Use a straight front or side view at eye level, or use a
+  [prop sheet](prop-sheets.md) to have each prop stood upright after splitting.
 - **Hoods or hats deep over the face.** The model has to guess how deep the opening is, and
   the face inside it comes out off-model. Push the hood back.
 - **Heavy ink outlines.** Strong lines can get carved into the surface as grooves.

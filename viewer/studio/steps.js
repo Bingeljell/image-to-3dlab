@@ -59,6 +59,7 @@ export function stepBody(stepId, asset, ctx) {
     const skipped = !asset.finished && asset.rigged
       ? '<p class="hint">Skipped so far. Finishing now makes a new finished model; rig it again to use it.</p>' : '';
     const controls = `${skipped}${finishDetail(asset)}${photo}
+      ${asset.kind === 'prop' ? '<label class="check"><input type="checkbox" data-k="upright" checked><span>Stand upright <span class="hint">Straightens a prop that leans because the picture was taken from above. Turn off if it is meant to lean.</span></span></label>' : ''}
       <label class="field">Height (m) <span class="hint">Leave blank to keep the model's size.</span><input type="number" data-k="height" min="0.01" max="100" step="0.01" value="${asset.kind === 'character' ? '1.8' : ''}"></label>
       <details class="adv"><summary>Advanced</summary>
         ${asset.picture ? '<label class="check"><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label><label class="check"><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label>' : ''}
@@ -332,6 +333,7 @@ export function wireStep(card, stepId, asset, ctx) {
     // read every setting now: the progress card replaces these controls as soon as it starts
     const settings = {
       backend: engine?.value || ctx.engines[0]?.id,
+      upright: k('upright')?.checked,
       detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value), cleanup: k('cleanup')?.value || 'auto',
       height: k('height')?.value ? Number(k('height').value) : null,
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
@@ -347,7 +349,7 @@ export function wireStep(card, stepId, asset, ctx) {
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
-        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture, cleanup: settings.cleanup, height_m: settings.height })),
+        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture, cleanup: settings.cleanup, height_m: settings.height, upright: !!settings.upright })),
       rigged: () => startRig(asset, settings.rigSource),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread, settings.inPlace) }[stepId];
     const note = button.dataset.humanoid === 'no'
@@ -379,7 +381,8 @@ export function chainPlan(stepId, asset, settings) {
     return { ...base, steps: ['finished'], made: { picture: asset.picture, model: asset.model },
       finishSettings: { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade,
         skip_nudge: !settings.nudge, texture_size: settings.texture, cleanup: settings.cleanup,
-        ...(settings.height != null ? { height_m: settings.height } : {}) } };
+        ...(settings.height != null ? { height_m: settings.height } : {}),
+        ...(settings.upright !== undefined ? { upright: settings.upright } : {}) } };
   }
   if (stepId === 'rigged') {
     const source = (settings.rigSource === 'model' ? asset.model : null) || asset.finished || asset.model;

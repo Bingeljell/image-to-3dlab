@@ -424,12 +424,12 @@ def test_nudge_is_on_unless_asked_and_means_nothing_without_pixel_match():
 
 def test_nudge_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", advanced={"nudge": False})
-    assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True}
+    assert json.loads(sent(studio)["finish_settings"]) == {"skip_nudge": True, "upright": True}
 
 
 def test_edge_fade_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", finish_detail="full", advanced={"edge_fade": False})
-    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True}
+    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True, "upright": True}
 
 
 @pytest.mark.parametrize("detail", ["huge", "500", "999999"])
@@ -440,12 +440,19 @@ def test_unknown_finish_details_say_what_is_allowed(detail):
 
 def test_a_full_detail_finish_travels_with_the_plan(studio):
     ms.create(studio, want="prop", description="a barrel", finish_detail="full")
-    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True}
+    assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "upright": True}
 
 
 def test_no_finish_choice_leaves_finish_on_its_defaults(studio):
     ms.create(studio, want="prop", description="a barrel")
-    assert "finish_settings" not in sent(studio)
+    assert json.loads(sent(studio)["finish_settings"]) == {"upright": True}
+
+
+def test_upright_can_be_disabled_and_characters_default_off(studio):
+    ms.create(studio, want="prop", description="a barrel", advanced={"upright": False})
+    assert json.loads(sent(studio)["finish_settings"])["upright"] is False
+    ms.create(studio, want="character", description="a knight")
+    assert "upright" not in json.loads(sent(studio).get("finish_settings", "{}"))
 
 
 def test_full_detail_is_never_rigged(studio):
@@ -506,7 +513,7 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
     assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "rig_from", "speed", "arms_away",
-                                    "in_place", "keep_everything", "height_m"}
+                                    "in_place", "keep_everything", "height_m", "upright"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
 
@@ -519,7 +526,7 @@ def test_every_studio_control_has_an_mcp_twin():
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
             "edgefade": "edge_fade", "nudge": "nudge", "cleanup": "cleanup", "texture": "texture_size", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
-            "picengine": "picture_engine", "change": "back_change", "height": "height_m"}
+            "picengine": "picture_engine", "change": "back_change", "height": "height_m", "upright": "upright"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -554,7 +561,7 @@ def test_defaults_add_nothing_to_the_plan(studio):
 
 def test_prop_height_is_optional_and_can_be_set(studio):
     ms.create(studio, want="prop", description="a barrel")
-    assert "finish_settings" not in sent(studio)
+    assert "height_m" not in json.loads(sent(studio).get("finish_settings", "{}"))
     ms.create(studio, want="prop", description="a barrel", advanced={"height_m": 0.7})
     assert json.loads(sent(studio)["finish_settings"])["height_m"] == 0.7
 

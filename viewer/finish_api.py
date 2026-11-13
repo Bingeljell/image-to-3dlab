@@ -77,7 +77,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "paint_seed": 0, "paint_res": 512, "paint_steps": 15, "paint_tex": 4096,
     "texture_size": 2048, "skip_paint": True, "skip_compress": False, "skip_bake": False,
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
-    "high_detail": False, "hero": False, "cleanup": "auto", "height_m": None,
+    "high_detail": False, "hero": False, "cleanup": "auto", "height_m": None, "upright": False,
 }
 
 # Settings that are one of a fixed set of words. "cleanup" picks Finish's clean-up route for a
@@ -85,7 +85,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 CHOICE_SETTINGS: dict[str, tuple[str, ...]] = {"cleanup": ("auto", "fast", "rebuild")}
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
-                 "high_detail", "hero"}
+                 "high_detail", "hero", "upright"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -253,6 +253,8 @@ def build_command(
         command += ["--cleanup", settings["cleanup"]]
     if settings.get("high_detail"):
         command += ["--detail", "high"]
+    if settings.get("upright"):
+        command.append("--upright")
     if resume:
         command.append("--resume")
     return command

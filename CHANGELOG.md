@@ -8,8 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Finish offers Height (m), with 1.8 m for characters and optional sizing for props.
+  Models are centred on the floor before rigging.
 - Finish's Advanced panel (and the agent tools) can pick how a Pixal3D model is cut down to
   its face count: Fast, Rebuild (keeps thin parts from tearing), or Auto.
+- A single prop can stand upright at Finish: it straightens a prop that leans because the
+  picture was taken from above. On by default for props; turn it off if it is meant to lean.
 - Finish has a **game budget**: pick 512, 1024, 2048 or 4096 px and the model's colour and
   normal maps are that size instead of 2048, with metal-roughness capped at 1024 so the default
   file does not grow. **Surface maps: Keep / Drop** drops the normal and metal-roughness maps
@@ -19,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The agent guide covers Windows: connect Claude Code and other agents with `lab.cmd`
   (tested on Windows 11), where it said Windows was not tested yet.
+- The prompt guide now suggests eye-level pictures or prop sheets for upright props.
 
 ### Fixed
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up

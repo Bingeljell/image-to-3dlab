@@ -942,6 +942,16 @@ def test_the_cleanup_choice_reaches_the_worker_only_when_not_auto():
 def test_an_unknown_cleanup_is_refused_before_anything_runs():
     with pytest.raises(ValueError, match="cleanup must be one of"):
         finish.normalise_settings({"cleanup": "quick"})
+
+
+def test_upright_is_opt_in_at_the_finish_worker(tmp_path):
+    job = finish.FinishJob('prop', tmp_path)
+    defaults = finish.normalise_settings({})
+    assert defaults['upright'] is False
+    assert '--upright' not in finish.build_command(job, defaults)
+    assert '--upright' in finish.build_command(job, finish.normalise_settings({'upright': True}))
+
+
 # --- the game budget: one size for the pictures, and dropping the surface maps (#239) -------
 
 def test_512_is_a_texture_size_and_it_is_the_default_to_keep_surface_maps():

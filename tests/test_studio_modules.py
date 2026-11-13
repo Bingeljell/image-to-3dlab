@@ -1087,7 +1087,7 @@ def test_the_picture_guide_renders_from_the_real_doc():
     assert html.startswith("<h2>Picking a picture")
     assert '<img src="/docs/images/prompt-guide-style-and-pose.jpg"' in html   # served by the studio
     assert "<h3>What works</h3>" in html and "<b>1. A soft 3D-render look.</b>" in html
-    assert html.count("<li>") == 3                                            # the "go wrong" list
+    assert html.count("<li>") == 4                                            # the "go wrong" list
     assert "<pre class=\"log\">A [character] in A-pose" in html
     assert "**" not in html and "](" not in html                              # no raw Markdown left
     assert out["links"] == [True, False]

@@ -248,7 +248,7 @@ Everything still runs on your machine.
 
 It can also run the repo's [Blender helpers](#blender-helpers-for-your-agent) for you.
 Your agent never downloads model weights without your yes, and can't delete or rename
-your assets. Mac and Linux; Windows is not tested yet.
+your assets. Mac, Linux and Windows ([how to connect on Windows](docs/agents.md#on-windows)).
 
 ## Setting up a backend
 

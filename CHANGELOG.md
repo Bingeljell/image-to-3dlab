@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The agent guide covers Windows: connect Claude Code and other agents with `lab.cmd`
+  (tested on Windows 11), where it said Windows was not tested yet.
+
 ### Fixed
 - Report a bug names an NVIDIA graphics card on Windows too, not just "Windows · AMD64".
 - Walks, jogs, sneaks and strafes loop smoothly again: 0.5.9 could drop a frame where they

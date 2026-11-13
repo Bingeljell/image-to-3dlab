@@ -60,14 +60,23 @@ C = dict(
 )
 
 # ---------------------------------------------------------------------------------------------------------------------
-# dimensions (metres)
+# the vehicle's numbers (metres): a preset of the kit; the next steps derive more of the layout from them
 # ---------------------------------------------------------------------------------------------------------------------
-W = 1.275                       # half width of the body (2.55 m)
-YF, YR = 5.95, -5.96            # front / rear plane of the box; the bumpers add 0.05 / 0.04 -> 12.0 m
-ZB, ZT = 0.27, 2.98             # skirt bottom, roof
-RX, RZ, RYF, RYR = 0.30, 0.24, 0.36, 0.24     # edge radii: across, up, along (front), along (rear)
-Z_WS0, RAKE_F, BOW_F = 1.18, math.tan(math.radians(8.5)), 0.07     # windscreen rake above Z_WS0, bow of the front
-Z_RK0, RAKE_R, BOW_R = 1.50, math.tan(math.radians(3.0)), 0.04     # the same for the rear
+BUS_12M = dict(
+    half_width=1.275,            # half width of the body (2.55 m)
+    front=5.95, rear=-5.96,      # front / rear plane of the box; the bumpers add 0.05 / 0.04 -> 12.0 m
+    skirt=0.27, roof=2.98,       # skirt bottom, roof
+    radii=(0.30, 0.24, 0.36, 0.24),          # edge radii: across, up, along (front), along (rear)
+    screen=(1.18, 8.5, 0.07),    # windscreen: rake starts at this height, rake in degrees, bow of the front
+    rear_screen=(1.50, 3.0, 0.04),
+)
+SPEC = BUS_12M
+W = SPEC["half_width"]
+YF, YR = SPEC["front"], SPEC["rear"]
+ZB, ZT = SPEC["skirt"], SPEC["roof"]
+RX, RZ, RYF, RYR = SPEC["radii"]
+Z_WS0, RAKE_F, BOW_F = SPEC["screen"][0], math.tan(math.radians(SPEC["screen"][1])), SPEC["screen"][2]
+Z_RK0, RAKE_R, BOW_R = SPEC["rear_screen"][0], math.tan(math.radians(SPEC["rear_screen"][1])), SPEC["rear_screen"][2]
 F6 = (1.0, 0.7321, 0.4226)      # fillet lines: distance from the box edge in radii (0, 15, 30 degrees; the edge is 45)
 XIN = (-0.60, 0.0, 0.60)        # grid lines across the front, the rear and the roof
 YMID = (-2.0, 2.0)              # grid lines along the roof and the cantrail

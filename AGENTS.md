@@ -30,7 +30,9 @@ route) behind one CLI, with license provenance as a first-class concern.
 Name every option by what it does, not where it came from ("Rebuild", not "Classic"; "Fast",
 not "Pixal3D's own"). Each hint gets one line: what it does, and when to pick it. The studio,
 the agent tools and the command line use the same words. Before you ship any text, read it
-as someone who has never seen this repo.
+as someone who has never seen this repo. Shader words — normal map, metallic-roughness, atlas,
+sampler — belong in code and docs, not on screen: the control is "Surface maps", and its hint
+is "Bumps and shine. Drop them for a flat, matte look and smaller files, good for phones."
 
 ## Layout
 

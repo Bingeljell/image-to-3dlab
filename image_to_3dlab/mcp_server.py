@@ -358,8 +358,14 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "try_off_when": "set rebuild if thin parts (fingers, rails, a lattice) tear or holes open; set fast to "
                         "compare at a small budget."},
     "texture_size": {
-        "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,
-        "what": "Pixel size of the finished model's texture. Bigger is sharper and a bigger file."},
+        "step": "finished", "type": "int", "choices": [512, 1024, 2048, 4096], "default": 2048,
+        "what": "The finished model's game budget: the size of its pictures. Bigger is sharper and a "
+                "bigger file; 512 suits a phone."},
+    "surface_maps": {
+        "step": "finished", "type": "bool", "default": True,
+        "what": "The normal and metallic-roughness maps: bumps and shine. On keeps them, at texture_size.",
+        "try_off_when": "you want a flat, matte look and a smaller file, as phones want: the model keeps "
+                        "its colour map and a fixed roughness."},
     "rig_from": {
         "step": "rigged", "type": "str", "choices": ["finished", "model"], "default": "finished",
         "what": "Which model gets the skeleton: the finished one, or the raw 3D model (skips Finish)."},
@@ -418,6 +424,8 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
         finish["texture_size"] = adv["texture_size"]
     if adv["cleanup"] not in (None, "auto"):
         finish["cleanup"] = adv["cleanup"]
+    if adv["surface_maps"] is False:
+        finish["drop_surface_maps"] = True
     move: dict[str, Any] = {}
     if adv["speed"]:
         move["speed"] = adv["speed"]

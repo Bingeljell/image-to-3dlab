@@ -512,7 +512,7 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 # --------------------------------------------------------------------------- advanced knobs
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
-    assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "rig_from", "speed", "arms_away",
+    assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "surface_maps", "rig_from", "speed", "arms_away",
                                     "in_place", "keep_everything", "height_m", "upright"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
@@ -524,7 +524,8 @@ def test_every_studio_control_has_an_mcp_twin():
     controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
-            "edgefade": "edge_fade", "nudge": "nudge", "cleanup": "cleanup", "texture": "texture_size", "rigsource": "rig_from",
+            "edgefade": "edge_fade", "nudge": "nudge", "cleanup": "cleanup", "texture": "texture_size",
+            "surface": "surface_maps", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
             "picengine": "picture_engine", "change": "back_change", "height": "height_m", "upright": "upright"}
     missing = sorted(controls - set(twin))
@@ -550,6 +551,37 @@ def test_advanced_texture_speed_and_arms_travel_with_the_plan(studio):
     assert json.loads(form["finish_settings"]) == {"texture_size": 4096, "height_m": 1.8}
     assert json.loads(form["move_settings"]) == {"speed": 1.5, "arm_spread": 10}
     assert form["keep_everything"] == "1"
+
+
+def test_a_game_budget_travels_with_the_plan(studio):
+    """512 for the pictures, and a flat model for a phone: both reach Finish as settings."""
+    ms.create(studio, want="character", description="a knight",
+              advanced={"texture_size": 512, "surface_maps": False})
+    form = sent(studio)
+    finish = json.loads(form["finish_settings"])
+    assert finish["texture_size"] == 512 and finish["drop_surface_maps"] is True
+
+
+def test_keeping_the_surface_maps_adds_nothing(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"surface_maps": True})
+    assert "drop_surface_maps" not in json.loads(sent(studio).get("finish_settings", "{}"))
+
+
+def test_texture_size_takes_a_whole_budget_and_no_odd_counts(studio):
+    assert ms.ADVANCED["texture_size"]["choices"] == [512, 1024, 2048, 4096]
+
+
+def test_the_texture_size_knob_is_described_in_plain_words():
+    """AGENTS.md: shader words stay in code and docs, not in what an agent tells a user."""
+    what = ms.ADVANCED["texture_size"]["what"].lower()
+    assert "pictures" in what and "512" in what
+    assert not {"metallic", "roughness", "normal map", "albedo", "atlas"} & set(what.split())
+
+
+def test_surface_maps_is_on_by_default_and_explained():
+    spec = ms.ADVANCED["surface_maps"]
+    assert spec["default"] is True and spec["type"] == "bool"
+    assert "flat, matte" in spec["try_off_when"]
 
 
 def test_defaults_add_nothing_to_the_plan(studio):

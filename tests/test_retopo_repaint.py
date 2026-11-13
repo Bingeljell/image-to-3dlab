@@ -477,3 +477,45 @@ def test_an_unknown_cleanup_is_refused():
 def test_the_worker_takes_the_cleanup_flag():
     assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb"]).cleanup == "auto"
     assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb", "--cleanup", "rebuild"]).cleanup == "rebuild"
+# --- the game budget: one size for the pictures, and dropping the surface maps (#239) -------
+
+@pytest.mark.parametrize("size, colour, normal, roughness_map", [
+    (512, 512, 512, 512),       # a phone budget: everything at 512, the cap is above it
+    (1024, 1024, 1024, 1024),
+    (2048, 2048, 2048, 1024),   # today's default file stays exactly the size it was
+    (4096, 4096, 4096, 1024),   # the cap is a cap, not a new floor
+])
+def test_one_chosen_size_reaches_the_maps_and_stops_at_the_metal_cap(size, colour, normal,
+                                                                    roughness_map):
+    """A 512 budget with a 2048 normal map is not a 512 budget; a 2048 budget must not
+    double the metal-roughness map every user has today either."""
+    arguments = rr.texture_arguments(size)
+    assert arguments["max_size"] == colour
+    assert arguments["normal_size"] == normal
+    assert arguments["map_size"] == roughness_map
+
+
+def test_dropping_the_surface_maps_and_the_roughness_that_replaces_them_are_passed_on():
+    arguments = rr.texture_arguments(1024, drop_surface_maps=True, roughness=0.4)
+    assert arguments["drop_surface_maps"] is True
+    assert arguments["roughness"] == 0.4
+    assert arguments["map_size"] == arguments["normal_size"] == 1024
+
+
+def test_the_worker_takes_the_size_and_the_drop_as_flags():
+    parser = rr.build_parser()
+    plain = parser.parse_args(["a.glb", "i.png", "o.glb"])
+    assert plain.texture_size == 2048 and plain.drop_surface_maps is False
+    asked = parser.parse_args(["a.glb", "i.png", "o.glb", "--texture-size", "512",
+                               "--drop-surface-maps"])
+    assert asked.texture_size == 512 and asked.drop_surface_maps is True
+
+
+def test_dropping_runs_the_compress_stage_even_when_compression_was_skipped():
+    """A drop that quietly did nothing would be a worse answer than a slower run."""
+    assert rr.stage_plan(True, True, drop_surface_maps=True) == ["retopologise", "bake", "compress"]
+    assert rr.stage_plan(True, True) == ["retopologise", "bake"]
+
+
+def test_a_full_detail_model_also_gets_the_drop():
+    assert rr.stage_plan(True, True, keep_mesh=True, drop_surface_maps=True) == ["compress"]

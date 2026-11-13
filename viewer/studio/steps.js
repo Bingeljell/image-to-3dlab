@@ -22,6 +22,12 @@ export async function postStart(url, body) {
   return payload;
 }
 
+/** The two texture choices a Finish sends: one size for every map, and whether the surface
+ *  maps go. Kept in one place so a one-step chain and a plain Finish run cannot disagree. */
+export function textureSettings(settings) {
+  return { texture_size: Number(settings.texture) || 2048, drop_surface_maps: settings.surface === 'drop' };
+}
+
 /** The body for the step the asset can take next. `ctx` has engines, presets, url(). */
 export function stepBody(stepId, asset, ctx) {
   if (stepId === 'picture') {
@@ -64,7 +70,8 @@ export function stepBody(stepId, asset, ctx) {
       <details class="adv"><summary>Advanced</summary>
         ${asset.picture ? '<label class="check"><input type="checkbox" data-k="edgefade" checked><span>Edge fade <span class="hint">Pixel Match fades out where one part sits in front of another, like an ear in front of a head. Turn it off if hair gets coloured specks or small eyes go dark, most often on Full detail.</span></span></label><label class="check"><input type="checkbox" data-k="nudge" checked><span>Nudge <span class="hint">Pixel Match first fits your picture onto the model. Turn it off if a feature shows up twice (a ghost eye) or slides off its place.</span></span></label>' : ''}
         <label class="field">Clean-up<select data-k="cleanup"><option value="auto" selected>Auto</option><option value="fast">Fast</option><option value="rebuild">Rebuild</option></select><span class="hint">How Finish cuts the model down to your face count. Rebuild keeps thin parts like fingers, rails or a lattice from tearing. Fast is quicker. Auto picks Rebuild below 10k faces.</span></label>
-        <label class="field">Texture size<select data-k="texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
+        <label class="field">Texture size<select data-k="texture"><option value="512">512 px</option><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select><span class="hint">Size of the model's pictures. Smaller means smaller files; 512 suits a phone.</span></label>
+        <label class="field">Surface maps<select data-k="surface"><option value="keep" selected>Keep</option><option value="drop">Drop</option></select><span class="hint">Bumps and shine. Drop them for a flat, matte look and smaller files, good for phones.</span></label>
       </details>
       <button class="primary" data-run="finished">${asset.finished ? 'Finish again' : 'Finish model'}</button>`;
     return hero + (asset.finished
@@ -334,7 +341,7 @@ export function wireStep(card, stepId, asset, ctx) {
     const settings = {
       backend: engine?.value || ctx.engines[0]?.id,
       upright: k('upright')?.checked,
-      detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value), cleanup: k('cleanup')?.value || 'auto',
+      detail: finishDetailSettings(faces?.value, k('customFaces')?.value), photo: !!k('photo')?.checked, edgeFade: k('edgefade')?.checked !== false, nudge: k('nudge')?.checked !== false, texture: Number(k('texture')?.value), surface: k('surface')?.value || 'keep', cleanup: k('cleanup')?.value || 'auto',
       height: k('height')?.value ? Number(k('height').value) : null,
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0), inPlace: !!placed?.checked,
@@ -349,7 +356,7 @@ export function wireStep(card, stepId, asset, ctx) {
     if (plan && ctx.startChain) { ctx.startChain(plan); return; }
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
-        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, texture_size: settings.texture, cleanup: settings.cleanup, height_m: settings.height, upright: !!settings.upright })),
+        : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, ...textureSettings(settings), cleanup: settings.cleanup, height_m: settings.height, upright: !!settings.upright })),
       rigged: () => startRig(asset, settings.rigSource),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread, settings.inPlace) }[stepId];
     const note = button.dataset.humanoid === 'no'
@@ -380,7 +387,7 @@ export function chainPlan(stepId, asset, settings) {
     if (!asset.model || !asset.picture) return null;   // the chain's Finish needs both; the card handles the rest
     return { ...base, steps: ['finished'], made: { picture: asset.picture, model: asset.model },
       finishSettings: { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade,
-        skip_nudge: !settings.nudge, texture_size: settings.texture, cleanup: settings.cleanup,
+        skip_nudge: !settings.nudge, ...textureSettings(settings), cleanup: settings.cleanup,
         ...(settings.height != null ? { height_m: settings.height } : {}),
         ...(settings.upright !== undefined ? { upright: settings.upright } : {}) } };
   }

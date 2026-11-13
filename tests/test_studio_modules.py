@@ -1849,3 +1849,29 @@ def test_readme_and_both_installers_say_the_same_sentence():
         flat = " ".join(text.replace("**", "").replace('say "', "").replace('Say "', "")
                         .replace('"', "").split())
         assert plain in flat, path
+
+
+@needs_node
+def test_the_rig_card_offers_unity_bone_names_and_the_plan_carries_the_choice():
+    out = _run("steps.js", f"""
+      const knight = {json.dumps({**KNIGHT, "rigged": None, "stage": "finished", "clips": []})};
+      const s = {{ rigSource: 'finished' }};
+      console.log(JSON.stringify({{
+        unity: m.chainPlan('rigged', knight, {{ ...s, boneNames: 'unity' }}),
+        numbered: m.chainPlan('rigged', knight, {{ ...s, boneNames: 'numbered' }}) }}));""")
+    assert out["unity"]["rigSettings"] == {"bone_names": "unity"}
+    assert "rigSettings" not in out["numbered"]
+
+
+@needs_node
+def test_a_plan_s_rig_settings_travel_to_the_server():
+    out = _run("create.js", """
+      const form = m.planForm({ description: 'k', steps: ['rigged'], rigSettings: { bone_names: 'unity' } },
+        { finished: 'finish/k/k_8k.glb' });
+      console.log(JSON.stringify(Object.fromEntries([...form.entries()])));""")
+    assert json.loads(out["rig_settings"]) == {"bone_names": "unity"}
+
+
+def test_the_rig_card_has_a_bone_names_choice():
+    source = (REPO / "viewer" / "studio" / "steps.js").read_text(encoding="utf-8")
+    assert 'data-k="bonenames"' in source and '<option value="unity">Unity Humanoid</option>' in source

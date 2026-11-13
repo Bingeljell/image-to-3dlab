@@ -2302,3 +2302,10 @@ def test_back_version_changes_take_one_lock(tmp_path):
         api.BACK_VERSIONS_LOCK.release()
     t.join(2)
     assert not (tmp_path / body["version"]).exists()
+
+
+def test_the_rig_upload_reads_the_bone_names_choice_and_refuses_an_unknown_one():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    rig = source[source.index("def _create_animate_rig"):source.index("def _create_animate_play")]
+    assert "bone_names_choice(form)" in rig and "bone_names=" in rig
+    assert "except ValueError" in rig

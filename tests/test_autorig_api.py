@@ -622,3 +622,69 @@ def test_no_uv_says_how_to_fix_it_instead_of_crashing(tmp_path, monkeypatch):
     (_site(tmp_path) / "diffusers-0.43.0.dist-info").mkdir()
     monkeypatch.setattr(aa.host, "find_uv", lambda *a, **k: None)
     assert "Setup & Status" in aa.ensure_diffusers(tmp_path, runner=lambda *a, **k: None)
+
+def test_the_bone_names_option_is_kept_on_the_job_and_in_its_record(tmp_path):
+    manager = aa.AnimateJobManager(tmp_path / "animate", tmp_path)
+    job = manager.create_rig("knight.glb", b"glTF-data", None, "generated", bone_names="unity")
+    assert job.bone_names == "unity"
+    assert job.record["rig"]["bone_names"] == "unity"
+    plain = aa.AnimateJobManager(tmp_path / "plain", tmp_path).create_rig("knight.glb", b"x", None, "uploaded")
+    assert plain.bone_names is None and "bone_names" not in plain.record["rig"]
+    numbered = aa.AnimateJobManager(tmp_path / "numbered", tmp_path).create_rig(
+        "knight.glb", b"x", None, "uploaded", bone_names="numbered")
+    assert numbered.bone_names is None   # SkinTokens' own bone_0, bone_1, ... are the default
+
+
+def test_an_unknown_bone_names_choice_is_refused_before_anything_is_written(tmp_path):
+    manager = aa.AnimateJobManager(tmp_path / "animate", tmp_path)
+    with pytest.raises(ValueError, match="unity"):
+        manager.create_rig("knight.glb", b"x", None, "generated", bone_names="maya")
+    assert not (tmp_path / "animate").exists()
+    assert not manager.busy()
+
+
+def test_a_rig_with_bone_names_names_them_before_the_file_is_reported(tmp_path, monkeypatch):
+    job = _fake_job(tmp_path, _write_glb_script())
+    job.bone_names = "unity"
+    calls = []
+
+    def name_bones(path, preset):
+        calls.append((path, preset, job.status))
+        return {"preset": preset, "named": 52, "bones": 60, "kept": ["bone_58"], "capped": 0, "missing": []}
+
+    monkeypatch.setattr(aa.bone_names, "name_bones", name_bones)
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert calls == [(job.result, "unity", "running")]
+    assert job.status == "done"
+    assert "Unity Humanoid names on 52 of 60 bones" in job.events[-1]["bone_names"]
+    assert "Unity Humanoid names on 52 of 60 bones" in job.log_path.read_text()
+    record = json.loads(job.result.with_suffix(".provenance.json").read_text())
+    assert record["rig"]["bone_names"] == {"preset": "unity", "named": 52, "bones": 60, "missing": []}
+
+
+def test_a_skeleton_that_is_no_humanoid_keeps_its_numbered_names_and_still_rigs(tmp_path, monkeypatch):
+    job = _fake_job(tmp_path, _write_glb_script())
+    job.bone_names = "unity"
+
+    def name_bones(path, preset):
+        raise LookupError("no humanoid body found in the skeleton")
+
+    monkeypatch.setattr(aa.bone_names, "name_bones", name_bones)
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert job.status == "done"
+    assert "kept the numbered names" in job.events[-1]["bone_names"]
+
+
+def test_a_rig_without_the_option_never_renames(tmp_path, monkeypatch):
+    job = _fake_job(tmp_path, _write_glb_script())
+    monkeypatch.setattr(aa.bone_names, "name_bones", lambda *a: pytest.fail("renamed without being asked"))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert job.status == "done" and "bone_names" not in job.events[-1]
+
+
+def test_the_rig_form_s_bone_names_field_is_read_and_checked():
+    assert aa.bone_names_choice({}) is None
+    assert aa.bone_names_choice({"bone_names": {"value": " unity "}}) == "unity"
+    assert aa.bone_names_choice({"bone_names": {"value": "numbered"}}) is None
+    with pytest.raises(ValueError, match="unity"):
+        aa.bone_names_choice({"bone_names": {"value": "maya"}})

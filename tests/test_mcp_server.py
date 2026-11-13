@@ -512,7 +512,7 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 # --------------------------------------------------------------------------- advanced knobs
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
-    assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "surface_maps", "rig_from", "speed", "arms_away",
+    assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "surface_maps", "rig_from", "bone_names", "speed", "arms_away",
                                     "in_place", "keep_everything", "height_m", "upright"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
@@ -527,7 +527,7 @@ def test_every_studio_control_has_an_mcp_twin():
             "edgefade": "edge_fade", "nudge": "nudge", "cleanup": "cleanup", "texture": "texture_size",
             "surface": "surface_maps", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
-            "picengine": "picture_engine", "change": "back_change", "height": "height_m", "upright": "upright"}
+            "picengine": "picture_engine", "change": "back_change", "height": "height_m", "upright": "upright", "bonenames": "bone_names"}
     missing = sorted(controls - set(twin))
     assert not missing, f"Studio controls with no MCP twin: {missing}. Add them to ADVANCED (or main) and here."
     known = set(ms.ADVANCED) | set(ms.options()["main"]) | {"description"}
@@ -605,6 +605,28 @@ def test_rig_from_the_raw_model_skips_finish(studio):
     form = sent(studio)
     assert json.loads(form["steps"]) == ["rigged"]
     assert "finished" not in json.loads(form["made"]) and json.loads(form["made"])["model"] == "k/k.glb"
+
+
+def test_unity_bone_names_travel_with_a_plan_that_rigs(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"bone_names": "unity"})
+    assert json.loads(sent(studio)["rig_settings"]) == {"bone_names": "unity"}
+    ms.continue_asset(studio, asset_id="aaaaaaaaaaaa", up_to="rigged", advanced={"bone_names": "unity"})
+    assert json.loads(sent(studio)["rig_settings"]) == {"bone_names": "unity"}
+
+
+def test_numbered_bone_names_or_a_plan_without_rig_sends_no_rig_settings(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"bone_names": "numbered"})
+    assert "rig_settings" not in sent(studio)
+    ms.create(studio, want="prop", description="a crate", advanced={"bone_names": "unity"})
+    assert "rig_settings" not in sent(studio)
+
+
+def test_bone_names_is_explained_and_checked():
+    assert ms.ADVANCED["bone_names"]["step"] == "rigged"
+    assert ms.ADVANCED["bone_names"]["choices"] == ["numbered", "unity"]
+    assert "Unity" in ms.ADVANCED["bone_names"]["what"]
+    with pytest.raises(ms.StudioError, match="bone_names is one of"):
+        ms.read_advanced({"bone_names": "maya"})
 
 
 # --------------------------------------------------------------------------- skins

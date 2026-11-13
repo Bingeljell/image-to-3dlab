@@ -369,6 +369,11 @@ ADVANCED: dict[str, dict[str, Any]] = {
     "rig_from": {
         "step": "rigged", "type": "str", "choices": ["finished", "model"], "default": "finished",
         "what": "Which model gets the skeleton: the finished one, or the raw 3D model (skips Finish)."},
+    "bone_names": {
+        "step": "rigged", "type": "str", "choices": ["numbered", "unity"], "default": "numbered",
+        "what": "The skeleton's bone names. 'unity' gives the body bones Unity Humanoid names (Hips, Spine, "
+                "... LeftToes) and keeps at most four weights a vertex, so Unity maps the avatar on its own; "
+                "hair, capes and gear keep their names. 'numbered' keeps the rigger's bone_0, bone_1, ..."},
     "speed": {
         "step": "animated", "type": "float", "min": 0.5, "max": 2.0, "default": "the move's own pace",
         "what": "Playback speed of the move."},
@@ -434,6 +439,13 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
     if adv["in_place"] is not None:      # false is a real choice here, so test for None
         move["in_place"] = adv["in_place"]
     return finish, move
+
+
+def rig_extras(adv: dict[str, Any], steps: list[str]) -> dict[str, Any]:
+    """rig_settings for a plan that rigs: only a bone names preset, the numbered default sends nothing."""
+    if "rigged" in steps and adv["bone_names"] not in (None, ADVANCED["bone_names"]["default"]):
+        return {"bone_names": adv["bone_names"]}
+    return {}
 
 
 def options() -> dict[str, Any]:
@@ -754,6 +766,8 @@ def create(studio: Studio, *, want: str, description: str = "", image_path: str 
         form["finish_settings"] = json.dumps(choices)
     if move_settings and "animated" in steps:
         form["move_settings"] = json.dumps(move_settings)
+    if rig_extras(adv, steps):
+        form["rig_settings"] = json.dumps(rig_extras(adv, steps))
     upload = _upload(image_path, (".png", ".jpg", ".jpeg", ".webp")) or _upload(model_path, (".glb",))
     files = {"file": upload} if upload else {}
     if back_image_path:
@@ -816,6 +830,8 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
         form["finish_settings"] = json.dumps(choices)
     if move_settings and "animated" in steps:
         form["move_settings"] = json.dumps(move_settings)
+    if rig_extras(adv, steps):
+        form["rig_settings"] = json.dumps(rig_extras(adv, steps))
     if "picture" in steps and asset.get("prompt"):
         form["prompt"] = asset["prompt"]
     if "model" in steps:

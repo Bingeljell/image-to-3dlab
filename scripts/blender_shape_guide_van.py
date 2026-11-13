@@ -3,7 +3,7 @@
 # Run:  blender -b -P build_ambulance.py -- [--no-ao]
 import bpy, bmesh, math, sys, os, time
 import numpy as np
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.geometry import tessellate_polygon
 
 T0 = time.time()
@@ -19,9 +19,12 @@ OUT = os.path.abspath(arg("--out", os.path.dirname(HERE)))
 os.makedirs(OUT, exist_ok=True)
 DO_AO = "--no-ao" not in ARGS
 
-TEX = 1024          # final atlas size
-SS = 4              # supersampling for painting
-PAD = 3             # gutter px (each side of every island) at 1024
+TEX = int(arg("--tex", "1024"))   # final atlas size
+SS = 4 if TEX <= 1024 else 1      # supersampling for painting (a 4096 atlas needs none)
+PAD = 3 * TEX // 1024             # gutter px (each side of every island), 3 at 1024
+NAME = arg("--name", "ambulance")
+# the kit's parts: each wheel is its own object on its axle (Fable's tags wFL.. -> the kit's names)
+WHEELS = {"wFL": "wheel_FL", "wFR": "wheel_FR", "wRL": "wheel_RL", "wRR": "wheel_RR"}
 BASE_PPM = 120.0    # px per metre before the auto-fit scale
 WHEEL_SEGS = 24
 
@@ -1211,6 +1214,9 @@ def main():
     scene = bpy.context.scene
     b = build_all()
     bm, tags = make_bmesh(b)
+    tag_layer = bm.faces.layers.int.new("tag")     # survives triangulation: which part each face is
+    for i, f in enumerate(bm.faces):
+        f[tag_layer] = i
     isl = make_islands(bm, tags)
     pack_islands(isl)
     write_uvs(bm, isl)
@@ -1308,12 +1314,61 @@ def main():
     bsdf.inputs['Emission Strength'].default_value = 1.0
     bsdf.inputs['Roughness'].default_value = 0.55
     bsdf.inputs['Metallic'].default_value = 0.0
+    export_kit(scene, ob, tags)
     blend = os.path.join(OUT, "ambulance.blend")
     bpy.ops.wm.save_as_mainfile(filepath=blend)
     alb.filepath = "//ambulance_albedo.png"
     emg.filepath = "//ambulance_emission.png"
     bpy.ops.wm.save_mainfile()
     print("saved", blend, "(%.1fs)" % (time.time() - T0))
+
+
+
+def export_kit(scene, ob, tags):
+    """The kit's two GLBs: <name>_joined.glb (one mesh, transforms applied, what the rig renders and Pixel Match
+    paints) and <name>_parts.glb (the body, and each wheel as its own object with its origin on its axle)."""
+    def export(path, objs):
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in objs:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = objs[0]
+        bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_yup=True, export_apply=True)
+        print("KIT wrote %s (%.2f MB)" % (path, os.path.getsize(path) / 1e6))
+
+    ob.name = NAME
+    export(os.path.join(OUT, NAME + "_joined.glb"), [ob])
+    attr = ob.data.attributes["tag"].data
+    part_of = [tags[a.value].get("part", "") for a in attr]
+    parts = []
+    for name, keep in [("body", lambda p: p not in WHEELS)] + [(WHEELS[w], lambda p, w=w: p == w) for w in WHEELS]:
+        dup = ob.copy()
+        dup.data = ob.data.copy()
+        dup.name = name
+        scene.collection.objects.link(dup)
+        dup.data.polygons.foreach_set("select", [not keep(p) for p in part_of])
+        bpy.ops.object.select_all(action="DESELECT")
+        dup.select_set(True)
+        bpy.context.view_layer.objects.active = dup
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type="FACE")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        dup.data.polygons.foreach_set("select", [not keep(p) for p in part_of])
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.delete(type="FACE")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        if name != "body":       # the origin goes to the wheel's centre, which is its axle
+            co = np.array([v.co[:] for v in dup.data.vertices])
+            pivot = Vector(((co.min(axis=0) + co.max(axis=0)) / 2).tolist())
+            dup.data.transform(Matrix.Translation(-pivot))
+            dup.location = pivot
+        print("KIT part %-9s origin (%7.3f, %7.3f, %6.3f)  triangles %5d" % (
+            name, dup.location.x, dup.location.y, dup.location.z, len(dup.data.polygons)))
+        parts.append(dup)
+    assert sum(len(o.data.polygons) for o in parts) == len(ob.data.polygons)
+    export(os.path.join(OUT, NAME + "_parts.glb"), parts)
+    for o in parts:
+        bpy.data.objects.remove(o)
+    ob.name = "Ambulance"
 
 
 main()

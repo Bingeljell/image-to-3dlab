@@ -110,7 +110,8 @@ XDO, XDI = W - 0.05, W - 0.09   # door leaves: outer face (recessed 5 cm), inner
 XDC = (XDO + XDI) / 2
 XI = W - 0.12                   # inner wall of the body = side walls of the interior
 ZF, ZC = ZD0, 2.50              # interior floor, ceiling
-YI0, YI1 = -5.30, 5.38          # interior rear / front wall
+YI0, YI1 = YR + 0.66, YF - 0.57  # interior rear / front wall
+HATCHES = SPEC.get("hatches", (0.20, -2.50))   # roof hatches between the air conditioner and the rear pod
 
 WIN_Z0, WIN_Z1 = SPEC["glass"]
 BAND_Y0 = SPEC["band_rear"]
@@ -470,18 +471,18 @@ def tube(b, pts, r, n, tags):
 
 def build_roof_and_mirrors(b):
     z0 = ZT - 0.02                                         # sunk 2 cm into the roof, so nothing is coplanar with it
-    loft_y(b, [(1.20, 0.12, 0.90), (1.50, 0.31, 0.95), (4.20, 0.31, 0.95), (4.85, 0.14, 0.90)], z0, "body", "ac", "ac")
-    loft_y(b, [(-5.35, 0.07, 0.70), (-5.15, 0.16, 0.75), (-4.25, 0.16, 0.75), (-4.00, 0.07, 0.70)], z0, "body", "pod", "ac")
-    for k, yc in enumerate((0.20, -2.50)):
+    loft_y(b, [(YF - 4.75, 0.12, 0.90), (YF - 4.45, 0.31, 0.95), (YF - 1.75, 0.31, 0.95), (YF - 1.10, 0.14, 0.90)], z0, "body", "ac", "ac")
+    loft_y(b, [(YR + 0.61, 0.07, 0.70), (YR + 0.81, 0.16, 0.75), (YR + 1.71, 0.16, 0.75), (YR + 1.96, 0.07, 0.70)], z0, "body", "pod", "ac")
+    for k, yc in enumerate(HATCHES):
         b.box(-0.42, 0.42, yc - 0.42, yc + 0.42, z0, ZT + 0.07, "body", "hatch%d" % k, "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.04)
-    b.box(-0.17, 0.17, 4.98, 5.20, z0, ZT + 0.06, "body", "antenna", "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.03)
+    b.box(-0.17, 0.17, YF - 0.97, YF - 0.75, z0, ZT + 0.06, "body", "antenna", "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.03)
     for sx, sn in ((-1, "L"), (1, "R")):
         # the arm leaves the body above the windscreen corner and reaches forward and outward
-        tube(b, [(sx * 1.21, 5.30, 2.66), (sx * 1.33, 5.66, 2.63), (sx * 1.40, 5.91, 2.47)], 0.028, 6,
+        tube(b, [(sx * 1.21, YF - 0.65, 2.66), (sx * 1.33, YF - 0.29, 2.63), (sx * 1.40, YF - 0.04, 2.47)], 0.028, 6,
              dict(obj="body", part="mirA" + sn, mat="black", dens=0.8))
         xa, xb = sorted((sx * 1.30, sx * 1.50))
-        hs = [[(xa, y, 2.02), (xb, y, 2.02), (xb, y, 2.50), (xa, y, 2.50)] for y in (5.86, 5.935)]
-        hs.append([(xa + 0.03, 5.965, 2.05), (xb - 0.03, 5.965, 2.05), (xb - 0.03, 5.965, 2.47), (xa + 0.03, 5.965, 2.47)])
+        hs = [[(xa, y, 2.02), (xb, y, 2.02), (xb, y, 2.50), (xa, y, 2.50)] for y in (YF - 0.09, YF - 0.015)]
+        hs.append([(xa + 0.03, YF + 0.015, 2.05), (xb - 0.03, YF + 0.015, 2.05), (xb - 0.03, YF + 0.015, 2.47), (xa + 0.03, YF + 0.015, 2.47)])
         t = dict(obj="body", part="mir" + sn, mat="black", dens=0.8)
         b.rings(hs, lambda s, i, q, t=t: dict(t), cap0=dict(t, mat="mirror"), cap1=dict(t))
 
@@ -597,10 +598,10 @@ def build_interior(b):
                 seat(b, "seat_%s%d" % (sn, k), xa, xb, y0, zf, ZF + 0.46, ZF + 0.94)
     seat(b, "seat_bench", -1.12, 1.12, YI0 + 0.02, zf, ZF + 0.60, ZF + 1.12, depth=0.50)
     # the driver's place: seat, dashboard, steering wheel, a partition behind the seat
-    seat(b, "seat_driver", -0.85, -0.37, 4.45, zf, ZF + 0.52, ZF + 1.12, depth=0.46)
-    b.box(-1.14, -0.08, 5.02, 5.37, zf, 1.10, "interior", "dash", "dash", dens=0.3)
-    b.box(-1.14, -0.30, 4.30, 4.34, zf, 1.95, "interior", "partition", "housing", dens=0.3)
-    cen, axis = Vector((-0.61, 4.98, 1.06)), Vector((0.0, -0.5, 0.866))
+    seat(b, "seat_driver", -0.85, -0.37, YF - 1.50, zf, ZF + 0.52, ZF + 1.12, depth=0.46)
+    b.box(-1.14, -0.08, YF - 0.93, YF - 0.58, zf, 1.10, "interior", "dash", "dash", dens=0.3)
+    b.box(-1.14, -0.30, YF - 1.65, YF - 1.61, zf, 1.95, "interior", "partition", "housing", dens=0.3)
+    cen, axis = Vector((-0.61, YF - 0.97, 1.06)), Vector((0.0, -0.5, 0.866))
     e1, e2 = Vector((1, 0, 0)), Vector((0.0, 0.866, 0.5))
     sw = [[tuple(cen + axis * o + 0.21 * (math.cos(2 * math.pi * i / 10) * e1 + math.sin(2 * math.pi * i / 10) * e2)) for i in range(10)]
           for o in (-0.02, 0.02)]
@@ -1057,9 +1058,9 @@ def paint_all(isl):
         elif key == ("pod", "+Z"):
             detail_pod(P)
         elif key == ("hatch0", "+Z"):
-            detail_hatch(P, 0.20)
+            detail_hatch(P, HATCHES[0])
         elif key == ("hatch1", "+Z"):
-            detail_hatch(P, -2.50)
+            detail_hatch(P, HATCHES[1])
         elif isinstance(key, str) and key.startswith("wheel_") and key.endswith("_out"):
             detail_wheel(P, YA_F if key[6] == "F" else YA_R, key[6] == "R")
         elif isinstance(key, str) and key.endswith("_tr"):

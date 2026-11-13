@@ -42,7 +42,7 @@ if str(REPO) not in sys.path:
 
 import usage_api
 
-from image_to_3dlab import cuda_arch, host, processes
+from image_to_3dlab import bone_names, cuda_arch, host, processes
 from image_to_3dlab.provenance import set_glb_generator, write_provenance
 
 OUTPUT_ROOT = REPO / "output" / "animate"
@@ -63,6 +63,9 @@ RIG_SECONDS = 70.0
 ANIMATE_SECONDS = 12.0
 MAX_ARM_SPREAD = 30.0
 SPEED_RANGE = (0.5, 2.0)
+# The Rig step's "Bone names" choice: SkinTokens' own bone_0, bone_1, ... (the default), or a preset of
+# image_to_3dlab/bone_names.py that names the body for an engine and keeps four weights a vertex.
+NUMBERED = "numbered"
 # Clips that return to their first pose: walk, run, idle, sneak and strafe, including their
 # takes and variants (walk_b, walk_woman, strafe_left). One place, shared by the tab.
 LOOPING_PRESETS = ("idle", "walk", "run", "sneak", "strafe")
@@ -114,6 +117,21 @@ def presets(root: Path = MOTIONS) -> list[dict[str, Any]]:
 
 
 # ----------------------------------------------------------------------------- models
+
+
+def bone_names_preset(choice: Any) -> str | None:
+    """The preset a "Bone names" choice asks for, or None for the numbered default; refuses others."""
+    text = str(choice or "").strip().lower()
+    if text in ("", NUMBERED):
+        return None
+    if text not in bone_names.PRESETS:
+        raise ValueError(f"bone names is one of: {NUMBERED}, {', '.join(bone_names.PRESETS)}")
+    return text
+
+
+def bone_names_choice(form: dict[str, dict[str, Any]]) -> str | None:
+    """The Rig upload's optional `bone_names` field, read and checked."""
+    return bone_names_preset((form.get("bone_names") or {}).get("value"))
 
 
 def friendly_name(stem: str, detail: str | None = None) -> str:
@@ -421,6 +439,7 @@ class AnimateJob:
         self.process: subprocess.Popen[str] | None = None
         self.cancel_requested = False
         self.log_lines: deque[str] = deque(maxlen=300)
+        self.bone_names: str | None = None  # a rig job's engine names preset (bone_names_preset)
 
     @property
     def log_path(self) -> Path:
@@ -466,7 +485,8 @@ class AnimateJobManager:
         return job
 
     def create_rig(self, name: str, data: bytes, source: dict[str, Any] | None,
-                   origin: str) -> AnimateJob:
+                   origin: str, bone_names: str | None = None) -> AnimateJob:
+        preset = bone_names_preset(bone_names)   # refused before anything is written
         with self.lock:
             if self.busy():
                 raise RuntimeError("an Animate job is already running")
@@ -484,6 +504,9 @@ class AnimateJobManager:
             job = AnimateJob(uuid.uuid4().hex, "rig", directory, result,
                              rig_commands(source_glb, result), RIG_SECONDS,
                              rig_record(name, data, source, origin))
+            if preset:
+                job.bone_names = preset
+                job.record["rig"]["bone_names"] = preset
             return self._claim(job)
 
     def create_animation(self, rigged: Path, preset_id: str, arm_spread: Any,
@@ -541,6 +564,24 @@ def _tick(job: AnimateJob, stop: threading.Event) -> None:
         elapsed = time.monotonic() - job.started
         job.emit({"phase": "running", "overall_pct": estimated_pct(elapsed, job.expected_seconds),
                   "message": "Fitting a skeleton" if job.kind == "rig" else "Playing the clip"})
+
+
+def name_rig_bones(job: AnimateJob) -> str:
+    """The Rig step's "Bone names" option, run on the finished rig (image_to_3dlab/bone_names.py).
+
+    A skeleton the body mapper cannot read as a humanoid keeps its numbered names: the rig itself
+    never fails here. Returns the line the done event and the log carry.
+    """
+    try:
+        report = bone_names.name_bones(job.result, job.bone_names)
+    except (LookupError, ValueError) as exc:
+        line = f"Bone names: kept the numbered names ({exc})"
+    else:
+        job.record.setdefault("rig", {})["bone_names"] = {k: report[k] for k in ("preset", "named", "bones",
+                                                                                 "missing")}
+        line = bone_names.describe(report)
+    job.append_log(line)
+    return line
 
 
 def rig_fit(glb: Path) -> dict[str, Any]:
@@ -647,6 +688,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
             usage_api.count_failed("rig" if job.kind == "rig" else "animation",
                                    "\n".join(job.log_lines)[-4000:] or code)
         else:
+            naming = name_rig_bones(job) if job.kind == "rig" and job.bone_names else None
             set_glb_generator(job.result)   # the rigger's or Blender's own value is not ours
             write_provenance(job.result.with_suffix(".provenance.json"), job.record)
             # The done event (with the file's path) goes out BEFORE the status flips: a plan polls
@@ -656,6 +698,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
             job.emit({"phase": "done", "overall_pct": 100,
                       "message": fit.get("message") or ("Rigged" if job.kind == "rig" else "Animated"),
                       **({"humanoid": fit["humanoid"]} if "humanoid" in fit else {}),
+                      **({"bone_names": naming} if naming else {}),
                       "kind": job.kind,
                       "path": job.result.relative_to(REPO / "output").as_posix()
                       if REPO / "output" in job.result.parents else None,

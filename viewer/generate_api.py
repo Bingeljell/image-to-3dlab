@@ -55,6 +55,7 @@ from assets_api import set_name as set_asset_name
 from assets_api import thumbnail as asset_thumbnail
 from autorig_api import (
     ANIMATE_JOBS,
+    bone_names_choice,
 )
 from autorig_api import (
     aliases as animate_aliases,
@@ -3909,7 +3910,11 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(422, {"error": "send a .glb in 'asset' or a listed 'model'"})
                 return
             try:
-                job = ANIMATE_JOBS.create_rig(name, data, record, origin)
+                job = ANIMATE_JOBS.create_rig(name, data, record, origin,
+                                              bone_names=bone_names_choice(form))
+            except ValueError as exc:
+                self._send_json(422, {"error": str(exc)})
+                return
             except RuntimeError as exc:
                 self._send_json(409, {"error": str(exc)})
                 return

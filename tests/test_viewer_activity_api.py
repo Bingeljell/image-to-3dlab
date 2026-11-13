@@ -646,3 +646,19 @@ def test_finish_rejects_picture_upload_without_a_model(tmp_path):
     runner.submit(chain, background=False)
     assert chain.status == "error" and "3D model" in chain.error
     assert not any(path == "/api/finish" for _, path, _ in jobs.calls)
+
+
+def test_a_rig_with_bone_names_sends_the_choice(tmp_path):
+    runner, jobs = _runner(tmp_path)
+    chain = aa.Chain(title="mine", steps=["rigged"], upload=("mine.glb", b"GLB!"),
+                     rig_settings={"bone_names": "unity"})
+    runner.submit(chain, background=False)
+    rig_body = next(b for m, p, b in jobs.calls if p == "/api/animate/rig")
+    assert b'name="bone_names"' in rig_body and b"unity" in rig_body
+
+
+def test_the_plan_form_carries_only_known_rig_settings():
+    form = {"title": {"value": "k"}, "steps": {"value": '["rigged"]'},
+            "made": {"value": '{"finished": "finish/k/k_8k.glb"}'},
+            "rig_settings": {"value": '{"bone_names": "unity", "colour": "red"}'}}
+    assert aa.chain_from_form(form).rig_settings == {"bone_names": "unity"}

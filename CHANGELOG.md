@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The prompt guide now suggests eye-level pictures or prop sheets for upright props.
 
 ### Fixed
+- Rig says what is wrong when the graphics card is older than it supports, instead of dying on
+  a CUDA `no kernel image` traceback: "Your graphics card (NVIDIA Quadro P5000) is older than
+  Rig supports: it needs an NVIDIA RTX 20-series or newer." The sentence reaches the studio and
+  Report a bug, and Setup refuses such a card before downloading anything.
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up
   there, since Pixal3D's own tore lattices, dropped small parts and left holes at small game
   budgets.

@@ -257,3 +257,39 @@ def test_venv_python_uses_the_windows_layout_on_windows(tmp_path, monkeypatch):
     assert ba.venv_python(tmp_path) == tmp_path / ".venv" / "Scripts" / "python.exe"
     monkeypatch.setattr(ba.host.os, "name", "posix")
     assert ba.venv_python(tmp_path) == tmp_path / ".venv" / "bin" / "python"
+
+
+# --- a card Rig cannot run on stops before the download (Quadro P5000, 2026-11-13) ----------
+
+def test_an_old_nvidia_card_is_named_before_anything_is_fetched(monkeypatch, capsys):
+    """Two gigabytes of packages for a card that dies on its first kernel is a waste."""
+    monkeypatch.setattr(ba, "nvidia_problem",
+                        lambda: "Your graphics card (Quadro P5000) is older than Rig supports: "
+                                "it needs an NVIDIA RTX 20-series or newer.")
+    monkeypatch.setattr(ba, "clone_pinned", lambda *a, **k: pytest.fail("cloned"))
+    monkeypatch.setattr(ba, "install_packages", lambda *a, **k: pytest.fail("installed"))
+    monkeypatch.setattr(ba, "install_weights", lambda *a, **k: pytest.fail("fetched weights"))
+    assert ba.main(["--yes"]) == 1
+    out = capsys.readouterr()
+    assert "Quadro P5000" in out.err and "nothing was downloaded" in out.err
+
+
+def test_a_card_we_cannot_read_is_not_a_refusal(monkeypatch):
+    """No nvidia-smi, no card, or no readable capability: setup carries on."""
+    monkeypatch.setattr(ba.host, "has_nvidia_gpu", lambda: True)
+    monkeypatch.setattr(ba.host, "compute_capability", lambda: None)
+    assert ba.nvidia_problem() is None
+
+
+def test_a_supported_card_is_not_bothered(monkeypatch):
+    monkeypatch.setattr(ba.host, "has_nvidia_gpu", lambda: True)
+    monkeypatch.setattr(ba.host, "compute_capability", lambda: "86")
+    monkeypatch.setattr(ba.cuda_arch, "card_name", lambda: "NVIDIA GeForce RTX 3090")
+    assert ba.nvidia_problem() is None
+
+
+def test_an_old_card_is_told_its_name(monkeypatch):
+    monkeypatch.setattr(ba.host, "has_nvidia_gpu", lambda: True)
+    monkeypatch.setattr(ba.host, "compute_capability", lambda: "61")
+    monkeypatch.setattr(ba.cuda_arch, "card_name", lambda: "NVIDIA Quadro P5000")
+    assert "Quadro P5000" in ba.nvidia_problem()

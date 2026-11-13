@@ -486,3 +486,85 @@ def _portable():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     import patch_skintokens_portable
     return patch_skintokens_portable
+
+
+# --- a card Rig cannot run on says so, before the model loads (Quadro P5000, #? 2026-11-13) ---
+
+def test_an_old_card_is_refused_with_one_sentence_and_no_subprocess(tmp_path, monkeypatch):
+    """The card dies on its first kernel; loading 8 GB of model to learn that is the bug."""
+    sentence = ("Your graphics card (NVIDIA Quadro P5000) is older than Rig supports: it needs "
+                "an NVIDIA RTX 20-series or newer.")
+    monkeypatch.setattr(aa, "card_problem", lambda python=None: sentence)
+    job = _fake_job(tmp_path, "print('should never run')")
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    aa.run_job(job, manager)
+
+    assert job.status == "error"
+    assert job.events[-1]["message"] == sentence and job.events[-1]["phase"] == "error"
+    assert job.process is None                      # nothing was started
+    assert not job.result.exists()
+    assert manager.active is None
+
+
+def test_the_refusal_reaches_the_bug_report(tmp_path, monkeypatch):
+    """Report a bug reads the newest error record's note and log: the sentence must be there."""
+    from activity_api import read_history
+
+    sentence = ("Your graphics card (NVIDIA Quadro P5000) is older than Rig supports: it needs "
+                "an NVIDIA RTX 20-series or newer.")
+    monkeypatch.setattr(aa, "card_problem", lambda python=None: sentence)
+    job = _fake_job(tmp_path, "print('never')")
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+
+    (record,) = read_history(tmp_path)
+    assert record["result"] == "error" and record["step"] == "rigged"
+    assert record["note"] == sentence
+    assert sentence in record["log"]
+
+    # ... and Report a bug reads it from there, which is the only reason it is written.
+    import bug_report_api
+
+    text = bug_report_api.details(tmp_path, home=str(tmp_path), machine="Windows · NVIDIA Quadro P5000")
+    assert f"What it said: {sentence}" in text
+
+
+def test_a_card_that_works_is_not_mentioned(tmp_path, monkeypatch):
+    monkeypatch.setattr(aa, "card_problem", lambda python=None: None)
+    job = _fake_job(tmp_path, _write_glb_script())
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert job.status == "done"
+
+
+def test_a_rig_that_could_not_even_start_is_in_the_report_too(tmp_path, monkeypatch):
+    """A launch that raises is a failure like any other, and Report a bug only reads the file."""
+    from activity_api import read_history
+
+    def no_popen(*args, **kwargs):
+        raise OSError("SkinTokens is not installed")
+
+    monkeypatch.setattr(aa, "card_problem", lambda python=None: None)
+    monkeypatch.setattr(aa.subprocess, "Popen", no_popen)
+    job = _fake_job(tmp_path, "print('never')")
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+
+    assert job.status == "error"
+    (record,) = read_history(tmp_path)
+    assert record["note"] == "SkinTokens is not installed"
+
+
+def test_a_refused_rig_lands_where_report_a_bug_looks():
+    """The studio's own manager writes history into output/, beside every other step's."""
+    import generate_api
+
+    assert aa.ACTIVITY_ROOT == aa.ANIMATE_JOBS.activity_root
+    assert aa.ACTIVITY_ROOT == generate_api.OUTPUT_ROOT
+    assert aa.ANIMATE_JOBS.output_root == aa.ACTIVITY_ROOT / "animate"
+
+
+def test_the_check_asks_the_venvs_own_torch(monkeypatch):
+    """SkinTokens' venv carries its own torch; the host's means nothing to it."""
+    seen = []
+    monkeypatch.setattr(aa.cuda_arch, "card_problem",
+                        lambda python, run=None: seen.append(python) or None)
+    aa.card_problem(Path("/venv/python"))
+    assert seen == [Path("/venv/python")]

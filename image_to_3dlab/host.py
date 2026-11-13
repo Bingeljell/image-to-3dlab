@@ -237,6 +237,12 @@ def compute_capability(which: Callable = shutil.which,
     return f"{match[1]}{match[2]}" if match else None
 
 
+def gpu_name(which: Callable = shutil.which, run: Callable = subprocess.run) -> str | None:
+    """The first card's marketing name (`NVIDIA Quadro P5000`), for a message to a person."""
+    out = _smi(["--query-gpu=name", "--format=csv,noheader"], which, run) or ""
+    return out.strip().splitlines()[0].strip() if out.strip() else None
+
+
 @lru_cache(maxsize=1)
 def _cached_nvidia() -> bool:
     return has_nvidia_gpu()

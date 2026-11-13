@@ -367,6 +367,15 @@ def test_compute_capability_drops_the_dot():
     assert host.compute_capability(which=lambda _: None) is None
 
 
+def test_gpu_name_is_the_first_cards_own_words():
+    """A message to a person says "Quadro P5000", not "device 0"."""
+    def which(_):
+        return "/usr/bin/nvidia-smi"
+    assert host.gpu_name(which=which, run=_smi(0, "NVIDIA Quadro P5000\n")) == "NVIDIA Quadro P5000"
+    assert host.gpu_name(which=which, run=_smi(0, "") ) is None
+    assert host.gpu_name(which=lambda _: None) is None
+
+
 def test_find_nvcc_prefers_path(monkeypatch):
     monkeypatch.setattr(host.shutil, "which", lambda _: "/opt/cuda/bin/nvcc")
     assert host.find_nvcc() == "/opt/cuda/bin/nvcc"

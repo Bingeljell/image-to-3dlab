@@ -93,18 +93,24 @@ def native_or_classic(classic, dump: Path, source: Path, output: Path, faces: in
 # Below this many faces Pixal3D's own clean-up tears thin parts (a crane's lattice, a hook)
 # and leaves holes, where the classic route stays clean; at 20k the two are about equal (#244).
 NATIVE_MIN_FACES = 10_000
+# Which clean-up Finish uses: "auto" picks by face count, the other two force one route.
+CLEANUPS = ("auto", "pixal3d", "classic")
 
 
 def finish_route(native_dump: Path | None, keep_mesh: bool, replay_available: bool,
-                 faces: int = NATIVE_MIN_FACES) -> bool:
+                 faces: int = NATIVE_MIN_FACES, cleanup: str = "auto") -> bool:
     """Whether this run takes Pixal3D's own clean-up instead of the classic retopology.
 
     Needs the run's dump and a post-replay build. Full detail keeps the generator's mesh,
-    so there is nothing to clean up again, and a game budget under NATIVE_MIN_FACES takes
-    the classic route, which keeps thin parts whole at low face counts.
+    so there is nothing to clean up again. On "auto", a game budget under NATIVE_MIN_FACES
+    takes the classic route, which keeps thin parts whole at low face counts; "pixal3d"
+    asks for Pixal3D's route at any count, "classic" never takes it.
     """
-    return (native_dump is not None and not keep_mesh and replay_available
-            and faces >= NATIVE_MIN_FACES)
+    if cleanup not in CLEANUPS:
+        raise ValueError(f"cleanup is one of {', '.join(CLEANUPS)}, got {cleanup!r}")
+    if cleanup == "classic" or native_dump is None or keep_mesh or not replay_available:
+        return False
+    return cleanup == "pixal3d" or faces >= NATIVE_MIN_FACES
 
 
 def stage_plan(skip_paint: bool, skip_compress: bool, skip_bake: bool = False,
@@ -363,6 +369,11 @@ def build_parser() -> argparse.ArgumentParser:
              "classic route runs instead",
     )
     parser.add_argument(
+        "--cleanup", choices=CLEANUPS, default="auto",
+        help="which clean-up a Pixal3D model gets: auto (Pixal3D's own from 10k faces, "
+             "classic below, where Pixal3D's tears thin parts), pixal3d or classic at any count",
+    )
+    parser.add_argument(
         "--steps-dir", type=Path, default=None,
         help="put the in-between files in this folder, numbered by stage "
              "(1_retopo.glb, 2_painted.glb, ...), instead of beside the output",
@@ -434,7 +445,7 @@ def main() -> int:
     timings: dict[str, float] = {}
 
     native = finish_route(args.native_dump, args.keep_mesh, pixal3d_native.replay_available(),
-                          args.faces)
+                          args.faces, args.cleanup)
     native_record = None
     retopo_glb = steps["retopo"]
     step = time.time()

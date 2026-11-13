@@ -450,3 +450,30 @@ def test_worker_rejects_malformed_explicit_record_before_work(tmp_path, monkeypa
                                     "--source-record", str(record), "--skip-paint"])
     with pytest.raises(ValueError, match="licence record"):
         rr.main()
+
+
+@pytest.mark.parametrize("cleanup, faces, expected", [
+    ("classic", 20_000, False),   # forced classic, even where Pixal3D's would be picked
+    ("pixal3d", 5_000, True),     # forced Pixal3D's, even at a small budget
+    ("auto", 5_000, False),
+    ("auto", 20_000, True),
+])
+def test_the_cleanup_choice_overrides_the_face_count(cleanup, faces, expected):
+    assert rr.finish_route(Path("run.post.bin"), False, True, faces, cleanup) is expected
+
+
+@pytest.mark.parametrize("dump, keep_mesh, available", [
+    (None, False, True), (Path("run.post.bin"), True, True), (Path("run.post.bin"), False, False),
+])
+def test_forcing_pixal3d_still_needs_a_dump_and_post_replay(dump, keep_mesh, available):
+    assert rr.finish_route(dump, keep_mesh, available, 20_000, "pixal3d") is False
+
+
+def test_an_unknown_cleanup_is_refused():
+    with pytest.raises(ValueError, match="cleanup"):
+        rr.finish_route(Path("run.post.bin"), False, True, 20_000, "fast")
+
+
+def test_the_worker_takes_the_cleanup_flag():
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb"]).cleanup == "auto"
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "b.glb", "--cleanup", "classic"]).cleanup == "classic"

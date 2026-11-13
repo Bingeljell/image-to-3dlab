@@ -148,12 +148,25 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
     # Pixal3D's own clean-up (a kept dump) and the classic route make different meshes: a skin
     # must be finished the way its model was, or the rig made for the model would not fit it.
     native = (finished.parent / "input" / "source.post.bin").is_file()
+    finish = legacy_cleanup(finish, native)
     return {
         "asset": asset.get("id"), "name": asset.get("name"),
         "finished": asset["finished"], "model": asset["model"], "shape": _rel(output, shape),
         "front": asset["picture"], "back": back,
         "seed": params.get("seed"), "steps": params.get("steps"), "finish": finish, "native": native,
     }
+
+
+def legacy_cleanup(finish: dict[str, Any], native: bool) -> dict[str, Any]:
+    """Pin the clean-up route of a model finished before Finish recorded one.
+
+    Those took Pixal3D's own clean-up whenever a dump was kept, at any face count. "auto" now
+    takes the classic route under 10k faces, so a skin of an older 8k model would get a
+    different mesh and its rig would no longer fit. Recorded settings are left as they are.
+    """
+    if "cleanup" in finish or not native:
+        return finish
+    return {**finish, "cleanup": "pixal3d"}
 
 
 @dataclass

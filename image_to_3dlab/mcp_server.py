@@ -343,6 +343,12 @@ ADVANCED: dict[str, dict[str, Any]] = {
         "step": "finished", "type": "bool", "default": True,
         "what": "Pixel Match first fits each picture onto the model's outline before painting.",
         "try_off_when": "a feature shows up twice (a ghost eye) or slides off its place, often on a turned head."},
+    "cleanup": {
+        "step": "finished", "type": "str", "choices": ["auto", "pixal3d", "classic"], "default": "auto",
+        "what": "How Finish shrinks a Pixal3D model. auto: Pixal3D's own clean-up from 10k faces (fast, keeps its "
+                "texture), the classic Blender route below. Other engines always use classic.",
+        "try_off_when": "set classic if thin parts (a lattice, a hook, fingers) tear or holes open; set pixal3d to "
+                        "compare at a small budget."},
     "texture_size": {
         "step": "finished", "type": "int", "choices": [1024, 2048, 4096], "default": 2048,
         "what": "Pixel size of the finished model's texture. Bigger is sharper and a bigger file."},
@@ -402,6 +408,8 @@ def plan_extras(adv: dict[str, Any], detail: str | int | None, pixel_match: bool
     finish = finish_choices(detail, pixel_match, adv["edge_fade"], adv["nudge"])
     if adv["texture_size"] != ADVANCED["texture_size"]["default"]:
         finish["texture_size"] = adv["texture_size"]
+    if adv["cleanup"] not in (None, "auto"):
+        finish["cleanup"] = adv["cleanup"]
     move: dict[str, Any] = {}
     if adv["speed"]:
         move["speed"] = adv["speed"]

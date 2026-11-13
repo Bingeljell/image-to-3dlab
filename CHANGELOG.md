@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Finish's Advanced panel (and the agent tools) can pick the clean-up for a Pixal3D model:
+  Auto, Pixal3D's own, or Classic.
+
 ### Fixed
 - Finish below 10,000 faces keeps thin parts whole again: it now uses the classic clean-up
   there, since Pixal3D's own tore lattices, dropped small parts and left holes at small game

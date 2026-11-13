@@ -505,7 +505,7 @@ def test_list_assets_rows_say_their_family_and_version(studio):
 # --------------------------------------------------------------------------- advanced knobs
 def test_options_lists_the_main_and_every_advanced_knob():
     out = ms.options()
-    assert set(out["advanced"]) == {"edge_fade", "nudge", "texture_size", "rig_from", "speed", "arms_away",
+    assert set(out["advanced"]) == {"edge_fade", "nudge", "cleanup", "texture_size", "rig_from", "speed", "arms_away",
                                     "in_place", "keep_everything"}
     assert all("what" in spec and "default" in spec and "step" in spec for spec in out["advanced"].values())
     assert {"finish_detail", "pixel_match", "move"} <= set(out["main"])
@@ -517,7 +517,7 @@ def test_every_studio_control_has_an_mcp_twin():
     controls = set(re.findall(r'data-k="(\w+)"', source)) - {"licence"}   # licence is a label, not a knob
     twin = {"faces": "finish_detail", "customFaces": "finish_detail", "photo": "pixel_match", "engine": "engine",
             "frontback": "front_and_back", "recipe": "add_wording", "move": "move", "text": "description",
-            "edgefade": "edge_fade", "nudge": "nudge", "texture": "texture_size", "rigsource": "rig_from",
+            "edgefade": "edge_fade", "nudge": "nudge", "cleanup": "cleanup", "texture": "texture_size", "rigsource": "rig_from",
             "speed": "speed", "spread": "arms_away", "keep": "keep_everything", "inplace": "in_place",
             "picengine": "picture_engine", "change": "back_change"}
     missing = sorted(controls - set(twin))
@@ -999,3 +999,12 @@ def test_mcp_uploaded_model_can_finish_without_picture(tmp_path, studio):
     assert chain.status == "done", chain.error
     assert len(created) == 1
     assert (output / chain.made["finished"]).read_bytes() == b"finished"
+
+
+def test_the_cleanup_choice_travels_with_the_plan_unless_auto(studio):
+    ms.create(studio, want="character", description="a knight", advanced={"cleanup": "classic"})
+    assert json.loads(sent(studio)["finish_settings"]) == {"cleanup": "classic"}
+    ms.create(studio, want="character", description="a knight", advanced={"cleanup": "auto"})
+    assert "finish_settings" not in sent(studio)
+    with pytest.raises(ms.StudioError, match="cleanup is one of"):
+        ms.read_advanced({"cleanup": "fast"})

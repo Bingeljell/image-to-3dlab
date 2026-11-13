@@ -105,8 +105,8 @@ PREBUILTS = {
 # download that does not match is deleted, never unpacked. Empty means nobody has pasted
 # the digest for the pinned release yet, and verify_download refuses rather than trusting it.
 PREBUILT_SHA256 = {
-    "pixal3d-cuda12-linux-x64.tar.gz": "",
-    "pixal3d-cuda12-windows-x64.zip": "",
+    "pixal3d-cuda12-linux-x64.tar.gz": "c181b8e2610d1ccb69216a72dd9c5c5c5f06fa7c588da62c80d97ad1c627f9eb",
+    "pixal3d-cuda12-windows-x64.zip": "a47257d208f8112c8b50d5a0233231ab52f7a13287ec38a0d8252779245e867a",
 }
 
 # What the "Building (...)" line says, so a compile that runs for 20 minutes names the

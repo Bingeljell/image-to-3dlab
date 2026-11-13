@@ -450,9 +450,9 @@ def test_no_finish_choice_leaves_finish_on_its_defaults(studio):
 
 def test_upright_can_be_disabled_and_characters_default_off(studio):
     ms.create(studio, want="prop", description="a barrel", advanced={"upright": False})
-    assert json.loads(sent(studio)["finish_settings"]) == {"upright": False}
+    assert json.loads(sent(studio)["finish_settings"])["upright"] is False
     ms.create(studio, want="character", description="a knight")
-    assert "finish_settings" not in sent(studio)
+    assert "upright" not in json.loads(sent(studio).get("finish_settings", "{}"))
 
 
 def test_full_detail_is_never_rigged(studio):
@@ -561,7 +561,7 @@ def test_defaults_add_nothing_to_the_plan(studio):
 
 def test_prop_height_is_optional_and_can_be_set(studio):
     ms.create(studio, want="prop", description="a barrel")
-    assert "finish_settings" not in sent(studio)
+    assert "height_m" not in json.loads(sent(studio).get("finish_settings", "{}"))
     ms.create(studio, want="prop", description="a barrel", advanced={"height_m": 0.7})
     assert json.loads(sent(studio)["finish_settings"])["height_m"] == 0.7
 

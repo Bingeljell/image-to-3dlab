@@ -25,8 +25,59 @@ DRY=0
 START=""
 
 say()  { printf '\033[1;36m[install]\033[0m %s\n' "$*"; }
-die()  { printf '\033[1;31m[install]\033[0m %s\n' "$*" >&2; exit 1; }
+die()  { printf '\033[1;31m[install]\033[0m %s\n' "$1" >&2; install_event stopped "${2:-other}"; exit 1; }
 run()  { if [ "$DRY" = 1 ]; then say "would run: $*"; else "$@"; fi; }
+
+# --- Anonymous install events -------------------------------------------------------------
+# One tiny POST, in the background, with a 3 second ceiling: it can never fail the install or
+# hold it up. No id and no address: the site keeps daily counts by event, reason, os and arch.
+# The same promise as the app's counts: no pictures, prompts, files or anything private.
+# I3D_NO_USAGE and DO_NOT_TRACK turn it off, exactly as they turn the app's counts off.
+EVENT_URL="${I3D_EVENT_URL:-https://assetfurnace.com/api/install-event}"
+EVENT_OS=""
+EVENT_ARCH=""
+
+usage_off() {
+  for name in I3D_NO_USAGE DO_NOT_TRACK; do
+    case "$(printf '%s' "${!name:-}" | tr '[:upper:]' '[:lower:]')" in
+      1|true|yes) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+script_version() {
+  # The release this install is on, when the folder is already a checkout. Empty means the
+  # clone has not happened yet, and the site records it as unknown.
+  if [ -f "$DIR/pyproject.toml" ]; then
+    sed -n 's/^version = "\(.*\)"$/\1/p' "$DIR/pyproject.toml" 2>/dev/null | head -n 1
+  fi
+}
+
+install_event() {
+  event="$1"; reason="${2:-}"
+  [ "$DRY" = 1 ] && return 0
+  [ -z "$EVENT_OS" ] && return 0        # not a machine we name; nothing to report about it
+  usage_off && return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  version="$(script_version)"
+  body="{\"event\":\"$event\",\"os\":\"$EVENT_OS\",\"arch\":\"$EVENT_ARCH\",\"version\":\"${version:-unknown}\""
+  [ -n "$reason" ] && body="$body,\"reason\":\"$reason\""
+  body="$body}"
+  # "started" is fire and forget. The others are the last thing this script does, so they
+  # wait: a backgrounded child is killed when the shell exits, and the count would be lost.
+  if [ "$event" = started ]; then
+    curl -fsS -m 3 -X POST -H 'Content-Type: application/json' --data "$body" "$EVENT_URL" \
+      >/dev/null 2>&1 &
+  else
+    curl -fsS -m 3 -X POST -H 'Content-Type: application/json' --data "$body" "$EVENT_URL" \
+      >/dev/null 2>&1 || true
+  fi
+}
+
+say "We collect anonymous data to make AssetFurnace better: which steps you run, whether they work, and what computer you use."
+say "Never your pictures, prompts, files or anything private. Turn it off any time on the About page."
+say "See exactly what's sent: https://assetfurnace.com/privacy#usage-counts"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -48,17 +99,23 @@ confirm() {
   [ "$YES" = 1 ] && return 0
   # Opening it is the only honest test: the file exists even with no terminal attached.
   if ! { : < /dev/tty; } 2>/dev/null; then
-    die "$1 Nobody to ask here, so stopping. Re-run with --yes to go ahead."
+    die "$1 Nobody to ask here, so stopping. Re-run with --yes to go ahead." other
   fi
   printf '%s [y/N] ' "$1" > /dev/tty
   read -r answer < /dev/tty || answer=""
-  case "$answer" in y|Y|yes|YES) return 0 ;; *) die "Stopped. Nothing was changed." ;; esac
+  case "$answer" in y|Y|yes|YES) return 0 ;; *) die "Stopped. Nothing was changed." user_said_no ;; esac
 }
 
 # --- 1. This machine --------------------------------------------------------------------
 OS="${I3D_UNAME_S:-$(uname -s)}"      # the I3D_ overrides exist for the test suite
 ARCH="${I3D_UNAME_M:-$(uname -m)}"
+EVENT_ARCH="$(printf '%s' "$ARCH" | tr '[:upper:]' '[:lower:]')"
 GPU="none"
+# Named before the refusals below, so a machine we turn away can still say which one it was.
+case "$OS" in
+  Darwin) EVENT_OS="macos" ;;
+  Linux) EVENT_OS="linux" ;;
+esac
 case "$OS/$ARCH" in
   Darwin/arm64)
     MACHINE="Apple Silicon Mac" ;;
@@ -76,15 +133,30 @@ case "$OS/$ARCH" in
       say "No NVIDIA or AMD GPU found. The viewer will install, but no generation route"
       say "will run here until one is."
     fi ;;
-  Darwin/*) die "This Mac has an Intel chip. The lab needs Apple Silicon (M1 or newer)." ;;
-  *) die "Unsupported machine: $OS/$ARCH. The lab runs on Apple Silicon Macs and x86-64 Linux with an NVIDIA or AMD GPU. On Windows, use install.ps1." ;;
+  Darwin/*) die "This Mac has an Intel chip. The lab needs Apple Silicon (M1 or newer)." intel_mac ;;
+  *) die "Unsupported machine: $OS/$ARCH. The lab runs on Apple Silicon Macs and x86-64 Linux with an NVIDIA or AMD GPU. On Windows, use install.ps1." unsupported_os ;;
 esac
 say "Machine: $MACHINE"
 
+install_event started
+
+# The same check Rig makes before it loads its model, made before anything is downloaded: our
+# NVIDIA PyTorch carries code for RTX 20-series and newer (sm_75+), and an older card dies on
+# its first kernel. 2026-11-13: a Quadro P5000 (6.1) installed two gigabytes to find that out.
+if [ "$GPU" = nvidia ]; then
+  CAP="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+  OLD_CARD="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  MAJOR="${CAP%%.*}"; MINOR="${CAP#*.}"
+  if [ -n "$MAJOR" ] && [ -n "$MINOR" ] && [ "$MAJOR" -eq "$MAJOR" ] 2>/dev/null \
+     && [ "$MINOR" -eq "$MINOR" ] 2>/dev/null && [ "$MAJOR$MINOR" -lt 75 ]; then
+    die "Your graphics card${OLD_CARD:+ ($OLD_CARD)} is older than AssetFurnace supports: it needs an NVIDIA RTX 20-series or newer. Nothing was installed." old_nvidia
+  fi
+fi
+
 # --- 2. Tools ---------------------------------------------------------------------------
 if ! command -v git >/dev/null 2>&1; then
-  if [ "$OS" = Darwin ]; then die "git is missing. Install it with: xcode-select --install"
-  else die "git is missing. Install it with your package manager, e.g. sudo apt install git"
+  if [ "$OS" = Darwin ]; then die "git is missing. Install it with: xcode-select --install" no_git
+  else die "git is missing. Install it with your package manager, e.g. sudo apt install git" no_git
   fi
 fi
 
@@ -231,6 +303,7 @@ if [ -z "$START" ]; then
 fi
 say "Done. Open Setup & Status in the viewer to choose what to install. Nothing large"
 say "downloads until you say so there. To update later, run this installer again."
+install_event finished
 say "Use it from your agent too (Claude Code shown; Codex, Kimi and others: docs/agents.md):"
 printf '\n    claude mcp add assetfurnace -- %s/lab mcp\n\n' "$DIR"
 if [ "$START" = 1 ] && [ "$DRY" != 1 ] && [ -x "$DIR/lab" ]; then

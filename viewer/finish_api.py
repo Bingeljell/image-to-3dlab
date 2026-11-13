@@ -633,6 +633,9 @@ class FinishJobManager:
             directory.mkdir(parents=True, exist_ok=False)
             job = FinishJob(uuid.uuid4().hex, directory)
             try:
+                # What the request chose, before the defaults are merged in: every job would
+                # otherwise look as if it had turned upright off, a default, not a choice.
+                usage_api.count_features(settings)
                 job.settings = fit_to_machine(normalise_settings(settings))
                 if image is None:
                     job.settings.update(skip_photo=True, skip_paint=True)
@@ -711,6 +714,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
     if not WORKER.is_file():
         job.status = "error"
         job.emit({"phase": "error", "message": f"worker missing: {WORKER}"})
+        usage_api.count_failed("finish", "worker missing")
         manager.finish(job)
         return
     try:
@@ -765,6 +769,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
                 "phase": "error", "message": failure_message(job.log_lines, return_code),
                 "log_tail": "\n".join(job.log_lines)[-8000:],
             })
+            usage_api.count_failed("finish", "\n".join(job.log_lines)[-4000:] or return_code)
         elif job.result_glb.is_file():
             if hero and job.settings.get("height_m") is not None:
                 from image_to_3dlab.real_height import size_file
@@ -801,9 +806,11 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         else:
             job.status = "error"
             job.emit({"phase": "error", "message": "worker exited without writing a GLB"})
+            usage_api.count_failed("finish", "worker exited without writing a GLB")
     except Exception as exc:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
+        usage_api.count_failed("finish", exc)
     finally:
         job.directory.joinpath("pid").unlink(missing_ok=True)
         if job.process is not None and job.process.poll() is None:

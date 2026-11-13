@@ -1810,3 +1810,42 @@ def test_a_hidden_tab_renders_nothing_until_it_comes_back():
       await new Promise((resolve) => setTimeout(resolve, 10));
       console.log(JSON.stringify({ whileHidden, after: rendered }));""")
     assert out == {"whileHidden": [], "after": ["a.glb"]}
+
+
+# --- the usage statement: one sentence, in the same words, wherever a person meets it --------
+
+STATEMENT = ("We collect anonymous data to make AssetFurnace better: which steps you run, "
+             "whether they work, and what computer you use. Never your pictures, prompts, "
+             "files or anything private. Turn it off any time on the About page.")
+
+
+@needs_node
+def test_the_statement_is_one_sentence_and_the_about_page_puts_it_before_the_payload():
+    out = _run("pages.js", """
+      const html = m.usageSection();
+      console.log(JSON.stringify({ statement: m.USAGE_STATEMENT,
+        beforePayload: html.indexOf(m.USAGE_STATEMENT.split(":")[0]) < html.indexOf("data-usage-sends"),
+        see: html.includes("See exactly what's sent") }));""")
+    assert out["statement"] == STATEMENT
+    assert out["beforePayload"] is True and out["see"] is True
+
+
+@needs_node
+def test_the_first_start_card_says_the_same_when():
+    out = _run("pages.js", """
+      const html = m.usageNoticeHtml('https://assetfurnace.com/privacy#usage-counts');
+      const text = html.replace(/<[^>]+>/g, '');
+      console.log(JSON.stringify({ statement: text.includes(m.USAGE_STATEMENT),
+        see: html.includes("See exactly what's sent"), off: html.includes("Turn off") }));""")
+    assert out == {"statement": True, "see": True, "off": True}
+
+
+def test_readme_and_both_installers_say_the_same_sentence():
+    """A promise worded four ways is four promises. This one is the same string everywhere."""
+    plain = " ".join(STATEMENT.split())
+    for path in ("README.md", "install.sh", "install.ps1"):
+        # Markdown emphasis and the print calls are layout, not words: take them out.
+        text = (REPO / path).read_text(encoding="utf-8")
+        flat = " ".join(text.replace("**", "").replace('say "', "").replace('Say "', "")
+                        .replace('"', "").split())
+        assert plain in flat, path

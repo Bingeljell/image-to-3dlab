@@ -151,6 +151,34 @@ const CREDITS = [
   ['MLX, rembg, TinyCLIP, three.js', 'and the people behind them', 'https://github.com/ml-explore/mlx', 'MIT'],
 ];
 
+/** The promise, in the words the site, the README and both installers use. One sentence. */
+export const USAGE_STATEMENT = 'We collect anonymous data to make AssetFurnace better: which steps you run, whether they work, and what computer you use. Never your pictures, prompts, files or anything private. Turn it off any time on the About page.';
+const USAGE_BOLD = 'We collect anonymous data to make AssetFurnace better:';
+
+/** The sentence with its first clause in bold, and the link that opens the payload below. */
+export function usageStatement() {
+  return `<b>${USAGE_BOLD}</b>${USAGE_STATEMENT.slice(USAGE_BOLD.length)}`;
+}
+
+/** About → Usage counts: the statement, the switch, and the literal message it would send. */
+export function usageSection() {
+  return `<p>${usageStatement()} <a href="#usage-sends" data-usage-see>See exactly what's sent</a></p>
+      <label><input type="checkbox" data-usage-box> Share anonymous usage counts</label>
+      <p class="meta">Once a day, one small message: a random id made on this computer, and nothing that points
+        back to you or to these files. Unticking stops it and forgets the id.
+        <a href="https://assetfurnace.com/privacy#usage-counts" target="_blank" rel="noopener">Privacy policy</a></p>
+      <details data-usage-sends hidden id="usage-sends"><summary class="meta">Exactly what is sent</summary><pre class="log"></pre></details>`;
+}
+
+/** The first-start card: the same sentence, and three choices: dismiss, turn off, or look. */
+export function usageNoticeHtml(policy) {
+  return `<p>${usageStatement()}</p>
+    <div class="row"><button class="primary" data-ok>Got it</button>
+      <button class="ghost" data-about>Turn off</button>
+      <button class="ghost" data-see>See exactly what's sent</button>
+      <a class="ghost" href="${escape(policy)}" target="_blank" rel="noopener">Privacy</a></div>`;
+}
+
 export async function openAbout(stage) {
   const el = sheet(stage, `<div class="sheet-card about">
     <div class="sheet-top"><h2>About <span>AssetFurnace</span></h2><button type="button" class="ghost" data-close>Close</button></div>
@@ -185,13 +213,7 @@ export async function openAbout(stage) {
       AssetFurnace's own code is Apache-2.0.</p>
     <h3>Usage counts</h3>
     <div data-usage>
-      <p>We're keen to understand how many people are using AssetFurnace - all data shared is anonymous and you're free to stop sharing any time you want.
-        We need a sense of how many people use the app, for what and how. It helps us pick which features and fixes come first, and lets us brag a little about the community's love.</p>
-      <label><input type="checkbox" data-usage-box> Share anonymous usage counts</label>
-      <p class="meta">Once a day it sends a random id, the version, the kind of computer, and how many pictures, models and other jobs
-        were made, from the studio or by an agent. Never pictures, prompts or file names. Unticking stops it and forgets the id.
-        <a href="https://assetfurnace.com/privacy#usage-counts" target="_blank" rel="noopener">Privacy policy</a></p>
-      <details data-usage-sends hidden><summary class="meta">Exactly what is sent</summary><pre class="log"></pre></details>
+      ${usageSection()}
     </div>
     <h3>Find us</h3>
     <div class="row">
@@ -216,6 +238,11 @@ export async function openAbout(stage) {
 async function wireUsage(box) {
   const tick = box.querySelector('[data-usage-box]');
   const sends = box.querySelector('[data-usage-sends]');
+  // "See exactly what's sent" opens the payload below it, rather than sending anyone elsewhere.
+  box.querySelector('[data-usage-see]')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (!sends.hidden) { sends.open = true; sends.scrollIntoView({ block: 'nearest' }); }
+  });
   const show = (state) => {
     tick.checked = !!state.enabled;
     tick.disabled = state.allowed === false;   // I3D_NO_USAGE=1 keeps it off
@@ -238,16 +265,14 @@ export async function usageNotice(openAboutPage) {
   const card = document.createElement('aside');
   card.className = 'usage-notice';
   card.setAttribute('role', 'status');
-  card.innerHTML = `<p><b>Anonymous usage counts</b> once a day: how many pictures and models were made. Never your prompts, pictures or models.</p>
-    <div class="row"><button class="primary" data-ok>Got it</button>
-      <button class="ghost" data-about>Turn off</button>
-      <a class="ghost" href="${escape(state.policy)}" target="_blank" rel="noopener">Details</a></div>`;
+  card.innerHTML = usageNoticeHtml(state.policy);
   const done = () => {
     card.remove();
     fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noticed: true }) }).catch(() => {});
   };
   card.querySelector('[data-ok]').addEventListener('click', done);
   card.querySelector('[data-about]').addEventListener('click', () => { done(); openAboutPage(); });
+  card.querySelector('[data-see]').addEventListener('click', () => { done(); openAboutPage(); });
   document.body.append(card);
 }
 

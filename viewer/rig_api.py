@@ -145,6 +145,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
     if blender is None:
         job.status = "error"
         job.emit({"phase": "error", "message": "Blender is not installed or I2L_BLENDER is invalid"})
+        usage_api.count_failed("rig", "Blender is not installed")
         manager.finish(job)
         return
     try:
@@ -176,6 +177,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
                 "phase": "error", "message": f"Blender exited with code {return_code}",
                 "log_tail": "\n".join(job.log_lines)[-8000:],
             })
+            usage_api.count_failed("rig", "\n".join(job.log_lines)[-4000:] or return_code)
         elif all(path.is_file() for path in (
             job.result_glb, job.result_blend, job.result_sidecar, job.report_path,
         )):
@@ -191,9 +193,11 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
         else:
             job.status = "error"
             job.emit({"phase": "error", "message": "Blender exited without all required artifacts"})
+            usage_api.count_failed("rig", "Blender exited without all required artifacts")
     except Exception as exc:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
+        usage_api.count_failed("rig", exc)
     finally:
         job.directory.joinpath("pid").unlink(missing_ok=True)
         if job.process is not None and job.process.poll() is None:

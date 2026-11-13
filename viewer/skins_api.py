@@ -463,6 +463,8 @@ class SkinBuilds:
             self.active = job.id
         skin.status, skin.error = "building", None
         self.store.save(skin)
+        # A skin is the feature; its Finish choices are its model's, counted once there.
+        usage_api.count_features(skin=True)
         if background:
             threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
                              name=f"skin-{skin.id}").start()
@@ -538,6 +540,7 @@ class SkinBuilds:
             skin.status, skin.error = "error", str(exc)
             job.status, job.error = "error", str(exc)
             job.emit({"phase": "error", "message": str(exc)})
+            usage_api.count_failed("skin", exc)
         finally:
             folder.joinpath("pid").unlink(missing_ok=True)
             self.store.save(skin)

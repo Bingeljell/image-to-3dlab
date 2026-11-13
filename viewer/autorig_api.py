@@ -599,6 +599,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                 job.status = "error"
                 job.emit({"phase": "error", "message": unsupported})
                 write_history(job, manager, unsupported)
+                usage_api.count_failed("rig", unsupported)
                 return
         job.emit({"phase": "queued", "overall_pct": 0,
                   "message": "Starting the auto-rig" if job.kind == "rig" else "Starting"})
@@ -643,6 +644,8 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                       if code else f"{job.kind} step wrote no GLB",
                       "log_tail": "\n".join(job.log_lines)[-6000:]})
             write_history(job, manager, job.events[-1]["message"])
+            usage_api.count_failed("rig" if job.kind == "rig" else "animation",
+                                   "\n".join(job.log_lines)[-4000:] or code)
         else:
             set_glb_generator(job.result)   # the rigger's or Blender's own value is not ours
             write_provenance(job.result.with_suffix(".provenance.json"), job.record)
@@ -664,6 +667,7 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         write_history(job, manager, str(exc))
+        usage_api.count_failed("rig" if job.kind == "rig" else "animation", exc)
     finally:
         stop.set()
         job.directory.joinpath("pid").unlink(missing_ok=True)

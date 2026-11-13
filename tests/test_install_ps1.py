@@ -76,3 +76,55 @@ def test_a_failed_pinned_pytorch_warns_and_drops_torch_from_the_lock():
     assert 'Say "Warning: PyTorch' in fallback
     assert "without-cuda" in fallback
     assert fallback.index("without-cuda") < fallback.index("--index-url $TorchIndex torch torchvision")
+
+
+# --- anonymous install events, in step with install.sh -------------------------------------
+
+def test_the_windows_installer_says_the_same_sentence_as_the_studio():
+    """One promise, one wording, every surface: README, About, and both installers."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    assert "We collect anonymous data to make AssetFurnace better: which steps you run" in ps1
+    assert "Never your pictures, prompts, files or anything private" in ps1
+    assert "Turn it off any time on the About page" in ps1
+    assert "https://assetfurnace.com/privacy#usage-counts" in ps1
+
+
+def test_it_posts_the_same_events_as_the_shell_installer():
+    """One endpoint, one ceiling, one closed list of reasons, from either installer."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    sh = (REPO / "install.sh").read_text(encoding="utf-8")
+    closed = {"intel_mac", "unsupported_os", "no_git", "old_nvidia", "old_amd", "no_gpu",
+              "user_said_no", "other"}
+    for text in (ps1, sh):
+        assert "assetfurnace.com/api/install-event" in text
+        for event in ('"started"', "stopped", "finished"):
+            assert event in text
+        assert "I3D_NO_USAGE" in text and "DO_NOT_TRACK" in text
+        used = set(re.findall(r'\b(?:intel_mac|unsupported_os|no_git|old_nvidia|old_amd|no_gpu|user_said_no)\b', text))
+        assert used and used <= closed
+    # 3 second ceiling, in each one's own spelling.
+    assert '"-m", "3"' in ps1 and "-m 3" in sh
+    # The reasons each machine can actually give: a Windows box is never an Intel Mac.
+    assert {"intel_mac", "unsupported_os", "no_git", "old_nvidia", "user_said_no"} <= (
+        set(re.findall(r'\b(intel_mac|unsupported_os|no_git|old_nvidia|user_said_no)\b', sh)))
+    assert {"unsupported_os", "no_git", "old_nvidia", "user_said_no"} <= (
+        set(re.findall(r'\b(unsupported_os|no_git|old_nvidia|user_said_no)\b', ps1)))
+
+def test_an_old_nvidia_card_is_refused_before_the_download():
+    """The same wall Rig hit, met before two gigabytes of packages are fetched."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    assert "--query-gpu=compute_cap" in ps1
+    assert "-lt 75" in ps1
+    assert "older than AssetFurnace supports" in ps1
+    assert "RTX 20-series" in ps1
+    before = ps1[ps1.index("--query-gpu=compute_cap"):]
+    assert before.index("old_nvidia") < before.index("uv venv")
+
+
+def test_an_event_is_never_able_to_fail_the_install():
+    """A missing curl, a blocked port, a dead site: the install carries on either way."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    body = ps1[ps1.index("function Send-Event"):ps1.index("# 1. This machine")]
+    assert "Get-Command curl.exe -ErrorAction SilentlyContinue" in body
+    assert "if (-not $curl) { return }" in body
+    assert "catch { }" in body

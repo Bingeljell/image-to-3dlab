@@ -54,9 +54,10 @@ def sm_number(entry: str) -> int | None:
 def torch_supports(archs: Sequence[str], capability: tuple[int, int]) -> bool:
     """Whether torch built for `archs` can run a card of `capability`, as `(major, minor)`.
 
-    A card matches when torch carries its own code, or when torch carries PTX no newer
-    than the card: the driver compiles PTX at load time for the card it runs on, which
-    works forwards (PTX for sm_75 runs on sm_120) and never backwards (never on sm_61).
+    A card matches when torch carries its own code, or code for an earlier card of the same
+    major version (sm_86 code runs on an sm_89 RTX 40), or PTX no newer than the card: the
+    driver compiles PTX at load time for the card it runs on, which works forwards (PTX for
+    sm_75 runs on sm_120) and never backwards (never on sm_61).
     """
     card = capability[0] * 10 + capability[1]
     for entry in archs:
@@ -64,6 +65,11 @@ def torch_supports(archs: Sequence[str], capability: tuple[int, int]) -> bool:
         if built is None:
             continue
         if built == card:
+            return True
+        # Code built for a card runs on later cards of the same major version: sm_86 code
+        # runs on an sm_89 card, which is how every RTX 40 rigs on a torch without sm_89.
+        # An "a" build is for that one architecture only, so it never counts here.
+        if not entry.split("+", 1)[0].endswith("a") and built // 10 == card // 10 and built <= card:
             return True
         if "PTX" in entry.upper() and built <= card:
             return True

@@ -52,3 +52,21 @@ def test_the_edit_reads_the_view_as_its_reference_at_the_asked_size():
     assert command[command.index("-W") + 1] == "1024" and command[command.index("-H") + 1] == "1024"
     assert command[command.index("--steps") + 1] == "8" and command[command.index("--seed") + 1] == "42"
     assert command[command.index("-o") + 1] == "out.png"
+
+
+def test_with_a_strength_the_edit_starts_from_the_view_so_its_outline_stays():
+    # FLUX.2 klein, given the view only as a reference, redrew a side as a three-quarter view
+    # (2026-11-14); starting from the view itself (img2img) keeps every edge where it was
+    weights = {"diffusion_model": Path("m.gguf"), "llm": Path("l.gguf"), "vae": Path("v.safetensors")}
+    command = rv.edit_command("paint it", Path("left.png"), Path("out.png"), weights, size=1024, steps=8,
+                              seed=42, binary=Path("sd-cli"), strength=0.7)
+    assert command[command.index("-i") + 1] == "left.png"
+    assert command[command.index("--strength") + 1] == "0.7"
+    assert command[command.index("-r") + 1] == "left.png"
+
+
+def test_without_a_strength_the_edit_reads_the_view_only_as_a_reference():
+    weights = {"diffusion_model": Path("m.gguf"), "llm": Path("l.gguf"), "vae": Path("v.safetensors")}
+    command = rv.edit_command("paint it", Path("left.png"), Path("out.png"), weights, size=1024, steps=8,
+                              seed=42, binary=Path("sd-cli"), strength=None)
+    assert "-i" not in command and "--strength" not in command

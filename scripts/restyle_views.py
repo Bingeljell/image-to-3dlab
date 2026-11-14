@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Repaint a shape guide's views with the studio's own picture editor (FLUX.2 [klein] 4B).
+"""Repaint a shape guide's five views with the studio's own picture editor, ready for Pixel Match.
+
+The editor is FLUX.2 [klein] 4B.
 
 The shape-guide kit (`shape_guide.py`) writes five views of a model, front, right, back, left
 and top, with a `crops.json` that says which rig view each one is. This runs one edit per view,
@@ -39,13 +41,19 @@ def views_of(folder: Path) -> list[tuple[Path, str, str]]:
 
 
 def edit_command(prompt: str, reference: Path, output: Path, weights: dict[str, Path], size: int, steps: int,
-                 seed: int, binary: Path) -> list[str]:
-    """The picture editor's edit of one view, built by the studio's own `build_command`."""
+                 seed: int, binary: Path, strength: float | None = None) -> list[str]:
+    """The picture editor's edit of one view, built by the studio's own `build_command`.
+
+    With a `strength`, the edit also starts from the view itself (img2img): only that much of
+    it is redrawn, so the outline stays where the model has it. Without one, the engine reads the
+    view only as a reference, and FLUX.2 klein then may redraw the subject from another angle.
+    """
     from viewer import image_api
 
     settings = {**image_api.FLUX.defaults, "width": size, "height": size, "steps": steps, "seed": seed}
+    start = {} if strength is None else {"init": reference, "strength": strength}
     return image_api.build_command(prompt, settings, output, weights, binary=binary, reference=reference,
-                                   engine=image_api.FLUX)
+                                   engine=image_api.FLUX, **start)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--size", type=int, default=1024, help="picture size in pixels (default 1024)")
     parser.add_argument("--steps", type=int, default=8, help="sampling steps (default 8, the studio's for a final picture)")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--strength", type=float, default=None,
+                        help="start from the view and redraw this much of it (0-1), so the outline stays; "
+                             "leave out to read the view only as a reference")
     return parser
 
 
@@ -71,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - runs the p
         output = args.out_dir / f"{rig_view}.png"
         started = time.time()
         command = edit_command(view_prompt(prompts, side), picture, output, weights, args.size, args.steps,
-                               args.seed, image_api.BINARY)
+                               args.seed, image_api.BINARY, args.strength)
         done = subprocess.run(command, check=False, capture_output=True, text=True)
         if done.returncode != 0 or not output.is_file():
             print(done.stdout[-2000:], done.stderr[-2000:], sep="\n")

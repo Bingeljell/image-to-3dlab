@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its wheels and doors as separate parts on their pivots, an interior behind the doors and one atlas, from a preset
   (`bus_12m`, `midibus_9m`, `metro_car`, `ambulance`, `van_long`, `box_van`) or a JSON file that sets your own numbers. It
   writes the parts model and a joined copy, the shape guide for multi-view runs and for Pixel Match.
+  `scripts/restyle_views.py` repaints its five views with the studio's own picture editor; `--strength` starts
+  from each view so the outline stays where the model has it.
 
 ## [0.5.10] - 2026-11-13
 

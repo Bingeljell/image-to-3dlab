@@ -116,6 +116,7 @@ XIN = (-0.60, 0.0, 0.60)        # grid lines across the front, the rear and the 
 YMID = (-2.0, 2.0)              # grid lines along the roof and the cantrail
 ZLF = [ZB, 0.60, 0.66, 0.90, Z_WS0, 2.44, 2.50, ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]            # front rows
 ZLR = [ZB, 0.58, 0.66, 0.92, 1.10, 1.42, 1.62, 2.46, ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]      # rear rows
+ZL_REAR = ZLF if SPEC.get("rear_cab") else ZLR     # a metro car has a driver's cab at both ends
 
 WHEEL_R = SPEC["wheel_radius"]
 YA_F, YA_R = SPEC["axles"]
@@ -399,7 +400,10 @@ def build_body(b):
         {"i0": 10, "i1": 12, "j0": 3, "j1": 5, "depth": 0.02, "taper": 0.015, "mat": "tail"},
         {"i0": 6, "i1": 10, "j0": 6, "j1": 7, "depth": 0.025, "taper": 0.02, "mat": "glass"},
     ]
-    base_r = wrap_grid(b, body, rp, ZLR, col_r, lambda i, j: "skin", blocks_r)
+    if SPEC.get("rear_cab"):        # the rear built like the front: windscreen, display, lights
+        base_r = wrap_grid(b, body, rp, ZLF, col_r, mat_f, blocks_f)
+    else:
+        base_r = wrap_grid(b, body, rp, ZLR, col_r, lambda i, j: "skin", blocks_r)
 
     # --- the roof ---------------------------------------------------------------------------------------------------
     xs = [-W] + [-W + RX * f for f in reversed(F6)] + list(XIN) + [W - RX * f for f in F6] + [W]
@@ -436,7 +440,7 @@ def build_body(b):
         outer = [body.node(x, YR + RYR, ZB)] + list(reversed(wells[sx, "R"][0])) + list(reversed(wells[sx, "F"][0]))
         outer += [body.node(x, YF - RYF, z) for z in ZLF[:8]]
         outer += [body.node(x, y, ZT - RZ) for y in reversed(YMID)]
-        outer += [body.node(x, YR + RYR, z) for z in reversed(ZLR[1:9])]
+        outer += [body.node(x, YR + RYR, z) for z in reversed(ZL_REAR[1:ZL_REAR.index(ZT - RZ) + 1])]
         holes = []
         for (y0, y1) in (WIN_L if sx < 0 else WIN_R):
             holes.append(side_recess(b, sx, y0, y1, WIN_Z0, WIN_Z1, 0.07, 0.03, 0.02, "glass"))
@@ -1097,7 +1101,7 @@ def paint_all(isl):
         if key == ("body", "+Y"):
             detail_front(P)
         elif key == ("body", "-Y"):
-            detail_rear(P)
+            detail_front(P) if SPEC.get("rear_cab") else detail_rear(P)
         elif key in (("body", "-X"), ("body", "+X")):
             detail_side(P, -1 if key[1] == "-X" else 1)
         elif key == ("ac", "+Z"):

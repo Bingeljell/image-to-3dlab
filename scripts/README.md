@@ -27,6 +27,10 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 
 | Script | What it does |
 |---|---|
+| `shape_guide.py` | Build a detailed vehicle (bus, metro car or box van) from a preset or your own numbers: parts on their pivots, one atlas. |
+| `blender_shape_guide.py` | The bus family of the shape-guide kit: buses and metro cars with body, wheels or bogies, door leaves, interior and a livery guide, built headless. |
+| `restyle_views.py` | Repaint a shape guide's five views with the studio's own picture editor, ready for Pixel Match. |
+| `blender_shape_guide_van.py` | The box-van family of the shape-guide kit: cab, box, wheels on their axles, plain or ambulance livery, built headless. |
 | `blender_upright.py` | Stand a single prop upright and centre its base, headless. |
 | `bootstrap_macos.sh` | Hand off to bootstrap_sf3d.py, which installs Stable Fast 3D and asks before fetching weights. |
 | `bootstrap_trellis_macos.sh` | Hand off to bootstrap_trellis_space_macos.py, the pinned Mac TRELLIS installer. |

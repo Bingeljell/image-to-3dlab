@@ -28,7 +28,7 @@ SCRIPTS = Path(__file__).resolve().parent
 # Each family is one Blender builder; a preset is a set of numbers for one of them.
 FAMILIES = {"bus": "blender_shape_guide.py", "van": "blender_shape_guide_van.py"}
 PRESETS = {
-    "bus_12m": "bus", "bus_12m_rule": "bus", "midibus_9m": "bus",
+    "bus_12m": "bus", "bus_12m_rule": "bus", "midibus_9m": "bus", "metro_car": "bus",
     "ambulance": "van", "van_long": "van", "box_van": "van",
 }
 
@@ -84,8 +84,19 @@ def seat_rows(start: float, end: float, pitch: float, depth: float,
     """
     rows = [((h0 + h1) / 2 - depth / 2, True) for h0, h1 in housings
             if start <= (h0 + h1) / 2 - depth / 2 and (h0 + h1) / 2 + depth / 2 <= end]
+    for s0, s1 in free_stretches(start, end, list(keep_out) + list(housings), margin):
+        y0 = s1 - depth
+        while y0 >= s0 - 1e-9:
+            rows.append((y0, False))
+            y0 -= pitch
+    return sorted(rows, key=lambda row: -row[0])
+
+
+def free_stretches(start: float, end: float, keep_out: list[tuple[float, float]] | tuple,
+                   margin: float) -> list[tuple[float, float]]:
+    """The parts of start..end that no keep-out stretch covers, with `margin` to each."""
     stretches = [(start, end)]
-    for d0, d1 in sorted(list(keep_out) + list(housings)):
+    for d0, d1 in sorted(keep_out):
         cut = []
         for s0, s1 in stretches:
             if d1 + margin <= s0 or d0 - margin >= s1:
@@ -96,12 +107,16 @@ def seat_rows(start: float, end: float, pitch: float, depth: float,
             if d1 + margin < s1:
                 cut.append((d1 + margin, s1))
         stretches = cut
-    for s0, s1 in stretches:
-        y0 = s1 - depth
-        while y0 >= s0 - 1e-9:
-            rows.append((y0, False))
-            y0 -= pitch
-    return sorted(rows, key=lambda row: -row[0])
+    return stretches
+
+
+def bench_runs(start: float, end: float, keep_out: list[tuple[float, float]] | tuple = (),
+               margin: float = 0.25, shortest: float = 0.9) -> list[tuple[float, float]]:
+    """Long benches along one wall of a metro car, as (rear end, front end) from the front backwards:
+    every stretch between the cabs (start..end) that no door covers, `margin` clear of each door,
+    and at least `shortest` long (room for two people)."""
+    runs = [(s0, s1) for s0, s1 in free_stretches(start, end, keep_out, margin) if s1 - s0 >= shortest - 1e-9]
+    return sorted(runs, key=lambda run: -run[1])
 
 
 def door_poles(doors: list[tuple[float, float]], x: float, front_limit: float) -> list[tuple[float, float]]:

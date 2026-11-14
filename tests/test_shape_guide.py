@@ -82,6 +82,19 @@ def test_seats_run_front_to_back_at_the_pitch_on_a_wall_without_doors():
     assert all(abs((a - b) - 0.80) < 1e-9 for a, b in pairwise(starts))
 
 
+def test_metro_benches_run_along_the_wall_between_the_doors_and_the_cabs():
+    # an 18 m metro car: four doors a side, cabs behind 7.3 and ahead of -7.3; benches keep 0.25 m from each
+    doors = [(5.3, 6.7), (1.3, 2.7), (-2.7, -1.3), (-6.7, -5.3)]
+    runs = sg.bench_runs(-7.3, 7.3, keep_out=doors, margin=0.25)
+    assert [round(y, 6) for run in runs for y in run] == [2.95, 5.05, -1.05, 1.05, -5.05, -2.95]
+
+
+def test_a_gap_too_short_for_a_bench_stays_empty():
+    # 0.3 m between the cab and the first door leaves no room for a seat
+    runs = sg.bench_runs(-3.0, 3.0, keep_out=[(1.9, 2.7)], margin=0.25, shortest=0.9)
+    assert [round(y, 6) for run in runs for y in run] == [-3.0, 1.65]
+
+
 def test_handrail_poles_stand_at_both_edges_of_every_door_behind_the_driver():
     poles = sg.door_poles([(3.92, 5.22), (-0.10, 1.25)], x=0.50, front_limit=4.30)
     assert sorted(poles) == sorted([(0.50, 3.92), (0.50, -0.10), (0.50, 1.25)])

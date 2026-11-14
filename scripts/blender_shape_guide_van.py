@@ -1,11 +1,15 @@
-# blender_shape_guide_van.py - the box-van family of the shape-guide kit (scripts/shape_guide.py runs it).
-#
-# A box van with a rounded cab, built by code from a preset's numbers: procedural mesh, UV atlas, painted livery
-# guide (plain, or an ambulance's), ambient occlusion. Writes <name>_parts.glb (body, and each wheel on its axle),
-# <name>_joined.glb (one mesh, what the multi-view rig renders and Pixel Match paints), <name>.blend and the
-# albedo and emission maps.
-#   blender -b -P blender_shape_guide_van.py -- [--out <dir>] [--preset ambulance|van_long|box_van] [--name <name>]
-#                                               [--tex 1024] [--spec <spec.json>] [--no-ao]
+"""The box-van family of the shape-guide kit: cab, box, wheels on their axles, plain or ambulance livery, built headless.
+
+Run (headless): blender -b -P scripts/blender_shape_guide_van.py -- --out <dir> --preset van_long --name van --tex 4096
+
+`scripts/shape_guide.py` runs it for you. A box van with a rounded cab, built by code from a preset's numbers:
+procedural mesh, UV atlas, painted livery guide (plain, or an ambulance's), ambient occlusion. Writes
+<name>_parts.glb (body, and each wheel on its axle), <name>_joined.glb (one mesh, what the multi-view rig renders and
+Pixel Match paints), <name>.blend and the albedo and emission maps.
+
+    blender -b -P blender_shape_guide_van.py -- [--out <dir>] [--preset ambulance|van_long|box_van] [--name <name>]
+                                                [--tex 1024] [--spec <spec.json>] [--no-ao]
+"""
 import contextlib
 import itertools
 import math

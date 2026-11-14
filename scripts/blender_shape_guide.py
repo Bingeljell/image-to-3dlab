@@ -1,23 +1,28 @@
-# blender_shape_guide.py - the bus family of the shape-guide kit (scripts/shape_guide.py runs it).
-#
-# A generic modern low-floor city bus, built by code from a preset's numbers: the shape guide for multi-view runs
-# and, kept as built, a game mesh that Pixel Match can paint.
-#   blender -b -P blender_shape_guide.py -- [--out <dir>] [--preset bus_12m|bus_12m_rule|midibus_9m] [--name <name>]
-#                                           [--tex 4096] [--spec <spec.json>] [--no-ao]
-#
-# Writes into --out (default: this script's folder):
-#   <name>_parts.glb / .blend   body, wheel_FL/FR/RL/RR, door_1a.., interior: separate objects, origin at the pivot
-#   <name>_joined.glb           the same faces as one mesh, transforms applied, same UVs and material
-#   <name>_basecolor.png        the atlas with the flat part colours (a livery guide for a picture model)
-#
-# Frame (Blender): +Y is the front, +X the bus's right side (the kerb side with the doors), Z up, ground at z = 0,
-# origin at the ground centre; the same facing as the van family (front = -Z in glTF).
-#
-# How the body is made: a box whose edges are rounded by a mapping (deform), with grid lines where the features sit.
-# The front and the rear are grids wrapped around the corners (wrap_grid), with tapered recesses and steps for the
-# windscreen, the display, the lights, the grilles and the bumpers. The flat sides are triangulated around their
-# holes (tri_fill): recessed windows, door openings, wheel arches. Every face carries tags: the object it belongs to,
-# its colour, and the UV chart it is projected into; the charts are packed into one atlas and painted here.
+"""The bus family of the shape-guide kit: buses and metro cars with body, wheels or bogies, door leaves, interior and a livery guide, built headless.
+
+Run (headless): blender -b -P scripts/blender_shape_guide.py -- --out <dir> --preset bus_12m --name bus --tex 4096
+
+`scripts/shape_guide.py` runs it for you. A generic modern low-floor city bus (or, from its presets, a midibus or a
+metro car), built by code from a preset's numbers: the shape guide for multi-view runs and, kept as built, a game mesh
+that Pixel Match can paint.
+
+    blender -b -P blender_shape_guide.py -- [--out <dir>] [--preset bus_12m|bus_12m_rule|midibus_9m|metro_car]
+                                            [--name <name>] [--tex 4096] [--spec <spec.json>] [--no-ao]
+
+Writes into --out (default: this script's folder):
+  <name>_parts.glb / .blend   body, wheels, door leaves, interior: separate objects, origin at the pivot
+  <name>_joined.glb           the same faces as one mesh, transforms applied, same UVs and material
+  <name>_basecolor.png        the atlas with the flat part colours (a livery guide for a picture model)
+
+Frame (Blender): +Y is the front, +X the vehicle's right side (the kerb side with the doors), Z up, ground at z = 0,
+origin at the ground centre; the same facing as the van family (front = -Z in glTF).
+
+How the body is made: a box whose edges are rounded by a mapping (deform), with grid lines where the features sit.
+The front and the rear are grids wrapped around the corners (wrap_grid), with tapered recesses and steps for the
+windscreen, the display, the lights, the grilles and the bumpers. The flat sides are triangulated around their
+holes (tri_fill): recessed windows, door openings, wheel arches. Every face carries tags: the object it belongs to,
+its colour, and the UV chart it is projected into; the charts are packed into one atlas and painted here.
+"""
 import contextlib
 import math
 import os

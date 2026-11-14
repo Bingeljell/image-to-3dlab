@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""The layout maths of the shape-guide kit: a detailed vehicle from a few numbers (#259).
+"""Build a detailed vehicle (bus, metro car or box van) from a preset or your own numbers: parts on their pivots, one atlas.
+
+The layout maths of the shape-guide kit lives here too (#259).
 
 `blender_shape_guide.py` builds the vehicle in Blender; everything here is plain maths, tested
 without Blender (`tests/test_shape_guide.py`). The kit started from a hand-built 12 m bus whose

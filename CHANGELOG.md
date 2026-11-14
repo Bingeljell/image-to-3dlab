@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- An optional macOS desktop wrapper for the existing Studio, with local build instructions and focused core tests.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

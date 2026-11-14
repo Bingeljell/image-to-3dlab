@@ -96,6 +96,16 @@ PRESETS = {
     "midibus_9m": dict(BUS_12M, front=4.45, rear=-4.46, axles=(2.15, -2.15), doors=[(2.82, 3.72), (-0.55, 0.65)],
                        band_rear={-1: -3.12, 1: -4.02}, window_pitch=(1.40, 0.10),
                        window_span={-1: (-2.98, 3.62), 1: (-3.90, 3.62)}, hatches=(-1.40,), interior_rule=True),
+    # an 18 m metro car: four double doors a side, a cab at both ends, two bogies, a high floor at platform height
+    "metro_car": dict(BUS_12M, half_width=1.40, front=8.95, rear=-8.95, skirt=0.95, roof=3.65,
+                      radii=(0.22, 0.24, 0.36, 0.36), screen=(1.75, 4.0, 0.05), rear_screen=(1.75, 4.0, 0.05),
+                      front_rows=(0.95, 1.22, 1.28, 1.55, 1.75, 3.05, 3.11),
+                      wheel_radius=0.42, axles=(6.0, -6.0), bogies=1.1, wheel_x=0.80, tyre_width={"F": 0.14, "R": 0.14},
+                      door_opening=(1.10, 3.05), doors=[(5.3, 6.7), (1.3, 2.7), (-2.7, -1.3), (-6.7, -5.3)],
+                      doors_left=[(5.3, 6.7), (1.3, 2.7), (-2.7, -1.3), (-6.7, -5.3)], glass=(1.85, 2.95),
+                      band_rear={-1: -8.2, 1: -8.2}, window_pitch=(1.6, 0.12), window_span={-1: (-8.12, 8.12), 1: (-8.12, 8.12)},
+                      hatches=(2.0, -2.0), interior_rule=True, seating="benches", steering=False, intake=False, rear_cab=True,
+                      mirrors=False, arches=False),
 }
 SPEC = PRESETS[arg("--preset", "bus_12m")]
 if arg("--spec"):                 # a spec file: numbers set on top of the preset (shape_guide.py --spec)
@@ -114,13 +124,14 @@ Z_RK0, RAKE_R, BOW_R = SPEC["rear_screen"][0], math.tan(math.radians(SPEC["rear_
 F6 = (1.0, 0.7321, 0.4226)      # fillet lines: distance from the box edge in radii (0, 15, 30 degrees; the edge is 45)
 XIN = (-0.60, 0.0, 0.60)        # grid lines across the front, the rear and the roof
 YMID = (-2.0, 2.0)              # grid lines along the roof and the cantrail
-ZLF = [ZB, 0.60, 0.66, 0.90, Z_WS0, 2.44, 2.50, ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]            # front rows
+ZLF = (list(SPEC["front_rows"]) if "front_rows" in SPEC else [ZB, 0.60, 0.66, 0.90, Z_WS0, 2.44, 2.50]) + [
+    ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]      # front rows: bumper, lamps, windscreen, display, then the roof edge
 ZLR = [ZB, 0.58, 0.66, 0.92, 1.10, 1.42, 1.62, 2.46, ZT - RZ, ZT - RZ * F6[1], ZT - RZ * F6[2], ZT]      # rear rows
 ZL_REAR = ZLF if SPEC.get("rear_cab") else ZLR     # a metro car has a driver's cab at both ends
 
 WHEEL_R = SPEC["wheel_radius"]
 YA_F, YA_R = SPEC["axles"]
-XO = W - 0.035                  # outer face of the tyres
+XO = SPEC.get("wheel_x", W - 0.035)     # outer face of the tyres (a rail vehicle's wheels sit inboard)
 RA, NA = 0.57, 18               # wheel arch radius, segments
 XWI = 0.60                      # inner end of the wheel wells
 WHEEL_W = SPEC["tyre_width"]
@@ -131,7 +142,9 @@ DOORS_L = SPEC.get("doors_left", [])     # doors on the left side too (a metro c
 XDO, XDI = W - 0.05, W - 0.09   # door leaves: outer face (recessed 5 cm), inner face
 XDC = (XDO + XDI) / 2
 XI = W - 0.12                   # inner wall of the body = side walls of the interior
-ZF, ZC = ZD0, 2.50              # interior floor, ceiling
+ZF = ZD0                        # interior floor
+LIFT = ZF - 0.34                # how far the floor sits above a low-floor bus's (a metro car's is at platform height)
+ZC = 2.50 + LIFT                # interior ceiling
 YI0, YI1 = YR + 0.66, YF - 0.57  # interior rear / front wall
 HATCHES = SPEC.get("hatches", (0.20, -2.50))   # roof hatches between the air conditioner and the rear pod
 
@@ -148,15 +161,21 @@ if "window_pitch" in SPEC:      # the kit's rule (shape_guide.spread_windows) in
 Y_SIDE0, Y_SIDE1 = YR + RYR + BOW_R, YF - RYF - BOW_F      # where the flat sides end (the yellow band stops there)
 
 PIVOTS = {"body": (0.0, 0.0, 0.0), "interior": (0.0, 0.0, 0.0)}
-for _n, _ya, _sx, _k in (("wheel_FL", YA_F, -1, "F"), ("wheel_FR", YA_F, 1, "F"), ("wheel_RL", YA_R, -1, "R"), ("wheel_RR", YA_R, 1, "R")):
-    PIVOTS[_n] = (_sx * (XO - WHEEL_W[_k] / 2), _ya, WHEEL_R)
+if SPEC.get("bogies"):      # a rail vehicle: a bogie of four wheels at each axle place, `bogies` = half its wheelbase
+    WHEELS = [(f"wheel_{ax}{n}{side}", ya + off, sx, False) for ax, ya in (("F", YA_F), ("R", YA_R))
+              for n, off in ((1, SPEC["bogies"]), (2, -SPEC["bogies"])) for side, sx in (("L", -1), ("R", 1))]
+else:
+    WHEELS = [("wheel_FL", YA_F, -1, False), ("wheel_FR", YA_F, 1, False), ("wheel_RL", YA_R, -1, True), ("wheel_RR", YA_R, 1, True)]
+WHEEL_AT = {name: (ya, twin) for name, ya, _sx, twin in WHEELS}
+for _n, _ya, _sx, _twin in WHEELS:
+    PIVOTS[_n] = (_sx * (XO - WHEEL_W["R" if _twin else "F"] / 2), _ya, WHEEL_R)
 for _k, (_y0, _y1) in enumerate(DOORS):
     PIVOTS[f"door_{_k + 1}a"] = (XDC, _y1 - 0.02, ZD0)      # front leaf, hinge at its front edge
     PIVOTS[f"door_{_k + 1}b"] = (XDC, _y0 + 0.02, ZD0)      # rear leaf, hinge at its rear edge
 for _k, (_y0, _y1) in enumerate(DOORS_L):
     PIVOTS[f"door_L{_k + 1}a"] = (-XDC, _y1 - 0.02, ZD0)
     PIVOTS[f"door_L{_k + 1}b"] = (-XDC, _y0 + 0.02, ZD0)
-OBJECTS = (["body", "wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR"]
+OBJECTS = (["body"] + [w[0] for w in WHEELS]
            + [f"door_{k + 1}{leaf}" for k in range(len(DOORS)) for leaf in "ab"]
            + [f"door_L{k + 1}{leaf}" for k in range(len(DOORS_L)) for leaf in "ab"]
            + (["interior"] if SPEC.get("interior", True) else []))
@@ -424,7 +443,7 @@ def build_body(b):
             for j in range(3):
                 b.f([body.node(x, ysl[i], zc[j]), body.node(x, ysl[i + 1], zc[j]), body.node(x, ysl[i + 1], zc[j + 1]),
                      body.node(x, ysl[i], zc[j + 1])], mat="skin", **T_SIDE[sx])
-        for ax, ya in (("F", YA_F), ("R", YA_R)):          # wheel arches and wells
+        for ax, ya in (("F", YA_F), ("R", YA_R)) if not SPEC.get("bogies") else ():     # wheel arches and wells
             name = "well_{}{}".format(ax, "L" if sx < 0 else "R")
             arc = [(ya + RA * math.cos(t0 + (math.pi - 2 * t0) * k / NA), WHEEL_R + RA * math.sin(t0 + (math.pi - 2 * t0) * k / NA))
                    for k in range(NA + 1)]                 # front end -> over the top -> rear end
@@ -437,7 +456,9 @@ def build_body(b):
             b.f(B, obj="body", part=name + "b", chart=name + "b", view="+X" if sx > 0 else "-X", mat="under", dens=0.3)
             wells[sx, ax] = (A, B)
         # outline of the flat side: bottom (rear -> front) with the arches, front edge up, top back, rear edge down
-        outer = [body.node(x, YR + RYR, ZB)] + list(reversed(wells[sx, "R"][0])) + list(reversed(wells[sx, "F"][0]))
+        outer = [body.node(x, YR + RYR, ZB)]
+        if not SPEC.get("bogies"):                         # a rail vehicle's side runs straight above its bogies
+            outer += list(reversed(wells[sx, "R"][0])) + list(reversed(wells[sx, "F"][0]))
         outer += [body.node(x, YF - RYF, z) for z in ZLF[:8]]
         outer += [body.node(x, y, ZT - RZ) for y in reversed(YMID)]
         outer += [body.node(x, YR + RYR, z) for z in reversed(ZL_REAR[1:ZL_REAR.index(ZT - RZ) + 1])]
@@ -466,9 +487,9 @@ def build_body(b):
         return seq if forward else list(reversed(seq))
 
     outline = [base_f[i][0] for i in range(17)]            # front, left -> right
-    outline += notch(1, "F", False) + notch(1, "R", False)  # right side, front -> rear
+    outline += [] if SPEC.get("bogies") else notch(1, "F", False) + notch(1, "R", False)  # right side, front -> rear
     outline += [base_r[i][0] for i in range(17)]            # rear, right -> left
-    outline += notch(-1, "R", True) + notch(-1, "F", True)  # left side, rear -> front
+    outline += [] if SPEC.get("bogies") else notch(-1, "R", True) + notch(-1, "F", True)  # left side, rear -> front
     tri_fill(b, outline, [], lambda p: (p[0], p[1]), obj="body", part="under", chart="under", view="-Z", mat="under", dens=0.12)
 
 
@@ -505,7 +526,7 @@ def build_roof_and_mirrors(b):
     for k, yc in enumerate(HATCHES):
         b.box(-0.42, 0.42, yc - 0.42, yc + 0.42, z0, ZT + 0.07, "body", f"hatch{k}", "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.04)
     b.box(-0.17, 0.17, YF - 0.97, YF - 0.75, z0, ZT + 0.06, "body", "antenna", "hatch", dens=0.9, top_inset=0.03, zmid=ZT + 0.03)
-    for sx, sn in ((-1, "L"), (1, "R")):
+    for sx, sn in ((-1, "L"), (1, "R")) if SPEC.get("mirrors", True) else ():
         # the arm leaves the body above the windscreen corner and reaches forward and outward
         tube(b, [(sx * 1.21, YF - 0.65, 2.66), (sx * 1.33, YF - 0.29, 2.63), (sx * 1.40, YF - 0.04, 2.47)], 0.028, 6,
              {"obj": "body", "part": "mirA" + sn, "mat": "black", "dens": 0.8})
@@ -616,7 +637,7 @@ def build_interior(b):
     b.f([c[-1, YI0, ZF], c[1, YI0, ZF], c[1, YI0, ZC], c[-1, YI0, ZC]], mat="wall", **R)
     b.f([c[-1, YI1, ZF], c[1, YI1, ZF], c[1, YI1, ZC], c[-1, YI1, ZC]], mat="wall", **R)
     # wheel housings: boxes over the wheel wells, seats on top of them
-    zh = 1.13
+    zh = 1.13 + LIFT
     for sx, sn in ((-1, "L"), (1, "R")) if SPEC.get("arches", True) else ():
         for ax, ya in (("F", YA_F), ("R", YA_R)):
             xa, xb = sorted((sx * 0.55, sx * (XI + 0.01)))
@@ -632,6 +653,16 @@ def build_interior(b):
         rows = {-1: sg.seat_rows(start, YF - 1.70, 0.80, 0.44, housings=housings),
                 1: sg.seat_rows(start, YF - 1.70, 0.80, 0.44, keep_out=DOORS, housings=housings)}
         rule_poles = sg.door_poles(DOORS, 0.50, YF - 1.65)
+        if SPEC.get("seating") == "benches":    # a metro car: long benches along both walls, a pole in each doorway
+            rows = {-1: [], 1: []}
+            cab_rear = YR + 1.65 if SPEC.get("rear_cab") else start
+            for sx, sn, doors in ((-1, "L", DOORS_L), (1, "R", DOORS)):
+                xa, xb = sorted((sx * (XI - 0.47), sx * (XI - 0.01)))
+                xc, xd = sorted((sx * (XI - 0.09), sx * (XI - 0.01)))
+                for k, (y0, y1) in enumerate(sg.bench_runs(cab_rear + 0.05, YF - 1.70, keep_out=doors)):
+                    b.box(xa, xb, y0, y1, zf, ZF + 0.46, "interior", f"bench_{sn}{k}", "seat", dens=0.3)
+                    b.box(xc, xd, y0, y1, ZF + 0.46, ZF + 0.95, "interior", f"bench_{sn}{k}_back", "seat", dens=0.3)
+            rule_poles = sorted({(0.0, round((y0 + y1) / 2, 4)) for y0, y1 in DOORS + DOORS_L})
     else:
         rows = {-1: [(3.0, True), (1.95, False), (1.15, False), (0.35, False), (-0.45, False), (-1.25, False), (-2.9, True), (-4.1, False)],
                 1: [(3.0, True), (1.75, False), (-0.75, False), (-1.55, False), (-2.9, True)]}
@@ -642,35 +673,41 @@ def build_interior(b):
                 seat(b, f"seat_{sn}{k}", xa, xb, y0, zh - 0.01, zh + 0.26, zh + 0.74)
             else:
                 seat(b, f"seat_{sn}{k}", xa, xb, y0, zf, ZF + 0.46, ZF + 0.94)
-    seat(b, "seat_bench", -1.12, 1.12, YI0 + 0.02, zf, ZF + 0.60, ZF + 1.12, depth=0.50)
+    if SPEC.get("rear_cab"):    # a second driver's desk at the rear, turned round
+        b.box(0.08, 1.14, YR + 0.58, YR + 0.93, zf, 1.10 + LIFT, "interior", "dash_rear", "dash", dens=0.3)
+        b.box(0.30, 1.14, YR + 1.61, YR + 1.65, zf, 1.95 + LIFT, "interior", "partition_rear", "housing", dens=0.3)
+    else:
+        seat(b, "seat_bench", -1.12, 1.12, YI0 + 0.02, zf, ZF + 0.60, ZF + 1.12, depth=0.50)
     # the driver's place: seat, dashboard, steering wheel, a partition behind the seat
     seat(b, "seat_driver", -0.85, -0.37, YF - 1.50, zf, ZF + 0.52, ZF + 1.12, depth=0.46)
-    b.box(-1.14, -0.08, YF - 0.93, YF - 0.58, zf, 1.10, "interior", "dash", "dash", dens=0.3)
-    b.box(-1.14, -0.30, YF - 1.65, YF - 1.61, zf, 1.95, "interior", "partition", "housing", dens=0.3)
-    cen, axis = Vector((-0.61, YF - 0.97, 1.06)), Vector((0.0, -0.5, 0.866))
+    b.box(-1.14, -0.08, YF - 0.93, YF - 0.58, zf, 1.10 + LIFT, "interior", "dash", "dash", dens=0.3)
+    b.box(-1.14, -0.30, YF - 1.65, YF - 1.61, zf, 1.95 + LIFT, "interior", "partition", "housing", dens=0.3)
+    cen, axis = Vector((-0.61, YF - 0.97, 1.06 + LIFT)), Vector((0.0, -0.5, 0.866))
     e1, e2 = Vector((1, 0, 0)), Vector((0.0, 0.866, 0.5))
     sw = [[tuple(cen + axis * o + 0.21 * (math.cos(2 * math.pi * i / 10) * e1 + math.sin(2 * math.pi * i / 10) * e2)) for i in range(10)]
           for o in (-0.02, 0.02)]
     t = {"obj": "interior", "part": "steering", "mat": "dash", "dens": 0.3}
-    b.rings(sw, lambda s, i, q: dict(t), cap0=dict(t), cap1=dict(t))
+    if SPEC.get("steering", True):      # a metro car drives with a lever on the desk
+        b.rings(sw, lambda s, i, q: dict(t), cap0=dict(t), cap1=dict(t))
     # handrail poles at the doors and two rails under the ceiling
     poles = rule_poles if rule_poles is not None else [(0.50, 3.92), (0.50, -0.10), (0.50, 1.25), (0.50, -4.62), (0.50, -3.32), (-0.20, 0.78), (-0.20, -2.00)]
     for k, (x, y) in enumerate(poles):
         b.box(x - 0.02, x + 0.02, y - 0.02, y + 0.02, zf, ZC + 0.01, "interior", f"pole{k}", "pole", dens=0.3, bottom="pole")
     for k, x in enumerate((-0.50, 0.50)):
-        b.box(x - 0.017, x + 0.017, YR + 1.06, YF - 1.75, 2.06, 2.10, "interior", f"rail{k}", "pole", dens=0.3, bottom="pole")
+        b.box(x - 0.017, x + 0.017, YR + 1.06, YF - 1.75, 2.06 + LIFT, 2.10 + LIFT, "interior", f"rail{k}", "pole", dens=0.3, bottom="pole")
     for k, (x, y) in enumerate([(-0.50, YR + 1.06), (-0.50, YF - 1.75), (0.50, YR + 1.06), (0.50, YF - 1.75), (-0.50, -0.3), (0.50, -1.2)]):
-        b.box(x - 0.015, x + 0.015, y - 0.015, y + 0.015, 2.09, ZC + 0.01, "interior", f"hanger{k}", "pole", dens=0.3, bottom="pole")
+        b.box(x - 0.015, x + 0.015, y - 0.015, y + 0.015, 2.09 + LIFT, ZC + 0.01, "interior", f"hanger{k}", "pole", dens=0.3, bottom="pole")
 
 
 def build_all():
     b = Builder()
     build_body(b)
     build_roof_and_mirrors(b)
-    build_wheel(b, "wheel_FL", YA_F, -1, False)
-    build_wheel(b, "wheel_FR", YA_F, 1, False)
-    build_wheel(b, "wheel_RL", YA_R, -1, True)
-    build_wheel(b, "wheel_RR", YA_R, 1, True)
+    for name, ya, sx, twin in WHEELS:
+        build_wheel(b, name, ya, sx, twin)
+    for ax, ya in (("F", YA_F), ("R", YA_R)) if SPEC.get("bogies") else ():     # the bogie frames
+        b.box(-0.95, 0.95, ya - SPEC["bogies"] - 0.55, ya + SPEC["bogies"] + 0.55, 0.30, ZB + 0.02, "body", f"bogie_{ax}",
+              "under", dens=0.3)
     for k, (y0, y1) in enumerate(DOORS):
         ym = (y0 + y1) / 2
         build_door_leaf(b, f"door_{k + 1}a", ym, y1)
@@ -1113,7 +1150,7 @@ def paint_all(isl):
         elif key == ("hatch1", "+Z"):
             detail_hatch(P, HATCHES[1])
         elif isinstance(key, str) and key.startswith("wheel_") and key.endswith("_out"):
-            detail_wheel(P, YA_F if key[6] == "F" else YA_R, key[6] == "R")
+            detail_wheel(P, *WHEEL_AT[key[:-4]])
         elif isinstance(key, str) and key.endswith("_tr"):
             x0, y0, x1, y1 = cv.clip                        # tread blocks
             A = ((np.arange(x0, x1, dtype=np.float32) + 0.5) - P.ox) / P.k

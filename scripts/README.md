@@ -29,6 +29,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 |---|---|
 | `shape_guide.py` | Build a detailed vehicle (bus or box van) from a preset or your own numbers: parts on their pivots, one atlas. |
 | `blender_shape_guide.py` | The bus family for shape_guide.py: body, wheels, door leaves, interior, livery guide, headless. |
+| `restyle_views.py` | Repaint a shape guide's five views with the studio's own picture editor (FLUX.2 [klein] 4B), ready for Pixel Match. |
 | `blender_shape_guide_van.py` | The box-van family for shape_guide.py: cab, box, wheels on their axles, plain or ambulance livery. |
 | `blender_upright.py` | Stand a single prop upright and centre its base, headless. |
 | `bootstrap_macos.sh` | Hand off to bootstrap_sf3d.py, which installs Stable Fast 3D and asks before fetching weights. |

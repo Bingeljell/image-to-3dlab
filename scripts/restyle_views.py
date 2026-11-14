@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - runs the picture engine; its parts are tested
     args = build_parser().parse_args(argv)
-    sys.path.insert(0, str(REPO))
+    sys.path[:0] = [str(REPO), str(REPO / "viewer")]     # image_api imports its viewer siblings by name
     from viewer import image_api
 
     weights = image_api.resolve_weights(image_api.FLUX)

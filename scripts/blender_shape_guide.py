@@ -105,7 +105,7 @@ PRESETS = {
                       doors_left=[(5.3, 6.7), (1.3, 2.7), (-2.7, -1.3), (-6.7, -5.3)], glass=(1.85, 2.95),
                       band_rear={-1: -8.2, 1: -8.2}, window_pitch=(1.6, 0.12), window_span={-1: (-8.12, 8.12), 1: (-8.12, 8.12)},
                       hatches=(2.0, -2.0), interior_rule=True, seating="benches", steering=False, intake=False, rear_cab=True,
-                      mirrors=False, arches=False),
+                      mirrors=False, arches=False, sill_band=(1.55, 1.70), window_band=(1.70, 3.05)),
 }
 SPEC = PRESETS[arg("--preset", "bus_12m")]
 if arg("--spec"):                 # a spec file: numbers set on top of the preset (shape_guide.py --spec)
@@ -706,7 +706,7 @@ def build_all():
     for name, ya, sx, twin in WHEELS:
         build_wheel(b, name, ya, sx, twin)
     for ax, ya in (("F", YA_F), ("R", YA_R)) if SPEC.get("bogies") else ():     # the bogie frames
-        b.box(-0.95, 0.95, ya - SPEC["bogies"] - 0.55, ya + SPEC["bogies"] + 0.55, 0.30, ZB + 0.02, "body", f"bogie_{ax}",
+        b.box(-(XO - 0.18), XO - 0.18, ya - SPEC["bogies"] - 0.55, ya + SPEC["bogies"] + 0.55, 0.30, ZB + 0.02, "body", f"bogie_{ax}",
               "under", dens=0.3)
     for k, (y0, y1) in enumerate(DOORS):
         ym = (y0 + y1) / 2
@@ -1029,9 +1029,11 @@ GREY = (0.42, 0.43, 0.43)       # panel seams
 
 def livery_side(P, sx):
     """under the windows and doors: the yellow band at the sill, the black window band, the arch trims."""
-    P.rect(Y_SIDE0, 1.10, Y_SIDE1, 1.25, C["yellow"])
-    P.rect(BAND_Y0[sx], 1.25, 7.0, 2.50, C["black"])
-    for ya in (YA_F, YA_R):
+    z0, z1 = SPEC.get("sill_band", (1.10, 1.25))
+    P.rect(Y_SIDE0, z0, Y_SIDE1, z1, C["yellow"])
+    z0, z1 = SPEC.get("window_band", (1.25, 2.50))
+    P.rect(BAND_Y0[sx], z0, max(7.0, YF + 1.05), z1, C["black"])     # to the front end on a longer body
+    for ya in (YA_F, YA_R) if not SPEC.get("bogies") else ():
         P.circle(ya, WHEEL_R, RA + 0.035, C["trim"], r_in=RA - 0.05)
 
 
@@ -1040,16 +1042,18 @@ def livery_rear(P):
 
 
 def detail_front(P):
-    P.rect(-0.27, 0.375, 0.27, 0.505, GREY)
-    P.rect(-0.26, 0.385, 0.26, 0.495, C["plate"])           # blank number plate
-    P.frame(-1.06, 2.535, 1.06, 2.705, 0.012, (0.22, 0.22, 0.23))      # the bezel of the destination display
+    # each detail follows its front row (the shifts are 0.0 on the bus the heights were measured on)
+    db, dl, ds, dd = ZLF[1] - 0.60, ZLF[2] - 0.66, ZLF[4] - 1.18, ZLF[6] - 2.50   # bumper, lamps, screen, display
+    P.rect(-0.27, 0.375 + db, 0.27, 0.505 + db, GREY)
+    P.rect(-0.26, 0.385 + db, 0.26, 0.495 + db, C["plate"])           # blank number plate
+    P.frame(-1.06, 2.535 + dd, 1.06, 2.705 + dd, 0.012, (0.22, 0.22, 0.23))      # the bezel of the destination display
     for sx in (-1, 1):
         for xc in (0.73, 0.89):                             # two round lenses per side, the indicator at the corner
-            P.circle(sx * xc, 0.78, 0.072, (0.55, 0.55, 0.53), r_in=0.058)
+            P.circle(sx * xc, 0.78 + dl, 0.072, (0.55, 0.55, 0.53), r_in=0.058)
         xa, xb = sorted((sx * 0.99, sx * 1.105))
-        P.rect(xa, 0.69, xb, 0.87, C["amber"])
+        P.rect(xa, 0.69 + dl, xb, 0.87 + dl, C["amber"])
         xa, xb = sorted((sx * 0.08, sx * 0.86))             # wipers, parked
-        P.line((xa if sx > 0 else xb, 1.235), (xb if sx > 0 else xa, 1.29), 0.022, C["black"])
+        P.line((xa if sx > 0 else xb, 1.235 + ds), (xb if sx > 0 else xa, 1.29 + ds), 0.022, C["black"])
 
 
 def detail_rear(P):
@@ -1073,8 +1077,9 @@ def detail_side(P, sx):
             z = 1.44 + k * 0.057
             P.rect(YR + 0.54, z, YR + 1.15, z + 0.014, (0.16, 0.16, 0.165))
         P.frame(YR + 1.66, 0.62, YR + 2.11, 0.95, 0.01, GREY)       # fuel flap
+    dz = ZB - 0.27                                          # 0.0 on the bus; on a high floor the skirt is higher
     for y in (Y_SIDE0 + 0.9, -0.9, Y_SIDE1 - 0.5):          # small amber side markers on the skirt
-        P.rect(y - 0.05, 0.60, y + 0.05, 0.635, C["amber"])
+        P.rect(y - 0.05, 0.60 + dz, y + 0.05, 0.635 + dz, C["amber"])
 
 
 def detail_ac(P):
@@ -1124,7 +1129,7 @@ def paint_all(isl):
             sx = -1 if key[1] == "-X" else 1
             livery = lambda P=P, sx=sx: livery_side(P, sx)
         elif key == ("body", "-Y"):
-            livery = lambda P=P: livery_rear(P)
+            livery = (lambda: None) if SPEC.get("rear_cab") else (lambda P=P: livery_rear(P))
         elif key in (("body", "+Y"), ("body", "+Z")):
             livery = lambda: None
         P.fill(C["skin"] if livery is not None else C[I.bg])

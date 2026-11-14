@@ -126,6 +126,7 @@ WHEEL_W = SPEC["tyre_width"]
 
 ZD0, ZD1 = SPEC["door_opening"]
 DOORS = SPEC["doors"]
+DOORS_L = SPEC.get("doors_left", [])     # doors on the left side too (a metro car); none on a bus
 XDO, XDI = W - 0.05, W - 0.09   # door leaves: outer face (recessed 5 cm), inner face
 XDC = (XDO + XDI) / 2
 XI = W - 0.12                   # inner wall of the body = side walls of the interior
@@ -141,7 +142,7 @@ if "window_pitch" in SPEC:      # the kit's rule (shape_guide.spread_windows) in
     sys.path.insert(0, HERE)
     import shape_guide as sg
     _pitch, _pillar = SPEC["window_pitch"]
-    WIN_L = sg.spread_windows(*SPEC["window_span"][-1], pitch=_pitch, pillar=_pillar)
+    WIN_L = sg.spread_windows(*SPEC["window_span"][-1], pitch=_pitch, pillar=_pillar, keep_out=DOORS_L)
     WIN_R = sg.spread_windows(*SPEC["window_span"][1], pitch=_pitch, pillar=_pillar, keep_out=DOORS)
 Y_SIDE0, Y_SIDE1 = YR + RYR + BOW_R, YF - RYF - BOW_F      # where the flat sides end (the yellow band stops there)
 
@@ -151,8 +152,12 @@ for _n, _ya, _sx, _k in (("wheel_FL", YA_F, -1, "F"), ("wheel_FR", YA_F, 1, "F")
 for _k, (_y0, _y1) in enumerate(DOORS):
     PIVOTS[f"door_{_k + 1}a"] = (XDC, _y1 - 0.02, ZD0)      # front leaf, hinge at its front edge
     PIVOTS[f"door_{_k + 1}b"] = (XDC, _y0 + 0.02, ZD0)      # rear leaf, hinge at its rear edge
+for _k, (_y0, _y1) in enumerate(DOORS_L):
+    PIVOTS[f"door_L{_k + 1}a"] = (-XDC, _y1 - 0.02, ZD0)
+    PIVOTS[f"door_L{_k + 1}b"] = (-XDC, _y0 + 0.02, ZD0)
 OBJECTS = (["body", "wheel_FL", "wheel_FR", "wheel_RL", "wheel_RR"]
            + [f"door_{k + 1}{leaf}" for k in range(len(DOORS)) for leaf in "ab"]
+           + [f"door_L{k + 1}{leaf}" for k in range(len(DOORS_L)) for leaf in "ab"]
            + (["interior"] if SPEC.get("interior", True) else []))
 
 
@@ -435,20 +440,19 @@ def build_body(b):
         holes = []
         for (y0, y1) in (WIN_L if sx < 0 else WIN_R):
             holes.append(side_recess(b, sx, y0, y1, WIN_Z0, WIN_Z1, 0.07, 0.03, 0.02, "glass"))
-        if sx < 0:                                         # engine air intake at the left rear
+        if sx < 0 and SPEC.get("intake", True):            # engine air intake at the left rear
             holes.append(side_recess(b, sx, YR + 0.51, YR + 1.18, 1.40, 2.30, 0.0, 0.025, 0.02, "grille"))
-        else:
-            for k, (y0, y1) in enumerate(DOORS):           # door openings with their jambs
-                rect = ((y0, ZD0), (y1, ZD0), (y1, ZD1), (y0, ZD1))
-                lo = [b.v(W, y, z) for (y, z) in rect]
-                li = [b.v(XI, y, z) for (y, z) in rect]
-                per = [0.0, y1 - y0, y1 - y0 + ZD1 - ZD0, 2 * (y1 - y0) + ZD1 - ZD0, 2 * (y1 - y0 + ZD1 - ZD0)]
-                for e in range(4):
-                    e2 = (e + 1) % 4
-                    luv = {lo[e]: (per[e], 0.0), lo[e2]: (per[e + 1], 0.0), li[e2]: (per[e + 1], W - XI), li[e]: (per[e], W - XI)}
-                    b.f([lo[e], lo[e2], li[e2], li[e]], obj="body", part=f"jamb{k + 1}", chart=f"jamb{k + 1}", luv=luv,
-                        mat="jamb", dens=0.6)
-                holes.append(lo)
+        for k, (y0, y1) in enumerate(DOORS if sx > 0 else DOORS_L):     # door openings with their jambs
+            rect = ((y0, ZD0), (y1, ZD0), (y1, ZD1), (y0, ZD1))
+            lo = [b.v(sx * W, y, z) for (y, z) in rect]
+            li = [b.v(sx * XI, y, z) for (y, z) in rect]
+            jamb = f"jamb{k + 1}" if sx > 0 else f"jambL{k + 1}"
+            per = [0.0, y1 - y0, y1 - y0 + ZD1 - ZD0, 2 * (y1 - y0) + ZD1 - ZD0, 2 * (y1 - y0 + ZD1 - ZD0)]
+            for e in range(4):
+                e2 = (e + 1) % 4
+                luv = {lo[e]: (per[e], 0.0), lo[e2]: (per[e + 1], 0.0), li[e2]: (per[e + 1], W - XI), li[e]: (per[e], W - XI)}
+                b.f([lo[e], lo[e2], li[e2], li[e]], obj="body", part=jamb, chart=jamb, luv=luv, mat="jamb", dens=0.6)
+            holes.append(lo)
         tri_fill(b, outer, holes, lambda p: (p[1], p[2]), mat="skin", **T_SIDE[sx])
 
     # --- the underside ----------------------------------------------------------------------------------------------
@@ -542,7 +546,7 @@ def build_wheel(b, name, ya, sx, twin):
             cap1=dict(T, mat="hub", chart=name + "_out", view=vout, dens=1.0))
 
 
-def build_door_leaf(b, name, ya, yb):
+def build_door_leaf(b, name, ya, yb, sx=1):
     """one door leaf between ya and yb: a black frame around glass, on both faces."""
     T = {"obj": name, "part": name}
     fr, frb, gd, gt = 0.065, 0.14, 0.012, 0.012            # frame width, bottom rail, glass depth, taper
@@ -561,8 +565,8 @@ def build_door_leaf(b, name, ya, yb):
         b.f(g, mat="glass", **t)
         return o
 
-    o = face(XDO, 1, "+X", 1.0)
-    i = face(XDI, -1, "-X", 0.5)
+    o = face(sx * XDO, sx, "+X" if sx > 0 else "-X", 1.0)
+    i = face(sx * XDI, -sx, "-X" if sx > 0 else "+X", 0.5)
     for k in range(4):
         k2 = (k + 1) % 4
         b.f([o[k], o[k2], i[k2], i[k]], mat="black", dens=0.5, **T)
@@ -595,14 +599,21 @@ def build_interior(b):
         floor_edge += [n[0], n[3]]
     wall += [c[1, YI1, ZF], c[1, YI1, ZC], c[1, YI0, ZC]]
     tri_fill(b, wall, [], lambda p: (p[1], p[2]), mat="wall", **R)
-    tri_fill(b, [c[-1, YI0, ZF], c[1, YI0, ZF]] + floor_edge + [c[1, YI1, ZF], c[-1, YI1, ZF]], [], lambda p: (p[0], p[1]), mat="floor", **R)
+    notch_l = [[b.v(-XI, y0, ZF), b.v(-XI, y0, ZD1), b.v(-XI, y1, ZD1), b.v(-XI, y1, ZF)] for (y0, y1) in sorted(DOORS_L)]
+    floor_left = [v for n in reversed(notch_l) for v in (n[3], n[0])]     # the left edge runs back from the front
+    tri_fill(b, [c[-1, YI0, ZF], c[1, YI0, ZF]] + floor_edge + [c[1, YI1, ZF], c[-1, YI1, ZF]] + floor_left, [],
+             lambda p: (p[0], p[1]), mat="floor", **R)
     b.f([c[-1, YI0, ZC], c[1, YI0, ZC], c[1, YI1, ZC], c[-1, YI1, ZC]], mat="ceil", **R)
-    b.f([c[-1, YI0, ZF], c[-1, YI1, ZF], c[-1, YI1, ZC], c[-1, YI0, ZC]], mat="wall", **R)
+    if DOORS_L:              # the left wall notched for its doors, as the right one
+        wall_l = [c[-1, YI0, ZF]] + [v for n in notch_l for v in n] + [c[-1, YI1, ZF], c[-1, YI1, ZC], c[-1, YI0, ZC]]
+        tri_fill(b, wall_l, [], lambda p: (p[1], p[2]), mat="wall", **R)
+    else:
+        b.f([c[-1, YI0, ZF], c[-1, YI1, ZF], c[-1, YI1, ZC], c[-1, YI0, ZC]], mat="wall", **R)
     b.f([c[-1, YI0, ZF], c[1, YI0, ZF], c[1, YI0, ZC], c[-1, YI0, ZC]], mat="wall", **R)
     b.f([c[-1, YI1, ZF], c[1, YI1, ZF], c[1, YI1, ZC], c[-1, YI1, ZC]], mat="wall", **R)
     # wheel housings: boxes over the wheel wells, seats on top of them
     zh = 1.13
-    for sx, sn in ((-1, "L"), (1, "R")):
+    for sx, sn in ((-1, "L"), (1, "R")) if SPEC.get("arches", True) else ():
         for ax, ya in (("F", YA_F), ("R", YA_R)):
             xa, xb = sorted((sx * 0.55, sx * (XI + 0.01)))
             b.box(xa, xb, ya - 0.63, ya + 0.63, ZF - 0.01, zh, "interior", f"housing_{ax}{sn}", "housing", dens=0.3)
@@ -660,6 +671,10 @@ def build_all():
         ym = (y0 + y1) / 2
         build_door_leaf(b, f"door_{k + 1}a", ym, y1)
         build_door_leaf(b, f"door_{k + 1}b", y0, ym)
+    for k, (y0, y1) in enumerate(DOORS_L):
+        ym = (y0 + y1) / 2
+        build_door_leaf(b, f"door_L{k + 1}a", ym, y1, -1)
+        build_door_leaf(b, f"door_L{k + 1}b", y0, ym, -1)
     if SPEC.get("interior", True):
         build_interior(b)
     return b
@@ -1012,7 +1027,7 @@ def detail_rear(P):
 
 
 def detail_side(P, sx):
-    if sx < 0:
+    if sx < 0 and SPEC.get("intake", True):
         for k in range(15):                                 # slats of the engine air intake
             z = 1.44 + k * 0.057
             P.rect(YR + 0.54, z, YR + 1.15, z + 0.014, (0.16, 0.16, 0.165))

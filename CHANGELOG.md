@@ -69,6 +69,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hands. A report says what an engine would still trip over.
 - `scripts/pixal3d_generate.py --right --left`: build from four pictures (front, right side, back,
   left side) instead of two, so the sides come from your pictures too and Finish paints them.
+- `scripts/make_side_views.py` draws those side pictures for you: the studio's own picture engine
+  draws the right side from the front picture, and the left one is its mirror, so both agree on
+  how long the subject is. Animals built from front and back alone often come out too short or
+  with a second pair of ears or legs; from four views they come out right.
 
 ### Fixed
 - The Windows installer's anonymous started / stopped / finished count reaches the site.

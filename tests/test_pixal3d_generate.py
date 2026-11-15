@@ -637,6 +637,30 @@ def test_four_views_put_each_camera_on_its_side(tmp_path):
         assert all((folder / name).is_file() for name in names)
 
 
+def test_drawn_sides_can_shape_the_model_without_painting_it(tmp_path):
+    # a side drawn by make_side_views.py never puts an eye exactly where the front has it, so
+    # painting from it doubles the eye; the sides then go to the build only
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, paint_sides=False)
+    built = [f["file_path"] for f in json.loads((model_dir / "transforms.json").read_text())["frames"]]
+    painted = [f["file_path"] for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]]
+    assert built == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]
+    assert painted == ["view_000.png", "view_180.png"]
+    assert sorted(p.name for p in paint_dir.glob("view_*.png")) == ["view_000.png", "view_180.png"]
+    # the two paint views keep the four-view framing, so they still line up with the model
+    four = tmp_path / "four.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, tmp_path / "in4", four)
+    assert (paint_dir / "view_000.png").read_bytes() == (four / "view_000.png").read_bytes()
+
+
+def test_the_sides_shape_only_switch_reaches_the_views():
+    args = px.parse_args(["f.png", "o.glb", "--back", "b.png", "--right", "r.png", "--left", "l.png",
+                          "--sides-shape-only"])
+    assert args.sides_shape_only is True
+    assert px.parse_args(["f.png", "o.glb"]).sides_shape_only is False
+
+
 def _extent(image):
     ys, xs = np.nonzero(np.asarray(image)[..., 3] > 127)
     return xs.max() - xs.min() + 1, ys.max() - ys.min() + 1

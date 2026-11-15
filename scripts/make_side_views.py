@@ -2,13 +2,15 @@
 """Draw a subject's right and left side from its front picture, for a four-view 3D build.
 
     python scripts/make_side_views.py front.png right.png left.png [--seed 3] [--engine flux]
-    python scripts/pixal3d_generate.py front.png out.glb --back back.png --right right.png --left left.png
+    python scripts/pixal3d_generate.py front.png out.glb --back back.png --right right.png --left left.png --sides-shape-only
 
 A front and a back picture say nothing about how deep a subject is from front to back, so an
 animal or a vehicle built from them comes out short, or doubles what it cannot place (a second
 pair of ears behind the first, a third pair of legs). The studio's own picture engine draws the
 right side from the front (in edit mode, the front as its reference), and the left side is that
-picture mirrored, so both sides agree on the length. For a subject whose two sides differ, draw
+picture mirrored, so both sides agree on the length. `--sides-shape-only` lets the drawn sides shape the model but not paint it:
+a drawn side never puts an eye or a nose exactly where the front has them, and painting from
+it doubles them. For a subject whose two sides differ, draw
 the left one yourself (or with another seed) and pass it to `pixal3d_generate.py` instead.
 
 The prompt and the reference rules live in `image_to_3dlab/back_view.py`.

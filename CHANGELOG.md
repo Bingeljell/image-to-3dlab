@@ -73,6 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   draws the right side from the front picture, and the left one is its mirror, so both agree on
   how long the subject is. Animals built from front and back alone often come out too short or
   with a second pair of ears or legs; from four views they come out right.
+- `pixal3d_generate.py --sides-shape-only`: the side pictures shape the model, but Finish paints
+  only from the front and the back. A side drawn by `make_side_views.py` never puts an eye or a
+  nose exactly where the front has them, and painting from it gave an animal a second pair of
+  eyes; real side photos and a vehicle's sides (doors, lettering) still paint without it.
 
 ### Fixed
 - The Windows installer's anonymous started / stopped / finished count reaches the site.

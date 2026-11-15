@@ -221,19 +221,22 @@ def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back")) -
         for name, matrix in frames]}
 
 
-def write_views(cuts: dict, model_dir: Path, paint_dir: Path) -> None:
+def write_views(cuts: dict, model_dir: Path, paint_dir: Path, paint_sides: bool = True) -> None:
     """Stage the cut-outs of each side ("front", "right", "back", "left") with one camera rig,
     for Pixal3D (`model_dir`, 768 px) and for Pixel Match (`paint_dir`, at least the pictures'
-    own size). Front and back alone is the usual case; all four add the sides.
+    own size). Front and back alone is the usual case; all four add the sides. With
+    `paint_sides` off the sides go to the build only, and Pixel Match paints from the front and
+    the back (framed as in the four-view build, so they still line up with the model).
     """
     sides = tuple(side for side in SIDE_ORDER if side in cuts)
+    painted = sides if paint_sides else tuple(side for side in sides if side in ("front", "back"))
     paint_size = max(VIEW_SIZE, *(n for cut in cuts.values() for n in cut.size))
-    for folder, size in ((model_dir, VIEW_SIZE), (paint_dir, paint_size)):
+    for folder, size, which in ((model_dir, VIEW_SIZE, sides), (paint_dir, paint_size, painted)):
         folder.mkdir(parents=True, exist_ok=True)
         padded = pad_views(cuts, size)
-        for side in sides:
+        for side in which:
             padded[side].save(folder / f"view_{SIDES[side]:03d}.png")
-        (folder / "transforms.json").write_text(json.dumps(_rig(sides=sides), indent=2) + "\n")
+        (folder / "transforms.json").write_text(json.dumps(_rig(sides=which), indent=2) + "\n")
 
 
 def views_problem(back: Path | None, right: Path | None, left: Path | None) -> str | None:
@@ -573,7 +576,7 @@ def readiness(cli: Path = CLI, models: Path = MODELS) -> dict[str, object]:
     }
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("image", type=Path)
     parser.add_argument("output", type=Path)
@@ -615,6 +618,11 @@ def main() -> int:
                              "is built from four views and Finish paints the sides too")
     parser.add_argument("--left", type=Path, default=None,
                         help="a picture of the subject's left side, with --right and --back")
+    parser.add_argument("--sides-shape-only", action="store_true",
+                        help="the side pictures shape the model, but Finish paints only from the front and "
+                             "the back: for sides drawn by make_side_views.py, whose eyes and noses never sit "
+                             "exactly where the front has them, so painting from them doubles a face. Leave "
+                             "it off for real side photos or a vehicle's sides (doors, windows, lettering)")
     parser.add_argument("--models", type=Path, default=None,
                         help="weights folder (default: single-view, or multi-view with --back)")
     parser.add_argument("--cli", type=Path, default=CLI)
@@ -624,7 +632,11 @@ def main() -> int:
              "pictures (same pose, same front/back setup as the run that saved it). Same "
              "mesh and UVs, so the new paint is a skin for the old model",
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> int:
+    args = parse_args()
 
     problem = views_problem(args.back, args.right, args.left)
     if problem:
@@ -704,7 +716,8 @@ def main() -> int:
             cuts["right"] = cut_out(args.right.resolve(), "right")
             cuts["left"] = cut_out(args.left.resolve(), "left")
         model_views = args.output.with_suffix(".mvinput")
-        write_views(cuts, model_views, args.output.with_suffix(".svviews"))
+        write_views(cuts, model_views, args.output.with_suffix(".svviews"),
+                    paint_sides=not args.sides_shape_only)
         command = build_multiview_command(model_views, args.output, args.res, args.seed,
                                           args.models, args.cli, args.gss, args.gsh)
         print(f"[pixal3d] {' + '.join(side for side in SIDE_ORDER if side in cuts)}: "

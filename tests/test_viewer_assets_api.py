@@ -41,7 +41,7 @@ def output(tmp_path: Path) -> Path:
                                  "sha256": hashlib.sha256(b"FINISHED").hexdigest()}}), 4000)
     _write(out / "animate" / RIG / "a-chunky-knight_40k_dance.glb", b"DANCE", 4100)
     _write(out / "animate" / RIG / "a-chunky-knight_40k_run.glb", b"RUN", 4200)
-    _write(out / "animate" / RIG / "a-chunky-knight_40k_run_b.glb", b"RUN B", 4200)
+    _write(out / "animate" / RIG / "a-chunky-knight_40k_dance_b.glb", b"DANCE B", 4200)
     # a picture nobody turned into 3D
     _write(out / "images" / "a-lone-fox__20261006-080100" / "a-lone-fox__20261006-080100.png", b"png", 5000)
     # a 3D model with no picture on disk (uploaded or from before images were kept)
@@ -69,8 +69,19 @@ def test_a_full_chain_becomes_one_animated_asset(output):
     assert knight["model"].endswith(f"{GEN}.glb")
     assert knight["finished"].endswith("a-chunky-knight_40k.glb")
     assert knight["rigged"].endswith("a-chunky-knight_40k_rigged.glb")
-    # second takes ("_b") are not separate moves
+    # an old second take ("dance_b", now an alias of dance) is not a separate move
     assert [c["name"] for c in knight["clips"]] == ["dance", "run"]
+
+
+def test_moves_named_with_b_show_and_old_second_takes_do_not(output):
+    # 10 of the moves the studio offers end in _b (wave_b, fight_stance_b, ...). The Library hid
+    # every _b clip as a second take, so those moves were made and saved but never shown.
+    for name in ("wave_b", "fight_stance_b", "walk_b"):
+        _write(output / "animate" / RIG / f"a-chunky-knight_40k_{name}.glb", name.encode(), 4300)
+    knight = _by_name(aa.list_assets(output))["a chunky knight"]
+    names = [c["name"] for c in knight["clips"]]
+    assert "wave_b" in names and "fight_stance_b" in names
+    assert "walk_b" not in names    # an old take, now an alias of walk: still hidden
 
 
 def test_loose_runs_still_show_up_at_the_step_they_reached(output):

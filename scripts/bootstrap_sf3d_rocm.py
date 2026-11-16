@@ -19,7 +19,7 @@ to `hipcc` on its own. `scripts/patch_sf3d_linux.py` makes that change.
 PyTorch comes from ROCm's own index. PyPI's Linux torch is a CUDA build, so on an AMD card
 it reports no device at all.
 
-Then the **weights**, about 4.9 GB: SF3D itself and DINOv2-large, which SF3D would otherwise
+Then the **weights**, about 5.5 GB: SF3D itself, DINOv2-large and CLIP, which SF3D would otherwise
 fetch unannounced on its first run.
 
 **Licence:** the SF3D weights are gated. Accept Stability's licence at
@@ -266,7 +266,7 @@ def install_weights() -> None:
         except Exception as error:
             if "gated" in str(error).lower() or "403" in str(error):
                 raise SystemExit(
-                    f"{repo} is gated and this machine cannot read it. Accept the licence "
+                    f"Hugging Face refused {repo}: it is gated. Accept the licence "
                     f"at https://huggingface.co/{repo} and run `hf auth login`, then again. "
                     f"Nothing else was changed.") from error
             raise

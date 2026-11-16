@@ -19,6 +19,7 @@ and modification time, so a Library refresh hashes only new or changed files.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import re
@@ -36,8 +37,10 @@ RIG_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__rig__\d{8}-\d{6}(?:-\d+)?$")
 PROPS_RUN = re.compile(r"^[A-Za-z0-9_-]{1,80}__props__\d{8}-\d{6}(?:-\d+)?$")
 # Folders under output/ that hold other steps' runs, not 3D generations.
 NOT_GENERATED = {"finish", "props", "images", "rig-rebind", "animate", "skins"}
-# A second take of a preset (`_b`) is a choice between versions, not another move.
+# A second take of a preset (`_b`) is a choice between versions, not another move -- unless that
+# take became the move itself (wave_b, fight_stance_b, ...): the shipped move list says which.
 TAKE_SUFFIX = re.compile(r"_[b-z]$")
+MOVES_INDEX = Path(__file__).resolve().parents[1] / "image_to_3dlab" / "motions" / "presets.json"
 STAGES = ("picture", "model", "finished", "rigged", "animated")
 INDEX_NAME = ".assets-index.json"
 UPLOAD_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}   # pictures Create keeps in images/uploads/
@@ -269,6 +272,20 @@ def _finishes(output: Path) -> list[dict[str, Any]]:
     return found
 
 
+@functools.cache
+def _move_ids(index: Path = MOVES_INDEX) -> frozenset[str]:
+    """The moves the studio offers, by id. Read once: the list ships with the code."""
+    try:
+        presets = json.loads(index.read_text(encoding="utf-8")).get("presets") or []
+    except (OSError, ValueError, AttributeError):
+        return frozenset()
+    return frozenset(str(p.get("id")) for p in presets if isinstance(p, dict) and p.get("id"))
+
+
+def _is_second_take(name: str) -> bool:
+    return bool(TAKE_SUFFIX.search(name)) and name not in _move_ids()
+
+
 def _rigs(output: Path) -> list[dict[str, Any]]:
     found = []
     for run in _dirs(output / "animate"):
@@ -284,7 +301,7 @@ def _rigs(output: Path) -> list[dict[str, Any]]:
             clips = []
             for clip in sorted(run.glob(f"{base}_*.glb")):
                 name = clip.stem.removeprefix(f"{base}_")
-                if clip == rigged or name == "rigged" or TAKE_SUFFIX.search(name):
+                if clip == rigged or name == "rigged" or _is_second_take(name):
                     continue
                 clips.append({"name": name, "file": clip})
             found.append({"stem": base, "file": rigged, "input_sha": input_sha, "clips": clips})

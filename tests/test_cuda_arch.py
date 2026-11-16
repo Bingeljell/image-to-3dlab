@@ -20,6 +20,8 @@ from image_to_3dlab import cuda_arch as ca
 OURS = ["sm_75", "sm_80", "sm_86", "sm_90", "sm_100", "sm_120"]
 QUADRO = (6, 1)
 RTX_20 = (7, 5)
+RTX_30 = (8, 6)
+RTX_40 = (8, 9)
 RTX_50 = (12, 0)
 
 
@@ -38,6 +40,10 @@ def test_an_architecture_entry_becomes_its_number(entry, number):
     (["sm_75+PTX"], RTX_50, True),        # PTX for 75 compiles up to 120 at load time
     (["sm_75+PTX"], QUADRO, False),       # ... but never down to an older card
     (["sm_90a"], (9, 0), True),           # the accelerated variant still runs sm_90 code
+    (OURS, RTX_30, True),                 # sm_86 is in the list
+    (OURS, RTX_40, True),                 # no sm_89, but sm_86 code runs on an sm_89 card (same 8.x family)
+    (["sm_89"], RTX_30, False),           # ... never the other way: 8.9 code on an 8.6 card
+    (["sm_90a"], (9, 1), False),          # an "a" build is for that one architecture only
     ([], RTX_20, False),
 ])
 def test_torch_supports_asks_whether_its_code_covers_the_card(archs, capability, expected):
@@ -58,6 +64,11 @@ def test_the_sentence_still_reads_without_a_card_name():
 def test_a_supported_card_is_told_nothing():
     assert ca.problem(OURS, RTX_20, "NVIDIA GeForce RTX 2080") is None
     assert ca.problem(["sm_75+PTX"], RTX_50, "NVIDIA GeForce RTX 5090") is None
+
+
+def test_an_rtx_40_card_rigs_on_the_torch_we_install():
+    """Our torch carries sm_86 and sm_90 but not sm_89; every RTX 40 card was refused (2026-11-13)."""
+    assert ca.problem(OURS, RTX_40, "NVIDIA GeForce RTX 4070 Ti SUPER") is None
 
 
 def test_a_card_newer_than_the_install_is_not_called_old():

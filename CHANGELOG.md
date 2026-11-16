@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plainly what won't fit. Rigged characters keep their skeleton but stand still: Studio
   plays our moves wrongly, so they are left out for now.
 
+### Fixed
+- Rig runs on RTX 40 cards again. The new card check refused them, because the torch we
+  install carries code for sm_86 and sm_90 but not sm_89; code for an earlier card of the
+  same family runs on a later one, so it now counts.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

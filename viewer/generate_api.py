@@ -1427,7 +1427,8 @@ def _rss_monitor(job: Job) -> None:
 
 def _read_process(job: Job) -> None:
     assert job.process is not None and job.process.stdout is not None
-    spec = BACKENDS[job.backend_id]
+    spec = backend_spec(job.backend_id)
+    assert spec is not None, "_run_job resolves the backend before it starts this reader"
     buffer = ""
     while True:
         chunk = job.process.stdout.read(4096)
@@ -1686,12 +1687,15 @@ def failure_reason(log_lines, limit: int = 6) -> str | None:
 
 
 def _run_job(job: Job) -> None:
-    spec = BACKENDS[job.backend_id]
-    args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
-    env = generate_child_env(job.backend_id)
-    if job.backend_id == "trellis" and spec.wrapper == WRAPPER:
-        env.update(attention_backend_spec(job.settings["sparse_attn_backend"])[1])
     try:
+        # Inside the try: a failure here must still end the job, or it stays "running" for good.
+        spec = backend_spec(job.backend_id)
+        if spec is None:
+            raise RuntimeError(f"unknown backend {job.backend_id!r}")
+        args = [str(spec.interpreter), str(spec.wrapper), *spec.build_args(job)]
+        env = generate_child_env(spec.id)
+        if spec.id == "trellis" and spec.wrapper == WRAPPER:
+            env.update(attention_backend_spec(job.settings["sparse_attn_backend"])[1])
         job.status = "running"
         job.emit({"phase": "load", "overall_pct": 0, "message": f"Starting {spec.label} job"})
         job.process = subprocess.Popen(

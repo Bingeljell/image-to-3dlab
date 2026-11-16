@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Setting up Stable Fast 3D or TRELLIS.2 says what actually stopped it. A Mac without libomp
   was told to sign in to Hugging Face, because those setups mention that their model is gated
   before they begin; it now shows the line that says to install libomp.
+### Fixed
+- Hunyuan3D-MLX (Xiong) builds models again from Create. The run stopped at once and showed
+  "Working…" for good, with Cancel unable to stop it. A run that cannot start now says why.
 
 ## [0.5.10] - 2026-11-13
 

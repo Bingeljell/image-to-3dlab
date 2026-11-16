@@ -267,6 +267,19 @@ def prune_unused(document: dict) -> int:
     return dropped_count
 
 
+# An alpha that never drops below this is not a cutout. Finish's colour bake comes out RGBA
+# with alpha 254-255 everywhere; counting that as alpha kept a 1024 albedo as a 1.39 MB PNG
+# where JPEG is 0.28 MB, so the phone budget's file outweighed the default one.
+OPAQUE_ALPHA = 254
+
+
+def has_visible_alpha(image) -> bool:
+    """Whether any pixel is actually see-through, not just whether the image has a channel for it."""
+    if image.mode not in ("RGBA", "LA") and "transparency" not in image.info:
+        return False
+    return image.convert("RGBA").getchannel("A").getextrema()[0] < OPAQUE_ALPHA
+
+
 def encode(image, fmt: str, quality: int, max_size: int | None) -> tuple[bytes, str]:
     """Re-encode one image, optionally capping its longest side."""
     from PIL import Image
@@ -276,7 +289,7 @@ def encode(image, fmt: str, quality: int, max_size: int | None) -> tuple[bytes, 
         size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
         image = image.resize(size, Image.LANCZOS)
 
-    has_alpha = image.mode in ("RGBA", "LA") or "transparency" in image.info
+    has_alpha = has_visible_alpha(image)
     if fmt == "jpeg" and has_alpha:
         # JPEG cannot carry alpha, and silently dropping it would turn a cutout opaque.
         fmt = "png"

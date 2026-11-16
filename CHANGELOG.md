@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Stable Fast 3D models face the front, like every other engine's. They came out turned the
+  other way round: a prop showed its back as its front in the studio, and in a game engine
+  each SF3D file faced away from the ones Pixal3D and Hunyuan made.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

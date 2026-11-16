@@ -103,6 +103,29 @@ def test_a_repo_named_tokens_is_not_mistaken_for_a_login_problem():
     assert "Hugging Face" not in dl._explain(1, log)
 
 
+def test_a_setup_that_only_announces_a_gated_model_is_not_a_login_problem():
+    """SF3D's own announcement says the model "is gated". A Mac without libomp stopped right
+    after it, and the setup blamed Hugging Face sign-in instead of naming libomp."""
+    log = ["About to install:", "backend: Stable Fast 3D (Stability AI)",
+           "stabilityai/stable-fast-3d is gated (see licence below)",
+           "licence: Stability AI Community License: free under $1M annual revenue, otherwise a",
+           "commercial licence from Stability. Gated: accept it at",
+           "https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`.",
+           "SF3D's Metal baker needs libomp: brew install libomp"]
+    message = dl._explain(1, log)
+    assert "Hugging Face" not in message
+    assert "brew install libomp" in message
+
+
+@pytest.mark.parametrize("line", [
+    "Hugging Face refused stabilityai/stable-fast-3d: it is gated.",
+    ("huggingface_hub.errors.GatedRepoError: 403 Client Error. Cannot access gated repo for url "
+     "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m/resolve/main/config.json."),
+])
+def test_a_real_gated_refusal_is_still_a_login_problem(line):
+    assert "login" in dl._explain(1, ["Fetching weights...", line])
+
+
 def test_a_full_disk_is_explained_as_a_full_disk():
     assert "disk space" in dl._explain(1, ["OSError: [Errno 28] No space left on device"])
 

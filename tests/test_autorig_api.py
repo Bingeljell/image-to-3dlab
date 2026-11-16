@@ -680,6 +680,21 @@ def test_a_skeleton_that_is_no_humanoid_keeps_its_numbered_names_and_still_rigs(
                                            "kept_numbered": "no humanoid body found in the skeleton"}
 
 
+def test_an_unexpected_naming_error_still_leaves_a_finished_rig(tmp_path, monkeypatch):
+    """Naming runs after the 70-second rig; a surprise in it (a file it cannot write, a GLB it
+    cannot read) must not turn a good rig into an error."""
+    job = _fake_job(tmp_path, _write_glb_script())
+    job.bone_names = "unity"
+
+    def name_bones(path, preset):
+        raise OSError("disk went away")
+
+    monkeypatch.setattr(aa.bone_names, "name_bones", name_bones)
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert job.status == "done"
+    assert "kept the numbered names" in job.events[-1]["bone_names"]
+
+
 def test_a_rig_without_the_option_never_renames(tmp_path, monkeypatch):
     job = _fake_job(tmp_path, _write_glb_script())
     monkeypatch.setattr(aa.bone_names, "name_bones", lambda *a: pytest.fail("renamed without being asked"))

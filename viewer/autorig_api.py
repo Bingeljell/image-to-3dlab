@@ -574,7 +574,7 @@ def name_rig_bones(job: AnimateJob) -> str:
     """
     try:
         report = bone_names.name_bones(job.result, job.bone_names)
-    except (LookupError, ValueError) as exc:
+    except Exception as exc:   # naming is extra: a finished rig never fails here
         line = f"Bone names: kept the numbered names ({exc})"
         # create_rig wrote the preset asked for; the record must say the file kept bone_0, bone_1, ...
         job.record.setdefault("rig", {})["bone_names"] = {"preset": job.bone_names, "named": 0,

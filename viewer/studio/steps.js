@@ -83,7 +83,7 @@ export function stepBody(stepId, asset, ctx) {
     const body = `<p class="hint">Adds a skeleton so it can move. About a minute. Works best on a character standing in an A-pose (a T-pose works too) with empty hands.</p>
       ${both ? '<label class="field">Rig which model<select data-k="rigsource"><option value="finished">The finished model</option><option value="model">The raw model (skips Finish)</option></select></label>' : ''}
       <label class="field">Bone names<select data-k="bonenames"><option value="numbered">Numbered (bone_0, bone_1, …)</option><option value="unity">Unity Humanoid</option></select></label>
-      <p class="hint">Unity Humanoid names the body bones (Hips, Spine, … LeftToes) and keeps four weights a vertex, so Unity maps the avatar on its own. Hair, capes and gear keep their names.</p>
+      <p class="hint">Going into Unity? Pick Unity Humanoid: Unity then sets the character up by itself, ready for its animations.</p>
       <p class="ask">Is this a humanoid: two arms, two legs, standing upright?</p>
       <div class="row"><button class="primary" data-run="rigged" data-humanoid="yes">Yes, rig it</button>
       <button class="ghost" data-run="rigged" data-humanoid="no" data-tip="Four-legged and other creatures can be rigged but not animated with the preset moves, and the rig may be wonky.">No, rig it anyway</button></div>`;

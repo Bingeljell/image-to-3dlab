@@ -56,9 +56,11 @@ function Send-Event($Event, $Reason = $null, [switch]$Wait) {
     $payload = [ordered]@{ event = $Event; os = "windows"; arch = $Arch; version = $ScriptVersion }
     if ($Reason) { $payload.reason = $Reason }
     try {
-        # Compressed JSON has no spaces, so it survives as one command-line argument.
-        $body = $payload | ConvertTo-Json -Compress
-        $call = @("-fsS", "-m", "3", "-X", "POST", "-H", "Content-Type: application/json", "--data", $body, $EventUrl)
+        # Start-Process hands Windows ONE command line and does not quote a list for us: the
+        # header split at its space and the JSON lost its quotes, so the site refused every
+        # Windows event. Quote both, and escape the JSON's quotes as \" for curl.exe.
+        $body = ($payload | ConvertTo-Json -Compress) -replace '"', '\"'
+        $call = "-fsS -m 3 -X POST -H `"Content-Type: application/json`" --data `"$body`" $EventUrl"
         if ($Wait) {
             # Stopped or finished: this is the last thing the script does, so give it the moment.
             Start-Process -FilePath $curl.Source -ArgumentList $call -WindowStyle Hidden -Wait

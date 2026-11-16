@@ -103,7 +103,7 @@ def test_it_posts_the_same_events_as_the_shell_installer():
         used = set(re.findall(r'\b(?:intel_mac|unsupported_os|no_git|old_nvidia|old_amd|no_gpu|user_said_no)\b', text))
         assert used and used <= closed
     # 3 second ceiling, in each one's own spelling.
-    assert '"-m", "3"' in ps1 and "-m 3" in sh
+    assert "-m 3" in ps1 and "-m 3" in sh
     # The reasons each machine can actually give: a Windows box is never an Intel Mac.
     assert {"intel_mac", "unsupported_os", "no_git", "old_nvidia", "user_said_no"} <= (
         set(re.findall(r'\b(intel_mac|unsupported_os|no_git|old_nvidia|user_said_no)\b', sh)))
@@ -128,3 +128,46 @@ def test_an_event_is_never_able_to_fail_the_install():
     assert "Get-Command curl.exe -ErrorAction SilentlyContinue" in body
     assert "if (-not $curl) { return }" in body
     assert "catch { }" in body
+
+
+def _windows_argv(line: str) -> list[str]:
+    """Split a command line the way a Windows C program (curl.exe) does: spaces separate,
+    double quotes group, a backslash before a quote makes it a literal quote."""
+    args, current, quoted, i, started = [], [], False, 0, False
+    while i < len(line):
+        c = line[i]
+        if c == "\\" and i + 1 < len(line) and line[i + 1] == '"':
+            current.append('"'); i += 2; started = True; continue
+        if c == '"':
+            quoted = not quoted; i += 1; started = True; continue
+        if c == " " and not quoted:
+            if started:
+                args.append("".join(current)); current, started = [], False
+            i += 1; continue
+        current.append(c); i += 1; started = True
+    if started:
+        args.append("".join(current))
+    return args
+
+
+def test_an_event_reaches_curl_as_valid_json_on_windows():
+    """Start-Process hands Windows ONE command line, not a list: unquoted, the header split at
+    its space and the JSON lost its quotes, so the site refused every Windows event
+    (2026-11-13 to 16: none arrived). The line must split back into curl's real arguments."""
+    import json
+    import re
+
+    ps1 = PS1.read_text(encoding="utf-8")
+    body = ps1[ps1.index("function Send-Event"):ps1.index("# 1. This machine")]
+    found = re.search(r'^\s*\$call = "(.+)"$', body, re.MULTILINE)
+    assert found, "Send-Event builds curl's command line as one string, $call = \"...\""
+    # What PowerShell makes of that string for this payload: `" is a quote, $body and
+    # $EventUrl are filled in. The body is escaped the way Send-Event escapes it.
+    payload = '{"event":"started","os":"windows","arch":"amd64","version":"unknown"}'
+    assert "-replace '\"', '\\\"'" in body, "quotes in the JSON are escaped for Windows"
+    line = (found.group(1).replace('`"', '"').replace("$body", payload.replace('"', '\\"'))
+            .replace("$EventUrl", "https://assetfurnace.com/api/install-event"))
+    argv = _windows_argv(line)
+    assert argv[argv.index("-H") + 1] == "Content-Type: application/json"
+    assert json.loads(argv[argv.index("--data") + 1]) == json.loads(payload)
+    assert argv[-1] == "https://assetfurnace.com/api/install-event"

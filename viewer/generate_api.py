@@ -4374,6 +4374,8 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            if not isinstance(body, dict):
+                raise ValueError("send a JSON object")
             height = body.get("height_studs")
             made = model_info_api.roblox_export(
                 OUTPUT_ROOT, str(body.get("file", "")), kind=body.get("kind") or None,

@@ -251,7 +251,8 @@ export function robloxLines(made) {
   const order = { fail: 0, warn: 1, note: 2, pass: 3 };
   const checks = [...(made.checks || [])].sort((a, b) => order[a.level] - order[b.level]);
   const size = made.size_studs ? [{ level: 'info', text: `${+made.size_studs[1].toFixed(1)} studs tall` }] : [];
-  return [...size, ...checks];
+  const where = made.folder ? [{ level: 'info', text: `Saved next to the model, in ${made.folder.split('/').pop()}` }] : [];
+  return [...size, ...checks, ...where];
 }
 
 /** Show in folder opens a window on the server's screen, so only offer it there. */

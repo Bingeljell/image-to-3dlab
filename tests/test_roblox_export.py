@@ -81,7 +81,7 @@ def test_a_small_prop_passes():
 
 @pytest.mark.parametrize("extension", ["EXT_meshopt_compression", "KHR_draco_mesh_compression"])
 def test_packed_geometry_is_refused_with_a_way_out(extension):
-    with pytest.raises(rx.RobloxExportError, match="uncompressed file"):
+    with pytest.raises(rx.RobloxExportError, match="without .web"):
         rx.export(_model(packed=extension))
 
 
@@ -313,7 +313,7 @@ def test_small_png_pictures_are_left_byte_for_byte():
 
 def test_ktx2_pictures_are_refused():
     ktx2 = rx.KTX2_MAGIC + b"\0" * 64
-    with pytest.raises(rx.RobloxExportError, match="KTX2"):
+    with pytest.raises(rx.RobloxExportError, match="compressed"):
         rx.export(_model(pictures=[("image/ktx2", ktx2)]))
 
 
@@ -394,4 +394,60 @@ def test_cli_exits_2_on_a_packed_file(tmp_path, capsys):
     model = tmp_path / "packed.glb"
     model.write_bytes(_model(packed="EXT_meshopt_compression"))
     assert _cli().main([str(model)]) == 2
-    assert "uncompressed" in capsys.readouterr().err
+    assert "without .web" in capsys.readouterr().err
+
+
+
+# ---------------------------------------------------------------- review 2026-11-16
+
+def test_material_names_cannot_leave_the_folder_or_break_windows(tmp_path):
+    """A material called ../../evil wrote outside the export folder; 'Material: Skin' fails on Windows."""
+    document, binary = parse_glb(_model(pictures=[("image/png", _picture("PNG"))]))
+    document["materials"] = [dict(document["materials"][0], name="../../../evil"),
+                             dict(document["materials"][0], name="Material: Skin")]
+    maps = rx.split_maps(document, binary)
+    assert maps and all("/" not in n and ":" not in n and ".." not in n for n in maps)
+    assert len(maps) == 2  # two materials, two colour pictures, neither overwrites the other
+
+
+def test_write_folder_refuses_a_name_that_leaves_it(tmp_path):
+    result = rx.export(_model())
+    result.maps["../x.png"] = b"png"
+    with pytest.raises(rx.RobloxExportError):
+        rx.write_folder(result, tmp_path / "m_roblox")
+    assert not (tmp_path / "x.png").exists()
+
+
+def test_a_re_export_leaves_no_pictures_from_the_last_one(tmp_path):
+    out = rx.write_folder(rx.export(_model(pictures=[("image/png", _picture("PNG"))])), tmp_path / "m_roblox")
+    assert (out / "color.png").is_file()
+    rx.write_folder(rx.export(_model()), out)
+    assert not (out / "color.png").exists()
+    assert not (tmp_path / "m_roblox.building").exists()
+
+
+def test_asset_extras_set_to_null_does_not_crash():
+    document, binary = parse_glb(_model())
+    document["asset"]["extras"] = None
+    assert rx.export(build_glb(document, binary)).passed
+
+
+def test_pictures_linked_from_outside_the_file_are_warned_about():
+    document, binary = parse_glb(_model())
+    document["images"] = [{"uri": "skin.png"}]
+    result = rx.export(build_glb(document, binary))
+    assert any("linked" in text for text in _levels(result.checks, "warn"))
+
+
+def test_a_palette_picture_keeps_its_see_through_parts():
+    picture = io.BytesIO()
+    image = Image.new("P", (128, 128), 0)
+    image.info["transparency"] = 0
+    image.save(picture, "PNG", transparency=0)
+    result = rx.export(_model(pictures=[("image/png", picture.getvalue())]), max_texture=64)
+    assert Image.open(io.BytesIO(result.maps["color.png"])).mode == "RGBA"
+
+
+def test_a_longest_side_sizes_a_flat_prop():
+    result = rx.export(_model(height=0.02), longest_studs=4)
+    assert max(result.size_studs) == 4.0

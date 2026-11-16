@@ -1859,9 +1859,12 @@ def test_roblox_lines_put_the_size_first_then_the_worst_check():
           {level: 'fail', text: 'no'}]}),
         sizeless: m.robloxLines({size_studs: null, checks: [{level: 'pass', text: 'ok'}]}),
         none: m.robloxLines(null),
+        saved: m.robloxLines({size_studs: null, checks: [], folder: 'run/chest_roblox'}),
       }));""")
     assert out["made"] == [{"level": "info", "text": "6.4 studs tall"},
                            {"level": "fail", "text": "no"}, {"level": "warn", "text": "careful"},
                            {"level": "note", "text": "still"}, {"level": "pass", "text": "ok"}]
     assert out["sizeless"] == [{"level": "pass", "text": "ok"}]
     assert out["none"] == []
+    assert out["saved"] == [{"level": "info", "text": "Saved next to the model, in chest_roblox"}]
+    assert out["saved"] == [{"level": "info", "text": "Saved next to the model, in chest_roblox"}]

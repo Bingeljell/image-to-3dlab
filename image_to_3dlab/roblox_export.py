@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import io
 import json
+import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -134,8 +136,8 @@ def check(document: dict, kind: str = "prop") -> list[dict[str, str]]:
     used = set(document.get("extensionsUsed", []))
     packed = sorted(name for ext, name in PACKED.items() if ext in used)
     if packed:
-        say("fail", f"The mesh is packed ({', '.join(packed)}), which Roblox can't read. "
-                    "Export from the uncompressed file instead.")
+        say("fail", "This is a compressed copy, which Roblox can't read. "
+                    "Export the model itself (the file without .web in its name).")
 
     meshes = mesh_triangles(document)
     total = sum(count for _, count in meshes)
@@ -184,8 +186,8 @@ def _fit(image: Image.Image, max_side: int) -> Image.Image:
 
 def _decode(data: bytes, index: int) -> Image.Image:
     if data.startswith(KTX2_MAGIC):
-        raise RobloxExportError(f"picture {index + 1} is KTX2, which can't be converted here. "
-                                "Export from the uncompressed file instead.")
+        raise RobloxExportError("its pictures are compressed in a way Roblox can't read. "
+                                "Export the model itself (the file without .web in its name).")
     image = Image.open(io.BytesIO(data))
     image.load()
     return image
@@ -242,7 +244,8 @@ def convert_pictures(document: dict, binary: bytes, max_texture: int) -> tuple[b
                          f"{fitted.width}x{fitted.height}")
         elif not is_png:
             notes.append(f"picture {index + 1} converted to PNG")
-        replaced[view] = _png(fitted.convert("RGBA" if "A" in fitted.getbands() else "RGB"))
+        see_through = "A" in fitted.getbands() or "transparency" in fitted.info or fitted.mode in ("P", "PA")
+        replaced[view] = _png(fitted.convert("RGBA" if see_through else "RGB"))
         entry["mimeType"] = "image/png"
     for texture in document.get("textures", []):
         webp = (texture.get("extensions") or {}).pop("EXT_texture_webp", None)
@@ -254,13 +257,19 @@ def convert_pictures(document: dict, binary: bytes, max_texture: int) -> tuple[b
     return _repack(document, binary, replaced), notes
 
 
+def _safe_name(name: str | None) -> str:
+    """A material name fit for a file name on any system: letters, digits, _ and - only."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", name or "").strip("_")[:40]
+    return cleaned or "material"
+
+
 def split_maps(document: dict, binary: bytes) -> dict[str, bytes]:
     """The loose pictures SurfaceAppearance takes, per material: colour, normal, roughness
     (glTF's green channel) and metalness (blue). Call after convert_pictures."""
     materials = document.get("materials", [])
     maps: dict[str, bytes] = {}
     for index, material in enumerate(materials):
-        prefix = "" if len(materials) == 1 else f"{material.get('name') or f'material{index + 1}'}_"
+        prefix = "" if len(materials) == 1 else f"{index + 1}_{_safe_name(material.get('name'))}_"
         pbr = material.get("pbrMetallicRoughness", {})
         slots = {
             "color": (pbr.get("baseColorTexture") or {}).get("index"),
@@ -287,7 +296,8 @@ def _float_rows(document: dict, out: bytearray, index: int):
     """An accessor's values as a writable (count, width) view into `out`."""
     accessor = document["accessors"][index]
     if accessor.get("componentType") != FLOAT or "sparse" in accessor or "bufferView" not in accessor:
-        raise RobloxExportError(f"part of the model is stored in a way this can't resize (accessor {index})")
+        raise RobloxExportError("part of this model is stored compressed, so it can't be resized. "
+                                "Export the model itself (the file without .web in its name).")
     width = {"SCALAR": 1, "VEC3": 3, "VEC4": 4, "MAT4": 16}[accessor["type"]]
     view = document["bufferViews"][accessor["bufferView"]]
     start = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
@@ -302,7 +312,10 @@ def scale_to_studs(document: dict, binary: bytes, factor: float = STUDS_PER_METR
     Uniform scale is the same as multiplying every distance: points (and blend-shape
     offsets), node and animated translations, and the translation part of skin
     inverse-bind matrices. Rotations and node scales stay as they are."""
-    extras = document.setdefault("asset", {"version": "2.0"}).setdefault("extras", {})
+    asset = document.setdefault("asset", {"version": "2.0"})
+    if not isinstance(asset.get("extras"), dict):
+        asset["extras"] = {}
+    extras = asset["extras"]
     if SCALED_KEY in extras:
         return binary
     k = factor
@@ -470,23 +483,30 @@ def straighten_bones(document: dict, binary: bytes) -> tuple[bytes, str | None]:
 # ---------------------------------------------------------------- the whole export
 
 def export(data: bytes, *, kind: str | None = None, max_texture: int = MARKETPLACE_TEXTURE,
-           height_studs: float | None = None) -> RobloxExport:
+           height_studs: float | None = None, longest_studs: float | None = None) -> RobloxExport:
     """The Roblox-ready copy of a GLB. Raises RobloxExportError if it can't be made safely.
 
     kind: prop | character | accessory; left out, a model with a skeleton is a character.
-    height_studs: make the model this tall. Without it, metres become studs, which suits
+    longest_studs: make the model's longest side this long (props: a rug or a sword lying down
+    has almost no height, so sizing by height would make it hundreds of studs wide).
+    height_studs: make the model this tall; wins over longest_studs. Without either, metres become studs, which suits
     rigged characters (the lab sizes those as people) but leaves props at whatever size
     the generator picked, often under a stud."""
-    if height_studs is not None and not 0.05 <= height_studs <= 2048:
-        raise ValueError(f"height_studs must be 0.05..2048, got {height_studs}")
+    for name, value in (("height_studs", height_studs), ("longest_studs", longest_studs)):
+        if value is not None and not 0.05 <= value <= 2048:
+            raise ValueError(f"{name} must be 0.05..2048, got {value}")
     if not 64 <= max_texture <= MARKETPLACE_TEXTURE:
         raise ValueError(f"max_texture must be 64..{MARKETPLACE_TEXTURE}, got {max_texture}")
     document, binary = parse_glb(data)
+    if SCALED_KEY in ((document.get("asset") or {}).get("extras") or {}):
+        raise RobloxExportError("this is already a Roblox copy. Export the original model instead.")
     kind = kind or ("character" if document.get("skins") else "prop")
     checks = check(document, kind)
-    packed = next((c for c in checks if c["level"] == "fail" and "packed" in c["text"]), None)
-    if packed:
-        raise RobloxExportError(packed["text"])
+    if PACKED.keys() & set(document.get("extensionsUsed", [])):
+        raise RobloxExportError(next(c["text"] for c in checks if c["level"] == "fail"))
+    if any("bufferView" not in image for image in document.get("images", [])):
+        checks.append({"level": "warn", "text": "Some pictures are linked from outside the file, so Roblox "
+                                                "won't get them. Export the model from the studio instead."})
     size = bounds_metres(document)
     binary, notes = convert_pictures(document, binary, max_texture)
     maps = split_maps(document, binary)
@@ -495,6 +515,10 @@ def export(data: bytes, *, kind: str | None = None, max_texture: int = MARKETPLA
         if not size or size[1] <= 0:
             raise RobloxExportError("can't set a height: the model has no height to measure")
         factor = height_studs / size[1]
+    elif longest_studs is not None:
+        if not size or max(size) <= 0:
+            raise RobloxExportError("can't set a size: the model has no size to measure")
+        factor = longest_studs / max(size)
     if document.pop("animations", None):
         checks.append({"level": "note", "text": MOVES_LEFT_OUT})
     binary, bone_note = straighten_bones(document, binary)
@@ -502,6 +526,8 @@ def export(data: bytes, *, kind: str | None = None, max_texture: int = MARKETPLA
         notes.append(bone_note)
     binary = scale_to_studs(document, binary, factor)
     studs = tuple(round(v * factor, 2) for v in size) if size else None
+    if studs and max(studs) > 2048:
+        checks.append({"level": "warn", "text": f"{max(studs):,.0f} studs across: Roblox parts stop at 2,048."})
     return RobloxExport(glb=build_glb(document, binary), maps=maps, checks=checks,
                         size_studs=studs, triangles=sum(n for _, n in mesh_triangles(document)),
                         notes=notes)
@@ -514,21 +540,32 @@ HOW_TO = """How to bring this into Roblox Studio
 3. Grey at first? Roblox checks uploaded pictures before showing them; it can take a while,
    and a new account may need to verify first (Settings > Account Info on roblox.com).
 4. If the colours or shine look wrong, add a SurfaceAppearance to the MeshPart and upload
-   color.png, normal.png, roughness.png and metalness.png into its four slots.
+   color.png, normal.png, roughness.png and metalness.png into its four slots (with several
+   materials, each set of four starts with the material's number and name).
 5. Limits checked: see check.json.
 """
 
 
 def write_folder(result: RobloxExport, out_dir: Path) -> Path:
     """Write model.glb, the loose maps, check.json and HOW-TO-IMPORT.txt into `out_dir`."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "model.glb").write_bytes(result.glb)
+    for name in result.maps:
+        if Path(name).name != name or name.startswith("."):
+            raise RobloxExportError(f"unsafe picture name {name!r}")
+    # Built aside, then swapped in: a re-export leaves no pictures from the last one, and a
+    # failure halfway leaves the old folder as it was.
+    building = out_dir.with_name(out_dir.name + ".building")
+    shutil.rmtree(building, ignore_errors=True)
+    building.mkdir(parents=True)
+    (building / "model.glb").write_bytes(result.glb)
     for name, png in result.maps.items():
-        (out_dir / name).write_bytes(png)
-    size = " x ".join(f"{v:g}" for v in result.size_studs) + " studs" if result.size_studs else "its real size"
+        (building / name).write_bytes(png)
+    size = " x ".join(f"{v:g}" for v in result.size_studs) + " studs" if result.size_studs else "the model's own size"
     record: dict[str, Any] = {"passed": result.passed, "triangles": result.triangles,
                               "size_studs": result.size_studs, "checks": result.checks,
                               "notes": result.notes, "maps": sorted(result.maps)}
-    (out_dir / "check.json").write_text(json.dumps(record, indent=2) + "\n")
-    (out_dir / "HOW-TO-IMPORT.txt").write_text(HOW_TO.format(size=size))
+    (building / "check.json").write_text(json.dumps(record, indent=2) + "\n")
+    (building / "HOW-TO-IMPORT.txt").write_text(HOW_TO.format(size=size))
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    building.rename(out_dir)
     return out_dir

@@ -98,10 +98,38 @@ def test_roblox_export_writes_a_folder_beside_the_model(output):
     assert made["passed"] is True
 
 
-def test_an_unrigged_model_gets_the_default_prop_height(output):
+def test_an_unrigged_model_gets_the_default_prop_size_on_its_longest_side(output):
+    (output / "knight__run" / "chest.glb").write_bytes(_sized_glb(0.3))  # 1 wide, 0.3 tall
+    made = mi.roblox_export(output, "knight__run/chest.glb")
+    assert max(made["size_studs"]) == mi.PROP_LONGEST_STUDS
+
+
+def test_a_flat_prop_is_not_blown_up_to_hundreds_of_studs(output):
+    """Review 2026-11-16: sized by height, a rug 0.02 tall came out 200 studs wide."""
+    (output / "knight__run" / "rug.glb").write_bytes(_sized_glb(0.02))
+    made = mi.roblox_export(output, "knight__run/rug.glb")
+    assert max(made["size_studs"]) == mi.PROP_LONGEST_STUDS
+
+
+def test_a_damaged_file_is_a_plain_error_not_a_crash(output):
+    for name, data in (("cut.glb", b"glTF\x02\0\0\0\x10\0\0\0\x08\0"), ("tiny.glb", b"gl")):
+        (output / "knight__run" / name).write_bytes(data)
+        with pytest.raises(ValueError, match="damaged|not a GLB"):
+            mi.roblox_export(output, f"knight__run/{name}")
+
+
+def test_the_licence_record_travels_with_the_roblox_copy(output):
+    (output / "knight__run" / "chest.glb").write_bytes(_sized_glb(0.3))
+    (output / "knight__run" / "chest.provenance.json").write_text('{"licence": "ours"}')
+    made = mi.roblox_export(output, "knight__run/chest.glb")
+    assert (output / made["folder"] / "model.provenance.json").read_text() == '{"licence": "ours"}'
+
+
+def test_exporting_the_roblox_copy_again_is_refused(output):
     (output / "knight__run" / "chest.glb").write_bytes(_sized_glb(0.3))
     made = mi.roblox_export(output, "knight__run/chest.glb")
-    assert made["size_studs"][1] == mi.PROP_HEIGHT_STUDS
+    with pytest.raises(ValueError, match="already a Roblox copy"):
+        mi.roblox_export(output, made["file"])
 
 
 def test_a_rigged_model_keeps_its_person_size(output):
@@ -129,5 +157,5 @@ def test_a_packed_file_is_a_plain_error(output):
     document, binary = parse_glb(_sized_glb(1))
     document["extensionsUsed"] = ["EXT_meshopt_compression"]
     (output / "knight__run" / "packed.glb").write_bytes(build_glb(json.loads(json.dumps(document)), binary))
-    with pytest.raises(ValueError, match="uncompressed"):
+    with pytest.raises(ValueError, match="without .web"):
         mi.roblox_export(output, "knight__run/packed.glb")

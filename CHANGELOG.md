@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Picking an option in Create no longer leaves an error in the browser console, and the panel
+  puts its scroll position back itself instead of relying on the browser to keep it.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

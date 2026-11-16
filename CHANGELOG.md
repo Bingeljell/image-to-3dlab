@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Picking an option in Create no longer leaves an error in the browser console, and the panel
   puts its scroll position back itself instead of relying on the browser to keep it.
+### Fixed
+- Dropping the surface maps for a phone now makes the file smaller, as promised. The colour
+  picture came out with an unused see-through layer, which kept it as a large PNG: a light
+  chest was 1.7 MB with them dropped against 1.5 MB with them kept.
 
 ## [0.5.10] - 2026-11-13
 

@@ -70,3 +70,64 @@ def test_reveal_runs_the_command_and_does_not_wait(output):
 def test_only_this_machine_may_open_a_folder(address, local):
     """Over Tailscale or a LAN the folder would open on the server's screen, not the viewer's."""
     assert mi.is_local(address) is local
+
+
+# ---------------------------------------------------------------- Export for Roblox
+
+def _sized_glb(height: float, bones: int = 0) -> bytes:
+    import struct
+    positions = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, height, 0)
+    document = {"asset": {"version": "2.0"},
+                "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+                "accessors": [{"bufferView": 0, "count": 3, "componentType": 5126, "type": "VEC3",
+                               "min": [0, 0, 0], "max": [1, height, 0]}],
+                "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(positions)}],
+                "buffers": [{"byteLength": len(positions)}],
+                "nodes": [{"mesh": 0}]}
+    if bones:
+        document["nodes"] += [{"name": f"b{i}"} for i in range(bones)]
+        document["skins"] = [{"joints": list(range(1, bones + 1))}]
+    return build_glb(document, positions)
+
+
+def test_roblox_export_writes_a_folder_beside_the_model(output):
+    (output / "knight__run" / "chest.glb").write_bytes(_sized_glb(0.3))
+    made = mi.roblox_export(output, "knight__run/chest.glb")
+    assert made["folder"] == "knight__run/chest_roblox"
+    assert (output / made["file"]).is_file()
+    assert made["passed"] is True
+
+
+def test_an_unrigged_model_gets_the_default_prop_height(output):
+    (output / "knight__run" / "chest.glb").write_bytes(_sized_glb(0.3))
+    made = mi.roblox_export(output, "knight__run/chest.glb")
+    assert made["size_studs"][1] == mi.PROP_HEIGHT_STUDS
+
+
+def test_a_rigged_model_keeps_its_person_size(output):
+    (output / "knight__run" / "hero.glb").write_bytes(_sized_glb(1.68, bones=2))
+    made = mi.roblox_export(output, "knight__run/hero.glb")
+    assert made["size_studs"][1] == 6.0
+
+
+def test_a_chosen_height_wins(output):
+    (output / "knight__run" / "chest.glb").write_bytes(_sized_glb(0.3))
+    assert mi.roblox_export(output, "knight__run/chest.glb", height_studs=2)["size_studs"][1] == 2.0
+
+
+def test_roblox_export_refuses_pictures_and_outside_paths(output):
+    with pytest.raises(ValueError, match="only GLB"):
+        mi.roblox_export(output, "knight__run/knight.png")
+    with pytest.raises(ValueError):
+        mi.roblox_export(output, "../x.glb")
+
+
+def test_a_packed_file_is_a_plain_error(output):
+    import json
+
+    from image_to_3dlab.glb_turn import parse_glb
+    document, binary = parse_glb(_sized_glb(1))
+    document["extensionsUsed"] = ["EXT_meshopt_compression"]
+    (output / "knight__run" / "packed.glb").write_bytes(build_glb(json.loads(json.dumps(document)), binary))
+    with pytest.raises(ValueError, match="uncompressed"):
+        mi.roblox_export(output, "knight__run/packed.glb")

@@ -2991,6 +2991,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "reveal"]:
             self._reveal()
             return
+        if parts == ["api", "roblox-export"]:
+            self._roblox_export()
+            return
         if parts == ["api", "bug-report"]:
             self._bug_report_links()
             return
@@ -4361,6 +4364,24 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(422, {"error": "share must be true or false"})
             return
         self._send_json(200, usage_api.set_sharing(body["share"]))
+
+    def _roblox_export(self) -> None:
+        """`{file, kind?, height_studs?}`: write the Roblox-ready copy beside an output file."""
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            # it writes files: a page elsewhere can send a plain form, but not JSON without asking
+            self._send_json(415, {"error": "send JSON"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            height = body.get("height_studs")
+            made = model_info_api.roblox_export(
+                OUTPUT_ROOT, str(body.get("file", "")), kind=body.get("kind") or None,
+                height_studs=float(height) if height not in (None, "") else None)
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        self._send_json(200, made)
 
     def _reveal(self) -> None:
         """Show one output file in Finder / Explorer / the file manager, on this machine."""

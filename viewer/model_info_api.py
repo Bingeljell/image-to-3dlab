@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from image_to_3dlab import roblox_export as rx
 from image_to_3dlab.glb_stats import file_stats
 from image_to_3dlab.host import os_family
 from image_to_3dlab.processes import group_popen_kwargs
@@ -42,6 +43,39 @@ def model_info(output: Path, relative: str) -> dict[str, Any]:
         "path": str(path),
         "folder": str(path.parent),
         "stats": file_stats(path) if path.suffix.lower() == ".glb" else None,
+    }
+
+
+# A prop with no real-world size gets this height in studs unless the person picks one: about
+# a crate or a chest beside a 5-6 stud character. Rigged models are already person-sized.
+PROP_HEIGHT_STUDS = 4.0
+
+
+def roblox_export(output: Path, relative: str, *, kind: str | None = None,
+                  height_studs: float | None = None) -> dict[str, Any]:
+    """Write `<model>_roblox/` beside the model and say how it did against Roblox's limits."""
+    path = resolve(output, relative)
+    if path.suffix.lower() != ".glb":
+        raise ValueError("only GLB files can be exported for Roblox")
+    data = path.read_bytes()
+    if height_studs is None and not file_stats(path)["bones"]:
+        height_studs = PROP_HEIGHT_STUDS
+    try:
+        result = rx.export(data, kind=kind, height_studs=height_studs)
+    except rx.RobloxExportError as exc:
+        raise ValueError(str(exc)) from exc
+    folder = rx.write_folder(result, path.with_name(f"{path.stem}_roblox"))
+    root = output.resolve()
+    return {
+        "folder": folder.relative_to(root).as_posix(),
+        "file": (folder / "model.glb").relative_to(root).as_posix(),
+        "path": str(folder),
+        "passed": result.passed,
+        "checks": result.checks,
+        "notes": result.notes,
+        "size_studs": result.size_studs,
+        "triangles": result.triangles,
+        "maps": sorted(result.maps),
     }
 
 

@@ -187,7 +187,14 @@ a { color: inherit; }
 .model-stats .wide { grid-column: 1 / -1; }  /* "2 × 2048², 1 × 1024²" needs the room */
 .model-stats dt { font-size: 12px; color: var(--ash); }
 .model-stats dd { margin: 0; font: 500 12px/1.4 var(--f-num); color: var(--bone); text-align: right; overflow-wrap: anywhere; }
-.file-actions { display: flex; gap: 8px; }
+.file-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.roblox-result { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 12px; color: var(--ash); }
+.roblox-result li::before { content: "✓ "; color: var(--ash); }
+.roblox-result li.warn::before { content: "! "; color: #e0a040; }
+.roblox-result li.fail { color: var(--bone); }
+.roblox-result li.fail::before { content: "✕ "; color: #e05050; }
+.roblox-result li.info::before { content: ""; }
+.roblox-result li.note::before { content: "• "; color: var(--ash); }
 
 /* stack before the viewer gets squeezed: three columns need ~1150 px to leave it room */
 @media (max-width: 1150px) {

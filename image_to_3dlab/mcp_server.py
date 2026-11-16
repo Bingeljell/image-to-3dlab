@@ -70,7 +70,7 @@ STUDIO_ONLY = {
     "api/animate/*/cancel": "via cancel_run", "api/rig/rebind/*/cancel": "via cancel_run",
 }
 # Server actions the tools below call.
-USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/bug-report", "api/usage",
+USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/roblox-export", "api/bug-report", "api/usage",
         "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel",
         "api/image/brush", "api/image/versions/use", "api/image/versions/delete"}
 
@@ -993,6 +993,20 @@ def show_in_folder(studio: Studio, *, asset_id: str, stage: str = "latest") -> d
     return studio.post_json("api/reveal", {"file": file})
 
 
+def export_roblox(studio: Studio, *, asset_id: str, stage: str = "latest", kind: str | None = None,
+                  height_studs: float | None = None) -> dict[str, Any]:
+    file = studio.get("api/model-info", asset=asset_id, stage=stage)["file"]
+    body: dict[str, Any] = {"file": file}
+    if kind:
+        body["kind"] = kind
+    if height_studs is not None:
+        body["height_studs"] = height_studs
+    made = studio.post_json("api/roblox-export", body)
+    return made | {"tip": "Tell the user each check line as written. In Roblox Studio: Import 3D, pick "
+                          "model.glb, leave Scale Unit on Studs. HOW-TO-IMPORT.txt in the folder has the steps. "
+                          "Too many triangles is reported here, not fixed."}
+
+
 def report_bug(studio: Studio, *, message: str, include_prompt: bool = False) -> dict[str, Any]:
     params = {"prompt": "1"} if include_prompt else {}
     details = studio.get("api/bug-report", **params)["details"]
@@ -1411,6 +1425,17 @@ def build_server(studio: Studio | None = None):
         """Open the folder holding an asset's file in Finder / Explorer, with the file selected, for a user
         who wants the file itself. stage: latest | picture | model | finished | rigged."""
         return safe(lambda: show_in_folder(studio, asset_id=asset_id, stage=stage))
+
+    @server.tool(name="export_roblox", structured_output=False)
+    def tool_export_roblox(asset_id: str, stage: str = "latest", kind: str | None = None,
+                           height_studs: float | None = None):
+        """Make a copy Roblox Studio can import: right size in studs, PNG pictures, the four surface pictures
+        loose, and a check against Roblox's limits (20,000 triangles per mesh; a wearable item 4,000).
+        kind: prop | character | accessory (a wearable item); left out, a rigged model is a character
+        and anything else a prop. Characters come in standing still. height_studs: how tall; rigged models keep their person size,
+        others default to 4 (a Roblox character is about 5-6). stage: latest | model | finished | rigged."""
+        return safe(lambda: export_roblox(studio, asset_id=asset_id, stage=stage, kind=kind,
+                                          height_studs=height_studs))
 
     @server.tool(name="report_bug", structured_output=False)
     def tool_report_bug(message: str, include_prompt: bool = False):

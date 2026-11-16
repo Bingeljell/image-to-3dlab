@@ -115,6 +115,7 @@ The asset's surface, as opposed to its shape.
 | `compress_glb_textures.py` | Re-encode a GLB's textures, without touching its geometry. |
 | `retopo_repaint.py` | Finish a generated asset: retopologise, repaint, bake detail, compress. |
 | `finish_props.py` | Finish every prop from a prop sheet: LODs re-baked from the original, then compressed. |
+| `export_roblox.py` | Make a copy of a GLB that Roblox Studio imports at the right size, with its pictures loose. |
 | `living_organic_material.py` | Apply a reproducible living-organic material recipe to an existing GLB. |
 | `project_labels.py` | Project a 2D image onto a generated mesh as per-vertex colours. |
 | `project_markings.py` | Paint the source image's markings back onto a generated mesh's texture. |

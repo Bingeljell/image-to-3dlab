@@ -1,7 +1,7 @@
 // AssetFurnace studio: Library | one viewer | Steps.
 // Steps run here through the server's job APIs, prop-sheet splitting included.
 
-import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, canFixShown, fixBlockedNote, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal } from './library.js';
+import { STEPS, stepCount, stepDone, stepState, statusText, displayModel, stepFile, canViewStep, canFixShown, fixBlockedNote, servedUrl, visibleFamilies, madeVersion, engineOf, engineChoices, openingView, isModelFile, duration, canViewPictures, sizeText, deletionWords, linkedAssetId, statsRows, canReveal, robloxLines } from './library.js';
 import { createStudioViewer } from './viewer.js';
 import { readyEngines, readableLog, copyDetails, logScroll, moveBox, resizeBox } from './jobs.js';
 import { stepBody, wireStep, wireBrush, wireVersions } from './steps.js';
@@ -318,6 +318,7 @@ async function showModelInfo(file) {
   const stats = $('modelStats');
   const actions = $('fileActions');
   $('fileCard').hidden = true;
+  $('robloxResult').hidden = true;
   if (!file) return;
   const response = await fetch(`/api/model-info?file=${encodeURIComponent(file)}`).catch(() => null);
   const info = response?.ok ? await response.json() : null;
@@ -337,6 +338,28 @@ async function showModelInfo(file) {
 $('revealBtn').addEventListener('click', () => {
   fetch('/api/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ file: $('fileActions').dataset.file }) });
+});
+
+$('robloxBtn').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  const file = $('fileActions').dataset.file;
+  const list = $('robloxResult');
+  button.disabled = true;
+  button.textContent = 'Exporting…';
+  const response = await fetch('/api/roblox-export', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file }) }).catch(() => null);
+  const made = response ? await response.json().catch(() => null) : null;
+  button.disabled = false;
+  button.textContent = 'Export for Roblox';
+  if ($('fileActions').dataset.file !== file) return;  // the panel has moved on
+  const lines = response?.ok ? robloxLines(made)
+    : [{ level: 'fail', text: made?.error || 'The export did not run. Is the studio still running?' }];
+  list.innerHTML = lines.map((line) => `<li class="${escape(line.level)}">${escape(line.text)}</li>`).join('');
+  list.hidden = false;
+  if (response?.ok && canReveal(location.hostname)) {
+    fetch('/api/reveal', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: made.file }) });
+  }
 });
 
 $('copyPathBtn').addEventListener('click', async (event) => {

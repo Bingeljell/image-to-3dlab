@@ -59,6 +59,42 @@ def command_for(reference: Path, right: Path, seed: int, weights: dict[str, Path
                                    reference=reference, vision=vision, engine=engine)
 
 
+def draw_side(front: Path, out: Path, args, weights, vision, engine) -> tuple:
+    """Draw the right side of the subject in `front` into `out` (again, with --four-legged, until its legs stand
+    apart); returns (leg measure or None, problems, seed, pictures drawn), or None if the engine failed."""
+    reference = reference_for(front, out.with_name(f"{out.stem}__reference.png"))
+    tries = max(1, args.tries) if args.four_legged else 1
+    best = None   # (measure, problems, seed, picture)
+    n = 0
+    for n in range(tries):
+        seed = args.seed + n
+        pic = out if tries == 1 else out.with_name(f"{out.stem}__try{n}{out.suffix}")
+        command = command_for(reference, pic, seed, weights, vision, engine)
+        result = subprocess.run(command, capture_output=True, text=True, cwd=str(REPO), check=False)
+        if result.returncode or not pic.exists():
+            print((result.stdout + result.stderr)[-1500:])
+            return None
+        if not args.four_legged:
+            best = (None, [], seed, pic)
+            break
+        measure, found = leg_check.check_picture(pic, "side")
+        print(f"[side-views] {out.name} seed {seed}: {measure['open_under_body']:.0%} open under the body"
+              + (f", {found[0]}" if found else ", legs apart"), flush=True)
+        if best is None or leg_check.better(measure, best[0]):
+            best = (measure, found, seed, pic)
+        if not found:
+            break
+    measure, found, seed, kept = best
+    if kept != out:
+        kept.replace(out)
+        for extra in out.parent.glob(f"{out.stem}__try*{out.suffix}"):
+            extra.unlink()
+    if args.four_legged and found:
+        print(f"[side-views] the legs still touch after {tries} pictures; kept seed {seed}: {found[0]}. "
+              "Draw the side yourself or try other seeds before building.", flush=True)
+    return measure, found, seed, n + 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("front", type=Path)
@@ -71,6 +107,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="check that the legs stand apart in the drawn side, and draw again if they touch")
     parser.add_argument("--tries", type=int, default=DEFAULT_TRIES,
                         help=f"with --four-legged: at most this many pictures (default {DEFAULT_TRIES})")
+    parser.add_argument("--draw-left", action="store_true",
+                        help="draw the left side too (from the front mirrored, then mirrored back) instead of "
+                             "mirroring the right one: for a subject whose sides differ, such as a tail curled to "
+                             "one side, which a mirror puts on both sides and the build then doubles")
     args = parser.parse_args(argv)
     if not args.front.is_file():
         raise SystemExit(f"not found: {args.front}")
@@ -81,44 +121,42 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     weights = image_api.resolve_weights(engine)
     args.right.parent.mkdir(parents=True, exist_ok=True)
-    reference = reference_for(args.front, args.right.with_name(f"{args.right.stem}__reference.png"))
-    tries = max(1, args.tries) if args.four_legged else 1
+    args.left.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
-    best = None   # (measure, problems, seed, picture)
-    for n in range(tries):
-        seed = args.seed + n
-        out = args.right if tries == 1 else args.right.with_name(f"{args.right.stem}__try{n}{args.right.suffix}")
-        command = command_for(reference, out, seed, weights, vision, engine)
-        result = subprocess.run(command, capture_output=True, text=True, cwd=str(REPO), check=False)
-        if result.returncode or not out.exists():
-            print((result.stdout + result.stderr)[-1500:])
-            return 1
-        if not args.four_legged:
-            best = (None, [], seed, out)
-            break
-        measure, found = leg_check.check_picture(out, "side")
-        print(f"[side-views] seed {seed}: {measure['open_under_body']:.0%} open under the body"
-              + (f", {found[0]}" if found else ", legs apart"), flush=True)
-        if best is None or leg_check.better(measure, best[0]):
-            best = (measure, found, seed, out)
-        if not found:
-            break
-    measure, found, seed, kept = best
-    if kept != args.right:
-        kept.replace(args.right)
-        for extra in args.right.parent.glob(f"{args.right.stem}__try*{args.right.suffix}"):
-            extra.unlink()
-    if args.four_legged and found:
-        print(f"[side-views] the legs still touch after {tries} pictures; kept seed {seed}: {found[0]}. "
-              "Draw the side yourself or try other seeds before building.", flush=True)
+    drawn = draw_side(args.front, args.right, args, weights, vision, engine)
+    if drawn is None:
+        return 1
+    measure, found, seed, pictures = drawn
     seconds = time.time() - started
     record = image_api.provenance(back_view.SIDE_PROMPT, image_api.clean_settings({"seed": seed}, engine=engine),
                                   seconds, args.right, engine=engine)
     record["reference"] = {"front": str(args.front), "mode": "edit (right side)"}
     if measure is not None:
-        record["legs"] = {"open_under_body": measure["open_under_body"], "problems": found, "pictures_drawn": n + 1}
+        record["legs"] = {"open_under_body": measure["open_under_body"], "problems": found, "pictures_drawn": pictures}
     write_provenance(args.right.with_suffix(".provenance.json"), record)
-    args.left.parent.mkdir(parents=True, exist_ok=True)
+    if args.draw_left:
+        # the subject's left side is the right side of its mirror image
+        mirrored_front = args.left.with_name(f"{args.left.stem}__front_mirrored.png")
+        with Image.open(args.front) as opened:
+            back_view.mirror_side(opened.convert("RGBA") if opened.mode == "RGBA" else opened.convert("RGB")).save(
+                mirrored_front)
+        drawn_left = args.left.with_name(f"{args.left.stem}__drawn{args.left.suffix}")
+        drawn = draw_side(mirrored_front, drawn_left, args, weights, vision, engine)
+        if drawn is None:
+            return 1
+        measure, found, seed, pictures = drawn
+        with Image.open(drawn_left) as picture:
+            back_view.mirror_side(picture).save(args.left)
+        drawn_left.unlink()
+        record = image_api.provenance(back_view.SIDE_PROMPT, image_api.clean_settings({"seed": seed}, engine=engine),
+                                      time.time() - started - seconds, args.left, engine=engine)
+        record["reference"] = {"front": str(args.front), "mode": "edit (left side), drawn from the mirrored front"}
+        if measure is not None:
+            record["legs"] = {"open_under_body": measure["open_under_body"], "problems": found,
+                              "pictures_drawn": pictures}
+        write_provenance(args.left.with_suffix(".provenance.json"), record)
+        print(f"[side-views] {time.time() - started:.0f}s -> {args.right}, {args.left} (drawn)", flush=True)
+        return 0
     with Image.open(args.right) as right:
         back_view.mirror_side(right).save(args.left)
     record["reference"] = {"front": str(args.front), "mode": f"mirror of the right side {args.right.name}"}

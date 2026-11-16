@@ -54,6 +54,8 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `upscale_esrgan.py` | Upscale a picture 4x with Real-ESRGAN, then resize it to a square of SIZE pixels. |
 | `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
 | `make_side_views.py` | Draw a subject's right and left side from its front picture, for a four-view 3D build; `--four-legged` draws again until the legs stand apart. |
+| `make_side_views.py` | Draw a subject's right and left side from its front picture, for a four-view 3D build; `--four-legged` draws again until the legs stand apart, `--draw-left` draws the left side too (for subjects whose sides differ). |
+| `fx_markers.py` | Mark where an effect (a flame, a glow) was taken out of the front picture, as empty nodes in the model, for an engine's own particle effect. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
 | `trellis_rocm_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an AMD card. |

@@ -154,3 +154,37 @@ def test_without_four_legged_one_picture_is_drawn_and_not_checked(monkeypatch, t
     _fake_drawer(monkeypatch, apart_from_seed=99, seeds=seeds)
     assert msv.main([str(front), str(tmp_path / "r.png"), str(tmp_path / "l.png")]) == 0
     assert seeds == [3]
+
+
+def test_draw_left_draws_the_left_side_from_the_mirrored_front(monkeypatch, tmp_path):
+    # a subject whose sides differ (a tail curled to one side): the mirror of the right side would put the tail on
+    # both sides, so the left side is drawn too: from the front mirrored, then mirrored back
+    front = tmp_path / "front.png"
+    rgb = np.zeros((16, 16, 3), dtype=np.uint8)
+    rgb[:, :4] = (220, 30, 30)                       # something on the picture's left only
+    Image.fromarray(rgb).save(front)
+    monkeypatch.setattr(msv.image_api, "pick_engine", lambda *a, **k: msv.image_api.FLUX)
+    monkeypatch.setattr(msv.image_api, "resolve_weights", lambda *a: WEIGHTS)
+    refs = []
+
+    def fake_reference(f, d):
+        refs.append(np.asarray(Image.open(f).convert("RGB"))[0, 0].tolist())
+        return d
+    monkeypatch.setattr(msv, "reference_for", fake_reference)
+
+    def fake_run(command, **kw):
+        out = Path(command[command.index("-o") + 1])
+        half = np.zeros((8, 8, 3), dtype=np.uint8)
+        half[:, 7] = (10, 10, 200)                   # whatever is drawn faces right
+        Image.fromarray(half).save(out)
+
+        class Done:
+            returncode, stdout, stderr = 0, "", ""
+        return Done()
+    monkeypatch.setattr(msv.subprocess, "run", fake_run)
+    right, left = tmp_path / "right.png", tmp_path / "left.png"
+    assert msv.main([str(front), str(right), str(left), "--draw-left"]) == 0
+    assert refs == [[220, 30, 30], [0, 0, 0]]        # the front, then the front mirrored
+    # the left picture is the drawing mirrored back: it faces left
+    assert tuple(np.asarray(Image.open(left))[0, 0]) == (10, 10, 200)
+    assert "drawn from the mirrored front" in left.with_suffix(".provenance.json").read_text()

@@ -83,6 +83,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   space under the body is kept. A puppy drawn with its legs bunched (6 % of its height open under
   the body, where clean builds had 21-36 %) built fused legs; the check
   (`image_to_3dlab/leg_check.py`) also measures front and back views.
+- `make_side_views.py --draw-left` draws the left side too instead of mirroring the right one (it
+  draws the right side of the mirrored front and mirrors that back). A mirror puts a part that sits
+  on one side only, such as a tail curled to the right, on both sides, and the build then grows it
+  twice: a puppy's thin tail came out as a Y on four seeds.
+- `scripts/fx_markers.py` marks where an effect was taken out of a picture. A flame or a glow built
+  as geometry looks like a sheet of paper from the side; take it out of the front picture with the
+  studio's picture editor, build from that, and this lines the two pictures up, finds where the
+  effect sat and writes an empty node there (`fx_flame_1`, with its size), where a game attaches
+  its own moving effect. The mesh and textures stay as they are.
 
 ### Fixed
 - The Windows installer's anonymous started / stopped / finished count reaches the site.

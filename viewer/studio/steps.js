@@ -82,6 +82,8 @@ export function stepBody(stepId, asset, ctx) {
     const both = asset.finished && asset.model;
     const body = `<p class="hint">Adds a skeleton so it can move. About a minute. Works best on a character standing in an A-pose (a T-pose works too) with empty hands.</p>
       ${both ? '<label class="field">Rig which model<select data-k="rigsource"><option value="finished">The finished model</option><option value="model">The raw model (skips Finish)</option></select></label>' : ''}
+      <label class="field">Bone names<select data-k="bonenames"><option value="numbered">Numbered (bone_0, bone_1, …)</option><option value="unity">Unity Humanoid</option></select></label>
+      <p class="hint">Unity Humanoid names the body bones (Hips, Spine, … LeftToes) and keeps four weights a vertex, so Unity maps the avatar on its own. Hair, capes and gear keep their names.</p>
       <p class="ask">Is this a humanoid: two arms, two legs, standing upright?</p>
       <div class="row"><button class="primary" data-run="rigged" data-humanoid="yes">Yes, rig it</button>
       <button class="ghost" data-run="rigged" data-humanoid="no" data-tip="Four-legged and other creatures can be rigged but not animated with the preset moves, and the rig may be wonky.">No, rig it anyway</button></div>`;
@@ -346,6 +348,7 @@ export function wireStep(card, stepId, asset, ctx) {
       preset: card.querySelector('[data-preset][aria-pressed="true"]')?.dataset.preset,
       speed: Number(speed?.value || 1), spread: Number(spread?.value || 0), inPlace: !!placed?.checked,
       rigSource: k('rigsource')?.value || 'finished',
+      boneNames: k('bonenames')?.value || 'numbered',
       change: k('change')?.value?.trim() || '',
       backEngine: card.querySelector('[data-backengine]')?.value || '',
     };
@@ -357,7 +360,7 @@ export function wireStep(card, stepId, asset, ctx) {
     const run = { model: () => startModel(asset, ctx, settings.backend),
       finished: () => (asset.kind === 'prop set' ? startSplit(asset)
         : startFinish(asset, ctx, { ...settings.detail, skip_photo: !settings.photo, skip_edge_fade: !settings.edgeFade, skip_nudge: !settings.nudge, ...textureSettings(settings), cleanup: settings.cleanup, height_m: settings.height, upright: !!settings.upright })),
-      rigged: () => startRig(asset, settings.rigSource),
+      rigged: () => startRig(asset, settings.rigSource, settings.boneNames),
       animated: () => startAnimate(asset, settings.preset, settings.speed, settings.spread, settings.inPlace) }[stepId];
     const note = button.dataset.humanoid === 'no'
       ? 'Rigging anyway. Preset moves only fit humanoids, so this one can be downloaded and animated in Blender. The rig may be wonky.' : '';
@@ -395,7 +398,8 @@ export function chainPlan(stepId, asset, settings) {
     const source = (settings.rigSource === 'model' ? asset.model : null) || asset.finished || asset.model;
     if (!source) return null;
     const key = source === asset.finished ? 'finished' : 'model';
-    return { ...base, steps: ['rigged'], made: { ...(asset.picture ? { picture: asset.picture } : {}), [key]: source } };
+    return { ...base, steps: ['rigged'], made: { ...(asset.picture ? { picture: asset.picture } : {}), [key]: source },
+      ...(settings.boneNames && settings.boneNames !== 'numbered' ? { rigSettings: { bone_names: settings.boneNames } } : {}) };
   }
   if (stepId === 'animated') {
     if (!asset.rigged || !settings.preset) return null;
@@ -429,9 +433,10 @@ async function startSplit(asset) {
   return { kind: 'props', start: await postStart('/api/props', form) };
 }
 
-async function startRig(asset, source = 'finished') {
+async function startRig(asset, source = 'finished', boneNames = 'numbered') {
   const form = new FormData();
   form.append('model', (source === 'model' ? asset.model : null) || asset.finished || asset.model);
+  if (boneNames && boneNames !== 'numbered') form.append('bone_names', boneNames);
   return { kind: 'animate', start: await postStart('/api/animate/rig', form) };
 }
 

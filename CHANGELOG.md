@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against Roblox's limits (20,000 triangles per mesh, 4,000 for a wearable item) and says
   plainly what won't fit. Rigged characters keep their skeleton but stand still: Studio
   plays our moves wrongly, so they are left out for now.
+- Rig: a **Bone names** choice. **Unity Humanoid** gives the body bones Unity's names (Hips,
+  Spine, ... LeftToes) and keeps at most four weights a vertex, so Unity maps the avatar on its
+  own; hair, capes and gear keep their names under the nearest body bone. Also for agents
+  (`advanced={"bone_names": "unity"}`), and `scripts/name_bones.py` does it for a model rigged
+  before. The names live in `image_to_3dlab/bone_names.py`, one table per engine (#237).
 
 ### Fixed
 - Rig runs on RTX 40 cards again. The new card check refused them, because the torch we

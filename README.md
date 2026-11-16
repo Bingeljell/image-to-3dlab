@@ -96,7 +96,8 @@ Apple Silicon deserves more love in the 3D and Image generation community. So th
 skin weights to your humanoid. Then pick a move: 21 presets, each fitted to your character
 so arms stay out of the body and feet stay on the floor. Download the animated GLB for
 your engine. Runs on Apple Silicon, NVIDIA and AMD (ROCm) alike — SkinTokens is pure
-PyTorch, so on an AMD card it needs no NVIDIA-only build.
+PyTorch, so on an AMD card it needs no NVIDIA-only build. For Unity, set **Bone names** to
+**Unity Humanoid** before rigging: the body bones get Unity's names, so the avatar maps itself.
 
 <p align="center">
   <img src="docs/images/auto-rig-then-dance.gif" width="720"

@@ -32,6 +32,7 @@ KIND = {"picture": "image", "back": "image", "model": "generate", "finished": "f
         "rigged": "animate", "animated": "animate"}
 # The Finish choices a plan may carry (the same ones the Steps panel's Finish sends).
 MOVE_KEYS = ("speed", "arm_spread", "in_place")
+RIG_KEYS = ("bone_names",)   # what a plan may tell the rig job (autorig_api checks the value)
 # Every Detail choice the studio and agents offer must be able to pass (mcp_server.FINISH_DETAILS):
 # "high" and "hero" were dropped here, so an agent asking for them got a plain Finish.
 FINISH_KEYS = ("faces", "keep_mesh", "skip_photo", "skip_edge_fade", "skip_nudge", "texture_size",
@@ -107,6 +108,7 @@ class Chain:
     keep_everything: bool = False                                    # the 3D step keeps its textures, meshes, caches
     finish_settings: dict[str, Any] = field(default_factory=dict)    # detail and Pixel Match (the finish job checks them)
     move_settings: dict[str, Any] = field(default_factory=dict)      # speed, arm_spread, in_place (the animate job checks them)
+    rig_settings: dict[str, Any] = field(default_factory=dict)       # bone_names (the rig job checks it)
     made: dict[str, str | None] = field(default_factory=dict)       # picture/model/finished/rigged paths
     upload: tuple[str, bytes] | None = None                          # (file name, bytes) when the user gave a file
     back_upload: tuple[str, bytes] | None = None                     # the user's own back picture, for front + back
@@ -419,10 +421,11 @@ class ChainRunner:
             return kind, self._post("/api/finish", body, ctype)
         if step == "rigged":
             source = chain.made.get("finished") or chain.made.get("model")
+            fields = {k: str(v) for k, v in chain.rig_settings.items() if k in RIG_KEYS}
             if source:
-                body, ctype = multipart({"model": source}, {})
+                body, ctype = multipart({"model": source, **fields}, {})
             elif chain.upload:
-                body, ctype = multipart({}, {"asset": chain.upload})
+                body, ctype = multipart(fields, {"asset": chain.upload})
             else:
                 raise ValueError("Rig needs a 3D model, and there is none yet")
             return kind, self._post("/api/animate/rig", body, ctype)
@@ -530,6 +533,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         picture = json.loads(text("picture_settings") or "{}")
         finish = json.loads(text("finish_settings") or "{}")
         move = json.loads(text("move_settings") or "{}")
+        rig = json.loads(text("rig_settings") or "{}")
         back_settings = json.loads(text("back_settings") or "{}")
     except ValueError as exc:
         raise ValueError(f"the plan is not readable: {exc}") from exc
@@ -557,6 +561,7 @@ def chain_from_form(form: dict[str, dict[str, Any]]) -> Chain:
         keep_everything=text("keep_everything") in ("1", "true"),
         finish_settings={k: finish[k] for k in FINISH_KEYS if k in finish} if isinstance(finish, dict) else {},
         move_settings={k: move[k] for k in MOVE_KEYS if k in move} if isinstance(move, dict) else {},
+        rig_settings={k: rig[k] for k in RIG_KEYS if k in rig} if isinstance(rig, dict) else {},
         made={k: str(v) for k, v in made.items() if k in ("picture", "back", "model", "finished", "rigged") and v},
         upload=(upload.get("filename") or "upload", upload["data"]) if upload and upload.get("filename") and upload.get("data") else None,
         back_upload=back_upload,

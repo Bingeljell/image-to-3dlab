@@ -794,7 +794,7 @@ def test_create_picture_toggle_preserves_each_advanced_section_open_state():
         closest(selector) { return selector === 'details' && this.parentNode?.tagName === 'DETAILS' ? this.parentNode : null; }
         querySelectorAll(selector) { const found = []; const visit = (n) => { for (const c of n.children) { if (matches(c, selector)) found.push(c); visit(c); } }; visit(this); return found; }
         querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-        set innerHTML(html) { this.children = []; parse(this, html); }
+        set innerHTML(html) { this.children = []; this.scrollTop = 0; parse(this, html); }   // a rebuild loses the scroll
       }
       const matches = (n, selector) => {
         if (selector === 'form' || selector === 'textarea' || selector === 'select') return n.tagName.toLowerCase() === selector;
@@ -815,7 +815,7 @@ def test_create_picture_toggle_preserves_each_advanced_section_open_state():
       };
       globalThis.document = { createElement: () => new Node(), addEventListener() {}, removeEventListener() {} };
       globalThis.ResizeObserver = undefined; globalThis.URL = { createObjectURL: () => 'blob:test', revokeObjectURL() {} };
-      globalThis.scrollTop = 0;
+      // no global scrollTop here: a browser has none, and one hid a ReferenceError on every rerender
       const stage = new Node();
       const handle = m.openCreate({ stage, recipes: { goals: { character: {} }, trouble: [] }, engines: [{ id: 'pixal3d', label: 'Pixal3D' }], presets: [], pictureEngines: [], onStart() {} });
       const sheet = stage.children[0]; const picture = () => sheet.querySelector('[data-detail="picture"]');
@@ -826,17 +826,20 @@ def test_create_picture_toggle_preserves_each_advanced_section_open_state():
       const closed = model().open; const pictureWhileModelClosed = picture().open;
       model().open = true; toggle();
       const reopened = model().open;
+      sheet.scrollTop = 120;
       sheet.querySelector('[data-have="picture"]').onclick();
+      const scrollKept = sheet.scrollTop;
       const pendingSource = handle.sourceRevision();
       const used = await handle.usePicture({ name: 'library source.png', type: 'image/png', size: 1 });
       console.log(JSON.stringify({ hasPicture: Boolean(picture()), hasModel: Boolean(model()), closed,
         pictureWhileModelClosed, reopened, source: handle.pictureName(), used,
         pendingSourceStillCurrent: handle.isSourceCurrent(pendingSource), sourceDropPreserved: sourceDrop === sheet.querySelector('[data-drop]'),
-        modelPreserved: model() === sheet.querySelector('[data-detail="model"]') }));
+        modelPreserved: model() === sheet.querySelector('[data-detail="model"]'), scrollKept }));
     """)
     assert out == {"hasPicture": False, "hasModel": True, "closed": False, "pictureWhileModelClosed": True,
                    "reopened": True, "source": "library source.png", "used": True,
-                   "pendingSourceStillCurrent": False, "sourceDropPreserved": True, "modelPreserved": True}
+                   "pendingSourceStillCurrent": False, "sourceDropPreserved": True, "modelPreserved": True,
+                   "scrollKept": 120}
 
 
 @needs_node

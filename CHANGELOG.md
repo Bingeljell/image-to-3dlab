@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rig runs on RTX 40 cards again. The new card check refused them, because the torch we
   install carries code for sm_86 and sm_90 but not sm_89; code for an earlier card of the
   same family runs on a later one, so it now counts.
+### Fixed
+- Picking an option in Create no longer leaves an error in the browser console, and the panel
+  puts its scroll position back itself instead of relying on the browser to keep it.
 
 ## [0.5.10] - 2026-11-13
 

@@ -46,6 +46,7 @@ def test_existing_clone_is_moved_to_the_pin_not_recloned(tmp_path):
     assert len(calls) == 1 and calls[0][-1] == ba.COMMIT
 
 
+@pytest.mark.symlinks
 def test_link_checkpoint_replaces_a_stale_link(tmp_path):
     cache = tmp_path / "cache.ckpt"
     cache.write_bytes(b"x")

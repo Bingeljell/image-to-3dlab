@@ -21,7 +21,7 @@ RECIPES = json.loads((REPO / "image_to_3dlab" / "prompt_recipes.json").read_text
 def _plan_js(body: str):
     url = (REPO / "viewer" / "studio" / "plan.js").as_uri()
     program = f"import * as m from {json.dumps(url)};\n{body}"
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     return json.loads(result.stdout)
 
 

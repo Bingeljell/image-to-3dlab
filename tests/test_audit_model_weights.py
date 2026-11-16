@@ -12,6 +12,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "audit_model_weights.py"
 
 
@@ -164,6 +166,7 @@ def test_a_checkpoint_beside_inverted_offsets_is_not_reclaimable(tmp_path):
     assert "conversion unproven" in found[0].reason
 
 
+@pytest.mark.symlinks
 def test_symlinks_are_counted_once(tmp_path):
     # The HF cache keeps one copy in blobs/ and links to it from snapshots/; following
     # both doubles every figure the report prints.
@@ -189,6 +192,7 @@ def _cache_entry(hub: Path, repo_id: str, files: dict[str, int]) -> Path:
     return entry
 
 
+@pytest.mark.symlinks
 def test_a_fully_duplicated_cache_entry_is_offered_for_deletion(tmp_path):
     hub, local = tmp_path / "hub", tmp_path / "local"
     _cache_entry(hub, "org/model", {"big.safetensors": 4 * audit.GB})
@@ -199,6 +203,7 @@ def test_a_fully_duplicated_cache_entry_is_offered_for_deletion(tmp_path):
     assert found[0].deletable is True
 
 
+@pytest.mark.symlinks
 def test_a_partly_duplicated_cache_entry_is_reported_but_not_deletable(tmp_path):
     """Half the bytes exist only in the cache, so deleting the entry would lose them.
 
@@ -218,6 +223,7 @@ def test_a_partly_duplicated_cache_entry_is_reported_but_not_deletable(tmp_path)
     assert "PARTIAL" in found[0].reason
 
 
+@pytest.mark.symlinks
 def test_a_cache_entry_sharing_nothing_is_not_reported(tmp_path):
     hub, local = tmp_path / "hub", tmp_path / "local"
     _cache_entry(hub, "org/model", {"only.safetensors": 4 * audit.GB})
@@ -225,6 +231,7 @@ def test_a_cache_entry_sharing_nothing_is_not_reported(tmp_path):
     assert audit.find_cached_duplicates(hub=hub, roots=(local,)) == []
 
 
+@pytest.mark.symlinks
 def test_unreferenced_entries_are_never_deletable(tmp_path):
     hub = tmp_path / "hub"
     _cache_entry(hub, "nobody/uses-this", {"w.bin": 1024})

@@ -621,6 +621,7 @@ def _vision_weight(repo):
                      pattern="snapshots/*/mmproj-*.gguf")
 
 
+@pytest.mark.symlinks
 def test_a_patterned_weight_measures_only_its_own_file(tmp_path):
     weight = _vision_weight(_hf_folder(tmp_path))
     present, total, alt = weight.state()
@@ -628,6 +629,7 @@ def test_a_patterned_weight_measures_only_its_own_file(tmp_path):
     assert weight.describe()["bytes_present"] == 7
 
 
+@pytest.mark.symlinks
 def test_a_patterned_weight_is_missing_when_its_file_is(tmp_path):
     repo = _hf_folder(tmp_path)
     for link in repo.glob("snapshots/*/mmproj-*"):
@@ -635,6 +637,7 @@ def test_a_patterned_weight_is_missing_when_its_file_is(tmp_path):
     assert _vision_weight(repo).state()[:2] == (False, 0)
 
 
+@pytest.mark.symlinks
 def test_removing_a_patterned_weight_deletes_its_file_and_keeps_the_folder(tmp_path, monkeypatch):
     import dataclasses
     repo = _hf_folder(tmp_path)
@@ -647,6 +650,7 @@ def test_removing_a_patterned_weight_deletes_its_file_and_keeps_the_folder(tmp_p
     assert (repo / "blobs" / "sha-50").is_file() and repo.is_dir()   # Qwen's own model stays
 
 
+@pytest.mark.symlinks
 def test_a_patterned_weight_does_not_make_its_whole_folder_shared(tmp_path):
     import dataclasses
 
@@ -755,6 +759,7 @@ def test_remove_weights_in_active_external_models_root(tmp_path, monkeypatch, sa
     assert not own.exists() and root.is_dir()
 
 
+@pytest.mark.symlinks
 @pytest.mark.parametrize("escape", ["sibling", "inactive", "symlink", "pattern"])
 def test_external_model_root_does_not_allow_escapes(tmp_path, monkeypatch, escape):
     import dataclasses

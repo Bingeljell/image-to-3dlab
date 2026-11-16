@@ -171,6 +171,7 @@ def _shrunk(card):
         dataclasses.replace(w, bytes_expected=1000) for w in card.weights))
 
 
+@pytest.mark.symlinks
 def test_with_only_light_installed_the_standard_card_reads_not_installed(tmp_path, monkeypatch):
     cards = {k: _shrunk(v) for k, v in _cards_in(tmp_path, monkeypatch).items()}
     monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
@@ -185,6 +186,7 @@ def test_with_only_light_installed_the_standard_card_reads_not_installed(tmp_pat
     assert standard["action"] != "resume"
 
 
+@pytest.mark.symlinks
 def test_with_only_standard_installed_the_light_card_reads_not_installed(tmp_path, monkeypatch):
     cards = {k: _shrunk(v) for k, v in _cards_in(tmp_path, monkeypatch).items()}
     monkeypatch.setattr(bc, "BY_ID", {**bc.BY_ID, **cards})
@@ -193,6 +195,7 @@ def test_with_only_standard_installed_the_light_card_reads_not_installed(tmp_pat
     assert cards["flux-image-light"].describe(bc.APPLE)["state"] != "partial"
 
 
+@pytest.mark.symlinks
 def test_each_card_counts_only_its_own_files_in_a_shared_cache(tmp_path, monkeypatch):
     cards = _cards_in(tmp_path, monkeypatch)
     for w in cards["flux-image-light"].weights:
@@ -212,6 +215,7 @@ def test_a_file_still_downloading_counts_so_progress_moves(tmp_path, monkeypatch
     assert (present, size) == (False, 1234)          # counted, but not "there" yet
 
 
+@pytest.mark.symlinks
 def test_remove_on_one_flux_card_leaves_the_other_and_the_shared_vae(tmp_path, monkeypatch):
     import download_api
 

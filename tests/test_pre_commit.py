@@ -8,7 +8,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def test_pre_commit_uses_the_python_runner_and_pinned_tools():
-    text = (REPO / ".pre-commit-config.yaml").read_text()
+    text = (REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "https://github.com/pre-commit/pre-commit-hooks" in text
     assert "repo: builtin" not in text
     assert "rev: v6.0.0" in text
@@ -24,14 +24,14 @@ def test_pre_commit_uses_the_python_runner_and_pinned_tools():
     assert "pytest" not in text
     assert "hooks/check_commit_msg.py" not in text
     assert "commit-msg" in text
-    readme = (REPO / "README.md").read_text()
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "uv tool install pre-commit --with pre-commit-uv" in readme
     assert "pre-commit install" in readme
 
 
 def test_pull_requests_run_the_file_checks():
     """GitHub Actions runs the file hooks. The pull request title is checked locally."""
-    workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text()
+    workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text(encoding="utf-8")
     assert "pull_request:" in workflow
     assert "branches: [main]" in workflow
     assert "pull_request_target" not in workflow
@@ -48,7 +48,7 @@ def test_pull_requests_run_the_file_checks():
     assert "\n    name: Linters\n" in workflow
     assert "\n    name: Tests\n" in workflow
     assert "\n    needs: pre-commit\n" in workflow.split("\n  pytest:", 1)[1]
-    note = (REPO / ".github" / "workflows" / "pr-status.yml").read_text()
+    note = (REPO / ".github" / "workflows" / "pr-status.yml").read_text(encoding="utf-8")
     assert "name: CI\n" in workflow
     assert "workflows: [CI]" in note
     assert "conclusion == 'failure'" in note
@@ -63,7 +63,7 @@ def test_pull_requests_run_the_file_checks():
     assert "A few of the checks did not pass:" in note
     assert "green light" in note
     assert "sticky-pull-request-comment" not in workflow
-    config = (REPO / ".pre-commit-config.yaml").read_text()
+    config = (REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "stages: [commit-msg]" in config
     assert "action-semantic-pull-request" not in config
     assert "\n  title:" not in workflow

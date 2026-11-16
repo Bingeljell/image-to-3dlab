@@ -52,7 +52,7 @@ def upstream(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def fake_bin(tmp_path: Path) -> Path:
+def fake_bin(tmp_path: Path, needs_symlinks) -> Path:
     """A PATH holding git, the basics and a `uv` that logs its arguments."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -307,6 +307,7 @@ def test_it_prints_the_line_that_connects_an_agent(tmp_path, upstream, fake_bin)
     assert f"claude mcp add assetfurnace -- {tmp_path / 'lab'}/lab mcp" in done.stdout
 
 
+@pytest.mark.posix
 def test_the_real_launcher_is_executable_and_uses_auto():
     lab = SCRIPT.parent / "lab"
     assert lab.is_file() and lab.stat().st_mode & 0o111

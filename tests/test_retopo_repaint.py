@@ -153,6 +153,7 @@ def test_a_crash_in_a_blender_stage_fails_the_stage(build):
     assert flag < command.index("--python")
 
 
+@pytest.mark.posix
 def test_a_stage_line_still_names_the_script_it_runs(capsys, tmp_path):
     """The progress line printed the first four words, which were the script path until
     --python-exit-code 1 took two of them."""

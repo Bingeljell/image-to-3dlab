@@ -48,7 +48,7 @@ def test_rig_inspection_deduplicates_bones_and_resets_each_skeleton():
         [NODE, "--input-type=module", "--eval", program],
         check=True,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
 
     assert json.loads(result.stdout) == {
@@ -121,7 +121,7 @@ def test_animation_player_owns_transport_without_owning_threejs():
         [NODE, "--input-type=module", "--eval", program],
         check=True,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
 
     assert json.loads(result.stdout) == {
@@ -160,7 +160,7 @@ def test_camera_view_controls_snap_and_reset_without_touching_model_state():
         [NODE, "--input-type=module", "--eval", program],
         check=True,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
 
     assert json.loads(result.stdout) == {
@@ -223,7 +223,7 @@ def _run_panel(script: str) -> object:
     """
     result = subprocess.run(
         [NODE, "--input-type=module", "--eval", program],
-        check=True, capture_output=True, text=True,
+        check=True, capture_output=True, text=True, encoding="utf-8",
     )
     return json.loads(result.stdout)
 
@@ -232,7 +232,7 @@ def _run_welcome(expr: str):
     module_url = (REPO / "viewer" / "components" / "welcome-content.js").as_uri()
     program = f"import * as w from {json.dumps(module_url)}; console.log(JSON.stringify({expr}));"
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True, encoding="utf-8")
     return json.loads(result.stdout)
 
 
@@ -249,7 +249,7 @@ def _run_banner(expr: str):
     module_url = (REPO / "viewer" / "components" / "update-banner.js").as_uri()
     program = f"import * as b from {json.dumps(module_url)}; console.log(JSON.stringify({expr}));"
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True, encoding="utf-8")
     return json.loads(result.stdout)
 
 
@@ -274,7 +274,7 @@ def test_a_gated_warning_goes_once_access_is_confirmed_and_no_sooner():
       ]));
     """
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == [False, True, True, True, True, False]
 
 
@@ -305,7 +305,7 @@ def test_the_setup_panel_says_a_run_finished_and_looks_like_it():
       }}));
     """
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True, encoding="utf-8")
     out = json.loads(result.stdout)
 
     # The third card is built and its code bootstrap fetches nothing. A download
@@ -339,7 +339,7 @@ def test_the_finished_marks_are_the_studios_own():
       }}));
     """
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True, encoding="utf-8")
     out = json.loads(result.stdout)
 
     assert (out["done"], out["error"], out["cancelled"]) == ("✓", "!", "■")
@@ -418,7 +418,7 @@ def test_model_load_error_is_rendered_as_text_not_markup():
     """
     result = subprocess.run(
         [NODE, "--input-type=module", "--eval", program],
-        check=True, capture_output=True, text=True,
+        check=True, capture_output=True, text=True, encoding="utf-8",
     )
     out = json.loads(result.stdout)
 
@@ -480,7 +480,7 @@ def test_studio_viewer_3d_tools_follow_real_picture_and_empty_mode_switches():
         pictureMax: [pictureMaxHeight({{ top: 0, height: 600 }}, {{ bottom: 180 }}, 40, 20),
           pictureMaxHeight({{ top: 0, height: 100 }}, {{ bottom: 180 }}, 40, 20)] }}));
     """
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == {
         "model": [False, False], "picture": [True, True], "modelAgain": [False, False], "empty": [True, True], "zoom": True,
         "pictureTop": 92,
@@ -513,7 +513,7 @@ def test_picture_zoom_clicks_in_at_the_pointer_and_does_not_zoom_after_drag():
       listeners.dblclick();
       console.log(JSON.stringify({{ zoomed, afterDrag, reset: image.style.transform }}));
     """
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == {
         "zoomed": ["translate(-100px, -50px) scale(2)", "grab"],
         "afterDrag": ["translate(-70px, -50px) scale(2)", "grab"],
@@ -544,7 +544,7 @@ def test_tooltip_placement_flips_and_clamps_at_viewport_edges():
         tooltipPlacement({{ top: 200, bottom: 250, left: 300, right: 400 }}, viewport, 'down'),
       ]));
     """
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == [
         {"vertical": "down", "horizontal": ""},
         {"vertical": "up", "horizontal": ""},
@@ -571,7 +571,7 @@ def test_library_loading_state_reveals_controls_and_offers_safe_retry():
       footer.children[1].onclick();
       console.log(JSON.stringify({{ controls, indicator, footer: [footer.children[0].textContent, footer.children[1].textContent], retried }}));
     """
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == {
         "controls": {"hidden": False, "inert": False}, "indicator": {"hidden": True},
         "footer": ["The Library didn't load: <offline>", "Try again"], "retried": True,
@@ -593,7 +593,7 @@ def test_initial_library_failure_keeps_controls_hidden_and_retries_in_loader():
       indicator.children[1].onclick();
       console.log(JSON.stringify({{ controls, indicator: [indicator.hidden, indicator.children[0].textContent, indicator.children[1].textContent], retried }}));
     """
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == {
         "controls": {"hidden": True, "inert": True},
         "indicator": [False, "The Library didn't load: <offline>", "Try again"], "retried": True,
@@ -628,7 +628,7 @@ def test_library_load_runner_ignores_stale_success_and_failure():
       await old;
       console.log(JSON.stringify({{ committed, failed }}));
     """
-    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True)
+    result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True, capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == {"committed": ["new"], "failed": []}
 
 

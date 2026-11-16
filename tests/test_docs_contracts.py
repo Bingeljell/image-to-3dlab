@@ -22,7 +22,7 @@ def _weights():
 
 
 def test_readme_does_not_promise_a_silent_download():
-    readme = (REPO / "README.md").read_text()
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "auto-downloaded" not in readme
     assert "downloads on first use" not in readme
     assert "weights automatically" not in readme
@@ -32,14 +32,14 @@ def test_readme_does_not_promise_a_silent_download():
 
 
 def test_agents_states_both_bria_refusals():
-    agents = (REPO / "AGENTS.md").read_text()
+    agents = (REPO / "AGENTS.md").read_text(encoding="utf-8")
     assert "refuse an unpatched tree" in agents
     assert "rembg_model = None" in agents
 
 
 def test_mlx_recipe_matches_the_default_download():
     dw = _weights()
-    recipe = (REPO / "docs" / "hunyuan-mlx-recipes.md").read_text()
+    recipe = (REPO / "docs" / "hunyuan-mlx-recipes.md").read_text(encoding="utf-8")
     total = dw.APPROX_GB["2.0"] + dw.APPROX_GB["paint"]
     assert f"{total:.1f} GB" in recipe
     assert "the EU, the UK or South Korea" in recipe
@@ -57,7 +57,7 @@ def test_downloader_docstring_defaults_to_model_2_0():
 
 
 def test_prop_sheets_keep_picture_rights_off_the_mesh():
-    text = (REPO / "docs" / "prop-sheets.md").read_text()
+    text = (REPO / "docs" / "prop-sheets.md").read_text(encoding="utf-8")
     assert "The pictures Qwen-Image makes are yours" in text
     assert "and so are the props" not in text
     assert "Pixal3D" in text
@@ -66,7 +66,7 @@ def test_prop_sheets_keep_picture_rights_off_the_mesh():
 
 
 def test_shape_readme_commands_carry_yes():
-    text = (REPO / "hunyuan_mlx" / "shape" / "README.md").read_text()
+    text = (REPO / "hunyuan_mlx" / "shape" / "README.md").read_text(encoding="utf-8")
     commands = [
         line for line in text.splitlines()
         if "dl_modelscope.py" in line or "dl_any.py" in line
@@ -77,12 +77,12 @@ def test_shape_readme_commands_carry_yes():
 
 
 def test_colour_check_does_not_fetch_tinyclip():
-    text = (REPO / "docs" / "trellis2-flat-illustration-colour-drift.md").read_text()
+    text = (REPO / "docs" / "trellis2-flat-illustration-colour-drift.md").read_text(encoding="utf-8")
     assert "TinyCLIP" in text
     assert "does not fetch" in text
 
 
 def test_paint_readme_does_not_promise_every_model():
-    text = (REPO / "hunyuan_mlx" / "paint" / "README.md").read_text()
+    text = (REPO / "hunyuan_mlx" / "paint" / "README.md").read_text(encoding="utf-8")
     assert "auto-downloaded" not in text
     assert "omit for" not in text

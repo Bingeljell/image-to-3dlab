@@ -170,6 +170,7 @@ def _tarball(path: Path, members: dict[str, bytes], links: dict[str, str]) -> No
             tar.addfile(info)
 
 
+@pytest.mark.posix
 def test_unpacking_a_linux_prebuilt_keeps_library_symlinks_and_runs(tmp_path, monkeypatch):
     """The CUDA tarball carries `libcudart.so.12 -> libcudart.so.12.9.79` style links; a
     flattened copy that loses them fails to load at run time, not at install time."""

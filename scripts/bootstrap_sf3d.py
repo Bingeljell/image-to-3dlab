@@ -36,6 +36,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+import patch_sf3d_mps_queue as mps_patch  # noqa: E402, RUF100
+
 from image_to_3dlab import host, matte
 
 VENDOR = REPO / "vendor" / "stable-fast-3d"
@@ -45,16 +47,20 @@ COMMIT = "ff21fc491b4dc5314bf6734c7c0dabd86b5f5bb2"
 
 # (repo, files, approximate gigabytes). DINOv2 is here because SF3D's image tokenizer
 # downloads it on first use otherwise, which is exactly the surprise AGENTS.md forbids.
+# CLIP for the same reason: SF3D's material estimate (`clip_based_estimator`) loads it
+# through open_clip on every run, and the lab runs SF3D offline, so without it here SF3D
+# showed as ready and failed on its first run.
 WEIGHTS = [
     ("stabilityai/stable-fast-3d", ["config.yaml", "model.safetensors"], 3.75),
     ("facebook/dinov2-large", ["config.json", "model.safetensors"], 1.13),
+    ("laion/CLIP-ViT-B-32-laion2B-s34B-b79K", ["open_clip_pytorch_model.bin"], 0.61),
 ]
 
 LICENCE = (
     "Stability AI Community License: free under $1M annual revenue, otherwise a\n"
     "  commercial licence from Stability. Gated: accept it at\n"
     "  https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`.\n"
-    "  DINOv2 is Apache 2.0."
+    "  DINOv2 is Apache 2.0. CLIP (LAION) is MIT."
 )
 
 # Looked up through the module so a test can pretend to be another machine.
@@ -135,6 +141,8 @@ def install_code(key: str) -> None:
         VENDOR.mkdir(parents=True, exist_ok=True)
         for command in fetch_commands():
             subprocess.run(command, check=True)
+    built_before = baker_installed()
+    patched = mps_patch.patch(VENDOR) if key == "macos-arm64" else 0
     print("Installing SF3D's packages and building its extensions...", flush=True)
     # --no-build-isolation so the extensions compile against the torch already installed
     # here, not a fresh one pip would fetch into a throwaway build environment.
@@ -142,6 +150,28 @@ def install_code(key: str) -> None:
     subprocess.run([*install, "setuptools", "wheel"], check=True)
     subprocess.run([*install, "--no-build-isolation", "-r", "requirements.txt"],
                    cwd=VENDOR, env=build_env(dict(os.environ)), check=True)
+    if patched and built_before:
+        # requirements.txt sees texture_baker already installed and keeps the unpatched build
+        print("Rebuilding the texture baker with the Metal fix...", flush=True)
+        subprocess.run(rebuild_baker_command(install), cwd=VENDOR,
+                       env=build_env(dict(os.environ)), check=True)
+
+
+def baker_installed() -> bool:
+    """Whether a texture baker is already built into this interpreter (an earlier setup)."""
+    from importlib import metadata
+
+    try:
+        metadata.version("texture_baker")
+    except metadata.PackageNotFoundError:
+        return False
+    return True
+
+
+def rebuild_baker_command(install: list[str]) -> list[str]:
+    """Build the baker again from the checkout. pip calls the flag --force-reinstall, uv --reinstall."""
+    again = "--force-reinstall" if "-m" in install else "--reinstall"
+    return [*install, again, "--no-deps", "--no-build-isolation", "./texture_baker"]
 
 
 def install_weights() -> None:

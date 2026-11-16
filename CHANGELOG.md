@@ -24,6 +24,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rig runs on RTX 40 cards again. The new card check refused them, because the torch we
   install carries code for sm_86 and sm_90 but not sm_89; code for an earlier card of the
   same family runs on a later one, so it now counts.
+- Picking an option in Create no longer leaves an error in the browser console, and the panel
+  puts its scroll position back itself instead of relying on the browser to keep it.
+- Dropping the surface maps for a phone now makes the file smaller, as promised. The colour
+  picture came out with an unused see-through layer, which kept it as a large PNG: a light
+  chest was 1.7 MB with them dropped against 1.5 MB with them kept.
+- Setting up Stable Fast 3D or TRELLIS.2 says what actually stopped it. A Mac without libomp
+  was told to sign in to Hugging Face, because those setups mention that their model is gated
+  before they begin; it now shows the line that says to install libomp.
+- Hunyuan3D-MLX (Xiong) builds models again from Create. The run stopped at once and showed
+  "Working…" for good, with Cancel unable to stop it. A run that cannot start now says why.
+- Wave, Jog, Jab, Sit down, Fighting stance, Punch combo, Strafe left and the "take B" moves
+  show in the Library again. They were made and saved, then hidden as spare takes of
+  another move, so a character looked as if the move had never been added.
+- Stable Fast 3D models face the front, like every other engine's. They came out turned the
+  other way round: a prop showed its back as its front in the studio, and in a game engine
+  each SF3D file faced away from the ones Pixal3D and Hunyuan made.
+- Stable Fast 3D makes models on a Mac again. Setup now also fetches the CLIP model SF3D uses
+  to guess materials (605 MB, MIT), which it showed as ready without and then failed on its
+  first run; and its texture baker no longer crashes under current PyTorch
+  (`scripts/patch_sf3d_mps_queue.py`, applied by setup, which rebuilds an older install).
 
 ## [0.5.10] - 2026-11-13
 

@@ -712,6 +712,10 @@ CATALOG: tuple[Backend, ...] = (
                       HF_HUB_DIR / "models--facebook--dinov2-large",
                       note="SF3D reads the picture with it. Without this entry it was "
                            "fetched unannounced on the first run."),
+            WeightSet("CLIP image model (material estimate)", "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+                      int(0.61 * GB), HF_HUB_DIR / "models--laion--CLIP-ViT-B-32-laion2B-s34B-b79K",
+                      note="SF3D guesses each surface's material with it, on every run. Without "
+                           "this entry SF3D showed as ready and then failed, as it runs offline."),
             WeightSet("BiRefNet-lite background remover", _matte.LEAN_URL, _matte.LEAN_BYTES,
                       _matte.model_file(_matte.LEAN_MODEL), alt_paths=_OLDER_REMOVER,
                       note="Cuts the subject out before generation. Shared with the other routes."),

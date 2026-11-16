@@ -599,8 +599,11 @@ def _watch_elapsed(run: DownloadRun, stop: threading.Event) -> None:
 
 # A sign-in problem, and not just the word "token": every failed C++ compile says
 # "expected ';' before '}' token", and the HIP builds on AMD compile for half an hour.
+# Nor the word "gated": the SF3D and TRELLIS.2 setups announce that their model "is gated"
+# before they start, so any early failure (no libomp, no Xcode) read as a sign-in problem.
+# A real refusal is Hugging Face's own "cannot access gated repo", or our "refused <repo>: it is gated".
 AUTH_FAILURE = re.compile(
-    r"\b401\b|gated|authenticat|unauthori[sz]ed"
+    r"\b401\b|cannot access gated repo|refused \S+: it is gated|authenticat|unauthori[sz]ed"
     r"|(?:invalid|expired|missing|no|bad) (?:\w+ )?token|token (?:is )?(?:invalid|expired|required)")
 
 

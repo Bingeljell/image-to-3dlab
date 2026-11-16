@@ -198,6 +198,18 @@ def test_jpeg_keeps_alpha_by_falling_back_to_png():
         assert result.mode in ("RGBA", "LA", "P")
 
 
+def test_an_alpha_channel_that_is_opaque_everywhere_still_becomes_jpeg():
+    """Finish's 1024 colour bake arrives RGBA with alpha 254-255. Kept as PNG it was 1.39 MB,
+    making the phone budget's file bigger than the default one; as JPEG it is a fifth of that."""
+    rng = np.random.default_rng(3)
+    pixels = rng.integers(0, 255, size=(64, 64, 4), dtype=np.uint8)
+    pixels[..., 3] = rng.integers(254, 256, size=(64, 64), dtype=np.uint8)
+    encoded, used = cg.encode(Image.fromarray(pixels, mode="RGBA"), "jpeg", 90, None)
+    assert used == "jpeg"
+    with Image.open(io.BytesIO(encoded)) as result:
+        assert result.format == "JPEG"
+
+
 def test_an_alpha_albedo_stays_labelled_png_when_jpeg_was_asked():
     image = Image.new("RGBA", (128, 128), (10, 20, 30, 128))
     blob = io.BytesIO()

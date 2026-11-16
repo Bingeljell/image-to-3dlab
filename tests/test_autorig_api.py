@@ -665,6 +665,7 @@ def test_a_rig_with_bone_names_names_them_before_the_file_is_reported(tmp_path, 
 def test_a_skeleton_that_is_no_humanoid_keeps_its_numbered_names_and_still_rigs(tmp_path, monkeypatch):
     job = _fake_job(tmp_path, _write_glb_script())
     job.bone_names = "unity"
+    job.record.setdefault("rig", {})["bone_names"] = "unity"   # what create_rig writes when asked
 
     def name_bones(path, preset):
         raise LookupError("no humanoid body found in the skeleton")
@@ -673,6 +674,10 @@ def test_a_skeleton_that_is_no_humanoid_keeps_its_numbered_names_and_still_rigs(
     aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
     assert job.status == "done"
     assert "kept the numbered names" in job.events[-1]["bone_names"]
+    # The record says what the file has: asked for Unity names, kept the numbered ones, and why.
+    record = json.loads(job.result.with_suffix(".provenance.json").read_text())
+    assert record["rig"]["bone_names"] == {"preset": "unity", "named": 0,
+                                           "kept_numbered": "no humanoid body found in the skeleton"}
 
 
 def test_a_rig_without_the_option_never_renames(tmp_path, monkeypatch):

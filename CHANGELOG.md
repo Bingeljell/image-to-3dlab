@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Setting up Stable Fast 3D or TRELLIS.2 says what actually stopped it. A Mac without libomp
+  was told to sign in to Hugging Face, because those setups mention that their model is gated
+  before they begin; it now shows the line that says to install libomp.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

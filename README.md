@@ -43,6 +43,7 @@ $1 to reserve, locked for 6 months. The app stays free and open source.</p>
 
 ## News
 
+- **2026-11-17 · 0.5.11** Export for Roblox: one click to a Roblox Studio-ready model. Plus Unity bone names on the Rig step.
 - **2026-11-13 · 0.5.10** Game-ready out of the box: real-world height, props that stand up straight, phone-sized textures, and Fast / Rebuild clean-up.
 - **2026-11-10 · 0.5.9** New moves (Sprint, Crouch sneak, Zombie walk, Robot dance and more), feet that stay planted, and smoother loops.
 - **2026-11-08 · 0.5.8** Switch between an asset's models in the viewer, every 3D file says it was made with AssetFurnace, and the one-line installer works again.

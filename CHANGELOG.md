@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-11-17
+
 ### Added
 - **Export for Roblox**: a button under a model's stats (and `export_roblox` for agents, and
   `scripts/export_roblox.py`) makes a copy Roblox Studio imports at the right size, with PNG

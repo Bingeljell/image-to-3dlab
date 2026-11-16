@@ -87,3 +87,70 @@ def test_the_left_is_written_as_the_mirror_and_both_get_a_record(monkeypatch, tm
     assert tuple(np.asarray(Image.open(left))[0, 0]) == (10, 10, 200)
     assert right.with_suffix(".provenance.json").is_file() and left.with_suffix(".provenance.json").is_file()
     assert "mirror" in left.with_suffix(".provenance.json").read_text()
+
+
+def _side_png(path: Path, legs_apart: bool) -> None:
+    """A cut-out side view (alpha), the subject facing right: four legs apart, or one block to the floor."""
+    rgba = np.zeros((120, 200, 4), dtype=np.uint8)
+    rgba[..., :3] = 90
+    rgba[10:70, 20:180, 3] = 255
+    if legs_apart:
+        rgba[70:100, 20:50, 3] = 255
+        rgba[70:100, 150:180, 3] = 255
+    else:
+        rgba[70:100, 20:180, 3] = 255
+    Image.fromarray(rgba, "RGBA").save(path)
+
+
+def _fake_drawer(monkeypatch, apart_from_seed: int, seeds: list):
+    monkeypatch.setattr(msv.image_api, "pick_engine", lambda *a, **k: msv.image_api.FLUX)
+    monkeypatch.setattr(msv.image_api, "resolve_weights", lambda *a: WEIGHTS)
+    monkeypatch.setattr(msv, "reference_for", lambda f, d: d)
+
+    def fake_run(command, **kw):
+        seed = int(command[command.index("--seed") + 1])
+        seeds.append(seed)
+        _side_png(Path(command[command.index("-o") + 1]), legs_apart=seed >= apart_from_seed)
+
+        class Done:
+            returncode, stdout, stderr = 0, "", ""
+        return Done()
+
+    monkeypatch.setattr(msv.subprocess, "run", fake_run)
+
+
+def test_a_four_legged_side_whose_legs_fuse_is_drawn_again_with_the_next_seed(monkeypatch, tmp_path, capsys):
+    front = tmp_path / "front.png"
+    Image.new("RGB", (16, 16), (200, 200, 200)).save(front)
+    seeds: list = []
+    _fake_drawer(monkeypatch, apart_from_seed=5, seeds=seeds)
+    right, left = tmp_path / "right.png", tmp_path / "left.png"
+    assert msv.main([str(front), str(right), str(left), "--seed", "3", "--four-legged"]) == 0
+    assert seeds == [3, 4, 5]                     # drawn until the legs stood apart
+    _, found = msv.leg_check.check_picture(right, "side")
+    assert found == []                            # the kept picture is the one that passed
+    record = right.with_suffix(".provenance.json").read_text()
+    assert '"seed": 5' in record and "open_under_body" in record
+    assert "legs apart" in capsys.readouterr().out
+    assert not list(tmp_path.glob("*__try*"))     # the rejected tries are cleaned up
+
+
+def test_when_no_try_passes_the_best_is_kept_and_named(monkeypatch, tmp_path, capsys):
+    front = tmp_path / "front.png"
+    Image.new("RGB", (16, 16), (200, 200, 200)).save(front)
+    seeds: list = []
+    _fake_drawer(monkeypatch, apart_from_seed=99, seeds=seeds)
+    right, left = tmp_path / "right.png", tmp_path / "left.png"
+    assert msv.main([str(front), str(right), str(left), "--four-legged", "--tries", "2"]) == 0
+    assert len(seeds) == 2 and right.is_file() and left.is_file()
+    out = capsys.readouterr().out
+    assert "legs still touch" in out and "open under the body" in out
+
+
+def test_without_four_legged_one_picture_is_drawn_and_not_checked(monkeypatch, tmp_path):
+    front = tmp_path / "front.png"
+    Image.new("RGB", (16, 16), (200, 200, 200)).save(front)
+    seeds: list = []
+    _fake_drawer(monkeypatch, apart_from_seed=99, seeds=seeds)
+    assert msv.main([str(front), str(tmp_path / "r.png"), str(tmp_path / "l.png")]) == 0
+    assert seeds == [3]

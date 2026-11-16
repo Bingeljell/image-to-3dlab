@@ -77,6 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only from the front and the back. A side drawn by `make_side_views.py` never puts an eye or a
   nose exactly where the front has them, and painting from it gave an animal a second pair of
   eyes; real side photos and a vehicle's sides (doors, lettering) still paint without it.
+- `make_side_views.py --four-legged` checks that the legs stand apart in the drawn side. Where the
+  front and the hind legs touch in a picture, the generator fuses them into one lump; such a side
+  is drawn again with the next seed (up to `--tries`, default 4), and the first one with open
+  space under the body is kept. A puppy drawn with its legs bunched (6 % of its height open under
+  the body, where clean builds had 21-36 %) built fused legs; the check
+  (`image_to_3dlab/leg_check.py`) also measures front and back views.
 
 ### Fixed
 - The Windows installer's anonymous started / stopped / finished count reaches the site.

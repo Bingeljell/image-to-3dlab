@@ -44,6 +44,8 @@ def test_an_architecture_entry_becomes_its_number(entry, number):
     (OURS, RTX_40, True),                 # no sm_89, but sm_86 code runs on an sm_89 card (same 8.x family)
     (["sm_89"], RTX_30, False),           # ... never the other way: 8.9 code on an 8.6 card
     (["sm_90a"], (9, 1), False),          # an "a" build is for that one architecture only
+    (["sm_90a+PTX"], (9, 0), True),       # its own card still runs it
+    (["sm_90a+PTX"], RTX_50, False),      # "a" PTX never compiles for a later card
     ([], RTX_20, False),
 ])
 def test_torch_supports_asks_whether_its_code_covers_the_card(archs, capability, expected):

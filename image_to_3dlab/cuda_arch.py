@@ -66,10 +66,13 @@ def torch_supports(archs: Sequence[str], capability: tuple[int, int]) -> bool:
             continue
         if built == card:
             return True
+        # An "a" build (sm_90a) uses features of that one architecture, so neither its code nor
+        # its PTX runs on any other card.
+        if entry.split("+", 1)[0].endswith("a"):
+            continue
         # Code built for a card runs on later cards of the same major version: sm_86 code
         # runs on an sm_89 card, which is how every RTX 40 rigs on a torch without sm_89.
-        # An "a" build is for that one architecture only, so it never counts here.
-        if not entry.split("+", 1)[0].endswith("a") and built // 10 == card // 10 and built <= card:
+        if built // 10 == card // 10 and built <= card:
             return True
         if "PTX" in entry.upper() and built <= card:
             return True

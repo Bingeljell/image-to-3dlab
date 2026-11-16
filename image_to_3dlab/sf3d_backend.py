@@ -76,6 +76,20 @@ def local_model(model: str) -> str:
     return require_local(model, backend="Stable Fast 3D", route=route, size="about 4.9 GB")
 
 
+def face_front(mesh) -> None:
+    """Turn an SF3D mesh half a turn about the up axis, so it faces +Z like the lab's other engines.
+
+    SF3D puts the subject's front on -Z. Pixal3D and Hunyuan put it on +Z, which is glTF's
+    front, and the studio shows a model from +Z. A rigged character got away with it (the
+    skeleton says which way it faces), but an SF3D prop showed its back as its front, and
+    every SF3D file faced the other way from the rest in a game engine. A rotation, not a
+    mirror: the surface stays outward and the texture is untouched.
+    """
+    import numpy as np
+
+    mesh.apply_transform(np.diag([-1.0, 1.0, -1.0, 1.0]))
+
+
 def _run(
     image_path: Path, output_path: Path, options: SF3DOptions, device: str
 ) -> Path:
@@ -105,6 +119,7 @@ def _run(
                 remesh=options.remesh,
                 vertex_count=options.target_vertices,
             )
+        face_front(mesh)
         mesh.export(str(output_path), include_normals=True)
     finally:
         del model

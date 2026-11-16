@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before. The names live in `image_to_3dlab/bone_names.py`, one table per engine (#237).
 
 ### Fixed
+- A rig asked for Unity bone names whose skeleton is not a humanoid keeps its numbered names,
+  and its record now says so (and why) instead of claiming Unity names.
 - Rig runs on RTX 40 cards again. The new card check refused them, because the torch we
   install carries code for sm_86 and sm_90 but not sm_89; code for an earlier card of the
   same family runs on a later one, so it now counts.

@@ -35,8 +35,8 @@ def test_setup_installs_and_announces_the_background_remover(tmp_path):
 def test_announcement_names_backend_route_size_and_gating(monkeypatch):
     monkeypatch.setattr(boot, "target", lambda: "macos-arm64")
     text = boot.announcement()
-    for needle in ("Stable Fast 3D", "4.9 GB", "facebook/dinov2-large", "gated",
-                   "Stability AI Community License"):
+    for needle in ("Stable Fast 3D", "5.5 GB", "facebook/dinov2-large", "laion/CLIP-ViT-B-32",
+                   "gated", "Stability AI Community License"):
         assert needle in text
 
 
@@ -117,12 +117,46 @@ def test_build_tools_go_in_before_the_extensions(monkeypatch, tmp_path):
     monkeypatch.setattr(boot, "VENDOR", tmp_path)
     monkeypatch.setattr(boot, "pip_install_command", lambda: ["pip", "install"])
     monkeypatch.setattr(boot.Path, "exists", lambda self: True)  # libomp
+    monkeypatch.setattr(boot.mps_patch, "patch", lambda root: 0)
     calls = []
     monkeypatch.setattr(boot.subprocess, "run", lambda cmd, **kw: calls.append((cmd, kw)))
     boot.install_code("macos-arm64")
     assert calls[0][0] == ["pip", "install", "setuptools", "wheel"]
     assert calls[1][0][-2:] == ["-r", "requirements.txt"]
     assert calls[1][1]["env"]["USE_METAL"] == "1" and calls[1][1]["env"]["USE_CUDA"] == "0"
+
+
+def test_clip_is_fetched_with_the_other_weights():
+    """SF3D's material estimate loads CLIP through open_clip on every run. The lab runs SF3D
+    offline, so a setup that skipped it left SF3D 'ready' and failing on its first run."""
+    assert ("laion/CLIP-ViT-B-32-laion2B-s34B-b79K", ["open_clip_pytorch_model.bin"]) in [
+        (repo, files) for repo, files, _ in boot.WEIGHTS]
+
+
+@pytest.mark.parametrize(("installed", "uv"), [(True, False), (True, True), (False, False)])
+def test_the_mac_build_patches_the_baker_and_rebuilds_one_already_built(monkeypatch, tmp_path, installed, uv):
+    """An install from before the patch has an unpatched baker that requirements.txt alone
+    would leave in place, so a patch that changed the source forces that one package to build."""
+    (tmp_path / ".git").mkdir()
+    monkeypatch.setattr(boot, "VENDOR", tmp_path)
+    install = ["uv", "pip", "install", "--python", "py"] if uv else ["py", "-m", "pip", "install"]
+    monkeypatch.setattr(boot, "pip_install_command", lambda: install)
+    monkeypatch.setattr(boot.Path, "exists", lambda self: True)  # libomp
+    patched = []
+    monkeypatch.setattr(boot.mps_patch, "patch", lambda root: patched.append(root) or 1)
+    monkeypatch.setattr(boot, "baker_installed", lambda: installed)
+    calls = []
+    monkeypatch.setattr(boot.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    boot.install_code("macos-arm64")
+    assert patched == [tmp_path]
+    rebuilds = [c for c in calls if "./texture_baker" in c]
+    if not installed:
+        assert rebuilds == []        # the requirements install builds the patched source anyway
+        return
+    (rebuild,) = rebuilds
+    assert ("--reinstall" if uv else "--force-reinstall") in rebuild
+    assert "--no-deps" in rebuild and "--no-build-isolation" in rebuild
+    assert calls.index(rebuild) > next(i for i, c in enumerate(calls) if c[-2:] == ["-r", "requirements.txt"])
 
 
 def test_nvidia_is_not_offered():

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Stable Fast 3D makes models on a Mac again. Setup now also fetches the CLIP model SF3D uses
+  to guess materials (605 MB, MIT), which it showed as ready without and then failed on its
+  first run; and its texture baker no longer crashes under current PyTorch
+  (`scripts/patch_sf3d_mps_queue.py`, applied by setup, which rebuilds an older install).
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

@@ -1889,7 +1889,7 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
     if (host or host_platform()) == AMD:
         present = SF3D_ROCM_MARKER.is_file() and SF3D_ROCM_PYTHON.is_file()
         # The weights too: a code-only install (or one stopped by the gated licence) would
-        # otherwise start a run, and SF3D would fetch ~4.9 GB that nobody agreed to.
+        # otherwise start a run, and SF3D would fetch ~5.5 GB that nobody agreed to.
         rows = _sf3d_weights()
         weights = {w["label"]: {"label": w["label"], "present": not weight_blocks_generate(w),
                                 "human": w.get("human_present", "")} for w in rows}
@@ -1897,7 +1897,7 @@ def _sf3d_readiness(host: str | None = None) -> dict[str, Any]:
         hint = None
         if not present:
             hint = ("Stable Fast 3D for AMD is not installed. Run "
-                    "scripts/bootstrap_sf3d_rocm.py (Linux with ROCm, ~4.9 GB of weights).")
+                    "scripts/bootstrap_sf3d_rocm.py (Linux with ROCm, ~5.5 GB of weights).")
         elif missing:
             hint = ("Stable Fast 3D weights are missing: " + "; ".join(missing) + ". Press "
                     "Download on its Setup card, or run python scripts/bootstrap_sf3d_rocm.py "

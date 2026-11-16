@@ -69,3 +69,16 @@ def test_pull_requests_run_the_file_checks():
     assert "\n  title:" not in workflow
     assert "# title:" not in workflow
     assert "action-semantic-pull-request" not in workflow
+
+
+def test_the_suite_also_runs_on_windows_report_only():
+    """#243: a Windows job runs the suite on every pull request. Report-only until the last
+    POSIX-path tests are fixed; then drop continue-on-error so it blocks a merge."""
+    workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  pytest-windows:", 1)[1]
+    assert "\n    name: Tests (Windows)\n" in job
+    assert "\n    runs-on: windows-latest\n" in job
+    assert "\n    needs: pre-commit\n" in job
+    assert "\n    continue-on-error: true\n" in job
+    assert "uv run pytest --tb=short -ra --color=yes" in job
+    assert "PYTHONUTF8: " not in job   # a read without an encoding must fail here, as on a user's machine

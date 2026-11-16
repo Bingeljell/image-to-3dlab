@@ -43,11 +43,16 @@ PROBE_SOURCE = (
 
 
 def sm_number(entry: str) -> int | None:
-    """`sm_75` -> 75, `sm_90a` -> 90, `sm_75+PTX` -> 75; anything else -> None."""
+    """`sm_75` -> 75, `sm_90a` -> 90, `sm_75+PTX` -> 75, `compute_75` -> 75; else None.
+
+    torch.cuda.get_arch_list() names real code `sm_XX` and PTX `compute_XX`; `+PTX` is how
+    TORCH_CUDA_ARCH_LIST asks for PTX, so both spellings are read.
+    """
     name = entry.split("+", 1)[0]
-    if not name.startswith("sm_"):
+    prefix = next((p for p in ("sm_", "compute_") if name.startswith(p)), None)
+    if prefix is None:
         return None
-    digits = name[3:].rstrip("a")
+    digits = name[len(prefix):].rstrip("a")
     return int(digits) if digits.isdigit() else None
 
 
@@ -66,12 +71,15 @@ def torch_supports(archs: Sequence[str], capability: tuple[int, int]) -> bool:
             continue
         if built == card:
             return True
+        # An "a" build (sm_90a) uses features of that one architecture, so neither its code nor
+        # its PTX runs on any other card.
+        if entry.split("+", 1)[0].endswith("a"):
+            continue
         # Code built for a card runs on later cards of the same major version: sm_86 code
         # runs on an sm_89 card, which is how every RTX 40 rigs on a torch without sm_89.
-        # An "a" build is for that one architecture only, so it never counts here.
-        if not entry.split("+", 1)[0].endswith("a") and built // 10 == card // 10 and built <= card:
+        if built // 10 == card // 10 and built <= card:
             return True
-        if "PTX" in entry.upper() and built <= card:
+        if ("PTX" in entry.upper() or entry.startswith("compute_")) and built <= card:
             return True
     return False
 

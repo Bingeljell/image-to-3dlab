@@ -71,6 +71,13 @@ def glb_faces_front(data: bytes) -> bool:
     return faces_front(parse_glb(data)[0])
 
 
+def mark_front(data: bytes) -> bytes:
+    """The GLB stamped as facing front, for a model an engine already built facing +Z."""
+    document, binary = parse_glb(data)
+    document.setdefault("asset", {"version": "2.0"}).setdefault("extras", {})[FACING_KEY] = FRONT
+    return build_glb(document, binary)
+
+
 def turn_glb(data: bytes) -> bytes:
     """The GLB turned half a turn about Y and stamped as facing front. Already turned:
     returned unchanged.

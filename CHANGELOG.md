@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Hunyuan3D-MLX (Xiong) builds models again from Create. The run stopped at once and showed
+  "Working…" for good, with Cancel unable to stop it. A run that cannot start now says why.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

@@ -84,6 +84,9 @@ class FakeHttp:
                                   "text": json["message"] + "\n\n" + json["details"], "discord": "https://discord.gg/x"})
         if path == "api/reveal":
             return Response(200, {"shown": "/out/" + json["file"]})
+        if path == "api/roblox-export":
+            return Response(200, {"folder": "finish/k/k_20k_roblox", "passed": True,
+                                  "checks": [{"level": "pass", "text": "19,981 triangles"}]})
         if path == "api/chains":
             return Response(202, {"id": "new-run"})
         if path.endswith("/cancel"):
@@ -148,7 +151,7 @@ def test_the_server_registers_every_tool():
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"status", "list_engines", "list_moves", "create", "continue_asset", "run_status", "cancel_run",
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend", "blender_helpers",
-                     "model_info", "show_in_folder", "report_bug", "make_skin", "skin_status", "skin_picture",
+                     "model_info", "show_in_folder", "export_roblox", "report_bug", "make_skin", "skin_status", "skin_picture",
                      "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
                      "usage_counts", "brush_back", "picture_status", "back_versions"}
 
@@ -1055,3 +1058,15 @@ def test_the_cleanup_choice_travels_with_the_plan_unless_auto(studio):
     assert "cleanup" not in json.loads(sent(studio).get("finish_settings", "{}"))
     with pytest.raises(ms.StudioError, match="cleanup is one of"):
         ms.read_advanced({"cleanup": "quick"})
+
+
+def test_export_roblox_sends_the_steps_file_and_passes_the_height_on(studio):
+    out = ms.export_roblox(studio, asset_id=KNIGHT["id"], stage="finished", height_studs=5)
+    assert studio.http.posts[-1] == ("api/roblox-export",
+                                     {"file": "finish/k/k_20k.glb", "height_studs": 5})  # kind: the studio decides
+    assert out["passed"] is True and "Studs" in out["tip"]
+
+
+def test_export_roblox_leaves_the_height_to_the_studio_when_not_given(studio):
+    ms.export_roblox(studio, asset_id=KNIGHT["id"], kind="accessory")
+    assert "height_studs" not in studio.http.posts[-1][1]

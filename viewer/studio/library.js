@@ -244,6 +244,17 @@ export function statsRows(stats) {
   return rows;
 }
 
+/** Export for Roblox's answer (POST /api/roblox-export) as lines to show: the size first, then
+ *  each check as the server wrote it, worst first. */
+export function robloxLines(made) {
+  if (!made) return [];
+  const order = { fail: 0, warn: 1, note: 2, pass: 3 };
+  const checks = [...(made.checks || [])].sort((a, b) => order[a.level] - order[b.level]);
+  const size = made.size_studs ? [{ level: 'info', text: `${+made.size_studs[1].toFixed(1)} studs tall` }] : [];
+  const where = made.folder ? [{ level: 'info', text: `Saved next to the model, in ${made.folder.split('/').pop()}` }] : [];
+  return [...size, ...checks, ...where];
+}
+
 /** Show in folder opens a window on the server's screen, so only offer it there. */
 export function canReveal(hostname) {
   return ['localhost', '127.0.0.1', '[::1]', '::1'].includes(hostname);

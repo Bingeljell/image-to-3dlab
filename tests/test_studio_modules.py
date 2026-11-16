@@ -1849,3 +1849,22 @@ def test_readme_and_both_installers_say_the_same_sentence():
         flat = " ".join(text.replace("**", "").replace('say "', "").replace('Say "', "")
                         .replace('"', "").split())
         assert plain in flat, path
+
+
+@needs_node
+def test_roblox_lines_put_the_size_first_then_the_worst_check():
+    out = _run("library.js", """console.log(JSON.stringify({
+        made: m.robloxLines({size_studs: [3.571, 6.404, 1.2], checks: [
+          {level: 'pass', text: 'ok'}, {level: 'note', text: 'still'}, {level: 'warn', text: 'careful'},
+          {level: 'fail', text: 'no'}]}),
+        sizeless: m.robloxLines({size_studs: null, checks: [{level: 'pass', text: 'ok'}]}),
+        none: m.robloxLines(null),
+        saved: m.robloxLines({size_studs: null, checks: [], folder: 'run/chest_roblox'}),
+      }));""")
+    assert out["made"] == [{"level": "info", "text": "6.4 studs tall"},
+                           {"level": "fail", "text": "no"}, {"level": "warn", "text": "careful"},
+                           {"level": "note", "text": "still"}, {"level": "pass", "text": "ok"}]
+    assert out["sizeless"] == [{"level": "pass", "text": "ok"}]
+    assert out["none"] == []
+    assert out["saved"] == [{"level": "info", "text": "Saved next to the model, in chest_roblox"}]
+    assert out["saved"] == [{"level": "info", "text": "Saved next to the model, in chest_roblox"}]

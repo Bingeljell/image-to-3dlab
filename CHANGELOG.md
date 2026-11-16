@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Export for Roblox**: a button under a model's stats (and `export_roblox` for agents, and
+  `scripts/export_roblox.py`) makes a copy Roblox Studio imports at the right size, with PNG
+  pictures and the four surface pictures loose for a SurfaceAppearance. It checks the model
+  against Roblox's limits (20,000 triangles per mesh, 4,000 for a wearable item) and says
+  plainly what won't fit. Rigged characters keep their skeleton but stand still: Studio
+  plays our moves wrongly, so they are left out for now.
+
 ## [0.5.10] - 2026-11-13
 
 ### Added

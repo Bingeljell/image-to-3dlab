@@ -27,7 +27,7 @@ RTX_50 = (12, 0)
 
 @pytest.mark.parametrize("entry, number", [
     ("sm_75", 75), ("sm_80", 80), ("sm_90a", 90), ("sm_120", 120), ("sm_75+PTX", 75),
-    ("compute_75", None), ("", None), ("sm_", None),
+    ("compute_75", 75), ("compute_90a", 90), ("", None), ("sm_", None), ("compute_", None),
 ])
 def test_an_architecture_entry_becomes_its_number(entry, number):
     assert ca.sm_number(entry) == number
@@ -46,6 +46,10 @@ def test_an_architecture_entry_becomes_its_number(entry, number):
     (["sm_90a"], (9, 1), False),          # an "a" build is for that one architecture only
     (["sm_90a+PTX"], (9, 0), True),       # its own card still runs it
     (["sm_90a+PTX"], RTX_50, False),      # "a" PTX never compiles for a later card
+    # torch.cuda.get_arch_list() reports PTX as compute_XX (e.g. "compute_37"), not "+PTX"
+    (["sm_75", "compute_75"], RTX_50, True),   # its PTX compiles up to 120 at load time
+    (["compute_75"], QUADRO, False),           # ... never down to an older card
+    (["compute_90a"], RTX_50, False),          # "a" PTX is for its own card only
     ([], RTX_20, False),
 ])
 def test_torch_supports_asks_whether_its_code_covers_the_card(archs, capability, expected):

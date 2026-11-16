@@ -35,3 +35,27 @@ jobs:
             ${{ runner.os }}-uv-
       - run: uv sync --frozen
       - run: uv run pytest --tb=short -ra --color=yes
+
+  # The suite on Windows (#243). Report-only for now: about 30 tests still assume POSIX paths
+  # or Linux build folders. Once those are fixed, drop continue-on-error so it blocks a merge.
+  # GitHub's Windows runners are admin, so the symlink-built tests (delete safety included) run here.
+  pytest-windows:
+    name: Tests (Windows)
+    needs: pre-commit
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\uv\cache
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+      - run: uv sync --frozen
+      # No PYTHONUTF8 on purpose: a read without an encoding should fail here, as on a user's machine.
+      - run: uv run pytest --tb=short -ra --color=yes

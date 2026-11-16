@@ -68,7 +68,7 @@ def test_a_hub_id_with_no_snapshot_is_refused_before_sf3d_loads(tmp_path, monkey
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
     monkeypatch.setattr(sf3d, "_load_sf3d", lambda repo: pytest.fail("loaded the code"))
     options = sf3d.SF3DOptions(repo=tmp_path, model="stabilityai/stable-fast-3d")
-    with pytest.raises(SystemExit, match="about 4.9 GB") as raised:
+    with pytest.raises(SystemExit, match="about 5.5 GB") as raised:
         sf3d._run(tmp_path / "in.png", tmp_path / "out.glb", options, "cpu")
     message = str(raised.value)
     assert "Stable Fast 3D" in message
@@ -132,3 +132,7 @@ def test_the_saved_model_faces_plus_z(tmp_path, monkeypatch):
     sf3d._run(picture, out, sf3d.SF3DOptions(repo=tmp_path, model="m"), "cpu")
     saved = trimesh.load(out, force="mesh")
     assert saved.vertices[:, 2].mean() > 0
+    # Stamped as facing front too, as Pixal3D's are: the prop splitter reads the stamp to
+    # choose its reading order, and an unstamped file is taken as SF3D's old -Z.
+    from image_to_3dlab.glb_turn import glb_faces_front
+    assert glb_faces_front(out.read_bytes())

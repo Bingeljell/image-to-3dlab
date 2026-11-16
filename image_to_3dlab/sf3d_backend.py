@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from image_to_3dlab import matte
+from image_to_3dlab.glb_turn import mark_front
 from image_to_3dlab.matte import is_matted
 
 
@@ -73,7 +74,7 @@ def local_model(model: str) -> str:
         os.environ["HF_HUB_OFFLINE"] = "1"
         return model
     route = "AMD" if host.host_platform() == host.AMD else "Mac"
-    return require_local(model, backend="Stable Fast 3D", route=route, size="about 4.9 GB")
+    return require_local(model, backend="Stable Fast 3D", route=route, size="about 5.5 GB")
 
 
 def face_front(mesh) -> None:
@@ -121,6 +122,8 @@ def _run(
             )
         face_front(mesh)
         mesh.export(str(output_path), include_normals=True)
+        # Stamped like Pixal3D's, so the prop splitter reads it as facing front, not SF3D's old -Z.
+        output_path.write_bytes(mark_front(output_path.read_bytes()))
     finally:
         del model
         gc.collect()

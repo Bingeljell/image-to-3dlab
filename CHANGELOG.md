@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloud or on this machine**: every add-on says whether it runs on your machine or uses the cloud. The studio shows a badge, and the install plan says plainly when your models would be sent off this machine.
 - **Add-ons author guide** at `docs/add-ons.md`: how to write an `addon.json`, what v1
   add-ons can do, how to test locally, and the rules for being listed.
+- **`scripts/strand_score.py`** counts the hair strands a Pixal3D figure has in front of its face (a sheet floating a few millimetres before the skin where the front picture shows the face, painted unlike the picture), so the cleanest of a few tries of one character can be kept; `image_to_3dlab/strands.py` holds the rule. Reports only.
 
 ### Fixed
 

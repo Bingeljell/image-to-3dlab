@@ -757,7 +757,7 @@ class TestScriptHappyPath:
         result = run_addon_script(tmp_path, ["list", "--index", str(registry)])
         assert result.returncode == 0, result.stderr
         assert "Vehicle kit by Ahnyth" in result.stdout
-        assert "★ 4.5 (12)" in result.stdout
+        assert "* 4.5 (12)" in result.stdout
         assert "author: https://github.com/Ahnyth" in result.stdout
         assert "site: https://vehiclekit.example" in result.stdout
 

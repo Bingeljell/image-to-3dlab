@@ -243,6 +243,17 @@ def install_addon(
         raise
 
 
+def _remove_readonly(func, path, _exc_info):
+    """Windows leaves cloned git objects read-only; make them removable."""
+    import stat
+
+    try:
+        os.chmod(path, stat.S_IWRITE)
+    except OSError:
+        pass
+    func(path)
+
+
 def remove_addon(addon_id: str, addons_dir: Path | None = None) -> None:
     """Remove an installed add-on."""
     validate_addon_id(addon_id)
@@ -250,7 +261,7 @@ def remove_addon(addon_id: str, addons_dir: Path | None = None) -> None:
     dest = _addon_dir(addon_id, addons_dir)
     if not dest.exists():
         raise ValueError(f"{addon_id} is not installed")
-    shutil.rmtree(dest)
+    shutil.rmtree(dest, onerror=_remove_readonly)
 
 
 def _run_subprocess(

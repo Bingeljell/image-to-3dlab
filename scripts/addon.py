@@ -123,7 +123,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         rating = ""
         if listing.rating is not None:
             count = f" ({listing.ratings_count})" if listing.ratings_count else ""
-            rating = f" ★ {listing.rating}{count}"
+            rating = f" * {listing.rating}{count}"
         print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}]")
         if listing.summary:
             print(f"  {listing.summary}")

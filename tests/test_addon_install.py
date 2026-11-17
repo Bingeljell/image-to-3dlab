@@ -141,3 +141,25 @@ def test_load_registry_reads_local_file(tmp_path):
 def test_list_installed_returns_installed_ids(tmp_path):
     make_installed_addon(tmp_path, manifest())
     assert ai.list_installed(addons_dir=tmp_path / "addons") == ["vehicle-kit"]
+
+
+def test_result_is_fresh_true_for_new_file(tmp_path):
+    started = 0.0
+    path = tmp_path / "new.glb"
+    path.write_text("glb", encoding="utf-8")
+    assert ai.result_is_fresh(path, started) is True
+
+
+def test_result_is_fresh_true_for_overwritten_file(tmp_path):
+    path = tmp_path / "old.glb"
+    path.write_text("old", encoding="utf-8")
+    started = path.stat().st_mtime
+    path.write_text("new", encoding="utf-8")
+    assert ai.result_is_fresh(path, started) is True
+
+
+def test_result_is_fresh_false_for_unchanged_file(tmp_path):
+    path = tmp_path / "old.glb"
+    path.write_text("old", encoding="utf-8")
+    started = path.stat().st_mtime + 1.0
+    assert ai.result_is_fresh(path, started) is False

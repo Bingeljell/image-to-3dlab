@@ -148,11 +148,6 @@ def _tool_by_id(manifest: Manifest, tool_id: str) -> Any:
     raise ValueError(f"tool {tool_id!r} not found in add-on {manifest.id}")
 
 
-def _all_files(directory: Path) -> set[Path]:
-    """Every file under directory, resolved."""
-    return {p.resolve() for p in directory.rglob("*") if p.is_file()}
-
-
 def _default_run_stem() -> str:
     """A per-second timestamp so repeated runs do not collide by default."""
     return datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
@@ -336,20 +331,13 @@ def run_addon(
     argv = build_command(tool, parsed_inputs, out_dir=out_dir, blender=blender_path)
 
     started = datetime.now(UTC).timestamp()
-    before = _all_files(out_dir)
     env = {**os.environ, "HF_HUB_OFFLINE": "1"}
     result = _run_subprocess(argv, addon_dir, env, logger)
     if result.returncode != 0:
         raise RuntimeError("run failed")
 
-    after = _all_files(out_dir)
-    created = after - before
-
     result_file = (out_dir / f"{stem}.{tool.makes}").resolve()
-    if (
-        result_file not in created
-        and not (result_file.exists() and result_file.stat().st_mtime > started)
-    ):
+    if not result_is_fresh(result_file, started):
         raise RuntimeError(f"expected result {result_file.name} not written")
 
     record = run_record(listing, manifest, tool, parsed_inputs, reviewed=reviewed)

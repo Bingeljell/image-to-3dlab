@@ -670,3 +670,16 @@ def test_real_colours_past_the_outline_are_not_taken_for_a_placeholder():
     out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
                               settings=pp.Settings(match_colour=False))
     assert abs(int(out[64, 55, 0]) - 120) <= 15
+
+
+@pytest.mark.parametrize("colour", [(20, 20, 20), (180, 40, 40)], ids=["black coat", "red boot"])
+def test_a_flat_real_colour_past_the_outline_stays(colour):
+    # A black coat or a red boot the generator built a little longer than the picture: one flat colour
+    # far past the cut-out, but not the generator's pale neutral filler, so it is real paint and stays.
+    positions, faces, uvs = _grid()
+    texture = _placeholder_texture()
+    texture[:, 64:] = colour
+    view = _camera(size=768, image=_cut_photo(768))
+    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
+                              settings=pp.Settings(match_colour=False))
+    assert tuple(out[64, 115]) == colour

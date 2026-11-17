@@ -287,11 +287,12 @@ class Settings:
     # what it is sure of, a few pixels at most.
     align: bool = True
     # Where a picture sees the model more than this share of its width past its cut-out, the
-    # model is bigger than the picture there (a tail built longer than drawn). The generator
-    # had no picture colour there either and paints a pale placeholder grey (a Pixal3D wolf:
-    # 94% of its tail tip past the outline, 2% grey elsewhere), so those texels take the
-    # colour of the surface around them, faded in from half this distance. Just past the
-    # outline the generator's colour is real and stays. 0 turns it off.
+    # model is bigger than the picture there (a tail built longer than drawn), and Pixal3D
+    # often had no colour for it either: it paints a pale neutral filler grey (a wolf's tail
+    # tip, 94% of it past the outline, RGB 172, 172, 174; a falcon's wing tips 177, 177, 181).
+    # That filler, there and where it joins on up to the outline, takes the colour of the
+    # surface around it (`placeholder_reach`). Real paint past the outline (a black coat, a
+    # boot's stripes) stays. 0 turns it off.
     outside_fill: float = 0.02
 
 
@@ -430,9 +431,7 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     painted = own * (1 - blend[:, None]) + photo * blend[:, None]
     filled = False
     if settings.outside_fill > 0:
-        reach = smoothstep(past, settings.outside_fill / 2, settings.outside_fill)
-        reach = np.maximum(reach, placeholder_reach(positions, faces, texel_face, own,
-                                                    past >= settings.outside_fill, blend))
+        reach = placeholder_reach(positions, faces, texel_face, own, past >= settings.outside_fill, blend)
         around = surface_fill(positions, faces, texel_face, texel_bary, painted, reach < 0.5)
         if around is not None:
             own = own * (1 - reach[:, None]) + around * reach[:, None]
@@ -504,6 +503,12 @@ def local_colour_offset(positions: np.ndarray, faces: np.ndarray, texel_face: np
     return typical + (texel_bary[:, :, None] * field[corners[texel_face]]).sum(axis=1)
 
 
+# The generator's filler: a pale neutral grey (Pixal3D, 2026-11-17: 172-177 with a saturation of 2-4 on a wolf
+# and a falcon). Flat far-out colours outside this band are real paint (black coats measured at 3 and 13-21).
+FILLER_LIGHTNESS = (130.0, 215.0)
+FILLER_SATURATION = 12.0
+
+
 def placeholder_reach(positions: np.ndarray, faces: np.ndarray, texel_face: np.ndarray,
                       own: np.ndarray, far: np.ndarray, blend: np.ndarray,
                       flat: float = 12.0, widest: float = 40.0,
@@ -515,7 +520,9 @@ def placeholder_reach(positions: np.ndarray, faces: np.ndarray, texel_face: np.n
     172, 172, 174, half its far texels within 5 of that per channel). The same filler
     reaches back up to the outline, closer than the distance rule takes, and the fill would
     otherwise take its colour from there. When half the far texels lie within `flat` of
-    their median colour, that colour is the filler; texels within twice the spread of 90%
+    their median colour and that colour is a pale neutral grey (FILLER_LIGHTNESS,
+    FILLER_SATURATION), it is the filler; far texels of that colour, and texels within twice
+    the spread of 90%
     of the far ones (`flat` to `widest`; the wolf: 30, while its real fur lies 96 or more
     away) that no picture trusts (`blend` under 0.5) and that join the far texels through
     shared vertices go too. Far texels of mixed colours are real paint: nothing is added.
@@ -525,7 +532,9 @@ def placeholder_reach(positions: np.ndarray, faces: np.ndarray, texel_face: np.n
         return reach
     filler = np.median(own[far], axis=0)
     distance = np.abs(own - filler).max(axis=1)
-    if np.median(distance[far]) > flat:
+    lo, hi = FILLER_LIGHTNESS
+    if (np.median(distance[far]) > flat or not lo <= filler.mean() <= hi
+            or np.ptp(filler) > FILLER_SATURATION):
         return reach
     tolerance = float(np.clip(2 * np.percentile(distance[far], 90), flat, widest))
     close = distance <= tolerance
@@ -533,7 +542,7 @@ def placeholder_reach(positions: np.ndarray, faces: np.ndarray, texel_face: np.n
     face_count = len(faces)
     texels = np.bincount(texel_face, minlength=face_count)
     grey = np.bincount(texel_face, weights=candidate, minlength=face_count)
-    seed = np.bincount(texel_face, weights=far, minlength=face_count) > 0
+    seed = np.bincount(texel_face, weights=far & candidate, minlength=face_count) > 0
     keep = seed | (grey >= 0.5 * np.maximum(texels, 1))
     _, weld = np.unique(np.round(positions, 6), axis=0, return_inverse=True)
     corners = weld.reshape(-1)[faces]

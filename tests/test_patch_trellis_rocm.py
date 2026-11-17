@@ -552,6 +552,7 @@ def test_device_lib_finds_the_rocm10_layout(tmp_path: Path, monkeypatch):
     assert got == f"--rocm-device-lib-path={root / 'lib' / 'llvm' / 'amdgcn' / 'bitcode'}"
 
 
+@pytest.mark.posix
 def test_device_lib_prefers_the_rocm10_path_when_both_exist(tmp_path: Path, monkeypatch):
     """Both layouts present: the order must not depend on the filesystem."""
     root = tmp_path / "rocm"

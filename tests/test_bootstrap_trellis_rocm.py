@@ -126,6 +126,7 @@ def test_the_plan_is_torch_then_the_extensions_then_o_voxel():
     assert "--no-build-isolation" in joined[-1]
 
 
+@pytest.mark.posix
 def test_every_extension_is_installed_no_build_isolation():
     commands = [" ".join(c) for c in boot.pip_commands("source", "uv", PYTHON, (7, 2))]
     for name, *_ in boot.SOURCE_EXTENSIONS:
@@ -252,6 +253,7 @@ def test_archs_are_semicolon_separated():
     assert boot.arch_list(["gfx1100", "gfx1030"]) == "gfx1100;gfx1030"
 
 
+@pytest.mark.posix
 def test_the_build_environment_names_the_card_the_toolkit_and_the_jobs():
     env = boot.build_env(["gfx1100"], "/opt/rocm/bin/hipcc", {}, format_workaround=False)
     assert env["GPU_ARCHS"] == "gfx1100"

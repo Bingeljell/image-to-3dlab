@@ -620,7 +620,7 @@ def test_a_lost_build_names_the_file_that_is_missing(tmp_path):
     python.unlink()          # the venv is what has gone
     hint = backend.build_hint(bc.AMD)
     assert "was installed here" in hint
-    assert "venv/bin/python" in hint
+    assert str(Path("venv") / "bin" / "python") in hint
     assert backend.missing_build_probes(bc.AMD) == [python]
 
 

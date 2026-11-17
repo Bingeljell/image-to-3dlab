@@ -333,6 +333,7 @@ def _an_older_release(upstream: Path, tag: str) -> None:
     _git(upstream, "tag", tag)
 
 
+@pytest.mark.posix
 def test_a_release_from_before_uv_lock_still_installs(tmp_path, upstream, fake_bin):
     """The installer is served from main but checks out the newest release. On 2026-11-08
     main moved to uv.lock while v0.5.7 still had requirements.lock, and every install
@@ -467,6 +468,7 @@ fi
                machine=("Linux", "x86_64"), env={"I3D_KFD_NODES": str(nodes)})
 
 
+@pytest.mark.posix
 def test_an_amd_install_never_puts_cuda_wheels_on_the_card(tmp_path, upstream, fake_bin,
                                                            amd_venv):
     """PyPI's Linux torch is a CUDA build, so the shared lock installs one on an AMD box:
@@ -491,6 +493,7 @@ def test_an_amd_install_never_puts_cuda_wheels_on_the_card(tmp_path, upstream, f
     assert "nvidia-cudnn-cu13" not in filtered and "cuda-toolkit" not in filtered
 
 
+@pytest.mark.posix
 def test_an_amd_install_gets_the_rocm_build_of_torch(tmp_path, upstream, fake_bin, amd_venv):
     (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
     _git(upstream, "add", ".")
@@ -506,6 +509,7 @@ def test_an_amd_install_gets_the_rocm_build_of_torch(tmp_path, upstream, fake_bi
     assert "--reinstall-package torch" in uv_calls
 
 
+@pytest.mark.posix
 def test_an_amd_that_already_has_rocm_torch_is_left_alone(tmp_path, upstream, fake_bin,
                                                           amd_venv):
     """An update must not re-download a few GB of PyTorch every time."""
@@ -519,6 +523,7 @@ def test_an_amd_that_already_has_rocm_torch_is_left_alone(tmp_path, upstream, fa
     assert "--reinstall-package torch" not in (tmp_path / "uv.log").read_text()
 
 
+@pytest.mark.posix
 def test_an_amd_with_too_old_a_rocm_is_told_to_update_and_gets_cpu_torch(
         tmp_path, upstream, fake_bin, amd_venv):
     (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
@@ -535,6 +540,7 @@ def test_an_amd_with_too_old_a_rocm_is_told_to_update_and_gets_cpu_torch(
     assert "https://download.pytorch.org/whl/cpu torch torchvision" in uv_calls
 
 
+@pytest.mark.posix
 def test_an_amd_install_leaves_no_stray_file_in_the_checkout(tmp_path, upstream, fake_bin,
                                                              amd_venv):
     (upstream / "requirements.lock").write_text(LOCK_WITH_CUDA)
@@ -562,6 +568,7 @@ def test_an_amd_install_stops_when_the_venv_has_no_python(tmp_path, upstream, fa
     assert "pip install" not in (tmp_path / "uv.log").read_text()
 
 
+@pytest.mark.posix
 def test_an_amd_install_can_be_re_run_over_the_existing_venv(tmp_path, upstream, fake_bin,
                                                              amd_venv):
     """Re-running the installer on AMD must not fail because the venv already exists."""
@@ -601,6 +608,7 @@ def test_an_nvidia_install_is_left_alone(tmp_path, upstream, fake_bin, amd_venv)
     assert "rocm" not in uv_calls
 
 
+@pytest.mark.posix
 def test_an_amd_install_of_an_older_release_still_drops_cuda(tmp_path, upstream, fake_bin,
                                                              amd_venv):
     _an_older_release(upstream, "v0.3.0")
@@ -691,6 +699,7 @@ def test_the_installer_says_the_same_sentence_as_the_studio(tmp_path, upstream, 
     assert "https://assetfurnace.com/privacy#usage-counts" in out
 
 
+@pytest.mark.posix
 def test_a_finished_install_reports_started_and_finished(tmp_path, upstream, fake_bin):
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
     done = event_run(tmp_path, upstream, fake_bin, "--yes", "--no-start")
@@ -702,6 +711,7 @@ def test_a_finished_install_reports_started_and_finished(tmp_path, upstream, fak
     assert set(events[1]) == {"event", "os", "arch", "version"}
 
 
+@pytest.mark.posix
 def test_an_update_reports_the_version_it_is_updating_from(tmp_path, upstream, fake_bin):
     """An update knows what is installed; it is the number in that checkout's pyproject."""
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
@@ -716,6 +726,7 @@ def test_an_update_reports_the_version_it_is_updating_from(tmp_path, upstream, f
     assert _events(tmp_path)[0]["version"] == "0.5.7"
 
 
+@pytest.mark.posix
 def test_an_intel_mac_reports_a_miss_and_why(tmp_path, upstream, fake_bin):
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
     done = event_run(tmp_path, upstream, fake_bin, machine=("Darwin", "x86_64"))
@@ -725,6 +736,7 @@ def test_an_intel_mac_reports_a_miss_and_why(tmp_path, upstream, fake_bin):
     assert event["os"] == "macos" and event["version"] == "unknown"
 
 
+@pytest.mark.posix
 def test_a_missing_git_reports_no_git(tmp_path, upstream, fake_bin):
     """The PATH here has no git: that is the refusal, and the reason is in the closed list."""
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
@@ -734,6 +746,7 @@ def test_a_missing_git_reports_no_git(tmp_path, upstream, fake_bin):
     assert [e["reason"] for e in _events(tmp_path) if e["event"] == "stopped"] == ["no_git"]
 
 
+@pytest.mark.posix
 def test_a_stop_that_is_not_about_the_machine_reports_other(tmp_path, upstream, fake_bin):
     """No uv and no terminal: the installer refuses before downloading, and still says why."""
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
@@ -771,6 +784,7 @@ esac
 ''')
 
 
+@pytest.mark.posix
 def test_an_old_nvidia_card_stops_with_a_sentence_and_reports_it(tmp_path, upstream, fake_bin):
     """The same wall Rig hit, met before two gigabytes are downloaded (Quadro P5000, 6.1)."""
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
@@ -784,6 +798,7 @@ def test_an_old_nvidia_card_stops_with_a_sentence_and_reports_it(tmp_path, upstr
     assert [e["reason"] for e in _events(tmp_path) if e["event"] == "stopped"] == ["old_nvidia"]
 
 
+@pytest.mark.posix
 def test_a_card_that_can_run_it_installs(tmp_path, upstream, fake_bin):
     _with_tool(fake_bin, "curl", _log_body_script(tmp_path))
     _nvidia(fake_bin, "8.6", "NVIDIA GeForce RTX 3090")

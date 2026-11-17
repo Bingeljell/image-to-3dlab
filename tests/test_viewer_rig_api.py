@@ -66,7 +66,7 @@ def test_blender_command_is_noninteractive_and_typed(tmp_path):
 
     # The uploaded .blend's own Python must never run, whatever Auto Run says: both flags
     # come before the file, as Blender applies arguments in order.
-    assert command[:5] == ["/Applications/Blender", "--background", "--factory-startup",
+    assert command[:5] == [str(Path("/Applications/Blender")), "--background", "--factory-startup",
                            "--disable-autoexec", str(job.scene_path)]
     # Without this Blender exits 0 when the worker raises, so a crash reads as success.
     # It must come before --python: Blender applies arguments in order.

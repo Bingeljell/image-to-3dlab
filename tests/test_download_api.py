@@ -423,7 +423,7 @@ def test_nothing_installed_or_a_prebuilt_is_never_offered_a_rebuild(tmp_path):
     """No binary is Set up's job; a prebuilt of the pinned release has nothing to rebuild."""
     source, cli = _pixal3d_tree(tmp_path, patched=False, cli_newer=True)
     assert dl.rebuild_reason("pixal3d", source, tmp_path / "missing") is None
-    (tmp_path / "post-replay").write_text("binary")   # our own prebuilt: nothing to patch
+    boot.host.executable(tmp_path, "post-replay").write_text("binary")   # our own prebuilt: nothing to patch
     boot.record_release(tmp_path)     # ...of the pinned release
     assert dl.rebuild_reason("pixal3d", tmp_path / "missing", cli) is None
 
@@ -436,7 +436,7 @@ def test_upstreams_old_nvidia_download_is_offered_ours(tmp_path):
     missing = tmp_path / "missing.cpp"
     assert "older download" in dl.rebuild_reason("pixal3d", missing, cli)
     assert dl.rebuild_download("pixal3d", missing, cli) == dl.NEW_BUILD_SIZE
-    (tmp_path / "post-replay").write_text("binary")
+    boot.host.executable(tmp_path, "post-replay").write_text("binary")
     boot.record_release(tmp_path)
     assert dl.rebuild_reason("pixal3d", missing, cli) is None
     assert dl.rebuild_download("pixal3d", missing, cli) is None
@@ -466,7 +466,7 @@ def test_a_compiled_build_is_never_swapped_for_a_download(tmp_path):
     cli = tmp_path / "build" / "trellis-cli"
     cli.parent.mkdir()
     cli.write_text("binary")
-    (cli.parent / "post-replay").write_text("binary")
+    boot.host.executable(cli.parent, "post-replay").write_text("binary")
     (tmp_path / "CMakeLists.txt").write_text("project(pixal3d)")
     assert dl.rebuild_download("pixal3d", tmp_path / "missing.cpp", cli) is None
 

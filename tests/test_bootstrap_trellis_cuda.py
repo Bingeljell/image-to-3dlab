@@ -4,6 +4,7 @@ and never downloads without a yes. Nothing here touches the network."""
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import backend_catalog
 import bootstrap_trellis_cuda as boot
@@ -145,8 +146,8 @@ def test_build_env_sets_arch_jobs_and_toolkit(monkeypatch):
     env = boot.build_env("89", "/usr/local/cuda/bin/nvcc", {"PATH": "/usr/bin"})
     assert env["TORCH_CUDA_ARCH_LIST"] == "8.9"
     assert env["MAX_JOBS"] == "6"
-    assert env["PATH"].startswith("/usr/local/cuda/bin")
-    assert env["CUDA_HOME"] == "/usr/local/cuda"
+    assert env["PATH"].startswith(str(Path("/usr/local/cuda/bin")))
+    assert Path(env["CUDA_HOME"]) == Path("/usr/local/cuda")
 
 
 def test_announcement_names_backend_route_and_size():

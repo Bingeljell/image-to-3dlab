@@ -4,6 +4,7 @@ announces before it fetches, and never downloads without a yes. No network here.
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import backend_catalog
 import bootstrap_hunyuan_cuda as boot
@@ -140,8 +141,8 @@ def test_mesh_painter_builds_for_the_venv_python():
 def test_build_env_sets_arch_jobs_and_toolkit():
     env = boot.build_env("89", "/usr/local/cuda/bin/nvcc", base={"PATH": "/usr/bin"})
     assert env["TORCH_CUDA_ARCH_LIST"] == "8.9"
-    assert env["CUDA_HOME"] == "/usr/local/cuda"
-    assert env["PATH"].startswith("/usr/local/cuda/bin")
+    assert Path(env["CUDA_HOME"]) == Path("/usr/local/cuda")
+    assert env["PATH"].startswith(str(Path("/usr/local/cuda/bin")))
     assert int(env["MAX_JOBS"]) >= 1
 
 

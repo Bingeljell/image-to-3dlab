@@ -272,6 +272,7 @@ def test_install_refuses_an_unsupported_machine_before_touching_the_network(monk
 
 
 @pytest.mark.symlinks
+@pytest.mark.posix
 def test_finish_install_flattens_and_marks_executable(tmp_path, monkeypatch):
     monkeypatch.setattr(boot.host, "os_family", lambda *a: "linux")
     nested = tmp_path / "build" / "bin"
@@ -448,6 +449,7 @@ def test_a_mac_is_not_probed(monkeypatch):
     assert boot.main(["--yes"]) == 0
 
 
+@pytest.mark.posix
 def test_probe_gpu_runs_the_binary_and_returns_its_chatter(tmp_path):
     fake = tmp_path / "sd-cli"
     fake.write_text("#!/bin/sh\necho 'ggml_vulkan: Found 1 Vulkan devices:'\nexit 1\n")

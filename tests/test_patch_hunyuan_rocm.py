@@ -310,6 +310,7 @@ def test_check_reports_without_changing_anything(checkout: Path, capsys):
     assert "patched" in capsys.readouterr().out
 
 
+@pytest.mark.posix
 def test_every_patch_says_which_one_it_is_when_it_fails(checkout: Path):
     """With four patches over two files, a bare "not found" sends you hunting."""
     (checkout / gen.SCHEDULER_FILE).unlink()

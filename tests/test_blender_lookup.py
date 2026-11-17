@@ -68,7 +68,7 @@ def test_the_environment_variable_still_beats_the_setup_blender(tmp_path):
 
 
 def test_linux_looks_in_the_usual_places():
-    places = [str(p) for p in bl.candidates("linux", home=Path("/home/x"))]
+    places = [p.as_posix() for p in bl.candidates("linux", home=Path("/home/x"))]
     assert "/usr/bin/blender" in places and "/snap/bin/blender" in places
 
 

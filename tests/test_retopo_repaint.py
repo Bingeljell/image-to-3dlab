@@ -133,7 +133,7 @@ def test_resume_is_opt_in_on_the_real_parser():
 def test_the_bake_command_bakes_the_original_onto_the_current_mesh():
     command = rr.bake_command(Path("gen.glb"), Path("painted.glb"), Path("baked.glb"), 2048,
                               blender=Path("/bl"))
-    assert command[:6] == ["/bl", "--background", "--python-exit-code", "1", "--python",
+    assert command[:6] == [str(Path("/bl")), "--background", "--python-exit-code", "1", "--python",
                            command[5]]
     assert command[5].endswith("blender_bake_detail.py")
     after = command[command.index("--") + 1:]

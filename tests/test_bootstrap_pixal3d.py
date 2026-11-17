@@ -381,6 +381,7 @@ def test_amd_ignores_the_nvidia_answer():
                            ["gfx1100"]) == "hip-source"
 
 
+@pytest.mark.posix
 def test_the_hip_build_is_given_rocms_clang_not_the_hipcc_wrapper(monkeypatch, tmp_path):
     """CMake refuses hipcc outright ("CMAKE_HIP_COMPILER is set to the hipcc wrapper ... This
     is not supported"), so naming it makes configure fail on every AMD machine. It is the

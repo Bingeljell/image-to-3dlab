@@ -593,6 +593,7 @@ def test_torch_has_rocm_is_false_for_a_cuda_or_cpu_torch(capsys):
     assert capsys.readouterr().err == ""
 
 
+@pytest.mark.posix
 def test_rocm_libraries_go_on_the_loader_path_once(tmp_path):
     """stable-diffusion.cpp's ROCm build finds libamdhip64 only beside itself, so without
     ROCm's folder on the path the HIP backend never loads and the run uses the CPU."""

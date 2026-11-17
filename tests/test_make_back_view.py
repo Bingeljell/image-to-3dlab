@@ -22,7 +22,7 @@ def test_the_back_is_drawn_at_768_in_8_steps_from_the_reference():
                               Path("/w/mmproj.gguf"), binary=Path("/bin/sd-cli"))
     assert command[command.index("-W") + 1] == "768" and command[command.index("-H") + 1] == "768"
     assert command[command.index("--steps") + 1] == "8"
-    assert command[command.index("-r") + 1] == "/r/ref.png"
+    assert command[command.index("-r") + 1] == str(Path("/r/ref.png"))
     assert command[command.index("-p") + 1] == mbv.back_view.BACK_PROMPT
 
 

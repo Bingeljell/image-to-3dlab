@@ -228,17 +228,18 @@ def install_plan(listing: Listing, manifest: Manifest, *, reviewed: bool = True)
     ]
     if reviewed:
         warning = (
-            f"This add-on runs code on this machine. "
-            f"It was reviewed by AssetFurnace at {listing.commit}."
+            "This add-on runs code on this machine. "
+            "It was checked by AssetFurnace."
         )
     else:
         warning = (
             "This add-on runs code on this machine. "
-            "It is not reviewed by AssetFurnace; install it only if you trust the source."
+            "It is not checked by AssetFurnace; install it only if you trust the source."
         )
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,
+        "version": manifest.version,
         "models": models,
         "setup": list(manifest.setup),
         "warning": warning,

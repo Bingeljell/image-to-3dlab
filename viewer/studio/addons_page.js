@@ -7,13 +7,16 @@ const s = (id) => document.getElementById(id);
 let activeJobId = null;
 let statusTimer = null;
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+export function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function authorLine(addon) {
+export function authorLine(addon) {
   const author = addon.author?.name || 'unknown';
   const url = addon.author?.url;
   let html = `by ${url ? `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(author)}</a>` : escapeHtml(author)}`;
@@ -28,7 +31,7 @@ function authorLine(addon) {
   return html;
 }
 
-function reviewBadge(addon) {
+export function reviewBadge(addon) {
   if (addon.no_longer_listed) {
     return '<span class="addon-badge addon-unlisted">No longer listed</span>';
   }
@@ -38,13 +41,13 @@ function reviewBadge(addon) {
   return '<span class="addon-badge addon-reviewed">Reviewed</span>';
 }
 
-function ratingLine(addon) {
+export function ratingLine(addon) {
   if (addon.rating == null) return '';
   const count = addon.ratings_count ? ` (${addon.ratings_count})` : '';
   return `<span class="addon-rating" aria-label="rating ${addon.rating} of 5">★ ${addon.rating}${count}</span>`;
 }
 
-function inputControl(input) {
+export function inputControl(input) {
   const id = `addon-input-${input.id}`;
   if (input.type === 'choice') {
     const options = input.choices.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
@@ -93,11 +96,28 @@ function toolCard(addon, tool) {
   return card;
 }
 
+function showMessage(card, message, type = 'info') {
+  let el = card.querySelector('.addon-message');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'addon-message';
+    card.insertBefore(el, card.firstChild);
+  }
+  el.className = `addon-message addon-message-${type}`;
+  el.textContent = message;
+}
+
+function clearMessage(card) {
+  const el = card.querySelector('.addon-message');
+  if (el) el.remove();
+}
+
 async function runTool(addonId, toolId, card) {
   if (activeJobId) {
-    alert('Another add-on run is already in progress.');
+    showMessage(card, 'Another add-on run is already in progress.', 'info');
     return;
   }
+  clearMessage(card);
   const log = card.querySelector('.addon-log');
   log.textContent = '';
   const button = card.querySelector('.addon-run');
@@ -156,8 +176,9 @@ function showPlan(card, plan) {
   const models = plan.models && plan.models.length
     ? `<ul>${plan.models.map((m) => `<li>${escapeHtml(m.name)} — ${escapeHtml(m.licence)}, ${escapeHtml(m.size)}</li>`).join('')}</ul>`
     : '';
+  const version = plan.version ? ` · <strong>Version:</strong> ${escapeHtml(plan.version)}` : '';
   box.innerHTML = `
-    <p><strong>Author:</strong> ${escapeHtml(plan.author)} · <strong>Licence:</strong> ${escapeHtml(plan.licence)}</p>
+    <p><strong>Author:</strong> ${escapeHtml(plan.author)} · <strong>Licence:</strong> ${escapeHtml(plan.licence)}${version}</p>
     ${models}
     <p class="addon-warning">${escapeHtml(plan.warning)}</p>
     <button type="button" class="addon-confirm">Install ${escapeHtml(plan.name)}</button>`;
@@ -166,6 +187,7 @@ function showPlan(card, plan) {
 }
 
 async function promptInstall(addonId, card) {
+  clearMessage(card);
   const button = card.querySelector('.addon-install');
   button.disabled = true;
   try {
@@ -179,11 +201,12 @@ async function promptInstall(addonId, card) {
     showPlan(card, plan);
   } catch (error) {
     button.disabled = false;
-    alert(`Could not load install plan: ${error.message}`);
+    showMessage(card, `Could not load install plan: ${error.message}`, 'error');
   }
 }
 
 async function confirmInstall(addonId, card, box) {
+  clearMessage(card);
   const button = box.querySelector('.addon-confirm');
   button.disabled = true;
   try {
@@ -196,19 +219,33 @@ async function confirmInstall(addonId, card, box) {
     if (!response.ok) throw new Error(result.error || 'unknown error');
     await load();
   } catch (error) {
-    alert(`Install failed: ${error.message}`);
+    showMessage(card, `Install failed: ${error.message}`, 'error');
   }
 }
 
-async function doRemove(addonId) {
-  if (!confirm(`Remove ${addonId}? This deletes its folder and cannot be undone.`)) return;
+function confirmRemove(addonId, card) {
+  clearMessage(card);
+  const plan = card.querySelector('.addon-plan');
+  const box = document.createElement('div');
+  box.className = 'addon-plan-box';
+  box.innerHTML = `
+    <p>Remove <strong>${escapeHtml(addonId)}</strong>? This deletes its folder and cannot be undone.</p>
+    <button type="button" class="addon-confirm-remove">Remove</button>
+    <button type="button" class="addon-cancel-remove">Cancel</button>`;
+  box.querySelector('.addon-confirm-remove').addEventListener('click', () => doRemove(addonId, card, box));
+  box.querySelector('.addon-cancel-remove').addEventListener('click', () => box.remove());
+  plan.replaceChildren(box);
+}
+
+async function doRemove(addonId, card, box) {
+  box.querySelector('.addon-confirm-remove').disabled = true;
   try {
     const response = await fetch(`/api/addons/${encodeURIComponent(addonId)}/remove`, { method: 'POST' });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'unknown error');
     await load();
   } catch (error) {
-    alert(`Remove failed: ${error.message}`);
+    showMessage(card, `Remove failed: ${error.message}`, 'error');
   }
 }
 
@@ -241,7 +278,7 @@ function addonCard(addon) {
   const installBtn = card.querySelector('.addon-install');
   if (installBtn) installBtn.addEventListener('click', () => promptInstall(addon.id, card));
   const removeBtn = card.querySelector('.addon-remove');
-  if (removeBtn) removeBtn.addEventListener('click', () => doRemove(addon.id));
+  if (removeBtn) removeBtn.addEventListener('click', () => confirmRemove(addon.id, card));
   const toggle = card.querySelector('.addon-tools-toggle');
   if (toggle) {
     toggle.addEventListener('click', () => {
@@ -283,4 +320,4 @@ async function load() {
   }
 }
 
-load();
+if (typeof document !== 'undefined') load();

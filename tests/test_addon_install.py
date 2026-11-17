@@ -181,3 +181,27 @@ def test_cancel_stops_a_run_that_prints_nothing():
     )
     assert time.monotonic() - started < 10
     assert result.returncode != 0
+
+
+def test_unreviewed_install_takes_its_id_from_the_manifest(tmp_path):
+    """A repo called foo-addon whose manifest says foo installs as foo, marked not reviewed."""
+    repo = make_bare_repo(tmp_path, "pedestal-addon", files={"addon.json": json.dumps(manifest(id="pedestal"))})
+    result = ai.install_addon(
+        unreviewed=f"{repo}@{repo_head(repo)}",
+        confirm=True,
+        addons_dir=tmp_path / "addons",
+        repo_dir=tmp_path,
+    )
+    assert result["id"] == "pedestal"
+    record = json.loads((tmp_path / "addons" / "pedestal" / ".addon-install.json").read_text(encoding="utf-8"))
+    assert record["id"] == "pedestal"
+    assert record["reviewed"] is False
+
+
+def test_listed_install_still_refuses_a_manifest_with_another_id(tmp_path):
+    registry = tmp_path / "index.json"
+    repo = make_bare_repo(tmp_path, "vehicle-kit", files={"addon.json": json.dumps(manifest(id="other-thing"))})
+    registry.write_text(json.dumps([listing(repo=str(repo), commit=repo_head(repo))]), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match"):
+        ai.install_addon(addon_id="vehicle-kit", index=str(registry), confirm=True,
+                         addons_dir=tmp_path / "addons", repo_dir=tmp_path)

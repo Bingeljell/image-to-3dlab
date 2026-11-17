@@ -63,6 +63,8 @@ class FakeHttp:
         self.posts: list[tuple[str, dict]] = []
         self.alive = True
         self.assets = [KNIGHT, DANCER, PICTURE]
+        self.addon_job = {"status": "running", "addon_id": "test-addon", "tool_id": "make-thing",
+                          "log_tail": "step 1", "result": None, "error": None}
 
     def get(self, url, params=None, timeout=None):
         path = url.split("8777/", 1)[1]
@@ -85,6 +87,8 @@ class FakeHttp:
             return Response(200, content=b"PNG", headers={"X-Preview-Stage": "finished", "X-Preview-Path": ".previews/x.png"})
         if path == "api/addons":
             return Response(200, ADDONS)
+        if path == "api/addons/jobs/job1/status":
+            return Response(200, self.addon_job)
         return Response(200, body) if body is not None else Response(404, {"error": f"no {path}"})
 
     def post(self, url, files=None, json=None, timeout=None):
@@ -1144,10 +1148,28 @@ def test_install_addon_posts_confirm_when_asked(studio):
 
 def test_run_addon_starts_a_job_and_returns_its_id(studio):
     out = ms.run_addon(studio, addon_id="test-addon", tool="make-thing", inputs={"foo": "bar"})
-    assert out["run_id"] == "addon-job-1"
+    assert out["run_id"] == "addon-addon-job-1"
     assert studio.http.posts[-1] == ("api/addons/test-addon/run/make-thing", {"inputs": {"foo": "bar"}})
 
 
 def test_agents_are_told_to_ask_before_installing_addons():
     assert "install_addon" in ms.INSTRUCTIONS
     assert "confirm=true" in ms.INSTRUCTIONS
+
+
+def test_run_status_follows_an_addon_run_by_its_run_id(studio):
+    out = ms.run_status(studio, run_id="addon-job1")
+    assert out["status"] == "running"
+    assert out["id"] == "addon-job1"
+    assert out["log"] == "step 1"
+    studio.http.addon_job.update(status="done", result="/out/x/x.glb")
+    done = ms.run_status(studio, run_id="addon-job1")
+    assert done["status"] == "done" and done["made"] == {"model": "/out/x/x.glb"}
+    studio.http.addon_job.update(status="error", error="run failed")
+    assert ms.run_status(studio, run_id="addon-job1")["error"] == "run failed"
+
+
+def test_cancel_run_cancels_an_addon_run(studio):
+    out = ms.cancel_run(studio, run_id="addon-job1")
+    assert out["cancelled"] is True
+    assert studio.http.posts[-1][0] == "api/addons/jobs/job1/cancel"

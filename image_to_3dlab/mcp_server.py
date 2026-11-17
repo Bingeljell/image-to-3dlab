@@ -863,8 +863,35 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     return out
 
 
+ADDON_RUN_PREFIX = "addon-"
+
+
+def addon_run_status(studio: Studio, job_id: str, wait_seconds: int,
+                     sleep: Callable[[float], None]) -> dict[str, Any]:
+    """An add-on run in the same words as any other run: status, log, and what it made."""
+    state = studio.get(f"api/addons/jobs/{job_id}/status")
+    deadline = time.time() + max(0, min(int(wait_seconds), WAIT_LIMIT))
+    while state.get("status") in ("queued", "running", "cancelling") and time.time() < deadline:
+        sleep(2)
+        state = studio.get(f"api/addons/jobs/{job_id}/status")
+    out: dict[str, Any] = {"id": ADDON_RUN_PREFIX + job_id, "status": state.get("status"),
+                           "title": f"Add-on {state.get('addon_id')}: {state.get('tool_id')}"}
+    if state.get("status") == "error":
+        out["error"] = state.get("error")
+        out["log"] = plain_log(state.get("log_tail"))[-1500:] or None
+    elif state.get("status") == "done":
+        result = state.get("result") or ""
+        out["made"] = {"model": result}
+        out["next"] = "Find the new model with list_assets, then preview it."
+    else:
+        out["log"] = plain_log(state.get("log_tail"))[-1500:] or None
+    return {k: v for k, v in out.items() if v not in (None, [], {})}
+
+
 def run_status(studio: Studio, *, run_id: str | None = None, wait_seconds: int = 0,
                sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    if run_id and run_id.startswith(ADDON_RUN_PREFIX):
+        return addon_run_status(studio, run_id[len(ADDON_RUN_PREFIX):], wait_seconds, sleep)
     if not run_id:
         chains = studio.get("api/chains")
         current = chains.get("running") or (chains.get("recent") or [None])[0]
@@ -881,6 +908,13 @@ def run_status(studio: Studio, *, run_id: str | None = None, wait_seconds: int =
 
 
 def cancel_run(studio: Studio, *, run_id: str) -> dict[str, Any]:
+    if run_id.startswith(ADDON_RUN_PREFIX):
+        try:
+            studio.post(f"api/addons/jobs/{run_id[len(ADDON_RUN_PREFIX):]}/cancel")
+            return {"cancelled": True, "note": None}
+        except StudioError:
+            return {"cancelled": False,
+                    "note": "It was not running (already finished, failed or cancelled)."}
     result = studio.post(f"api/chains/{run_id}/cancel")
     return {"cancelled": bool(result.get("cancelled")),
             "note": None if result.get("cancelled") else "It was not running (already finished, failed or cancelled)."}
@@ -1089,7 +1123,7 @@ def install_addon(studio: Studio, *, addon_id: str, confirm: bool = False) -> di
 def run_addon(studio: Studio, *, addon_id: str, tool: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run one tool from an installed add-on. Returns a run_id; poll run_status for progress."""
     result = studio.post_json(f"api/addons/{addon_id}/run/{tool}", {"inputs": inputs or {}})
-    return {"run_id": result.get("job_id"), "status": result.get("status")}
+    return {"run_id": ADDON_RUN_PREFIX + str(result.get("job_id")), "status": result.get("status")}
 
 
 # --------------------------------------------------------------------------- the server

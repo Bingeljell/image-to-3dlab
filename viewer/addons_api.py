@@ -145,7 +145,7 @@ def install_payload(addon_id: str) -> dict[str, Any]:
         "models": plan["models"],
         "setup": plan["setup"],
         "warning": plan["warning"],
-        "reviewed": listing.type != "tool" or True,
+        "reviewed": True,
     }
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,9 @@ class Listing:
     author: dict[str, str]
     summary: str
     type: str
+    links: dict[str, str] = field(default_factory=dict)
+    rating: float | None = None
+    ratings_count: int = 0
 
 
 def validate_addon_id(addon_id: str) -> None:
@@ -135,8 +138,8 @@ def read_manifest(path: Path) -> Manifest:
     schema = _require_field(data, "schema", "addon.json")
     if schema != 1:
         raise ValueError(f"addon.json schema must be 1; got {schema!r}")
-    for field in REQUIRED_MANIFEST_FIELDS:
-        _require_field(data, field, "addon.json")
+    for mf in REQUIRED_MANIFEST_FIELDS:
+        _require_field(data, mf, "addon.json")
     tools = data.get("tools", [])
     if not isinstance(tools, list):
         raise ValueError("addon.json 'tools' must be a list")
@@ -177,8 +180,8 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         where = f"registry[{index}]"
         if not isinstance(item, dict):
             raise ValueError(f"{where} must be an object")
-        for field in ("id", "name", "repo", "commit"):
-            _require_field(item, field, where)
+        for rf in ("id", "name", "repo", "commit"):
+            _require_field(item, rf, where)
         if not item["commit"]:
             raise ValueError(f"{where} 'commit' must be a pinned commit hash")
         validate_addon_id(item["id"])
@@ -187,6 +190,18 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         addon_type = item.get("type", "tool")
         if addon_type not in ADDON_TYPES:
             raise ValueError(f"{where} 'type' must be one of {ADDON_TYPES}; got {addon_type!r}")
+        raw_links = item.get("links", {})
+        links = {k: str(v) for k, v in raw_links.items()} if isinstance(raw_links, dict) else {}
+        rating = item.get("rating")
+        if rating is not None:
+            try:
+                rating = float(rating)
+            except (TypeError, ValueError):
+                rating = None
+        try:
+            ratings_count = int(item.get("ratings_count", 0))
+        except (TypeError, ValueError):
+            ratings_count = 0
         listings.append(
             Listing(
                 id=str(item["id"]),
@@ -196,6 +211,9 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
                 author=author,
                 summary=summary,
                 type=addon_type,
+                links=links,
+                rating=rating,
+                ratings_count=ratings_count,
             )
         )
     return listings
@@ -324,8 +342,8 @@ def build_command(tool: Tool, inputs: dict[str, Any], *, out_dir: str | Path,
 
 
 def output_dir(addon_id: str, run_stem: str) -> Path:
-    """Directory an add-on run should put its result in."""
-    return Path("output") / f"addon-{addon_id}" / run_stem
+    """Folder, inside the output folder, an add-on run puts its result in."""
+    return Path(f"addon-{addon_id}") / run_stem
 
 
 def run_record(

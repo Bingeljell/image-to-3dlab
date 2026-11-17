@@ -47,6 +47,15 @@ DANCER = {**KNIGHT, "id": "bbbbbbbbbbbb", "name": "dancer", "stage": "animated",
           "clips": [{"name": "idle", "file": "animate/d/d_idle.glb"}]}
 PICTURE = {"id": "cccccccccccc", "name": "fox", "kind": "picture", "stage": "picture", "updated": 0,
            "picture": "images/f/f.png", "clips": [], "props": []}
+ADDONS = {"online": True, "error": None, "addons": [
+    {"id": "test-addon", "name": "Test Add-on", "installed": True, "reviewed": True,
+     "author": {"name": "A. Author", "url": "https://author.test"}, "summary": "A test add-on.",
+     "rating": 4.2, "ratings_count": 5,
+     "tools": [{"id": "make-thing", "label": "Make thing", "hint": "makes a thing"}]},
+]}
+ADDON_PLAN = {"id": "test-addon", "name": "Test Add-on", "author": "A. Author", "licence": "MIT",
+              "models": [{"name": "model.safetensors", "licence": "MIT", "size": "2 GB"}],
+              "warning": "This will download 2 GB."}
 
 
 class FakeHttp:
@@ -54,6 +63,8 @@ class FakeHttp:
         self.posts: list[tuple[str, dict]] = []
         self.alive = True
         self.assets = [KNIGHT, DANCER, PICTURE]
+        self.addon_job = {"status": "running", "addon_id": "test-addon", "tool_id": "make-thing",
+                          "log_tail": "step 1", "result": None, "error": None}
 
     def get(self, url, params=None, timeout=None):
         path = url.split("8777/", 1)[1]
@@ -74,6 +85,10 @@ class FakeHttp:
                                   "folder": "/out/finish/k", "stats": {"triangles": 19981}})
         if path == "api/preview":
             return Response(200, content=b"PNG", headers={"X-Preview-Stage": "finished", "X-Preview-Path": ".previews/x.png"})
+        if path == "api/addons":
+            return Response(200, ADDONS)
+        if path == "api/addons/jobs/job1/status":
+            return Response(200, self.addon_job)
         return Response(200, body) if body is not None else Response(404, {"error": f"no {path}"})
 
     def post(self, url, files=None, json=None, timeout=None):
@@ -91,6 +106,10 @@ class FakeHttp:
             return Response(202, {"id": "new-run"})
         if path.endswith("/cancel"):
             return Response(200, {"cancelled": True})
+        if re.fullmatch(r"api/addons/[^/]+/install", path):
+            return Response(200, ADDON_PLAN if not (json or {}).get("confirm") else {"installed": True, "id": "test-addon"})
+        if re.fullmatch(r"api/addons/[^/]+/run/[^/]+", path):
+            return Response(202, {"job_id": "addon-job-1", "status": "running"})
         return Response(202, {"status_url": "/api/setup/hunyuan/status"})
 
 
@@ -124,8 +143,14 @@ def post_routes() -> set[str]:
         length = re.search(r"len\(parts\) == (\d)", cond)
         if not (head and length):
             continue
-        parts = json.loads(f"[{head[2]}]") + ["*"] * (int(length[1]) - int(head[1]))
+        prefix = json.loads(f"[{head[2]}]")
+        parts = prefix + ["*"] * (int(length[1]) - int(head[1]))
         last = int(length[1]) - 1
+        # Capture literals on intermediate positions, e.g. parts[3] == "run".
+        for m in range(len(prefix), last):
+            mid = re.search(rf"parts\[{m}\] == \"(\w[\w-]*)\"", cond)
+            if mid:
+                parts[m] = mid[1]
         tail = re.search(rf"parts\[{last}\] == \"(\w[\w-]*)\"", cond)
         options = re.search(rf"parts\[{last}\] in \{{(.*?)\}}", cond)
         for word in ([tail[1]] if tail else json.loads(f"[{options[1]}]") if options else ["*"]):
@@ -153,7 +178,8 @@ def test_the_server_registers_every_tool():
                      "list_assets", "list_versions", "options", "preview", "open_in_studio", "install_backend", "blender_helpers",
                      "model_info", "show_in_folder", "export_roblox", "report_bug", "make_skin", "skin_status", "skin_picture",
                      "approve_skin_picture", "redo_skin_picture", "build_skin", "cancel_skin", "export_skins",
-                     "usage_counts", "brush_back", "picture_status", "back_versions"}
+                     "usage_counts", "brush_back", "picture_status", "back_versions",
+                     "list_addons", "install_addon", "run_addon"}
 
 
 # --------------------------------------------------------------------------- create
@@ -1092,3 +1118,58 @@ def test_export_roblox_sends_the_steps_file_and_passes_the_height_on(studio):
 def test_export_roblox_leaves_the_height_to_the_studio_when_not_given(studio):
     ms.export_roblox(studio, asset_id=KNIGHT["id"], kind="accessory")
     assert "height_studs" not in studio.http.posts[-1][1]
+
+
+# --------------------------------------------------------------------------- add-ons
+def test_list_addons_reaches_the_studio_endpoint(studio):
+    out = ms.list_addons(studio)
+    assert out["online"] is True
+    addon = out["addons"][0]
+    assert addon["id"] == "test-addon"
+    assert addon["author"]["name"] == "A. Author"
+    assert addon["rating"] == 4.2
+
+
+def test_install_addon_returns_plan_without_confirm(studio):
+    plan = ms.install_addon(studio, addon_id="test-addon")
+    assert plan["id"] == "test-addon"
+    assert plan["models"][0]["size"] == "2 GB"
+    assert "to_start" in plan
+    path, body = studio.http.posts[-1]
+    assert path == "api/addons/test-addon/install"
+    assert body == {"confirm": False}
+
+
+def test_install_addon_posts_confirm_when_asked(studio):
+    result = ms.install_addon(studio, addon_id="test-addon", confirm=True)
+    assert result["installed"] is True
+    assert studio.http.posts[-1] == ("api/addons/test-addon/install", {"confirm": True})
+
+
+def test_run_addon_starts_a_job_and_returns_its_id(studio):
+    out = ms.run_addon(studio, addon_id="test-addon", tool="make-thing", inputs={"foo": "bar"})
+    assert out["run_id"] == "addon-addon-job-1"
+    assert studio.http.posts[-1] == ("api/addons/test-addon/run/make-thing", {"inputs": {"foo": "bar"}})
+
+
+def test_agents_are_told_to_ask_before_installing_addons():
+    assert "install_addon" in ms.INSTRUCTIONS
+    assert "confirm=true" in ms.INSTRUCTIONS
+
+
+def test_run_status_follows_an_addon_run_by_its_run_id(studio):
+    out = ms.run_status(studio, run_id="addon-job1")
+    assert out["status"] == "running"
+    assert out["id"] == "addon-job1"
+    assert out["log"] == "step 1"
+    studio.http.addon_job.update(status="done", result="/out/x/x.glb")
+    done = ms.run_status(studio, run_id="addon-job1")
+    assert done["status"] == "done" and done["made"] == {"model": "/out/x/x.glb"}
+    studio.http.addon_job.update(status="error", error="run failed")
+    assert ms.run_status(studio, run_id="addon-job1")["error"] == "run failed"
+
+
+def test_cancel_run_cancels_an_addon_run(studio):
+    out = ms.cancel_run(studio, run_id="addon-job1")
+    assert out["cancelled"] is True
+    assert studio.http.posts[-1][0] == "api/addons/jobs/job1/cancel"

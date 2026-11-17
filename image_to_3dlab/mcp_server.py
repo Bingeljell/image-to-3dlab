@@ -72,7 +72,8 @@ STUDIO_ONLY = {
 # Server actions the tools below call.
 USED = {"api/chains", "api/chains/*/cancel", "api/setup/*/download", "api/reveal", "api/roblox-export", "api/bug-report", "api/usage",
         "api/skins", "api/skins/*/try", "api/skins/*/approve", "api/skins/*/build", "api/skins/build/*/cancel",
-        "api/image/brush", "api/image/versions/use", "api/image/versions/delete"}
+        "api/image/brush", "api/image/versions/use", "api/image/versions/delete",
+        "api/addons/*/install", "api/addons/*/remove", "api/addons/*/run/*", "api/addons/jobs/*/cancel"}
 
 
 class StudioError(RuntimeError):
@@ -862,8 +863,35 @@ def continue_asset(studio: Studio, *, asset_id: str, up_to: str | None = None, w
     return out
 
 
+ADDON_RUN_PREFIX = "addon-"
+
+
+def addon_run_status(studio: Studio, job_id: str, wait_seconds: int,
+                     sleep: Callable[[float], None]) -> dict[str, Any]:
+    """An add-on run in the same words as any other run: status, log, and what it made."""
+    state = studio.get(f"api/addons/jobs/{job_id}/status")
+    deadline = time.time() + max(0, min(int(wait_seconds), WAIT_LIMIT))
+    while state.get("status") in ("queued", "running", "cancelling") and time.time() < deadline:
+        sleep(2)
+        state = studio.get(f"api/addons/jobs/{job_id}/status")
+    out: dict[str, Any] = {"id": ADDON_RUN_PREFIX + job_id, "status": state.get("status"),
+                           "title": f"Add-on {state.get('addon_id')}: {state.get('tool_id')}"}
+    if state.get("status") == "error":
+        out["error"] = state.get("error")
+        out["log"] = plain_log(state.get("log_tail"))[-1500:] or None
+    elif state.get("status") == "done":
+        result = state.get("result") or ""
+        out["made"] = {"model": result}
+        out["next"] = "Find the new model with list_assets, then preview it."
+    else:
+        out["log"] = plain_log(state.get("log_tail"))[-1500:] or None
+    return {k: v for k, v in out.items() if v not in (None, [], {})}
+
+
 def run_status(studio: Studio, *, run_id: str | None = None, wait_seconds: int = 0,
                sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    if run_id and run_id.startswith(ADDON_RUN_PREFIX):
+        return addon_run_status(studio, run_id[len(ADDON_RUN_PREFIX):], wait_seconds, sleep)
     if not run_id:
         chains = studio.get("api/chains")
         current = chains.get("running") or (chains.get("recent") or [None])[0]
@@ -880,6 +908,13 @@ def run_status(studio: Studio, *, run_id: str | None = None, wait_seconds: int =
 
 
 def cancel_run(studio: Studio, *, run_id: str) -> dict[str, Any]:
+    if run_id.startswith(ADDON_RUN_PREFIX):
+        try:
+            studio.post(f"api/addons/jobs/{run_id[len(ADDON_RUN_PREFIX):]}/cancel")
+            return {"cancelled": True, "note": None}
+        except StudioError:
+            return {"cancelled": False,
+                    "note": "It was not running (already finished, failed or cancelled)."}
     result = studio.post(f"api/chains/{run_id}/cancel")
     return {"cancelled": bool(result.get("cancelled")),
             "note": None if result.get("cancelled") else "It was not running (already finished, failed or cancelled)."}
@@ -1064,6 +1099,33 @@ def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -
             "status_url": started.get("status_url")}
 
 
+# --------------------------------------------------------------------------- add-ons
+def list_addons(studio: Studio) -> dict[str, Any]:
+    """Every reviewed add-on, whether it is installed, its author and what it makes."""
+    return studio.get("api/addons")
+
+
+def install_addon(studio: Studio, *, addon_id: str, confirm: bool = False) -> dict[str, Any]:
+    """Install an add-on. Without confirm this returns the plan; confirm=true installs it.
+
+    Add-ons run code on this machine, so always show the plan and get a clear yes first.
+    """
+    plan = studio.post_json(f"api/addons/{addon_id}/install", {"confirm": False})
+    if not confirm:
+        plan["to_start"] = (
+            "Nothing has been installed. Tell the user what this add-on does, who wrote it, "
+            "its licence and whether it is reviewed, then call again with confirm=true only after they say yes."
+        )
+        return plan
+    return studio.post_json(f"api/addons/{addon_id}/install", {"confirm": True})
+
+
+def run_addon(studio: Studio, *, addon_id: str, tool: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run one tool from an installed add-on. Returns a run_id; poll run_status for progress."""
+    result = studio.post_json(f"api/addons/{addon_id}/run/{tool}", {"inputs": inputs or {}})
+    return {"run_id": ADDON_RUN_PREFIX + str(result.get("job_id")), "status": result.get("status")}
+
+
 # --------------------------------------------------------------------------- the server
 def skin_summary(state: dict[str, Any]) -> dict[str, Any]:
     """A skin in short: its pictures (files the agent can show), what is approved, what to do next."""
@@ -1194,6 +1256,10 @@ version of a character. Skins: make_skin(asset_id, change="make the skirt gold")
 finished Pixal3D model's own pictures; show each to the user (skin_picture) and approve or redo, front
 then back; build_skin then repaints the same model (same mesh, so the rig and moves still fit).
 Never download model weights without the user's explicit yes (install_backend asks first).
+Add-ons are extra tools from other repos, listed by list_addons and installed with install_addon. They run code
+on this machine, so show the user the plan (author, licence, what it fetches) and get a clear yes before
+confirm=true. Run a tool from an installed add-on with run_addon; it returns a run_id like create does, then
+poll run_status until it finishes.
 If status shows usage_counts.ask_user, put that question to the user; if they say yes, record it with
 usage_counts(user_said_yes=true). Never answer it for them. Only the user can turn sharing on or off, on the
 studio's About page.
@@ -1472,6 +1538,24 @@ def build_server(studio: Studio | None = None):
         """Set up an engine. Without confirm it only reports what would be downloaded, the size and the
         licence; tell the user and get a clear yes before calling again with confirm=true."""
         return safe(lambda: install_backend(studio, backend_id=backend_id, confirm=confirm))
+
+    @server.tool(name="list_addons", structured_output=False)
+    def tool_list_addons():
+        """Every add-on from the list (installed first): name, author, summary, links, rating,
+        whether it is reviewed, and the tools it provides."""
+        return safe(lambda: list_addons(studio))
+
+    @server.tool(name="install_addon", structured_output=False)
+    def tool_install_addon(addon_id: str, confirm: bool = False):
+        """Install an add-on. Without confirm it returns the plan; tell the user what it fetches,
+        who wrote it and its licence, then call again with confirm=true only after they say yes."""
+        return safe(lambda: install_addon(studio, addon_id=addon_id, confirm=confirm))
+
+    @server.tool(name="run_addon", structured_output=False)
+    def tool_run_addon(addon_id: str, tool: str, inputs: dict | None = None):
+        """Run one tool from an installed add-on. tool is the tool id shown by list_addons.
+        Returns a run_id; poll run_status until it is done, error or cancelled."""
+        return safe(lambda: run_addon(studio, addon_id=addon_id, tool=tool, inputs=inputs or {}))
 
     return server
 

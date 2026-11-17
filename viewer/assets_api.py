@@ -251,7 +251,15 @@ def _models(output: Path) -> list[dict[str, Any]]:
         for run in (top, *_dirs(top)):
             glb = run / f"{run.name}.glb"
             if glb.is_file():
-                found.append({"stem": run.name, "file": glb})
+                made_with = None
+                try:
+                    record = json.loads(glb.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+                    addon = record.get("addon")
+                    if addon:
+                        made_with = addon.get("name")
+                except (OSError, ValueError, AttributeError):
+                    pass
+                found.append({"stem": run.name, "file": glb, "made_with": made_with})
     return found
 
 
@@ -493,6 +501,7 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             "back": rel(back) if picture and (back := picture["file"].with_name(
                 f"{picture['file'].stem}__back.png")).is_file() else None,
             "model": rel(model["file"]) if model else None,
+            "made_with": model.get("made_with") if model else None,
             "finished": rel(fin["file"]) if fin else None,
             "pixel_match": fin["pixel_match"] if fin else None,
             "rigged": rel(rig["file"]) if rig else None,

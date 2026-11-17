@@ -749,7 +749,7 @@ export async function load() {
       placeRunPanel();
     }
     // A setup runs for up to an hour. Reloaded or reopened mid-run, pick it back up; the
-    // event stream replays from the start, so the bar and the log come back whole.
+    // event stream replays from the start, so the bar and log come back whole.
     if (state.catalog.running_setup && !state.source) resume(state.catalog.running_setup);
     document.dispatchEvent(new CustomEvent('viewer:catalog', { detail: state.catalog }));
   } catch (error) {

@@ -73,6 +73,9 @@ def listing(**overrides) -> dict:
         "author": {"name": "Ahnyth", "url": "https://github.com/Ahnyth"},
         "summary": "Buses, vans and metro cars from a few numbers.",
         "type": "tool",
+        "links": {"repo": "https://github.com/Ahnyth/vehicle-kit", "site": "https://vehiclekit.example"},
+        "rating": 4.5,
+        "ratings_count": 12,
     }
     base.update(overrides)
     return base
@@ -175,6 +178,19 @@ class TestReadRegistry:
         assert entries[0].type == "tool"
         assert entries[1].id == "mac-wrapper"
         assert entries[1].type == "app"
+
+    def test_reads_links_and_rating(self):
+        entry = addons.read_registry([listing()])[0]
+        assert entry.links == {"repo": "https://github.com/Ahnyth/vehicle-kit",
+                               "site": "https://vehiclekit.example"}
+        assert entry.rating == 4.5
+        assert entry.ratings_count == 12
+
+    def test_missing_links_and_rating_default_safely(self):
+        entry = addons.read_registry([listing(links=None, rating=None, ratings_count=None)])[0]
+        assert entry.links == {}
+        assert entry.rating is None
+        assert entry.ratings_count == 0
 
     def test_registry_entry_requires_commit(self):
         with pytest.raises(ValueError, match="commit"):
@@ -347,7 +363,7 @@ class TestBuildCommand:
 class TestOutputDir:
     def test_output_dir_shape(self):
         path = addons.output_dir("vehicle-kit", "run-123")
-        assert path == Path("output/addon-vehicle-kit/run-123")
+        assert path == Path("addon-vehicle-kit/run-123")
 
 
 class TestRunRecord:
@@ -556,7 +572,7 @@ class TestScriptHappyPath:
             ],
         )
         assert result.returncode == 0, result.stderr
-        run_dir = tmp_path / "output" / "addon-vehicle-kit" / "run-abc"
+        run_dir = tmp_path / "addon-vehicle-kit" / "run-abc"
         assert (run_dir / "run-abc.glb").is_file()
         assert (run_dir / "run-abc.provenance.json").is_file()
 
@@ -582,7 +598,7 @@ class TestScriptHappyPath:
             ["run", "vehicle-kit", "build", "--input", "preset=bus_12m", "--yes"],
         )
         assert second.returncode == 0, second.stderr
-        run_dirs = list((tmp_path / "output" / "addon-vehicle-kit").iterdir())
+        run_dirs = list((tmp_path / "addon-vehicle-kit").iterdir())
         assert len(run_dirs) == 2
         for run_dir in run_dirs:
             assert any(p.suffix == ".glb" for p in run_dir.iterdir())
@@ -692,7 +708,7 @@ class TestScriptHappyPath:
         )
         assert result.returncode == 0, result.stderr
         record = json.loads(
-            (tmp_path / "output" / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
+            (tmp_path / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
             .read_text(encoding="utf-8")
         )
         assert record["addon"]["repo"] == "https://example.com/test.git"
@@ -730,10 +746,20 @@ class TestScriptHappyPath:
         )
         assert result.returncode == 0, result.stderr
         record = json.loads(
-            (tmp_path / "output" / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
+            (tmp_path / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
             .read_text(encoding="utf-8")
         )
         assert record["addon"]["reviewed"] is False
+
+    def test_list_shows_author_links_and_rating(self, tmp_path):
+        registry = tmp_path / "index.json"
+        registry.write_text(json.dumps([listing()]), encoding="utf-8")
+        result = run_addon_script(tmp_path, ["list", "--index", str(registry)])
+        assert result.returncode == 0, result.stderr
+        assert "Vehicle kit by Ahnyth" in result.stdout
+        assert "* 4.5 (12)" in result.stdout
+        assert "author: https://github.com/Ahnyth" in result.stdout
+        assert "site: https://vehiclekit.example" in result.stdout
 
 
 def make_bare_repo(tmp_path: Path, name: str, files: dict[str, str]) -> Path:

@@ -46,7 +46,7 @@ up to you.
     "assetfurnace": ">=0.6.0",
     "blender": ">=4.2"
   },
-  "setup": ["python", "-c", "print('setup ok')"],
+  "setup": ["python3", "-c", "print('setup ok')"],
   "models": [],
   "tools": [
     {
@@ -175,7 +175,8 @@ You can install an unreviewed add-on straight from a Git URL to test it:
 ./lab addon add --unreviewed https://github.com/you/pedestal-addon.git@<commit-hash>
 ```
 
-The URL must end with `@<40-character commit hash>`. AssetFurnace clones that exact
+The URL must end with `@<40-character commit hash>`. The repo name does not have to match the
+add-on id: the id comes from `addon.json`. AssetFurnace clones that exact
 commit, checks the manifest, runs `setup`, and asks for confirmation before writing
 anything.
 

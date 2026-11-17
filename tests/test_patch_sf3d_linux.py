@@ -112,6 +112,7 @@ def test_an_anchor_that_moved_fails_loudly(checkout: Path):
     assert gen.is_patched(checkout) is False
 
 
+@pytest.mark.posix
 def test_each_patch_names_itself_when_it_fails(checkout: Path):
     (checkout / gen.BAKER_FILE).unlink()
     with pytest.raises(SystemExit, match=gen.BAKER_FILE):

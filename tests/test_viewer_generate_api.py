@@ -1921,9 +1921,12 @@ def test_progress_streams_tell_proxies_not_to_buffer():
 def test_backends_say_whether_they_run_on_this_machine(monkeypatch):
     # The Generate dropdown offered the Mac-only Hunyuan-MLX routes on an NVIDIA pod.
     monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.backend_catalog.NVIDIA)
+    # An NVIDIA Linux pod: on Windows the CUDA Hunyuan route is ruled out by the OS as well.
+    monkeypatch.setattr(api.backend_catalog._host, "os_family", lambda *a: "linux")
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
     assert here["hunyuan-cuda"] is True and here["hunyuan-mlx-xiong"] is False
     monkeypatch.setattr(api.backend_catalog, "host_platform", lambda: api.APPLE)
+    monkeypatch.setattr(api.backend_catalog._host, "os_family", lambda *a: "macos")
     here = {b["id"]: b["runs_here"] for b in api.backends_payload()["backends"]}
     assert here["hunyuan-mlx-xiong"] is True and here["hunyuan-cuda"] is False
 

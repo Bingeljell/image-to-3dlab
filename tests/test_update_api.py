@@ -35,7 +35,7 @@ def check(tmp_path, fetch, now=1_000_000.0, current="0.2.0", **kw):
 def test_a_newer_release_is_reported_with_the_command_for_this_folder(tmp_path):
     result = check(tmp_path, Fetch())
     assert result["newer"] is True and result["latest"] == "0.3.0"
-    assert "install.sh | bash -s -- --dir /lab" in result["command"]
+    assert f"install.sh | bash -s -- --dir {Path('/lab')}" in result["command"]
     assert result["url"].endswith("v0.3.0")
 
 

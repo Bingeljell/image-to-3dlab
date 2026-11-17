@@ -146,6 +146,7 @@ def test_the_bpy_pin_survives_the_filter():
     assert not any(line.startswith("bpy==4.0") for line in filtered)
 
 
+@pytest.mark.posix
 def test_the_compile_targets_this_card_and_not_some_other_one():
     env = boot.build_env(["gfx1100"], HIPCC, base={"PATH": "/usr/bin"})
     assert env["PYTORCH_ROCM_ARCH"] == "gfx1100"

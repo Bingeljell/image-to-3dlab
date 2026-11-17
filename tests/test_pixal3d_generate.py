@@ -497,6 +497,7 @@ def test_an_existing_loader_path_is_kept_in_front(tmp_path, monkeypatch):
     assert env["LD_LIBRARY_PATH"] == f"{root / 'lib'}:/my/lib"
 
 
+@pytest.mark.posix
 def test_rocm_is_not_added_twice(tmp_path, monkeypatch):
     root = tmp_path / "rocm"
     (root / "lib").mkdir(parents=True)
@@ -629,11 +630,11 @@ def test_paint_copies_keep_a_bigger_pictures_detail(tmp_path):
 def test_the_front_back_command_uses_the_views_and_the_multiview_weights():
     command = px.build_multiview_command(Path("/v"), Path("/o.glb"), res=1024, seed=42,
                                          models=Path("/mv"), cli=Path("/bin/trellis-cli"))
-    assert command[command.index("--views") + 1] == "/v"
+    assert command[command.index("--views") + 1] == str(Path("/v"))
     assert command[command.index("--pixal3d-weights") + 1] == "mv"
-    assert command[command.index("--models") + 1] == "/mv"
+    assert command[command.index("--models") + 1] == str(Path("/mv"))
     assert command[command.index("--gss") + 1] == str(px.DEFAULT_GSS)
-    assert "--sv-image" not in command and command[-1] == "/o.glb"
+    assert "--sv-image" not in command and command[-1] == str(Path("/o.glb"))
 
 
 def test_multiview_readiness_checks_the_manifests_files(tmp_path):
@@ -703,7 +704,7 @@ def test_a_binary_without_the_shape_patch_cannot(tmp_path):
 
 def test_a_normal_run_saves_its_shape(no_rocm):
     env = px.run_env(None, base={}, save_shape=Path("/out/run.shape.bin"))
-    assert env[px.SHAPE_SAVE_ENV] == "/out/run.shape.bin"
+    assert env[px.SHAPE_SAVE_ENV] == str(Path("/out/run.shape.bin"))
     assert px.SHAPE_LOAD_ENV not in env
 
 
@@ -711,7 +712,7 @@ def test_a_repaint_loads_the_shape_and_saves_nothing(no_rocm):
     """The repaint's shape IS the saved one; writing it again would only invite a mix-up."""
     env = px.run_env(None, base={}, save_shape=Path("/new.shape.bin"),
                      load_shape=Path("/old.shape.bin"))
-    assert env[px.SHAPE_LOAD_ENV] == "/old.shape.bin"
+    assert env[px.SHAPE_LOAD_ENV] == str(Path("/old.shape.bin"))
     assert px.SHAPE_SAVE_ENV not in env
 
 

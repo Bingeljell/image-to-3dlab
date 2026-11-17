@@ -81,6 +81,7 @@ def test_the_extensions_build_against_the_torch_just_installed():
     assert "--no-build-isolation" in commands[-1]
 
 
+@pytest.mark.posix
 def test_the_build_is_told_to_include_the_gpu_kernels():
     """USE_CUDA=1 is what keeps baker_kernel.cu in the build. Without it the extension
     builds and has no GPU kernels in it, with nothing to say so."""

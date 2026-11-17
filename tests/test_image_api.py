@@ -370,8 +370,8 @@ def test_an_edit_carries_the_reference_and_the_vision_file():
     command = api.build_command("the back", settings, Path("/out/x.png"), WEIGHTS,
                                 binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"),
                                 vision=Path("/w/mmproj.gguf"))
-    assert command[command.index("-r") + 1] == "/in/front.png"
-    assert command[command.index("--llm_vision") + 1] == "/w/mmproj.gguf"
+    assert command[command.index("-r") + 1] == str(Path("/in/front.png"))
+    assert command[command.index("--llm_vision") + 1] == str(Path("/w/mmproj.gguf"))
 
 
 def test_a_plain_picture_has_no_reference():
@@ -450,7 +450,9 @@ def test_a_picture_run_records_its_pid_and_starts_its_own_group(tmp_path, monkey
     real_popen = api.subprocess.Popen
 
     def popen(*args, **kwargs):
-        seen["group"] = kwargs.get("start_new_session")
+        # Its own group: a new session on POSIX, CREATE_NEW_PROCESS_GROUP on Windows.
+        seen["group"] = bool(kwargs.get("start_new_session")
+                             or kwargs.get("creationflags", 0) & processes.CREATE_NEW_PROCESS_GROUP)
         return real_popen(*args, **kwargs)
 
     monkeypatch.setattr(api.subprocess, "Popen", popen)
@@ -506,7 +508,7 @@ def test_a_flux_edit_reads_the_reference_without_a_vision_projector():
     settings = api.clean_settings({}, api.FLUX)
     command = api.build_command("its back", settings, Path("/out/b.png"), WEIGHTS,
                                 binary=Path("/bin/sd-cli"), reference=Path("/in/front.png"), engine=api.FLUX)
-    assert command[command.index("-r") + 1] == "/in/front.png"
+    assert command[command.index("-r") + 1] == str(Path("/in/front.png"))
     assert "--llm_vision" not in command
     assert api.can_edit(api.FLUX)
 

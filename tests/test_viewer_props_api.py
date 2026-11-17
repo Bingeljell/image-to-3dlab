@@ -145,7 +145,7 @@ def _job(tmp_path: Path, **settings):
 def test_the_split_command_carries_names_turns_and_threshold(tmp_path):
     job = _job(tmp_path, names="barrel\nchest", turns={"chest": 90})
     command = props.split_command(job, Path("/bin/blender"))
-    assert command[:8] == ["/bin/blender", "-b", "--factory-startup",
+    assert command[:8] == [str(Path("/bin/blender")), "-b", "--factory-startup",
                            "--python-exit-code", "1", "-P", str(props.SPLITTER), "--"]
     assert command[8:10] == [str(job.source_glb), str(job.split_dir)]
     assert command[command.index("--names") + 1:][:2] == ["barrel", "chest"]

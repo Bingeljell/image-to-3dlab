@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Prop finishing writes file paths with forward slashes on every system, so its manifest reads the same on Windows.
 
+### Changed
+
+- **Finish spends its faces on what is seen.** Pixal3D builds a second wall a few millimetres inside the first, and Finish's remesh kept both: on a knight figure 56 % of a 60,000-face Finish could not be seen from anywhere. The classic route now drops every face no ray from outside reaches, right after the remesh, so the same budget lands on the surface (7 % left, mostly deep creases) and the bake gets about twice the faces where it shows. It adds about 40 s to a 60,000-face Finish; `--keep-inner` (`scripts/retopo_repaint.py`) or `keep` as `blender_retopo_bake.py`'s tenth argument turns it off. Pixal3D's own clean-up route is unchanged.
+
 ## [0.5.11] - 2026-11-17
 
 ### Added

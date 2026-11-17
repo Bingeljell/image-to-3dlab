@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Add-ons (core + CLI)**: install and run someone else's repo with an `addon.json` via
+  `./lab addon list|add|remove|run`. Listed add-ons are pinned to an exact commit, verified
+  on clone, and run with `HF_HUB_OFFLINE=1`. The core writes the `.provenance.json` sidecar.
+
 ## [0.5.11] - 2026-11-17
 
 ### Added

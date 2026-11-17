@@ -99,6 +99,9 @@ up to you.
 
 - `type`: `"tool"` (default) or `"app"`. Tools make models; apps are reserved for future
   use and behave the same as tools today.
+- `runs`: `"local"` (default) or `"cloud"`. Say `"cloud"` if the add-on sends the user's models or
+  pictures to a service off their machine. Users see a Cloud badge and a plain warning before they install.
+  Leave it out and it counts as local, so declaring it honestly is on you.
 - `needs`: a map of requirements shown to the user before install. Keys are free-form
   strings such as `"assetfurnace"` or `"blender"`; values are free-form version hints.
 - `setup`: a command list run once when the add-on is installed. Use it to fetch assets

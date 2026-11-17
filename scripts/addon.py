@@ -124,7 +124,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         if listing.rating is not None:
             count = f" ({listing.ratings_count})" if listing.ratings_count else ""
             rating = f" * {listing.rating}{count}"
-        print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}]")
+        where = " (cloud)" if listing.runs == "cloud" else ""
+        print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}]{where}")
         if listing.summary:
             print(f"  {listing.summary}")
         link_line = _link_line(listing)

@@ -209,6 +209,32 @@ class TestReadRegistry:
             addons.read_registry([listing(id="../bad")])
 
 
+class TestRuns:
+    def test_runs_defaults_to_local_everywhere(self, tmp_path):
+        assert _manifest_object(tmp_path, manifest()).runs == "local"
+        assert addons.read_registry([listing()])[0].runs == "local"
+
+    def test_cloud_is_accepted_and_anything_else_refused(self, tmp_path):
+        assert _manifest_object(tmp_path, manifest(runs="cloud")).runs == "cloud"
+        assert addons.read_registry([listing(runs="cloud")])[0].runs == "cloud"
+        with pytest.raises(ValueError, match="runs"):
+            _manifest_object(tmp_path, manifest(runs="elsewhere"))
+        with pytest.raises(ValueError, match="runs"):
+            addons.read_registry([listing(runs="elsewhere")])
+
+    def test_cloud_plan_says_models_leave_the_machine(self, tmp_path):
+        m = _manifest_object(tmp_path, manifest(runs="cloud"))
+        plan = addons.install_plan(addons.read_registry([listing(runs="cloud")])[0], m)
+        assert plan["runs"] == "cloud"
+        assert "sent off this machine" in plan["warning"]
+
+    def test_local_plan_does_not_mention_the_cloud(self, tmp_path):
+        m = _manifest_object(tmp_path, manifest())
+        plan = addons.install_plan(addons.read_registry([listing()])[0], m)
+        assert plan["runs"] == "local"
+        assert "cloud" not in plan["warning"].lower()
+
+
 class TestInstallPlan:
     def test_plan_includes_review_line(self, tmp_path):
         m = _manifest_object(tmp_path, manifest())

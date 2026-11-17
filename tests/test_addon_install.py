@@ -252,3 +252,15 @@ def test_listed_install_still_refuses_a_manifest_with_another_id(tmp_path):
     with pytest.raises(ValueError, match="does not match"):
         ai.install_addon(addon_id="vehicle-kit", index=str(registry), confirm=True,
                          addons_dir=tmp_path / "addons", repo_dir=tmp_path)
+
+
+def test_the_list_is_read_from_the_public_list_repo(monkeypatch):
+    """With no local file given, load_registry reads the published index and understands it."""
+    seen = []
+    entry = {"id": "pedestal", "name": "Pedestal", "repo": "https://github.com/AssetFurnace/pedestal-addon.git",
+             "commit": "a" * 40, "author": {"name": "AssetFurnace"}, "summary": "A stand.", "tier": "listed",
+             "runs": "local", "links": {"repo": "https://github.com/AssetFurnace/pedestal-addon"}}
+    monkeypatch.setattr(ai, "_fetch_json", lambda url: seen.append(url) or [entry])
+    listings = ai.load_registry(None)
+    assert seen == ["https://raw.githubusercontent.com/AssetFurnace/assetfurnace-addons/main/index.json"]
+    assert listings[0].id == "pedestal"

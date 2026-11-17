@@ -7,6 +7,7 @@ clone. A local bare repository in tmp_path stands in for a listed add-on repo.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -684,11 +685,14 @@ def make_installed_addon(tmp_path: Path, data: dict, install: dict | None = None
 def run_addon_script(tmp_path: Path, args: list[str]) -> subprocess.CompletedProcess:
     """Run scripts/addon.py with a temporary addons/output dir and no network."""
     repo = Path(__file__).resolve().parents[1]
-    env = {
+    # Inherit the parent environment so the child can find git on PATH and
+    # resolve Path.home() on Windows, while still overriding our own dirs.
+    env = os.environ.copy()
+    env.update({
         "ADDONS_DIR": str(tmp_path / "addons"),
         "OUTPUT_DIR": str(tmp_path),
         "PYTHONPATH": str(repo),
-    }
+    })
     return subprocess.run(
         [sys.executable, str(repo / "scripts" / "addon.py"), *args],
         cwd=tmp_path,

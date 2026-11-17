@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -163,8 +164,13 @@ def prepare_install(
     listing: Listing,
     addons_dir: Path,
     cwd: Path,
+    *,
+    id_from_manifest: bool = False,
 ) -> tuple[Manifest, Path]:
     """Clone the listing's repo to a temp folder and verify its manifest.
+
+    A listed add-on's id must match its manifest. An unreviewed one has no list entry to
+    match (its id was only guessed from the repo name), so `id_from_manifest` skips the check.
 
     Returns the manifest and the temp path. The caller must move the temp path into
     place (or let the TemporaryDirectory clean it up).
@@ -176,7 +182,7 @@ def prepare_install(
     try:
         _clone(listing.repo, listing.commit, temp_path, cwd=cwd)
         manifest = read_manifest(temp_path / "addon.json")
-        if manifest.id != listing.id:
+        if manifest.id != listing.id and not id_from_manifest:
             raise ValueError(
                 f"manifest id {manifest.id!r} does not match listing id {listing.id!r}"
             )
@@ -233,7 +239,12 @@ def install_addon(
     addons_dir = Path(addons_dir) if addons_dir is not None else Path("addons")
     repo_dir = Path(repo_dir) if repo_dir is not None else Path.cwd()
     listing, reviewed = resolve_install_target(addon_id, unreviewed, index)
-    manifest, temp_dest = prepare_install(listing, addons_dir, cwd=repo_dir)
+    manifest, temp_dest = prepare_install(
+        listing, addons_dir, cwd=repo_dir, id_from_manifest=not reviewed
+    )
+    if not reviewed:
+        validate_addon_id(manifest.id)
+        listing = replace(listing, id=manifest.id, name=manifest.name)
     plan = install_plan(listing, manifest, reviewed=reviewed)
     if not confirm:
         shutil.rmtree(temp_dest, ignore_errors=True)

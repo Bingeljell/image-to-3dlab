@@ -87,7 +87,8 @@ def test_install_payload_returns_plan(tmp_path, monkeypatch):
     payload = viewer.install_payload("vehicle-kit")
     assert payload["author"] == "Ahnyth"
     assert payload["licence"] == "Apache-2.0"
-    assert "reviewed by AssetFurnace" in payload["warning"]
+    assert payload["version"] == "0.1.0"
+    assert "checked by AssetFurnace" in payload["warning"]
 
 
 def test_apply_install_and_remove(tmp_path, monkeypatch):

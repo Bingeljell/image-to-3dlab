@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Add-ons for agents**: `list_addons`, `install_addon` and `run_addon` MCP tools call the
   same studio API as the UI; `install_addon` asks before installing, and `run_addon` returns
   a run id to poll with `run_status`.
+- **Add-ons author guide** at `docs/add-ons.md`: how to write an `addon.json`, what v1
+  add-ons can do, how to test locally, and the rules for being listed.
+
+### Fixed
+
+- Installing an unreviewed add-on no longer fails when its repo name differs from its id.
 
 ### Fixed
 

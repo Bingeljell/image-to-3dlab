@@ -22,3 +22,6 @@
   padding: 10px; min-height: 80px; max-height: 200px; overflow: auto; font-size: 12px;
   white-space: pre-wrap; margin-top: 10px; }
 .addon-link { font-size: 12px; }
+.addon-message { padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; font-size: 12px; }
+.addon-message-info { background: var(--raise); border: 1px solid var(--line); color: var(--bone); }
+.addon-message-error { background: #5a2626; border: 1px solid #8a3a3a; color: #ffd0d0; }

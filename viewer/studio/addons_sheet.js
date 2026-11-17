@@ -78,11 +78,28 @@ function gatherInputs(card) {
   return inputs;
 }
 
+function showMessage(card, message, type = 'info') {
+  let el = card.querySelector('.addon-message');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'addon-message';
+    card.insertBefore(el, card.firstChild);
+  }
+  el.className = `addon-message addon-message-${type}`;
+  el.textContent = message;
+}
+
+function clearMessage(card) {
+  const el = card.querySelector('.addon-message');
+  if (el) el.remove();
+}
+
 async function runTool(addonId, toolId, card) {
   if (activeJobId) {
-    alert('Another add-on run is already in progress.');
+    showMessage(card, 'Another add-on run is already in progress.', 'info');
     return;
   }
+  clearMessage(card);
   const log = card.querySelector('.addon-log');
   log.textContent = '';
   const button = card.querySelector('.addon-run');

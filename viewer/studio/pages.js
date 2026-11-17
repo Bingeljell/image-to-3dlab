@@ -291,6 +291,7 @@ export const GUIDE = [
   ['Open GLB', 'Look at any GLB from your computer, or drop one anywhere on the page. View only: nothing is copied into your Library.'],
   ['News', 'Short notes from us: a new version, AssetFurnace Cloud, a known problem and its fix. A number shows when there is something new; it never pops up.'],
   ['Activity', 'Everything that has run, finished, stopped or failed, with logs when something breaks.'],
+  ['Add-ons', 'Run a tool from an installed add-on. Install and manage add-ons from Setup.'],
   ['Report a bug', 'Tell us what broke. The studio adds the version, your machine and the error; you read it all, then send it through our site, GitHub or Discord.'],
   ['Setup', 'Install engines and see disk use. Nothing downloads until you say yes, and each download says how big it is first.'],
   ['About', 'What AssetFurnace is, the open models it builds on, and their licences.'],

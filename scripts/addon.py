@@ -3,12 +3,12 @@
 
     ./lab addon list
     ./lab addon add vehicle-kit
-    ./lab addon add --unreviewed https://github.com/example/pedestal.git@<commit>
+    ./lab addon add --unlisted https://github.com/example/pedestal.git@<commit>
     ./lab addon remove vehicle-kit
     ./lab addon run vehicle-kit build --input preset=bus_12m
 
 Add-ons are listed in the public list at `https://github.com/AssetFurnace/assetfurnace-addons`.
-Only names on the list can be installed; anything else needs `--unreviewed` and is marked Unknown.
+Only names on the list can be installed; anything else needs `--unlisted` and is marked Unknown.
 Each add-on is cloned at a pinned commit, checked out, verified, and run in its own
 folder with `HF_HUB_OFFLINE=1`. The core writes the `.provenance.json` sidecar.
 """
@@ -49,7 +49,9 @@ def _parser() -> argparse.ArgumentParser:
     add_cmd = sub.add_parser("add", help="Install an add-on after showing its plan.")
     add_cmd.add_argument("--index", help="local list file for tests or review")
     add_cmd.add_argument("id", nargs="?", help="id of a listed add-on")
-    add_cmd.add_argument("--unreviewed", help="install something not on the list (marked Unknown): git url@commit")
+    add_cmd.add_argument("--unlisted", dest="unlisted",
+                         help="install something not on the list (marked Unknown): git url@commit")
+    add_cmd.add_argument("--unreviewed", dest="unlisted", help=argparse.SUPPRESS)  # the old name still works
     add_cmd.add_argument("--yes", action="store_true",
                          help="do not ask for confirmation (scripts only)")
 
@@ -140,7 +142,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     try:
         result = install_addon(
             addon_id=args.id,
-            unreviewed=args.unreviewed,
+            unlisted=args.unlisted,
             index=args.index,
             confirm=False,
             addons_dir=ADDONS_DIR,
@@ -162,7 +164,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     try:
         install_addon(
             addon_id=args.id,
-            unreviewed=args.unreviewed,
+            unlisted=args.unlisted,
             index=args.index,
             confirm=True,
             addons_dir=ADDONS_DIR,

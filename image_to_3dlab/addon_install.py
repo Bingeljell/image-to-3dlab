@@ -112,17 +112,17 @@ def load_registry(index: Path | str | None) -> list[Listing]:
 
 def resolve_install_target(
     addon_id: str | None,
-    unreviewed: str | None,
+    unlisted: str | None,
     index: Path | str | None,
 ) -> tuple[Listing, str]:
     """Return the listing to install and its tier (Unknown when it is not on the list).
 
     Raises ValueError for bad ids, bad URLs, or unlisted names.
     """
-    if unreviewed is not None:
-        match = re.fullmatch(r"(.+)@([0-9a-f]{40})", unreviewed)
+    if unlisted is not None:
+        match = re.fullmatch(r"(.+)@([0-9a-f]{40})", unlisted)
         if not match:
-            raise ValueError("--unreviewed must be <git url>@<commit>")
+            raise ValueError("--unlisted must be <git url>@<commit>")
         repo_url, commit = match.group(1), match.group(2)
         derived_id = Path(repo_url).stem.replace(".git", "")
         validate_addon_id(derived_id)
@@ -138,14 +138,14 @@ def resolve_install_target(
         return listing, "unknown"
 
     if not addon_id:
-        raise ValueError("add requires an id or --unreviewed")
+        raise ValueError("add requires an id or --unlisted")
     validate_addon_id(addon_id)
     registry = load_registry(index)
     matches = [entry for entry in registry if entry.id == addon_id]
     if not matches:
         raise ValueError(
             f"{addon_id} is not on the add-on list. "
-            "Use --unreviewed <git url>@<commit> if you still want it (it will be marked Unknown)."
+            "Use --unlisted <git url>@<commit> if you still want it (it will be marked Unknown)."
         )
     return matches[0], matches[0].tier
 
@@ -171,7 +171,7 @@ def prepare_install(
 ) -> tuple[Manifest, Path]:
     """Clone the listing's repo to a temp folder and verify its manifest.
 
-    A listed add-on's id must match its manifest. An unreviewed one has no list entry to
+    A listed add-on's id must match its manifest. An unlisted one has no list entry to
     match (its id was only guessed from the repo name), so `id_from_manifest` skips the check.
 
     Returns the manifest and the temp path. The caller must move the temp path into
@@ -221,7 +221,7 @@ def run_addon_setup(addon_dir: Path) -> None:
 
 def install_addon(
     addon_id: str | None = None,
-    unreviewed: str | None = None,
+    unlisted: str | None = None,
     index: Path | str | None = None,
     confirm: bool = False,
     addons_dir: Path | None = None,
@@ -240,7 +240,7 @@ def install_addon(
     """
     addons_dir = Path(addons_dir) if addons_dir is not None else Path("addons")
     repo_dir = Path(repo_dir) if repo_dir is not None else Path.cwd()
-    listing, tier = resolve_install_target(addon_id, unreviewed, index)
+    listing, tier = resolve_install_target(addon_id, unlisted, index)
     manifest, temp_dest = prepare_install(
         listing, addons_dir, cwd=repo_dir, id_from_manifest=tier == "unknown"
     )

@@ -187,3 +187,12 @@ def test_payload_carries_runs_for_listed_and_installed(tmp_path, monkeypatch):
     assert viewer.addons_payload()["addons"][0]["runs"] == "cloud"
     make_installed_addon(tmp_path, manifest(runs="cloud"))
     assert viewer.addons_payload()["addons"][0]["runs"] == "cloud"
+
+
+def test_payload_carries_the_picture_link(tmp_path, monkeypatch):
+    _set_paths(tmp_path, monkeypatch)
+    registry = tmp_path / "index.json"
+    link = "https://example.test/pictures/vehicle-kit.jpg"
+    registry.write_text(json.dumps([listing(picture=link)]), encoding="utf-8")
+    monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
+    assert viewer.addons_payload()["addons"][0]["picture"] == link

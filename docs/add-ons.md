@@ -176,7 +176,7 @@ This is the licence record that travels with the file. Do not write your own.
 You can install an add-on straight from a Git URL to test it. It is marked Unknown, because it is not on our list:
 
 ```bash
-./lab addon add --unreviewed https://github.com/you/pedestal-addon.git@<commit-hash>
+./lab addon add --unlisted https://github.com/you/pedestal-addon.git@<commit-hash>
 ```
 
 The URL must end with `@<40-character commit hash>`. The repo name does not have to match the
@@ -188,7 +188,7 @@ To test with a local file instead of a remote URL, put a bare Git repo on disk a
 at it the same way:
 
 ```bash
-./lab addon add --unreviewed /path/to/pedestal-addon.git@<commit-hash>
+./lab addon add --unlisted /path/to/pedestal-addon.git@<commit-hash>
 ```
 
 Use a local list file to test the list flow:

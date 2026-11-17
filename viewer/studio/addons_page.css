@@ -28,3 +28,5 @@
 .addon-message { padding: 8px 10px; border-radius: 8px; margin-bottom: 10px; font-size: 12px; }
 .addon-message-info { background: var(--raise); border: 1px solid var(--line); color: var(--bone); }
 .addon-message-error { background: #5a2626; border: 1px solid #8a3a3a; color: #ffd0d0; }
+.addon-picture { display: block; width: 100%; height: 200px; object-fit: contain; background: var(--bg); border-radius: 8px;
+  margin: 10px 0 4px; border: 1px solid var(--line); }

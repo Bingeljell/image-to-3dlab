@@ -520,10 +520,10 @@ class TestScriptRefusals:
         assert result.returncode != 0
         assert "invalid add-on id" in result.stderr.lower()
 
-    def test_unreviewed_derived_id_is_validated(self, tmp_path):
+    def test_unlisted_derived_id_is_validated(self, tmp_path):
         result = run_addon_script(
             tmp_path,
-            ["add", "--unreviewed", "https://example.com/../Bad-Name.git@" + "a" * 40, "--yes"],
+            ["add", "--unlisted", "https://example.com/../Bad-Name.git@" + "a" * 40, "--yes"],
         )
         assert result.returncode != 0
         assert "invalid add-on id" in result.stderr.lower()
@@ -696,14 +696,14 @@ class TestScriptHappyPath:
         assert data["commit"] == repo_head(repo)
         assert data["tier"] == "listed"
 
-    def test_unreviewed_install_marks_not_reviewed(self, tmp_path):
+    def test_unlisted_install_is_marked_unknown(self, tmp_path):
         repo = make_bare_repo(tmp_path, "pedestal", files={"addon.json": json.dumps(manifest(id="pedestal"))})
         commit = repo_head(repo)
         result = run_addon_script(
             tmp_path,
             [
                 "add",
-                "--unreviewed",
+                "--unlisted",
                 f"{repo}@{commit}",
                 "--yes",
             ],
@@ -713,6 +713,12 @@ class TestScriptHappyPath:
         data = json.loads(install_json.read_text(encoding="utf-8"))
         assert data["tier"] == "unknown"
         assert "never looked at it" in result.stdout.lower()
+
+    def test_the_old_unreviewed_flag_still_works(self, tmp_path):
+        repo = make_bare_repo(tmp_path, "pedestal", files={"addon.json": json.dumps(manifest(id="pedestal"))})
+        result = run_addon_script(tmp_path, ["add", "--unreviewed", f"{repo}@{repo_head(repo)}", "--yes"])
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "addons" / "pedestal").is_dir()
 
     def test_run_reads_install_json_not_registry(self, tmp_path):
         addon_dir = make_installed_addon(
@@ -872,3 +878,14 @@ def run_addon_script(tmp_path: Path, args: list[str]) -> subprocess.CompletedPro
         capture_output=True,
         text=True,
     )
+
+
+class TestPicture:
+    def test_a_picture_link_is_kept(self):
+        link = "https://raw.githubusercontent.com/AssetFurnace/assetfurnace-addons/main/pictures/vehicle-kit.jpg"
+        assert addons.read_registry([listing(picture=link)])[0].picture == link
+
+    def test_anything_that_is_not_a_plain_https_link_is_dropped(self):
+        for bad in ("javascript:alert(1)", "http://example.com/a.png", "pictures/a.png", 7):
+            assert addons.read_registry([listing(picture=bad)])[0].picture is None
+        assert addons.read_registry([listing()])[0].picture is None

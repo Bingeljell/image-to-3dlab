@@ -230,11 +230,11 @@ def test_result_from_a_model_with_no_record_counts_as_unverified(tmp_path):
     assert record["license"]["verified"] is False
     assert record["output"]["classification"] == "unverified"
 
-def test_unreviewed_install_takes_its_id_from_the_manifest(tmp_path):
+def test_unlisted_install_takes_its_id_from_the_manifest(tmp_path):
     """A repo called foo-addon whose manifest says foo installs as foo, marked not reviewed."""
     repo = make_bare_repo(tmp_path, "pedestal-addon", files={"addon.json": json.dumps(manifest(id="pedestal"))})
     result = ai.install_addon(
-        unreviewed=f"{repo}@{repo_head(repo)}",
+        unlisted=f"{repo}@{repo_head(repo)}",
         confirm=True,
         addons_dir=tmp_path / "addons",
         repo_dir=tmp_path,

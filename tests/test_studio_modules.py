@@ -437,6 +437,20 @@ def test_addons_page_badge_says_cloud_or_on_this_machine():
 
 
 @needs_node
+def test_addons_page_shows_a_picture_only_for_a_plain_https_link():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.pictureHtml({ name: "A & B", picture: "https://example.test/a.jpg" }),
+        m.pictureHtml({ name: "X", picture: "javascript:alert(1)" }),
+        m.pictureHtml({ name: "X" }),
+      ]));
+    """)
+    assert 'src="https://example.test/a.jpg"' in out[0]
+    assert "A &amp; B" in out[0]
+    assert out[1] == "" and out[2] == ""
+
+
+@needs_node
 def test_addons_page_builds_input_controls():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([

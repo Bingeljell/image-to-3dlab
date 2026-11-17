@@ -91,6 +91,7 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         "links": listing.links,
         "rating": listing.rating,
         "ratings_count": listing.ratings_count,
+        "picture": listing.picture,
     }
     if listing.id in installed_ids:
         installed = _installed_addon_payload(listing.id)

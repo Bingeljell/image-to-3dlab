@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -558,6 +559,73 @@ class TestScriptHappyPath:
         run_dir = tmp_path / "output" / "addon-vehicle-kit" / "run-abc"
         assert (run_dir / "run-abc.glb").is_file()
         assert (run_dir / "run-abc.provenance.json").is_file()
+
+    def test_two_default_runs_get_separate_provenance_files(self, tmp_path):
+        addon_dir = make_installed_addon(tmp_path, manifest())
+        script = addon_dir / "shape_guide.py"
+        script.write_text(
+            "import sys, pathlib\n"
+            "out = pathlib.Path(sys.argv[1])\n"
+            "out.mkdir(parents=True, exist_ok=True)\n"
+            "name = out.name\n"
+            "(out / f'{name}.glb').write_text('glb', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        first = run_addon_script(
+            tmp_path,
+            ["run", "vehicle-kit", "build", "--input", "preset=bus_12m", "--yes"],
+        )
+        assert first.returncode == 0, first.stderr
+        time.sleep(1)
+        second = run_addon_script(
+            tmp_path,
+            ["run", "vehicle-kit", "build", "--input", "preset=bus_12m", "--yes"],
+        )
+        assert second.returncode == 0, second.stderr
+        run_dirs = list((tmp_path / "output" / "addon-vehicle-kit").iterdir())
+        assert len(run_dirs) == 2
+        for run_dir in run_dirs:
+            assert any(p.suffix == ".glb" for p in run_dir.iterdir())
+            assert any(p.suffix == ".json" for p in run_dir.iterdir())
+
+    def test_explicit_run_stem_overwrite_accepted_when_modified(self, tmp_path):
+        addon_dir = make_installed_addon(tmp_path, manifest())
+        script = addon_dir / "shape_guide.py"
+        script.write_text(
+            "import sys, pathlib\n"
+            "out = pathlib.Path(sys.argv[1])\n"
+            "out.mkdir(parents=True, exist_ok=True)\n"
+            "(out / 'same.glb').write_text('glb', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        first = run_addon_script(
+            tmp_path,
+            [
+                "run",
+                "vehicle-kit",
+                "build",
+                "--input",
+                "preset=bus_12m",
+                "--run-stem",
+                "same",
+                "--yes",
+            ],
+        )
+        assert first.returncode == 0, first.stderr
+        second = run_addon_script(
+            tmp_path,
+            [
+                "run",
+                "vehicle-kit",
+                "build",
+                "--input",
+                "preset=bus_12m",
+                "--run-stem",
+                "same",
+                "--yes",
+            ],
+        )
+        assert second.returncode == 0, second.stderr
 
     def test_install_writes_install_json(self, tmp_path):
         registry = tmp_path / "index.json"

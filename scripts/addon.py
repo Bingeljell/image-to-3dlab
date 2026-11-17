@@ -80,8 +80,8 @@ def _parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("--input", action="append", default=[],
                          help="key=value input for the tool (repeatable)")
     run_cmd.add_argument("--output-dir", type=Path, help="override the output folder")
-    run_cmd.add_argument("--run-stem", default="run",
-                         help="name for this run and its result file")
+    run_cmd.add_argument("--run-stem", default=None,
+                         help="name for this run and its result file (default: timestamp)")
     run_cmd.add_argument("--blender", help="override the Blender path")
     run_cmd.add_argument("--yes", action="store_true",
                          help="do not ask for confirmation")
@@ -165,6 +165,11 @@ def _ask_yes(prompt: str = "Continue?") -> bool:
         return False
     answer = input(f"{prompt} [y/N] ").strip().lower()
     return answer in {"y", "yes"}
+
+
+def _default_run_stem() -> str:
+    """A per-second timestamp so repeated runs do not collide by default."""
+    return datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 
 
 def _collect_inputs(items: list[str]) -> dict[str, str]:
@@ -320,7 +325,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     raw_inputs = _collect_inputs(args.input)
     inputs = parse_inputs(raw_inputs, tool, cwd=Path.cwd())
-    out_dir = (args.output_dir or OUTPUT_DIR / output_dir(args.id, args.run_stem))
+    run_stem = args.run_stem or _default_run_stem()
+    out_dir = (args.output_dir or OUTPUT_DIR / output_dir(args.id, run_stem))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_dir = out_dir.resolve()
     blender = args.blender or find_blender() or "blender"
@@ -332,6 +338,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print("Not running.")
             return 1
 
+    started = datetime.now(UTC).timestamp()
     before = _all_files(out_dir)
     env = {**os.environ, "HF_HUB_OFFLINE": "1"}
     result = subprocess.run(argv, cwd=str(dest), env=env, check=False)
@@ -340,10 +347,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     after = _all_files(out_dir)
-    created = sorted(after - before)
+    created = after - before
 
-    result_file = (out_dir / f"{args.run_stem}.{tool.makes}").resolve()
-    if result_file not in created:
+    result_file = (out_dir / f"{run_stem}.{tool.makes}").resolve()
+    if result_file in created:
+        pass
+    elif result_file.exists() and result_file.stat().st_mtime > started:
+        pass
+    else:
         print(f"error: expected result {result_file.name} not written", file=sys.stderr)
         return 1
 

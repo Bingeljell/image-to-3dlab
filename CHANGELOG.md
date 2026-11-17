@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Add-ons (core + CLI)**: install and run someone else's repo with an `addon.json` via
   `./lab addon list|add|remove|run`. Listed add-ons are pinned to an exact commit, verified
   on clone, and run with `HF_HUB_OFFLINE=1`. The core writes the `.provenance.json` sidecar.
+- **Add-ons studio UI**: a dedicated Add-ons page linked from Setup lists reviewed add-ons
+  (installed first) with author, summary, links, star rating, Install/Remove and inline tool
+  cards. The Library labels models "made with <add-on>" from their provenance sidecar.
+- **Add-ons for agents**: `list_addons`, `install_addon` and `run_addon` MCP tools call the
+  same studio API as the UI; `install_addon` asks before installing, and `run_addon` returns
+  a run id to poll with `run_status`.
 
 ## [0.5.11] - 2026-11-17
 

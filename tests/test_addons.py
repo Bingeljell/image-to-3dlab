@@ -73,6 +73,9 @@ def listing(**overrides) -> dict:
         "author": {"name": "Ahnyth", "url": "https://github.com/Ahnyth"},
         "summary": "Buses, vans and metro cars from a few numbers.",
         "type": "tool",
+        "links": {"repo": "https://github.com/Ahnyth/vehicle-kit", "site": "https://vehiclekit.example"},
+        "rating": 4.5,
+        "ratings_count": 12,
     }
     base.update(overrides)
     return base
@@ -175,6 +178,19 @@ class TestReadRegistry:
         assert entries[0].type == "tool"
         assert entries[1].id == "mac-wrapper"
         assert entries[1].type == "app"
+
+    def test_reads_links_and_rating(self):
+        entry = addons.read_registry([listing()])[0]
+        assert entry.links == {"repo": "https://github.com/Ahnyth/vehicle-kit",
+                               "site": "https://vehiclekit.example"}
+        assert entry.rating == 4.5
+        assert entry.ratings_count == 12
+
+    def test_missing_links_and_rating_default_safely(self):
+        entry = addons.read_registry([listing(links=None, rating=None, ratings_count=None)])[0]
+        assert entry.links == {}
+        assert entry.rating is None
+        assert entry.ratings_count == 0
 
     def test_registry_entry_requires_commit(self):
         with pytest.raises(ValueError, match="commit"):
@@ -734,6 +750,16 @@ class TestScriptHappyPath:
             .read_text(encoding="utf-8")
         )
         assert record["addon"]["reviewed"] is False
+
+    def test_list_shows_author_links_and_rating(self, tmp_path):
+        registry = tmp_path / "index.json"
+        registry.write_text(json.dumps([listing()]), encoding="utf-8")
+        result = run_addon_script(tmp_path, ["list", "--index", str(registry)])
+        assert result.returncode == 0, result.stderr
+        assert "Vehicle kit by Ahnyth" in result.stdout
+        assert "★ 4.5 (12)" in result.stdout
+        assert "author: https://github.com/Ahnyth" in result.stdout
+        assert "site: https://vehiclekit.example" in result.stdout
 
 
 def make_bare_repo(tmp_path: Path, name: str, files: dict[str, str]) -> Path:

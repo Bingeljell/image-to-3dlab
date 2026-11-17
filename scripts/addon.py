@@ -98,6 +98,17 @@ def _print_plan(plan: dict) -> None:
     print(plan["warning"])
 
 
+def _link_line(listing) -> str:
+    parts = []
+    if listing.author.get("url"):
+        parts.append(f"author: {listing.author['url']}")
+    if listing.links.get("repo"):
+        parts.append(f"repo: {listing.links['repo']}")
+    if listing.links.get("site"):
+        parts.append(f"site: {listing.links['site']}")
+    return "  ".join(parts)
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     try:
         registry = load_registry(args.index)
@@ -109,9 +120,16 @@ def cmd_list(args: argparse.Namespace) -> int:
         if args.installed and listing.id not in installed:
             continue
         marker = " (installed)" if listing.id in installed else ""
-        print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']} [{listing.type}]")
+        rating = ""
+        if listing.rating is not None:
+            count = f" ({listing.ratings_count})" if listing.ratings_count else ""
+            rating = f" ★ {listing.rating}{count}"
+        print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}]")
         if listing.summary:
             print(f"  {listing.summary}")
+        link_line = _link_line(listing)
+        if link_line:
+            print(f"  {link_line}")
     return 0
 
 

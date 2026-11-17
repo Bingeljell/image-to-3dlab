@@ -51,6 +51,19 @@ def test_addons_payload_shows_listed_and_installed(tmp_path, monkeypatch):
     assert payload["addons"][0]["installed"] is False
 
 
+def test_addons_payload_includes_links_and_rating(tmp_path, monkeypatch):
+    _set_paths(tmp_path, monkeypatch)
+    registry = tmp_path / "index.json"
+    registry.write_text(json.dumps([listing()]), encoding="utf-8")
+    monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
+    payload = viewer.addons_payload()
+    addon = payload["addons"][0]
+    assert addon["links"] == {"repo": "https://github.com/Ahnyth/vehicle-kit",
+                              "site": "https://vehiclekit.example"}
+    assert addon["rating"] == 4.5
+    assert addon["ratings_count"] == 12
+
+
 def test_addons_payload_marks_no_longer_listed(tmp_path, monkeypatch):
     _set_paths(tmp_path, monkeypatch)
     registry = tmp_path / "index.json"

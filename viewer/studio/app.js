@@ -118,9 +118,10 @@ function assetButton(asset, { sub = false } = {}) {
     : `<img class="mark" data-thumb-id="${escape(asset.id)}" src="${LOGO}" alt="">`;
   const when = new Date(asset.updated * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const name = sub ? `v${asset.version} · ${statusText(asset)}` : asset.name;
+  const madeWith = asset.made_with ? ` · made with ${escape(asset.made_with)}` : '';
   return `<button class="asset${sub ? ' sub' : ''}${asset.hidden ? ' is-hidden' : ''}" data-id="${escape(asset.id)}" title="${escape(when)}" aria-current="${libraryRowSelection(asset, { current, inputId: libraryInputId, viewingMaking })}">
       <span class="thumb">${thumb}</span>
-      <span style="min-width:0"><span class="nm">${asset.main ? '<b class="star" title="Main version">★</b> ' : ''}${escape(name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${sub ? escape(when) : escape(statusText(asset))}</span></span>
+      <span style="min-width:0"><span class="nm">${asset.main ? '<b class="star" title="Main version">★</b> ' : ''}${escape(name)}</span><span class="st"><span class="pips" aria-hidden="true">${pips}</span>${sub ? escape(when) : escape(statusText(asset))}${madeWith}</span></span>
     </button>`;
 }
 

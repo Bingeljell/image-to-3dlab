@@ -73,6 +73,16 @@ def test_a_full_chain_becomes_one_animated_asset(output):
     assert [c["name"] for c in knight["clips"]] == ["dance", "run"]
 
 
+def test_model_made_with_addon_is_labelled(output):
+    _write(
+        output / "commercial_conditional" / GEN / f"{GEN}.provenance.json",
+        json.dumps({"addon": {"name": "Vehicle kit", "id": "vehicle-kit"}}),
+        2000,
+    )
+    knight = _by_name(aa.list_assets(output))["a chunky knight"]
+    assert knight["made_with"] == "Vehicle kit"
+
+
 def test_moves_named_with_b_show_and_old_second_takes_do_not(output):
     # 10 of the moves the studio offers end in _b (wave_b, fight_stance_b, ...). The Library hid
     # every _b clip as a second take, so those moves were made and saved but never shown.

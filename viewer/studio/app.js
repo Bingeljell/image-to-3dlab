@@ -9,6 +9,7 @@ import { retryWant } from './plan.js';
 import { closeBrushStage } from './brush.js';
 import { openCreate, runChain } from './create.js';
 import { openActivity, openAbout, openGuide, openReport, closeSheet, usageNotice, openNews, refreshNews } from './pages.js';
+import { openAddons } from './addons_sheet.js';
 import { STEP_LABELS, stoppedLine, stoppedStep } from './plan.js';
 import { mountSkins } from './skins.js';
 import { installTooltips } from './tooltips.js';
@@ -937,6 +938,7 @@ window.addEventListener('drop', (event) => {
 
 $('guideBtn').addEventListener('click', () => openGuide($('stage')));
 $('activityBtn').addEventListener('click', () => openActivity($('stage')));
+$('addonsBtn').addEventListener('click', () => openAddons($('stage')));
 $('newsBtn').addEventListener('click', () => openNews($('stage'), $('newsBtn')));
 refreshNews($('newsBtn'));   // the count only: the list opens when the person asks
 $('aboutBtn').addEventListener('click', () => openAbout($('stage')));

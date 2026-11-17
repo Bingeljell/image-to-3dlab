@@ -342,8 +342,8 @@ def build_command(tool: Tool, inputs: dict[str, Any], *, out_dir: str | Path,
 
 
 def output_dir(addon_id: str, run_stem: str) -> Path:
-    """Directory an add-on run should put its result in."""
-    return Path("output") / f"addon-{addon_id}" / run_stem
+    """Folder, inside the output folder, an add-on run puts its result in."""
+    return Path(f"addon-{addon_id}") / run_stem
 
 
 def run_record(

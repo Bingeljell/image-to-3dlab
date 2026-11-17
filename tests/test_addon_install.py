@@ -116,7 +116,7 @@ def test_run_addon_runs_tool_and_returns_result_path(tmp_path):
         addons_dir=tmp_path / "addons",
         repo_dir=tmp_path,
     )
-    assert result == (tmp_path / "output" / "addon-vehicle-kit" / "run-abc" / "run-abc.glb").resolve()
+    assert result == (tmp_path / "addon-vehicle-kit" / "run-abc" / "run-abc.glb").resolve()
     assert result.is_file()
     assert result.with_suffix(".provenance.json").is_file()
 

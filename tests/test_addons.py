@@ -363,7 +363,7 @@ class TestBuildCommand:
 class TestOutputDir:
     def test_output_dir_shape(self):
         path = addons.output_dir("vehicle-kit", "run-123")
-        assert path == Path("output/addon-vehicle-kit/run-123")
+        assert path == Path("addon-vehicle-kit/run-123")
 
 
 class TestRunRecord:
@@ -572,7 +572,7 @@ class TestScriptHappyPath:
             ],
         )
         assert result.returncode == 0, result.stderr
-        run_dir = tmp_path / "output" / "addon-vehicle-kit" / "run-abc"
+        run_dir = tmp_path / "addon-vehicle-kit" / "run-abc"
         assert (run_dir / "run-abc.glb").is_file()
         assert (run_dir / "run-abc.provenance.json").is_file()
 
@@ -598,7 +598,7 @@ class TestScriptHappyPath:
             ["run", "vehicle-kit", "build", "--input", "preset=bus_12m", "--yes"],
         )
         assert second.returncode == 0, second.stderr
-        run_dirs = list((tmp_path / "output" / "addon-vehicle-kit").iterdir())
+        run_dirs = list((tmp_path / "addon-vehicle-kit").iterdir())
         assert len(run_dirs) == 2
         for run_dir in run_dirs:
             assert any(p.suffix == ".glb" for p in run_dir.iterdir())
@@ -708,7 +708,7 @@ class TestScriptHappyPath:
         )
         assert result.returncode == 0, result.stderr
         record = json.loads(
-            (tmp_path / "output" / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
+            (tmp_path / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
             .read_text(encoding="utf-8")
         )
         assert record["addon"]["repo"] == "https://example.com/test.git"
@@ -746,7 +746,7 @@ class TestScriptHappyPath:
         )
         assert result.returncode == 0, result.stderr
         record = json.loads(
-            (tmp_path / "output" / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
+            (tmp_path / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
             .read_text(encoding="utf-8")
         )
         assert record["addon"]["reviewed"] is False

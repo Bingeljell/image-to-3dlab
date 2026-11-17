@@ -7,6 +7,9 @@ network. Helpers are reused from tests.test_addons.
 from __future__ import annotations
 
 import json
+import os
+import threading
+from pathlib import Path
 
 import pytest
 
@@ -163,3 +166,18 @@ def test_result_is_fresh_false_for_unchanged_file(tmp_path):
     path.write_text("old", encoding="utf-8")
     started = path.stat().st_mtime + 1.0
     assert ai.result_is_fresh(path, started) is False
+
+
+def test_cancel_stops_a_run_that_prints_nothing():
+    import sys
+    import time
+
+    cancel = threading.Event()
+    threading.Timer(0.5, cancel.set).start()
+    started = time.monotonic()
+    result = ai._run_subprocess(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        Path.cwd(), dict(os.environ), None, cancel_event=cancel,
+    )
+    assert time.monotonic() - started < 10
+    assert result.returncode != 0

@@ -284,14 +284,22 @@ def _run_subprocess(
         text=True,
     )
     assert proc.stdout is not None
-    cancelled = False
+    done = threading.Event()
+
+    def watch_for_cancel() -> None:
+        # Stop a silent process too: the reading loop below only wakes on output.
+        while not done.is_set():
+            if cancel_event.wait(timeout=0.2):
+                proc.terminate()
+                return
+
+    if cancel_event is not None:
+        threading.Thread(target=watch_for_cancel, daemon=True).start()
     for line in proc.stdout:
         if logger is not None:
             logger(line.rstrip("\n"))
-        if cancel_event is not None and cancel_event.is_set() and not cancelled:
-            proc.terminate()
-            cancelled = True
     code = proc.wait()
+    done.set()
     return subprocess.CompletedProcess(argv, returncode=code)
 
 

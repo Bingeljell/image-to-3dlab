@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same studio API as the UI; `install_addon` asks before installing, and `run_addon` returns
   a run id to poll with `run_status`.
 
+### Fixed
+
+- Prop finishing writes file paths with forward slashes on every system, so its manifest reads the same on Windows.
+
 ## [0.5.11] - 2026-11-17
 
 ### Added

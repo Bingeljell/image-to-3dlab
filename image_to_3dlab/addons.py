@@ -241,7 +241,7 @@ def build_command(tool: Tool, inputs: dict[str, Any], *, out_dir: str | Path,
     provided = set(inputs)
     unknown = provided - {spec.id for spec in tool.inputs}
     if unknown:
-        raise ValueError(f"unknown input: {sorted(unknown)[0]}")
+        raise ValueError(f"unknown input: {min(unknown)}")
     for spec in tool.inputs:
         if spec.id in provided:
             _validate_input(inputs[spec.id], spec)

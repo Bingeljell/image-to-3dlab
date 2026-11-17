@@ -30,8 +30,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 # Imports after sys.path so the script can be run standalone.
-from image_to_3dlab import __version__  # noqa: E402
-from image_to_3dlab.addons import (  # noqa: E402
+from image_to_3dlab import __version__
+from image_to_3dlab.addons import (
     Listing,
     Manifest,
     build_command,
@@ -41,8 +41,8 @@ from image_to_3dlab.addons import (  # noqa: E402
     read_registry,
     run_record,
 )
-from image_to_3dlab.blender import find_blender  # noqa: E402
-from image_to_3dlab.provenance import write_provenance  # noqa: E402
+from image_to_3dlab.blender import find_blender
+from image_to_3dlab.provenance import write_provenance
 
 REGISTRY_URL = "https://assetfurnace.com/add-ons/index.json"
 ADDONS_DIR = Path(os.environ.get("ADDONS_DIR", REPO / "addons"))
@@ -239,11 +239,10 @@ def cmd_add(args: argparse.Namespace) -> int:
     manifest = read_manifest(dest / "addon.json")
     plan = install_plan(listing, manifest)
     _print_plan(plan)
-    if not args.yes:
-        if not _ask_yes():
-            print("Nothing installed.")
-            shutil.rmtree(dest, ignore_errors=True)
-            return 1
+    if not args.yes and not _ask_yes():
+        print("Nothing installed.")
+        shutil.rmtree(dest, ignore_errors=True)
+        return 1
     if manifest.setup:
         print(f"Running setup: {' '.join(manifest.setup)}")
         result = subprocess.run(manifest.setup, cwd=str(dest), check=False)

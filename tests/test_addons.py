@@ -15,7 +15,6 @@ import pytest
 
 from image_to_3dlab import addons
 
-
 RUN_PYTHON = sys.executable
 
 

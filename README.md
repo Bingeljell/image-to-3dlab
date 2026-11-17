@@ -249,9 +249,10 @@ Everything still runs on your machine.
    installed elsewhere.
 3. Start a new agent session and ask: *"Make me a Pixar-style gator warrior and show me."*
 
-It can also run the repo's [Blender helpers](#blender-helpers-for-your-agent) for you.
-Your agent never downloads model weights without your yes, and can't delete or rename
-your assets. Mac, Linux and Windows ([how to connect on Windows](docs/agents.md#on-windows)).
+It can also run add-ons and the repo's [Blender helpers](#blender-helpers-for-your-agent)
+for you. Your agent never downloads model weights without your yes, and can't delete or
+rename your assets. Mac, Linux and Windows ([how to connect on Windows](docs/agents.md#on-windows)).
+To write an add-on, see [docs/add-ons.md](docs/add-ons.md).
 
 ## Setting up a backend
 

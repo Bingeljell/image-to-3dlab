@@ -108,7 +108,7 @@ becomes `continue_asset(asset_id, up_to="finished", again=True, advanced={"nudge
 
 Add-ons are extra tools from other repos. Your agent can list them, show you the details, and
 install or run one after you say yes. They run code on your machine, so the same consent rule
-applies as for `install_backend`.
+applies as for `install_backend`. To write an add-on, see [docs/add-ons.md](add-ons.md).
 
 ## Try it
 

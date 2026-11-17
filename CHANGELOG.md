@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Add-ons for agents**: `list_addons`, `install_addon` and `run_addon` MCP tools call the
   same studio API as the UI; `install_addon` asks before installing, and `run_addon` returns
   a run id to poll with `run_status`.
+- **Add-on pictures**: an add-on's card in the studio shows a picture of what it makes, and `list_addons` gives agents the link.
+- **`--unlisted`**: the way to install an add-on that is not on the list (it is marked Unknown). `--unreviewed` still works.
 - **Verified, Listed or Unknown**: every add-on now carries one of three labels, the same words in the studio, the command line, the agent tools and the install plan, and in the licence record of what it makes. The old yes/no "reviewed" flag is gone.
 - **Cloud or on this machine**: every add-on says whether it runs on your machine or uses the cloud. The studio shows a badge, and the install plan says plainly when your models would be sent off this machine.
 - **Add-ons author guide** at `docs/add-ons.md`: how to write an `addon.json`, what v1

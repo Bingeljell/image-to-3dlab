@@ -878,3 +878,14 @@ def run_addon_script(tmp_path: Path, args: list[str]) -> subprocess.CompletedPro
         capture_output=True,
         text=True,
     )
+
+
+class TestPicture:
+    def test_a_picture_link_is_kept(self):
+        link = "https://raw.githubusercontent.com/AssetFurnace/assetfurnace-addons/main/pictures/vehicle-kit.jpg"
+        assert addons.read_registry([listing(picture=link)])[0].picture == link
+
+    def test_anything_that_is_not_a_plain_https_link_is_dropped(self):
+        for bad in ("javascript:alert(1)", "http://example.com/a.png", "pictures/a.png", 7):
+            assert addons.read_registry([listing(picture=bad)])[0].picture is None
+        assert addons.read_registry([listing()])[0].picture is None

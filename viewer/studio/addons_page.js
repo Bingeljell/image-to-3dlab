@@ -46,6 +46,11 @@ export function runsBadge(addon) {
     : '<span class="addon-badge addon-local">On this machine</span>';
 }
 
+export function pictureHtml(addon) {
+  if (typeof addon.picture !== 'string' || !addon.picture.startsWith('https://')) return '';
+  return `<img class="addon-picture" src="${escapeHtml(addon.picture)}" alt="What ${escapeHtml(addon.name || 'this add-on')} makes" loading="lazy">`;
+}
+
 export function ratingLine(addon) {
   if (addon.rating == null) return '';
   const count = addon.ratings_count ? ` (${addon.ratings_count})` : '';
@@ -276,6 +281,7 @@ function addonCard(addon) {
       </div>
       <div class="setup-card-action">${action}</div>
     </div>
+    ${pictureHtml(addon)}
     <p class="setup-card-best">${escapeHtml(addon.summary || '')}</p>
     ${tools}
     <div class="addon-plan"></div>`;

@@ -1543,7 +1543,7 @@ def build_server(studio: Studio | None = None):
     def tool_list_addons():
         """Every add-on from the list (installed first): name, author, summary, links, rating,
         its label (Verified, Listed or Unknown), whether it runs on this machine or in the cloud,
-        and the tools it provides."""
+        a picture link of what it makes, and the tools it provides."""
         return safe(lambda: list_addons(studio))
 
     @server.tool(name="install_addon", structured_output=False)

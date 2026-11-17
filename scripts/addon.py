@@ -321,7 +321,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         summary=manifest.summary,
         type=manifest.type,
     )
-    reviewed = bool(install_info.get("reviewed", True))
+    reviewed = bool(install_info.get("reviewed", False))
 
     raw_inputs = _collect_inputs(args.input)
     inputs = parse_inputs(raw_inputs, tool, cwd=Path.cwd())
@@ -350,9 +350,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     created = after - before
 
     result_file = (out_dir / f"{run_stem}.{tool.makes}").resolve()
-    if result_file in created:
-        pass
-    elif result_file.exists() and result_file.stat().st_mtime > started:
+    if (
+        result_file in created
+        or result_file.exists()
+        and result_file.stat().st_mtime > started
+    ):
         pass
     else:
         print(f"error: expected result {result_file.name} not written", file=sys.stderr)

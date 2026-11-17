@@ -699,6 +699,42 @@ class TestScriptHappyPath:
         assert record["addon"]["commit"] == "b" * 40
         assert record["addon"]["reviewed"] is False
 
+    def test_run_defaults_missing_reviewed_to_false(self, tmp_path):
+        addon_dir = make_installed_addon(
+            tmp_path,
+            manifest(),
+            install={"repo": "https://example.com/test.git", "commit": "b" * 40},
+        )
+        install_json = addon_dir / ".addon-install.json"
+        assert "reviewed" not in json.loads(install_json.read_text(encoding="utf-8"))
+        script = addon_dir / "shape_guide.py"
+        script.write_text(
+            "import sys, pathlib\n"
+            "out = pathlib.Path(sys.argv[1])\n"
+            "out.mkdir(parents=True, exist_ok=True)\n"
+            "(out / 'run-abc.glb').write_text('glb', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        result = run_addon_script(
+            tmp_path,
+            [
+                "run",
+                "vehicle-kit",
+                "build",
+                "--input",
+                "preset=bus_12m",
+                "--run-stem",
+                "run-abc",
+                "--yes",
+            ],
+        )
+        assert result.returncode == 0, result.stderr
+        record = json.loads(
+            (tmp_path / "output" / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
+            .read_text(encoding="utf-8")
+        )
+        assert record["addon"]["reviewed"] is False
+
 
 def make_bare_repo(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
     """Create a local bare git repo with the given files committed."""
@@ -741,9 +777,10 @@ def make_installed_addon(tmp_path: Path, data: dict, install: dict | None = None
         "id": data["id"],
         "repo": install.get("repo", "") if install else "",
         "commit": install.get("commit", "") if install else "",
-        "reviewed": install.get("reviewed", True) if install else True,
         "installed_at": "2026-01-01T00:00:00+00:00",
     }
+    if install and "reviewed" in install:
+        install_record["reviewed"] = install["reviewed"]
     (addon_dir / ".addon-install.json").write_text(
         json.dumps(install_record, indent=2), encoding="utf-8"
     )

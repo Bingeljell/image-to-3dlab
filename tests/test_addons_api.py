@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -146,3 +147,10 @@ def test_run_payload_refuses_second_run(tmp_path, monkeypatch):
     job = viewer.ADDON_JOBS.get(first["job_id"])
     assert job is not None
     viewer.ADDON_JOBS.cancel(first["job_id"])
+
+
+def test_addons_page_sends_the_studio_request_header():
+    """The page's POSTs are refused without the header that request-header.js adds."""
+    html = (Path(__file__).resolve().parents[1] / "viewer" / "addons.html").read_text(encoding="utf-8")
+    assert './request-header.js' in html
+    assert html.index('request-header.js') < html.index('addons_page.js')

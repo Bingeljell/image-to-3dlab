@@ -103,7 +103,8 @@ up to you.
   strings such as `"assetfurnace"` or `"blender"`; values are free-form version hints.
 - `setup`: a command list run once when the add-on is installed. Use it to fetch assets
   that are not in Git, compile something, or verify dependencies. It runs with
-  `HF_HUB_OFFLINE=1` so it cannot download Hugging Face weights.
+  `HF_HUB_OFFLINE=1` so it cannot download Hugging Face weights. Use portable interpreter
+  names such as `python3` rather than `python`, because the name on PATH varies by machine.
 - `models`: a list of model files the add-on loads. Each entry should have `name`,
   `licence` and `size`. These are shown in the install plan so the user knows what they
   are agreeing to before anything is downloaded.
@@ -146,6 +147,11 @@ AssetFurnace replaces these before calling your script:
 - `{<input-id>}`: the value of the named input, already coerced to the right type.
 
 Any other argument is passed through unchanged.
+
+A small working pattern for a Blender script: clear the scene first, build your mesh,
+then export to `{out}/{run-stem}.glb`. Use `bpy.data.meshes.remove(mesh)` and
+`bpy.data.materials.remove(material)` to clean up; `bpy.data.block_remove` does not exist
+in every Blender version.
 
 ## What AssetFurnace writes for you
 

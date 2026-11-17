@@ -216,15 +216,16 @@ class TestInstallPlan:
         plan = addons.install_plan(entry, m)
         assert plan["author"] == "Ahnyth"
         assert plan["licence"] == "Apache-2.0"
-        assert "reviewed by AssetFurnace" in plan["warning"]
-        assert entry.commit in plan["warning"]
+        assert plan["version"] == "0.1.0"
+        assert "checked by AssetFurnace" in plan["warning"]
+        assert entry.commit not in plan["warning"]
 
     def test_plan_says_not_reviewed_for_unreviewed(self, tmp_path):
         m = _manifest_object(tmp_path, manifest())
         entry = addons.Listing(**listing())
         plan = addons.install_plan(entry, m, reviewed=False)
-        assert "not reviewed" in plan["warning"].lower()
-        assert "not reviewed by AssetFurnace" in plan["warning"]
+        assert "not checked" in plan["warning"].lower()
+        assert "not checked by AssetFurnace" in plan["warning"]
 
     def test_plan_lists_models(self, tmp_path):
         m = _manifest_object(
@@ -677,7 +678,7 @@ class TestScriptHappyPath:
         install_json = tmp_path / "addons" / "pedestal" / ".addon-install.json"
         data = json.loads(install_json.read_text(encoding="utf-8"))
         assert data["reviewed"] is False
-        assert "not reviewed" in result.stdout.lower()
+        assert "not checked" in result.stdout.lower()
 
     def test_run_reads_install_json_not_registry(self, tmp_path):
         addon_dir = make_installed_addon(

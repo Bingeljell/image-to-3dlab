@@ -392,6 +392,53 @@ def test_the_how_to_page_covers_every_button_in_the_top_bar():
         assert must in out, must
 
 
+@needs_node
+def test_addons_page_escapes_html_and_builds_author_line():
+    out = _run("addons_page.js", """
+      const addon = {
+        author: { name: "A & B <script>", url: "https://example.test" },
+        links: { repo: "https://repo.test", site: "https://site.test" }
+      };
+      console.log(JSON.stringify([m.escapeHtml('<b>'), m.authorLine(addon), m.reviewBadge(addon), m.ratingLine(addon)]));
+    """)
+    assert out[0] == "&lt;b&gt;"
+    assert "A &amp; B &lt;script&gt;" in out[1]
+    assert "https://repo.test" in out[1]
+    assert "https://site.test" in out[1]
+    assert "Reviewed" in out[2]
+    assert out[3] == ""
+
+
+@needs_node
+def test_addons_page_shows_rating_and_unreviewed_badge():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.ratingLine({ rating: 4.5, ratings_count: 12 }),
+        m.reviewBadge({ reviewed: false }),
+        m.reviewBadge({ no_longer_listed: true }),
+      ]));
+    """)
+    assert "4.5" in out[0] and "(12)" in out[0]
+    assert "Not reviewed" in out[1]
+    assert "No longer listed" in out[2]
+
+
+@needs_node
+def test_addons_page_builds_input_controls():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.inputControl({ id: "x", type: "text", label: "Name" }),
+        m.inputControl({ id: "y", type: "number", label: "Count", min: 1, max: 10 }),
+        m.inputControl({ id: "z", type: "choice", label: "Kind", choices: ["a", "b"] }),
+        m.inputControl({ id: "w", type: "toggle", label: "On" }),
+      ]));
+    """)
+    assert 'type="text"' in out[0] and 'data-input="x"' in out[0]
+    assert 'min="1"' in out[1] and 'max="10"' in out[1]
+    assert '<option value="a">a</option>' in out[2] and '<option value="b">b</option>' in out[2]
+    assert 'type="checkbox"' in out[3]
+
+
 def test_the_classic_viewer_is_gone_and_old_links_land_in_the_studio():
     viewer = REPO / "viewer"
     assert not (viewer / "app.js").exists() and not (viewer / "modes").exists()

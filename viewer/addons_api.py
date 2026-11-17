@@ -142,6 +142,7 @@ def install_payload(addon_id: str) -> dict[str, Any]:
         "name": result["manifest"].name,
         "author": plan["author"],
         "licence": plan["licence"],
+        "version": plan["version"],
         "models": plan["models"],
         "setup": plan["setup"],
         "warning": plan["warning"],

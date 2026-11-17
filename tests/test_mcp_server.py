@@ -48,7 +48,7 @@ DANCER = {**KNIGHT, "id": "bbbbbbbbbbbb", "name": "dancer", "stage": "animated",
 PICTURE = {"id": "cccccccccccc", "name": "fox", "kind": "picture", "stage": "picture", "updated": 0,
            "picture": "images/f/f.png", "clips": [], "props": []}
 ADDONS = {"online": True, "error": None, "addons": [
-    {"id": "test-addon", "name": "Test Add-on", "installed": True, "reviewed": True,
+    {"id": "test-addon", "name": "Test Add-on", "installed": True, "tier": "listed",
      "author": {"name": "A. Author", "url": "https://author.test"}, "summary": "A test add-on.",
      "rating": 4.2, "ratings_count": 5,
      "tools": [{"id": "make-thing", "label": "Make thing", "hint": "makes a thing"}]},

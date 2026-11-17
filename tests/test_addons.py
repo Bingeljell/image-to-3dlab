@@ -243,15 +243,23 @@ class TestInstallPlan:
         assert plan["author"] == "Ahnyth"
         assert plan["licence"] == "Apache-2.0"
         assert plan["version"] == "0.1.0"
-        assert "checked by AssetFurnace" in plan["warning"]
+        assert plan["tier"] == "listed"
+        assert "automatic checks" in plan["warning"]
+        assert "have not read its code" in plan["warning"]
         assert entry.commit not in plan["warning"]
 
-    def test_plan_says_not_reviewed_for_unreviewed(self, tmp_path):
+    def test_plan_says_unknown_for_an_add_on_not_on_the_list(self, tmp_path):
         m = _manifest_object(tmp_path, manifest())
         entry = addons.Listing(**listing())
-        plan = addons.install_plan(entry, m, reviewed=False)
-        assert "not checked" in plan["warning"].lower()
-        assert "not checked by AssetFurnace" in plan["warning"]
+        plan = addons.install_plan(entry, m, tier="unknown")
+        assert plan["tier"] == "unknown"
+        assert "never looked at it" in plan["warning"]
+
+    def test_plan_says_verified_only_for_verified(self, tmp_path):
+        m = _manifest_object(tmp_path, manifest())
+        entry = addons.Listing(**listing())
+        assert "read its code" in addons.install_plan(entry, m, tier="verified")["warning"]
+        assert "read its code" not in addons.install_plan(entry, m, tier="listed")["warning"].replace("have not read its code", "")
 
     def test_plan_lists_models(self, tmp_path):
         m = _manifest_object(
@@ -398,12 +406,12 @@ class TestRunRecord:
         m = _manifest_object(tmp_path, manifest())
         entry = addons.Listing(**listing())
         tool = m.tools[0]
-        record = addons.run_record(entry, m, tool, {"preset": "bus_12m"}, reviewed=True)
+        record = addons.run_record(entry, m, tool, {"preset": "bus_12m"}, tier="listed")
         assert record["schema_version"] == 1
         assert record["addon"]["id"] == "vehicle-kit"
         assert record["addon"]["commit"] == entry.commit
         assert record["addon"]["licence"] == "Apache-2.0"
-        assert record["addon"]["reviewed"] is True
+        assert record["addon"]["tier"] == "listed"
         assert record["tool"]["id"] == "build"
         assert record["models"] == []
 
@@ -422,10 +430,10 @@ class TestRunRecord:
             ),
         )
         entry = addons.Listing(**listing())
-        record = addons.run_record(entry, m, m.tools[0], {"preset": "bus_12m"}, reviewed=False)
+        record = addons.run_record(entry, m, m.tools[0], {"preset": "bus_12m"}, tier="unknown")
         assert record["models"][0]["name"] == "shape predictor"
         assert record["models"][0]["licence"] == "MIT"
-        assert record["addon"]["reviewed"] is False
+        assert record["addon"]["tier"] == "unknown"
 
 
 class TestScriptRefusals:
@@ -436,7 +444,7 @@ class TestScriptRefusals:
             tmp_path, ["add", "not-listed", "--index", str(registry), "--yes"]
         )
         assert result.returncode != 0
-        assert "not on the reviewed registry" in result.stderr.lower()
+        assert "not on the add-on list" in result.stderr.lower()
 
     def test_head_mismatch_is_refused(self, tmp_path):
         registry = tmp_path / "index.json"
@@ -686,7 +694,7 @@ class TestScriptHappyPath:
         assert data["id"] == "vehicle-kit"
         assert data["repo"] == str(repo)
         assert data["commit"] == repo_head(repo)
-        assert data["reviewed"] is True
+        assert data["tier"] == "listed"
 
     def test_unreviewed_install_marks_not_reviewed(self, tmp_path):
         repo = make_bare_repo(tmp_path, "pedestal", files={"addon.json": json.dumps(manifest(id="pedestal"))})
@@ -703,14 +711,14 @@ class TestScriptHappyPath:
         assert result.returncode == 0, result.stderr
         install_json = tmp_path / "addons" / "pedestal" / ".addon-install.json"
         data = json.loads(install_json.read_text(encoding="utf-8"))
-        assert data["reviewed"] is False
-        assert "not checked" in result.stdout.lower()
+        assert data["tier"] == "unknown"
+        assert "never looked at it" in result.stdout.lower()
 
     def test_run_reads_install_json_not_registry(self, tmp_path):
         addon_dir = make_installed_addon(
             tmp_path,
             manifest(),
-            install={"repo": "https://example.com/test.git", "commit": "b" * 40, "reviewed": False},
+            install={"repo": "https://example.com/test.git", "commit": "b" * 40, "tier": "unknown"},
         )
         script = addon_dir / "shape_guide.py"
         script.write_text(
@@ -740,16 +748,16 @@ class TestScriptHappyPath:
         )
         assert record["addon"]["repo"] == "https://example.com/test.git"
         assert record["addon"]["commit"] == "b" * 40
-        assert record["addon"]["reviewed"] is False
+        assert record["addon"]["tier"] == "unknown"
 
-    def test_run_defaults_missing_reviewed_to_false(self, tmp_path):
+    def test_run_defaults_a_missing_tier_to_unknown(self, tmp_path):
         addon_dir = make_installed_addon(
             tmp_path,
             manifest(),
             install={"repo": "https://example.com/test.git", "commit": "b" * 40},
         )
         install_json = addon_dir / ".addon-install.json"
-        assert "reviewed" not in json.loads(install_json.read_text(encoding="utf-8"))
+        assert "tier" not in json.loads(install_json.read_text(encoding="utf-8"))
         script = addon_dir / "shape_guide.py"
         script.write_text(
             "import sys, pathlib\n"
@@ -776,7 +784,13 @@ class TestScriptHappyPath:
             (tmp_path / "addon-vehicle-kit" / "run-abc" / "run-abc.provenance.json")
             .read_text(encoding="utf-8")
         )
-        assert record["addon"]["reviewed"] is False
+        assert record["addon"]["tier"] == "unknown"
+
+    def test_older_install_record_with_reviewed_true_counts_as_listed(self):
+        assert addons.tier_from_install({"reviewed": True}) == "listed"
+        assert addons.tier_from_install({"reviewed": False}) == "unknown"
+        assert addons.tier_from_install({"tier": "verified"}) == "verified"
+        assert addons.tier_from_install({"tier": "nonsense"}) == "unknown"
 
     def test_list_shows_author_links_and_rating(self, tmp_path):
         registry = tmp_path / "index.json"
@@ -832,8 +846,8 @@ def make_installed_addon(tmp_path: Path, data: dict, install: dict | None = None
         "commit": install.get("commit", "") if install else "",
         "installed_at": "2026-01-01T00:00:00+00:00",
     }
-    if install and "reviewed" in install:
-        install_record["reviewed"] = install["reviewed"]
+    if install and "tier" in install:
+        install_record["tier"] = install["tier"]
     (addon_dir / ".addon-install.json").write_text(
         json.dumps(install_record, indent=2), encoding="utf-8"
     )

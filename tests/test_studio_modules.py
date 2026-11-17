@@ -396,31 +396,34 @@ def test_the_how_to_page_covers_every_button_in_the_top_bar():
 def test_addons_page_escapes_html_and_builds_author_line():
     out = _run("addons_page.js", """
       const addon = {
+        tier: "verified",
         author: { name: "A & B <script>", url: "https://example.test" },
         links: { repo: "https://repo.test", site: "https://site.test" }
       };
-      console.log(JSON.stringify([m.escapeHtml('<b>'), m.authorLine(addon), m.reviewBadge(addon), m.ratingLine(addon)]));
+      console.log(JSON.stringify([m.escapeHtml('<b>'), m.authorLine(addon), m.tierBadge(addon), m.ratingLine(addon)]));
     """)
     assert out[0] == "&lt;b&gt;"
     assert "A &amp; B &lt;script&gt;" in out[1]
     assert "https://repo.test" in out[1]
     assert "https://site.test" in out[1]
-    assert "Reviewed" in out[2]
+    assert "Verified" in out[2]
     assert out[3] == ""
 
 
 @needs_node
-def test_addons_page_shows_rating_and_unreviewed_badge():
+def test_addons_page_shows_rating_and_the_three_labels():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([
         m.ratingLine({ rating: 4.5, ratings_count: 12 }),
-        m.reviewBadge({ reviewed: false }),
-        m.reviewBadge({ no_longer_listed: true }),
+        m.tierBadge({ tier: "listed" }),
+        m.tierBadge({ tier: "unknown" }),
+        m.tierBadge({ no_longer_listed: true }),
       ]));
     """)
     assert "4.5" in out[0] and "(12)" in out[0]
-    assert "Not reviewed" in out[1]
-    assert "No longer listed" in out[2]
+    assert "Listed" in out[1] and "No longer" not in out[1]
+    assert "Unknown" in out[2]
+    assert "No longer listed" in out[3]
 
 
 @needs_node

@@ -61,7 +61,7 @@ def test_install_addon_with_confirm_installs_and_writes_record(tmp_path):
     data = json.loads(install_json.read_text(encoding="utf-8"))
     assert data["id"] == "vehicle-kit"
     assert data["commit"] == repo_head(repo)
-    assert data["reviewed"] is True
+    assert data["tier"] == "listed"
 
 
 def test_install_addon_refuses_bad_id(tmp_path):
@@ -72,7 +72,7 @@ def test_install_addon_refuses_bad_id(tmp_path):
 def test_install_addon_refuses_unlisted(tmp_path):
     registry = tmp_path / "index.json"
     registry.write_text(json.dumps([listing()]), encoding="utf-8")
-    with pytest.raises(ValueError, match="not on the reviewed registry"):
+    with pytest.raises(ValueError, match="not on the add-on list"):
         ai.install_addon(
             addon_id="not-listed",
             index=str(registry),
@@ -242,7 +242,7 @@ def test_unreviewed_install_takes_its_id_from_the_manifest(tmp_path):
     assert result["id"] == "pedestal"
     record = json.loads((tmp_path / "addons" / "pedestal" / ".addon-install.json").read_text(encoding="utf-8"))
     assert record["id"] == "pedestal"
-    assert record["reviewed"] is False
+    assert record["tier"] == "unknown"
 
 
 def test_listed_install_still_refuses_a_manifest_with_another_id(tmp_path):

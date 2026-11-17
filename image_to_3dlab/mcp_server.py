@@ -1101,7 +1101,7 @@ def install_backend(studio: Studio, *, backend_id: str, confirm: bool = False) -
 
 # --------------------------------------------------------------------------- add-ons
 def list_addons(studio: Studio) -> dict[str, Any]:
-    """Every reviewed add-on, whether it is installed, its author and what it makes."""
+    """Every add-on on the list, whether it is installed, its label (Verified, Listed or Unknown), author and what it makes."""
     return studio.get("api/addons")
 
 
@@ -1114,7 +1114,7 @@ def install_addon(studio: Studio, *, addon_id: str, confirm: bool = False) -> di
     if not confirm:
         plan["to_start"] = (
             "Nothing has been installed. Tell the user what this add-on does, who wrote it, "
-            "its licence and whether it is reviewed, then call again with confirm=true only after they say yes."
+            "its licence, its label (Verified, Listed or Unknown) and whether it runs on their machine or in the cloud, then call again with confirm=true only after they say yes."
         )
         return plan
     return studio.post_json(f"api/addons/{addon_id}/install", {"confirm": True})
@@ -1257,7 +1257,7 @@ finished Pixal3D model's own pictures; show each to the user (skin_picture) and 
 then back; build_skin then repaints the same model (same mesh, so the rig and moves still fit).
 Never download model weights without the user's explicit yes (install_backend asks first).
 Add-ons are extra tools from other repos, listed by list_addons and installed with install_addon. They run code
-on this machine, so show the user the plan (author, licence, what it fetches) and get a clear yes before
+on this machine, so show the user the plan (author, licence, its label, what it fetches) and get a clear yes before
 confirm=true. Run a tool from an installed add-on with run_addon; it returns a run_id like create does, then
 poll run_status until it finishes.
 If status shows usage_counts.ask_user, put that question to the user; if they say yes, record it with
@@ -1542,7 +1542,8 @@ def build_server(studio: Studio | None = None):
     @server.tool(name="list_addons", structured_output=False)
     def tool_list_addons():
         """Every add-on from the list (installed first): name, author, summary, links, rating,
-        whether it is reviewed, and the tools it provides."""
+        its label (Verified, Listed or Unknown), whether it runs on this machine or in the cloud,
+        and the tools it provides."""
         return safe(lambda: list_addons(studio))
 
     @server.tool(name="install_addon", structured_output=False)

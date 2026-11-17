@@ -85,7 +85,7 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         "type": listing.type,
         "installed": listing.id in installed_ids,
         "listed": True,
-        "reviewed": True,
+        "reviewed": True,  # the list entry itself; an installed copy overrides this below
         "links": listing.links,
         "rating": listing.rating,
         "ratings_count": listing.ratings_count,
@@ -93,6 +93,9 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
     if listing.id in installed_ids:
         installed = _installed_addon_payload(listing.id)
         if installed is not None:
+            # What was actually installed decides, not the name: a copy installed without
+            # review stays "not reviewed" even if a listed add-on shares its id.
+            payload["reviewed"] = installed["reviewed"]
             payload["licence"] = installed["licence"]
             payload["tools"] = installed["tools"]
     return payload

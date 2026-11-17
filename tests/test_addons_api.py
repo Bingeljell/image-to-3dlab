@@ -155,3 +155,23 @@ def test_addons_page_sends_the_studio_request_header():
     html = (Path(__file__).resolve().parents[1] / "viewer" / "addons.html").read_text(encoding="utf-8")
     assert './request-header.js' in html
     assert html.index('request-header.js') < html.index('addons_page.js')
+
+
+def test_installed_copy_without_review_is_not_shown_as_reviewed_even_if_its_id_is_listed(tmp_path, monkeypatch):
+    _set_paths(tmp_path, monkeypatch)
+    registry = tmp_path / "index.json"
+    registry.write_text(json.dumps([listing()]), encoding="utf-8")
+    monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
+    make_installed_addon(tmp_path, manifest(), install={"reviewed": False})
+    entry = viewer.addons_payload()["addons"][0]
+    assert entry["installed"] is True
+    assert entry["reviewed"] is False
+
+
+def test_installed_reviewed_copy_is_shown_as_reviewed(tmp_path, monkeypatch):
+    _set_paths(tmp_path, monkeypatch)
+    registry = tmp_path / "index.json"
+    registry.write_text(json.dumps([listing()]), encoding="utf-8")
+    monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
+    make_installed_addon(tmp_path, manifest(), install={"reviewed": True})
+    assert viewer.addons_payload()["addons"][0]["reviewed"] is True

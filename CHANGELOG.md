@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Installing an unreviewed add-on no longer fails when its repo name differs from its id.
 
+### Fixed
+
+- An add-on you installed without review is no longer shown as reviewed just because a listed add-on has the same name.
+- A model made by an add-on now keeps the licence of the model that went into it, including restrictions such as "not licensed in the EU, UK or South Korea". A model with no licence record counts as unverified. The record also holds a fingerprint of the result file.
+
 ## [0.5.11] - 2026-11-17
 
 ### Added

@@ -71,6 +71,19 @@
 .setup-card-licence, .setup-card-extra { opacity: .7; margin: 6px 0 0; }
 .setup-run { margin-top: 18px; padding: 12px 14px; border-radius: 10px; background: var(--panel);
   border: 1px solid var(--line); }
+.setup-addons { margin-top: 28px; }
+.setup-addons h2 { font-family: var(--f-display); font-size: 22px; color: var(--bone); margin: 0 0 12px; }
+.addon-card .setup-card-state { display: flex; gap: 8px; flex-wrap: wrap; }
+.addon-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 6px; border-radius: 99px; margin-left: 6px; vertical-align: 2px; }
+.addon-reviewed { background: #2a4436; color: #a8e0b8; }
+.addon-unreviewed { background: #5a3a26; color: #f0c9a8; }
+.addon-unlisted { background: #4a3a31; color: var(--ash); }
+.addon-rating { color: var(--flame); font-size: 11px; }
+.addon-plan-box { margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+  background: var(--raise); border: 1px solid var(--line); }
+.addon-warning { font-size: 12px; color: #f0c9a8; }
+.setup-addons-list { display: grid; gap: 12px; }
 /* How a run ended. A finished panel that still looks like a running download — bar at 100%,
    title still saying "Downloading" — reads as a page that gave up halfway. */
 .setup-run.done { border-color: #2f5a43; }

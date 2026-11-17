@@ -3,9 +3,14 @@
 # It picks how to listen for this machine (your browser opens locally; on a RunPod pod it
 # prints the pod's link; over SSH it prints the tunnel command). See viewer/serve.py --auto.
 #   ./lab mcp    runs the MCP server an agent (Claude Code, Codex, ...) connects to
+#   ./lab addon  installs and runs add-ons
 cd "$(dirname "$0")" || exit 1
 if [ "$1" = "mcp" ]; then
   shift
   exec .venv/bin/python -m image_to_3dlab.mcp_server "$@"
+fi
+if [ "$1" = "addon" ]; then
+  shift
+  exec .venv/bin/python scripts/addon.py "$@"
 fi
 exec .venv/bin/python viewer/serve.py --auto "$@"

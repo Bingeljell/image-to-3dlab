@@ -15,6 +15,7 @@ from typing import Any
 INPUT_TYPES = {"text", "number", "choice", "toggle", "picture", "model"}
 ADDON_TYPES = {"tool", "app"}
 REQUIRED_MANIFEST_FIELDS = ("schema", "id", "name", "version", "author", "licence", "summary")
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
 @dataclass(frozen=True)
@@ -65,9 +66,10 @@ class Listing:
     type: str
 
 
-def _assert(condition: bool, message: str) -> None:
-    if not condition:
-        raise ValueError(message)
+def validate_addon_id(addon_id: str) -> None:
+    """Refuse ids that could escape the addons/ folder or look like paths."""
+    if not isinstance(addon_id, str) or not ID_RE.fullmatch(addon_id):
+        raise ValueError(f"invalid add-on id: {addon_id!r}")
 
 
 def _require_field(data: dict[str, Any], field: str, where: str) -> Any:
@@ -141,6 +143,7 @@ def read_manifest(path: Path) -> Manifest:
     addon_type = data.get("type", "tool")
     if addon_type not in ADDON_TYPES:
         raise ValueError(f"addon.json 'type' must be one of {ADDON_TYPES}; got {addon_type!r}")
+    validate_addon_id(data["id"])
     return Manifest(
         schema=int(schema),
         id=str(data["id"]),
@@ -178,6 +181,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
             _require_field(item, field, where)
         if not item["commit"]:
             raise ValueError(f"{where} 'commit' must be a pinned commit hash")
+        validate_addon_id(item["id"])
         author = _author(item.get("author", {}))
         summary = str(item.get("summary", ""))
         addon_type = item.get("type", "tool")
@@ -197,22 +201,29 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
     return listings
 
 
-def install_plan(listing: Listing, manifest: Manifest) -> dict[str, Any]:
+def install_plan(listing: Listing, manifest: Manifest, *, reviewed: bool = True) -> dict[str, Any]:
     """What the yes/no prompt shows before installing an add-on."""
     models = [
         {"name": str(model.get("name", "")), "licence": str(model.get("licence", "")),
          "size": str(model.get("size", ""))}
         for model in manifest.models
     ]
+    if reviewed:
+        warning = (
+            f"This add-on runs code on this machine. "
+            f"It was reviewed by AssetFurnace at {listing.commit}."
+        )
+    else:
+        warning = (
+            "This add-on runs code on this machine. "
+            "It is not reviewed by AssetFurnace; install it only if you trust the source."
+        )
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,
         "models": models,
         "setup": list(manifest.setup),
-        "warning": (
-            f"This add-on runs code on this machine. "
-            f"It was reviewed by AssetFurnace at {listing.commit}."
-        ),
+        "warning": warning,
     }
 
 
@@ -233,6 +244,54 @@ def _validate_input(value: Any, spec: Input) -> None:
     elif spec.type in ("picture", "model", "text"):
         if not isinstance(value, str):
             raise ValueError(f"input '{spec.id}' must be text")
+
+
+def _coerce_input(value: str, spec: Input, cwd: Path | None) -> Any:
+    """Turn one raw --input string into the type the manifest declares."""
+    if spec.type == "text":
+        return value
+    if spec.type == "number":
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(f"input '{spec.id}' must be a number") from exc
+    if spec.type == "choice":
+        return value
+    if spec.type == "toggle":
+        lowered = value.lower()
+        if lowered in {"true", "1", "yes"}:
+            return True
+        if lowered in {"false", "0", "no"}:
+            return False
+        raise ValueError(f"input '{spec.id}' must be true or false")
+    if spec.type in ("picture", "model"):
+        path = Path(value)
+        if cwd is not None:
+            path = cwd / path
+        path = path.resolve()
+        if not path.is_file():
+            raise ValueError(f"input '{spec.id}' file does not exist: {path}")
+        return str(path)
+    raise ValueError(f"input '{spec.id}' has unknown type {spec.type!r}")
+
+
+def parse_inputs(
+    raw: dict[str, str],
+    tool: Tool,
+    cwd: Path | str | None = None,
+) -> dict[str, Any]:
+    """Parse raw --input key=value strings using the tool's declared input types."""
+    resolved_cwd = Path(cwd).resolve() if cwd is not None else None
+    inputs: dict[str, Any] = {}
+    for spec in tool.inputs:
+        if spec.id not in raw:
+            continue
+        inputs[spec.id] = _coerce_input(raw[spec.id], spec, resolved_cwd)
+    return inputs
 
 
 def build_command(tool: Tool, inputs: dict[str, Any], *, out_dir: str | Path,
@@ -269,8 +328,14 @@ def output_dir(addon_id: str, run_stem: str) -> Path:
     return Path("output") / f"addon-{addon_id}" / run_stem
 
 
-def run_record(listing: Listing, manifest: Manifest, tool: Tool,
-               inputs: dict[str, Any]) -> dict[str, Any]:
+def run_record(
+    listing: Listing,
+    manifest: Manifest,
+    tool: Tool,
+    inputs: dict[str, Any],
+    *,
+    reviewed: bool,
+) -> dict[str, Any]:
     """A provenance record for an add-on run, written by the core."""
     return {
         "schema_version": 1,
@@ -280,6 +345,7 @@ def run_record(listing: Listing, manifest: Manifest, tool: Tool,
             "repo": listing.repo,
             "commit": listing.commit,
             "licence": manifest.licence,
+            "reviewed": reviewed,
         },
         "tool": {"id": tool.id, "label": tool.label, "makes": tool.makes},
         "inputs": dict(inputs),

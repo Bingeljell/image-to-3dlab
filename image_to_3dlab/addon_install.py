@@ -42,7 +42,8 @@ from image_to_3dlab.provenance import (
     write_provenance,
 )
 
-REGISTRY_URL = "https://assetfurnace.com/add-ons/index.json"
+# The list of add-ons: built from the entry files in the public list repo and committed there on every merge.
+REGISTRY_URL = "https://raw.githubusercontent.com/AssetFurnace/assetfurnace-addons/main/index.json"
 USER_AGENT = f"image-to-3dlab/{__version__} (+https://github.com/Bingeljell/image-to-3dlab)"
 INSTALL_JSON = ".addon-install.json"
 

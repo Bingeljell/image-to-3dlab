@@ -7,7 +7,7 @@
     ./lab addon remove vehicle-kit
     ./lab addon run vehicle-kit build --input preset=bus_12m
 
-Add-ons are listed at `https://assetfurnace.com/add-ons/index.json`.
+Add-ons are listed in the public list at `https://github.com/AssetFurnace/assetfurnace-addons`.
 Only names on the list can be installed; anything else needs `--unreviewed` and is marked Unknown.
 Each add-on is cloned at a pinned commit, checked out, verified, and run in its own
 folder with `HF_HUB_OFFLINE=1`. The core writes the `.provenance.json` sidecar.

@@ -383,3 +383,9 @@ def test_resume_refuses_lods_baked_before_the_atlas_halved(sheet):
     record_path.write_text(json.dumps(record))
     with pytest.raises(SystemExit, match="lod_atlas"):
         run("--resume")
+
+
+def test_rel_posix_uses_forward_slashes_and_goes_up_when_needed(tmp_path):
+    out = tmp_path / "out"
+    assert finish.rel_posix(out / "a" / "b.glb", out) == "a/b.glb"
+    assert finish.rel_posix(tmp_path / "x.glb", out) == "../x.glb"

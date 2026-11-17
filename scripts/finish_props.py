@@ -177,6 +177,11 @@ def lod_atlas(atlas: int, index: int) -> int:
     return max(MIN_LOD_ATLAS, atlas >> index)
 
 
+def rel_posix(path: Path, start: Path) -> str:
+    """A path relative to `start`, always with forward slashes so the manifest reads the same on every system."""
+    return Path(os.path.relpath(path, start)).as_posix()
+
+
 def glb_triangles(glb: bytes) -> int:
     """How many triangles a GLB's meshes hold, from the accessor counts alone."""
     document, _binary = parse_glb(glb)
@@ -297,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         name = source.stem
         logs = out_dir / name / "logs"
         logs.mkdir(parents=True, exist_ok=True)
-        entry = {"name": name, "source": os.path.relpath(source, out_dir), "lods": []}
+        entry = {"name": name, "source": rel_posix(source, out_dir), "lods": []}
         for index, faces in enumerate(lods):
             step = time.time()
             atlas = lod_atlas(args.atlas, index)
@@ -319,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
                 retopo.unlink()
                 write_lod(detailed, baked, f"{name}_LOD{index}")
             lod = {"faces": faces, "atlas": atlas, "triangles": glb_triangles(baked.read_bytes()),
-                   "glb": os.path.relpath(baked, out_dir), "bytes": baked.stat().st_size}
+                   "glb": rel_posix(baked, out_dir), "bytes": baked.stat().st_size}
             if detail_log.is_file():
                 lod["detail"] = detail_record(detail_log.read_text())
             if gltfpack is not None:
@@ -330,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
                     _run(gltfpack_command(gltfpack, baked, unpacked),
                          logs / f"LOD{index}.gltfpack.log", f"{name} LOD{index} gltfpack")
                     unpacked.replace(packed)
-                lod.update(web_glb=os.path.relpath(packed, out_dir),
+                lod.update(web_glb=rel_posix(packed, out_dir),
                            web_bytes=packed.stat().st_size)
             lod["seconds"] = round(time.time() - step, 1)
             entry["lods"].append(lod)

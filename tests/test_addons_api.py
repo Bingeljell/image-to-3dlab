@@ -88,7 +88,8 @@ def test_install_payload_returns_plan(tmp_path, monkeypatch):
     assert payload["author"] == "Ahnyth"
     assert payload["licence"] == "Apache-2.0"
     assert payload["version"] == "0.1.0"
-    assert "checked by AssetFurnace" in payload["warning"]
+    assert payload["tier"] == "listed"
+    assert "automatic checks" in payload["warning"]
 
 
 def test_apply_install_and_remove(tmp_path, monkeypatch):
@@ -157,24 +158,25 @@ def test_addons_page_sends_the_studio_request_header():
     assert html.index('request-header.js') < html.index('addons_page.js')
 
 
-def test_installed_copy_without_review_is_not_shown_as_reviewed_even_if_its_id_is_listed(tmp_path, monkeypatch):
+def test_installed_copy_without_a_list_entry_stays_unknown_even_if_its_id_is_listed(tmp_path, monkeypatch):
     _set_paths(tmp_path, monkeypatch)
     registry = tmp_path / "index.json"
     registry.write_text(json.dumps([listing()]), encoding="utf-8")
     monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
-    make_installed_addon(tmp_path, manifest(), install={"reviewed": False})
+    make_installed_addon(tmp_path, manifest(), install={"tier": "unknown"})
     entry = viewer.addons_payload()["addons"][0]
     assert entry["installed"] is True
-    assert entry["reviewed"] is False
+    assert entry["tier"] == "unknown"
 
 
-def test_installed_reviewed_copy_is_shown_as_reviewed(tmp_path, monkeypatch):
+def test_a_verified_list_entry_shows_verified_and_an_installed_copy_shows_its_own_tier(tmp_path, monkeypatch):
     _set_paths(tmp_path, monkeypatch)
     registry = tmp_path / "index.json"
     registry.write_text(json.dumps([listing()]), encoding="utf-8")
     monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
-    make_installed_addon(tmp_path, manifest(), install={"reviewed": True})
-    assert viewer.addons_payload()["addons"][0]["reviewed"] is True
+    make_installed_addon(tmp_path, manifest(), install={"tier": "listed"})
+    assert viewer.addons_payload()["addons"][0]["tier"] == "listed"
+
 
 
 def test_payload_carries_runs_for_listed_and_installed(tmp_path, monkeypatch):

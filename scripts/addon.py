@@ -8,7 +8,7 @@
     ./lab addon run vehicle-kit build --input preset=bus_12m
 
 Add-ons are listed at `https://assetfurnace.com/add-ons/index.json`.
-Only listed names can be installed; anything else needs `--unreviewed` and a warning.
+Only names on the list can be installed; anything else needs `--unreviewed` and is marked Unknown.
 Each add-on is cloned at a pinned commit, checked out, verified, and run in its own
 folder with `HF_HUB_OFFLINE=1`. The core writes the `.provenance.json` sidecar.
 """
@@ -30,6 +30,7 @@ from image_to_3dlab.addon_install import (
     remove_addon,
     run_addon,
 )
+from image_to_3dlab.addons import TIER_LABELS
 
 ADDONS_DIR = Path(os.environ.get("ADDONS_DIR", REPO / "addons"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", REPO / "output"))
@@ -40,7 +41,7 @@ def _parser() -> argparse.ArgumentParser:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    list_cmd = sub.add_parser("list", help="List reviewed add-ons.")
+    list_cmd = sub.add_parser("list", help="List the add-ons on the list.")
     list_cmd.add_argument("--index", help="local list file for tests or review")
     list_cmd.add_argument("--installed", action="store_true",
                           help="Only show add-ons already installed.")
@@ -48,7 +49,7 @@ def _parser() -> argparse.ArgumentParser:
     add_cmd = sub.add_parser("add", help="Install an add-on after showing its plan.")
     add_cmd.add_argument("--index", help="local list file for tests or review")
     add_cmd.add_argument("id", nargs="?", help="id of a listed add-on")
-    add_cmd.add_argument("--unreviewed", help="git url@commit, not on the list")
+    add_cmd.add_argument("--unreviewed", help="install something not on the list (marked Unknown): git url@commit")
     add_cmd.add_argument("--yes", action="store_true",
                          help="do not ask for confirmation (scripts only)")
 
@@ -125,7 +126,8 @@ def cmd_list(args: argparse.Namespace) -> int:
             count = f" ({listing.ratings_count})" if listing.ratings_count else ""
             rating = f" * {listing.rating}{count}"
         where = " (cloud)" if listing.runs == "cloud" else ""
-        print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}]{where}")
+        label = TIER_LABELS[listing.tier]
+        print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}] {label}{where}")
         if listing.summary:
             print(f"  {listing.summary}")
         link_line = _link_line(listing)

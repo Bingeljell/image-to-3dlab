@@ -163,7 +163,8 @@ It records:
 
 - the add-on id, name, repo URL and pinned commit
 - the add-on licence
-- whether the add-on was reviewed by AssetFurnace
+- the add-on's label when it was installed: Verified, Listed or Unknown
+- if a model went in, that model's licence and any restrictions, which the result keeps
 - the tool id and what it makes
 - the actual input values used
 - the models the manifest declared
@@ -172,7 +173,7 @@ This is the licence record that travels with the file. Do not write your own.
 
 ## Testing locally
 
-You can install an unreviewed add-on straight from a Git URL to test it:
+You can install an add-on straight from a Git URL to test it. It is marked Unknown, because it is not on our list:
 
 ```bash
 ./lab addon add --unreviewed https://github.com/you/pedestal-addon.git@<commit-hash>
@@ -190,7 +191,7 @@ at it the same way:
 ./lab addon add --unreviewed /path/to/pedestal-addon.git@<commit-hash>
 ```
 
-Use a local index file to test the reviewed list flow:
+Use a local list file to test the list flow:
 
 ```bash
 ADDONS_INDEX=/path/to/index.json ./lab addon list
@@ -213,18 +214,41 @@ The index file is a JSON list of listing objects. Each listing needs `id`, `name
 - Keep the manifest honest: `models`, `licence` and `needs` are shown to the user before
   they say yes.
 
-## How to ask to be listed
+## Getting listed
 
-To be included in the reviewed add-on list:
+The list is a public repo, [AssetFurnace/assetfurnace-addons](https://github.com/AssetFurnace/assetfurnace-addons),
+with one small file per add-on. It holds no add-on code, only a pointer to your repo and the exact version.
 
 1. Publish your add-on as a public Git repository with a clear licence.
-2. Pin every release to a specific commit.
-3. Make sure `addon.json` follows the rules above.
-4. Open an issue on the AssetFurnace repo with the repository URL and the commit hash you
-   want listed.
+2. Test it by installing it from your own repo (see above).
+3. Fork the list repo and add one file, `addons/<your-id>.json`. Copy `addons/pedestal.json`.
+4. Open a pull request. Automatic checks run and tell you what to fix.
+5. When the checks pass and it is merged, you are **Listed**.
+6. Want **Verified**? Say so in the pull request.
 
-We review the code, the licence and what it fetches before adding it.
+A new version of your add-on is a new pull request that changes the `commit` line. Nothing updates by itself.
+The list repo's README has the full rules.
+
+## What the labels mean
+
+Every add-on shows one label, in the studio, the command line, the agent tools and on the site.
+
+- **Verified**: we read the code, ran it and checked its licences. Pinned to that exact version. A new
+  version is checked again.
+- **Listed**: it passed automatic checks (it installs, runs and makes a valid model). We have not read its
+  code. Use it at your own risk.
+- **Unknown**: not on our list. We have never looked at it. The studio warns you every time.
+
+Add-ons run code on your machine, so read the label before you install.
 
 ## How we review an add-on
 
-Coming soon.
+Listed is automatic. A person (or an agent working for us) is only involved in Verified.
+
+For Verified we read every script that runs, including `setup`; check that it does not reach the network,
+write outside its output folder or read your files beyond the inputs you give it, unless it says so; check
+the licence of every model and file it uses; and run it on a few test inputs, including a bad one. We check
+again on every new version.
+
+We can remove an add-on from the list at any time, for example if its repo disappears or a reported problem
+goes unanswered.

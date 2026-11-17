@@ -15,6 +15,22 @@ from typing import Any
 INPUT_TYPES = {"text", "number", "choice", "toggle", "picture", "model"}
 ADDON_TYPES = {"tool", "app"}
 RUNS = {"local", "cloud"}
+# What a user is told about an add-on, same words in the studio, the CLI, the agent tools and the site.
+LISTED_TIERS = {"listed", "verified"}  # what a list entry may say; "unknown" is only ever a local install
+TIER_LABELS = {"verified": "Verified", "listed": "Listed", "unknown": "Unknown"}
+TIER_SENTENCES = {
+    "verified": "We read its code, ran it and checked its licences.",
+    "listed": "It passed automatic checks. We have not read its code. Use it at your own risk.",
+    "unknown": "It is not on our list and we have never looked at it. Install it only if you trust the source.",
+}
+
+
+def tier_from_install(info: dict[str, Any]) -> str:
+    """The tier an installed add-on was installed under. Older install records only had a yes/no."""
+    tier = info.get("tier")
+    if tier in TIER_LABELS:
+        return str(tier)
+    return "listed" if info.get("reviewed") is True else "unknown"
 REQUIRED_MANIFEST_FIELDS = ("schema", "id", "name", "version", "author", "licence", "summary")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -68,6 +84,7 @@ class Listing:
     type: str
     links: dict[str, str] = field(default_factory=dict)
     runs: str = "local"
+    tier: str = "listed"
     rating: float | None = None
     ratings_count: int = 0
 
@@ -179,7 +196,7 @@ def _author(data: Any) -> dict[str, str]:
 
 
 def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
-    """Read the registry of reviewed add-ons."""
+    """Read the add-on list."""
     if not isinstance(data, list):
         raise ValueError("registry must be a list")
     listings: list[Listing] = []
@@ -212,6 +229,9 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         runs = item.get("runs", "local")
         if runs not in RUNS:
             raise ValueError(f"{where} 'runs' must be one of {sorted(RUNS)}; got {runs!r}")
+        tier = item.get("tier", "listed")
+        if tier not in LISTED_TIERS:
+            raise ValueError(f"{where} 'tier' must be one of {sorted(LISTED_TIERS)}; got {tier!r}")
         listings.append(
             Listing(
                 id=str(item["id"]),
@@ -223,6 +243,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
                 type=addon_type,
                 links=links,
                 runs=runs,
+                tier=tier,
                 rating=rating,
                 ratings_count=ratings_count,
             )
@@ -230,7 +251,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
     return listings
 
 
-def install_plan(listing: Listing, manifest: Manifest, *, reviewed: bool = True) -> dict[str, Any]:
+def install_plan(listing: Listing, manifest: Manifest, *, tier: str = "listed") -> dict[str, Any]:
     """What the yes/no prompt shows before installing an add-on."""
     models = [
         {"name": str(model.get("name", "")), "licence": str(model.get("licence", "")),
@@ -242,10 +263,7 @@ def install_plan(listing: Listing, manifest: Manifest, *, reviewed: bool = True)
         if manifest.runs == "local"
         else "This add-on uses the cloud: your models and pictures are sent off this machine to its service."
     )
-    if reviewed:
-        warning = f"{where} It was checked by AssetFurnace."
-    else:
-        warning = f"{where} It is not checked by AssetFurnace; install it only if you trust the source."
+    warning = f"{where} {TIER_SENTENCES[tier]}"
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,
@@ -253,6 +271,7 @@ def install_plan(listing: Listing, manifest: Manifest, *, reviewed: bool = True)
         "models": models,
         "setup": list(manifest.setup),
         "runs": manifest.runs,
+        "tier": tier,
         "warning": warning,
     }
 
@@ -364,7 +383,7 @@ def run_record(
     tool: Tool,
     inputs: dict[str, Any],
     *,
-    reviewed: bool,
+    tier: str,
 ) -> dict[str, Any]:
     """A provenance record for an add-on run, written by the core."""
     return {
@@ -375,7 +394,7 @@ def run_record(
             "repo": listing.repo,
             "commit": listing.commit,
             "licence": manifest.licence,
-            "reviewed": reviewed,
+            "tier": tier,
         },
         "tool": {"id": tool.id, "label": tool.label, "makes": tool.makes},
         "inputs": dict(inputs),

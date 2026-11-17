@@ -31,14 +31,13 @@ export function authorLine(addon) {
   return html;
 }
 
-export function reviewBadge(addon) {
+export function tierBadge(addon) {
   if (addon.no_longer_listed) {
     return '<span class="addon-badge addon-unlisted">No longer listed</span>';
   }
-  if (addon.reviewed === false) {
-    return '<span class="addon-badge addon-unreviewed">Not reviewed</span>';
-  }
-  return '<span class="addon-badge addon-reviewed">Reviewed</span>';
+  if (addon.tier === 'verified') return '<span class="addon-badge addon-verified">Verified</span>';
+  if (addon.tier === 'listed') return '<span class="addon-badge addon-listed">Listed</span>';
+  return '<span class="addon-badge addon-unknown">Unknown</span>';
 }
 
 export function runsBadge(addon) {
@@ -272,7 +271,7 @@ function addonCard(addon) {
       <span class="setup-dot ${installed ? 'ok' : 'off'}">${installed ? '●' : '○'}</span>
       <div class="setup-card-title">
         <strong>${escapeHtml(addon.name)}</strong>
-        ${reviewBadge(addon)}${runsBadge(addon)}
+        ${tierBadge(addon)}${runsBadge(addon)}
         <div class="setup-card-state addon-author">${authorLine(addon)} ${ratingLine(addon)}</div>
       </div>
       <div class="setup-card-action">${action}</div>

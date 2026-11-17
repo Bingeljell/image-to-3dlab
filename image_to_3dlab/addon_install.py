@@ -31,6 +31,7 @@ from image_to_3dlab.addons import (
     read_manifest,
     read_registry,
     run_record,
+    tier_from_install,
     validate_addon_id,
 )
 from image_to_3dlab.blender import find_blender
@@ -74,12 +75,12 @@ def _install_json_path(dest: Path) -> Path:
     return dest / INSTALL_JSON
 
 
-def _write_install_json(dest: Path, listing: Listing, reviewed: bool) -> None:
+def _write_install_json(dest: Path, listing: Listing, tier: str) -> None:
     record = {
         "id": listing.id,
         "repo": listing.repo,
         "commit": listing.commit,
-        "reviewed": reviewed,
+        "tier": tier,
         "installed_at": datetime.now(UTC).isoformat(),
     }
     _install_json_path(dest).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -100,7 +101,7 @@ def _fetch_json(url: str) -> Any:
 
 
 def load_registry(index: Path | str | None) -> list[Listing]:
-    """Read the registry of reviewed add-ons from a file or the network."""
+    """Read the add-on list from a file or the network."""
     if index is not None:
         data = json.loads(Path(index).read_text(encoding="utf-8"))
     else:
@@ -112,8 +113,8 @@ def resolve_install_target(
     addon_id: str | None,
     unreviewed: str | None,
     index: Path | str | None,
-) -> tuple[Listing, bool]:
-    """Return the listing to install and whether it is reviewed.
+) -> tuple[Listing, str]:
+    """Return the listing to install and its tier (Unknown when it is not on the list).
 
     Raises ValueError for bad ids, bad URLs, or unlisted names.
     """
@@ -129,11 +130,11 @@ def resolve_install_target(
             name=derived_id,
             repo=repo_url,
             commit=commit,
-            author={"name": "unreviewed", "url": ""},
+            author={"name": "unknown", "url": ""},
             summary="",
             type="tool",
         )
-        return listing, False
+        return listing, "unknown"
 
     if not addon_id:
         raise ValueError("add requires an id or --unreviewed")
@@ -142,10 +143,10 @@ def resolve_install_target(
     matches = [entry for entry in registry if entry.id == addon_id]
     if not matches:
         raise ValueError(
-            f"{addon_id} is not on the reviewed registry. "
-            "Use --unreviewed <git url>@<commit> if you still want it."
+            f"{addon_id} is not on the add-on list. "
+            "Use --unreviewed <git url>@<commit> if you still want it (it will be marked Unknown)."
         )
-    return matches[0], True
+    return matches[0], matches[0].tier
 
 
 def _tool_by_id(manifest: Manifest, tool_id: str) -> Any:
@@ -197,14 +198,14 @@ def apply_install(
     manifest: Manifest,
     temp_dest: Path,
     addons_dir: Path,
-    reviewed: bool,
+    tier: str,
 ) -> Path:
     """Move the prepared temp folder into addons_dir and write the install record."""
     dest = _addon_dir(listing.id, addons_dir)
     if dest.exists():
         shutil.rmtree(dest)
     shutil.move(str(temp_dest), str(dest))
-    _write_install_json(dest, listing, reviewed=reviewed)
+    _write_install_json(dest, listing, tier=tier)
     return dest
 
 
@@ -238,20 +239,20 @@ def install_addon(
     """
     addons_dir = Path(addons_dir) if addons_dir is not None else Path("addons")
     repo_dir = Path(repo_dir) if repo_dir is not None else Path.cwd()
-    listing, reviewed = resolve_install_target(addon_id, unreviewed, index)
+    listing, tier = resolve_install_target(addon_id, unreviewed, index)
     manifest, temp_dest = prepare_install(
-        listing, addons_dir, cwd=repo_dir, id_from_manifest=not reviewed
+        listing, addons_dir, cwd=repo_dir, id_from_manifest=tier == "unknown"
     )
-    if not reviewed:
+    if tier == "unknown":
         validate_addon_id(manifest.id)
         listing = replace(listing, id=manifest.id, name=manifest.name)
-    plan = install_plan(listing, manifest, reviewed=reviewed)
+    plan = install_plan(listing, manifest, tier=tier)
     if not confirm:
         shutil.rmtree(temp_dest, ignore_errors=True)
         return {"plan": plan, "listing": listing, "manifest": manifest}
 
     try:
-        dest = apply_install(listing, manifest, temp_dest, addons_dir, reviewed=reviewed)
+        dest = apply_install(listing, manifest, temp_dest, addons_dir, tier=tier)
         run_addon_setup(dest)
         return {"installed": True, "id": listing.id, "dir": dest}
     except Exception:
@@ -363,7 +364,7 @@ def run_addon(
         summary=manifest.summary,
         type=manifest.type,
     )
-    reviewed = bool(install_info.get("reviewed", False))
+    tier = tier_from_install(install_info)
 
     parsed_inputs = parse_inputs(inputs, tool, cwd=repo_dir)
     stem = run_stem or _default_run_stem()
@@ -385,7 +386,7 @@ def run_addon(
     if not result_is_fresh(result_file, started):
         raise RuntimeError(f"expected result {result_file.name} not written")
 
-    record = run_record(listing, manifest, tool, parsed_inputs, reviewed=reviewed)
+    record = run_record(listing, manifest, tool, parsed_inputs, tier=tier)
     write_add_on_record(result_file, record, tool, parsed_inputs)
     return result_file
 

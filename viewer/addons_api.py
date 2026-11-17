@@ -1,6 +1,6 @@
 """Add-on HTTP API for the studio.
 
-Works offline: if the reviewed list cannot be fetched, installed add-ons are still
+Works offline: if the add-on list cannot be fetched, installed add-ons are still
 shown and the UI can say the list is unreachable.
 """
 
@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import addon_install as ai
-from image_to_3dlab.addons import Listing, read_manifest
+from image_to_3dlab.addons import Listing, read_manifest, tier_from_install
 
 ADDONS_DIR = Path(os.environ.get("ADDONS_DIR", REPO / "addons"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", REPO / "output"))
@@ -71,7 +71,7 @@ def _installed_addon_payload(addon_id: str) -> dict[str, Any] | None:
         "runs": manifest.runs,
         "installed": True,
         "listed": False,
-        "reviewed": bool(install_info.get("reviewed", False)),
+        "tier": tier_from_install(install_info),
         "licence": manifest.licence,
         "tools": [_tool_spec(t) for t in manifest.tools],
     }
@@ -87,7 +87,7 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         "runs": listing.runs,
         "installed": listing.id in installed_ids,
         "listed": True,
-        "reviewed": True,  # the list entry itself; an installed copy overrides this below
+        "tier": listing.tier,  # the list entry itself; an installed copy overrides this below
         "links": listing.links,
         "rating": listing.rating,
         "ratings_count": listing.ratings_count,
@@ -96,8 +96,8 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         installed = _installed_addon_payload(listing.id)
         if installed is not None:
             # What was actually installed decides, not the name: a copy installed without
-            # review stays "not reviewed" even if a listed add-on shares its id.
-            payload["reviewed"] = installed["reviewed"]
+            # without a list entry stays Unknown even if a listed add-on shares its id.
+            payload["tier"] = installed["tier"]
             payload["licence"] = installed["licence"]
             payload["tools"] = installed["tools"]
     return payload
@@ -152,7 +152,7 @@ def install_payload(addon_id: str) -> dict[str, Any]:
         "setup": plan["setup"],
         "runs": plan["runs"],
         "warning": plan["warning"],
-        "reviewed": True,
+        "tier": plan["tier"],
     }
 
 

@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -257,9 +258,10 @@ def _run_subprocess(
     cwd: Path,
     env: dict[str, str],
     logger: Callable[[str], None] | None,
+    cancel_event: threading.Event | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a command, optionally streaming each line to `logger`."""
-    if logger is None:
+    if logger is None and cancel_event is None:
         return subprocess.run(argv, cwd=str(cwd), env=env, check=False)
     proc = subprocess.Popen(
         argv,
@@ -271,8 +273,13 @@ def _run_subprocess(
         text=True,
     )
     assert proc.stdout is not None
+    cancelled = False
     for line in proc.stdout:
-        logger(line.rstrip("\n"))
+        if logger is not None:
+            logger(line.rstrip("\n"))
+        if cancel_event is not None and cancel_event.is_set() and not cancelled:
+            proc.terminate()
+            cancelled = True
     code = proc.wait()
     return subprocess.CompletedProcess(argv, returncode=code)
 
@@ -294,6 +301,7 @@ def run_addon(
     repo_dir: Path | None = None,
     blender: str | Path | None = None,
     logger: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> Path:
     """Run one tool from an installed add-on and return the result file path.
 
@@ -332,7 +340,9 @@ def run_addon(
 
     started = datetime.now(UTC).timestamp()
     env = {**os.environ, "HF_HUB_OFFLINE": "1"}
-    result = _run_subprocess(argv, addon_dir, env, logger)
+    result = _run_subprocess(argv, addon_dir, env, logger, cancel_event=cancel_event)
+    if cancel_event is not None and cancel_event.is_set():
+        raise RuntimeError("cancelled")
     if result.returncode != 0:
         raise RuntimeError("run failed")
 

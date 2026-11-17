@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 # Sibling import must also work when tests load this file directly via importlib.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import activity_api
+import addons_api
 import backend_catalog
 import bug_report_api
 import fixspot_api
@@ -2999,6 +3000,18 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "roblox-export"]:
             self._roblox_export()
             return
+        if parts[:3] == ["api", "addons"] and len(parts) == 4 and parts[3] == "install":
+            self._addon_install(parts[2])
+            return
+        if parts[:3] == ["api", "addons"] and len(parts) == 4 and parts[3] == "remove":
+            self._addon_remove(parts[2])
+            return
+        if parts[:3] == ["api", "addons"] and len(parts) == 5 and parts[3] == "run":
+            self._addon_run(parts[2], parts[4])
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "addons", "jobs"] and parts[4] == "cancel":
+            self._addon_cancel(parts[3])
+            return
         if parts == ["api", "bug-report"]:
             self._bug_report_links()
             return
@@ -3499,6 +3512,15 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(200, assets_payload(OUTPUT_ROOT))
             except Exception as exc:  # a broken run folder must not take the whole Library down
                 self._send_json(500, {"error": str(exc)})
+            return
+        if parts == ["api", "addons"]:
+            self._send_json(200, addons_api.addons_payload())
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "addons", "jobs"] and parts[4] == "status":
+            self._addon_job_status(parts[3])
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "addons", "jobs"] and parts[4] == "events":
+            self._addon_job_events(parts[3])
             return
         if parts == ["api", "update-check"]:
             self._send_json(200, update_check())
@@ -4393,6 +4415,91 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(422, {"error": str(exc)})
             return
         self._send_json(200, made)
+
+    def _read_json_body(self, limit: int = 4096) -> dict[str, Any] | None:
+        """Read a JSON POST body or send an error and return None."""
+        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+            self._send_json(415, {"error": "send JSON"})
+            return None
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length)) if 0 < length <= limit else {}
+            if not isinstance(body, dict):
+                raise ValueError("send a JSON object")
+            return body
+        except (ValueError, json.JSONDecodeError) as exc:
+            self._send_json(422, {"error": str(exc)})
+            return None
+
+    def _addon_install(self, addon_id: str) -> None:
+        body = self._read_json_body()
+        if body is None:
+            return
+        try:
+            if body.get("confirm"):
+                payload = addons_api.apply_install(addon_id)
+            else:
+                payload = addons_api.install_payload(addon_id)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(500, {"error": str(exc)})
+            return
+        self._send_json(200, payload)
+
+    def _addon_remove(self, addon_id: str) -> None:
+        try:
+            payload = addons_api.apply_remove(addon_id)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        self._send_json(200, payload)
+
+    def _addon_run(self, addon_id: str, tool_id: str) -> None:
+        body = self._read_json_body()
+        if body is None:
+            return
+        inputs = body.get("inputs") or {}
+        if not isinstance(inputs, dict):
+            self._send_json(422, {"error": "inputs must be an object"})
+            return
+        try:
+            payload = addons_api.run_payload(addon_id, tool_id, inputs)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        except RuntimeError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
+        self._send_json(200, payload)
+
+    def _addon_cancel(self, job_id: str) -> None:
+        try:
+            addons_api.ADDON_JOBS.cancel(job_id)
+        except ValueError as exc:
+            self._send_json(422, {"error": str(exc)})
+            return
+        self._send_json(200, {"cancelled": True})
+
+    def _addon_job_status(self, job_id: str) -> None:
+        job = addons_api.ADDON_JOBS.get(job_id)
+        if job is None:
+            self._send_json(404, {"error": "unknown job"})
+            return
+        self._send_json(200, addons_api.status_payload(job))
+
+    def _addon_job_events(self, job_id: str) -> None:
+        job = addons_api.ADDON_JOBS.get(job_id)
+        if job is None:
+            self._send_json(404, {"error": "unknown job"})
+            return
+        # Simple long-poll: wait up to 25 seconds for a new event.
+        last_index = int(parse_qs(urlparse(self.path).query).get("last", ["-1"])[0])
+        with job.condition:
+            while len(job.events) <= last_index and job.status not in {"done", "error", "cancelled"}:
+                job.condition.wait(timeout=25)
+        self._send_json(200, {"events": job.events[last_index + 1:], "status": job.status})
 
     def _reveal(self) -> None:
         """Show one output file in Finder / Explorer / the file manager, on this machine."""

@@ -22,6 +22,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
@@ -29,7 +31,6 @@ from urllib.request import Request, urlopen
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-# Imports after sys.path so the script can be run standalone.
 from image_to_3dlab import __version__
 from image_to_3dlab.addons import (
     Listing,
@@ -37,9 +38,11 @@ from image_to_3dlab.addons import (
     build_command,
     install_plan,
     output_dir,
+    parse_inputs,
     read_manifest,
     read_registry,
     run_record,
+    validate_addon_id,
 )
 from image_to_3dlab.blender import find_blender
 from image_to_3dlab.provenance import write_provenance
@@ -48,6 +51,7 @@ REGISTRY_URL = "https://assetfurnace.com/add-ons/index.json"
 ADDONS_DIR = Path(os.environ.get("ADDONS_DIR", REPO / "addons"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", REPO / "output"))
 USER_AGENT = f"image-to-3dlab/{__version__} (+https://github.com/Bingeljell/image-to-3dlab)"
+INSTALL_JSON = ".addon-install.json"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -71,7 +75,6 @@ def _parser() -> argparse.ArgumentParser:
     remove_cmd.add_argument("id", help="add-on id")
 
     run_cmd = sub.add_parser("run", help="Run a tool from an installed add-on.")
-    run_cmd.add_argument("--index", help="local registry file for tests or review")
     run_cmd.add_argument("id", help="add-on id")
     run_cmd.add_argument("tool", help="tool id from the add-on manifest")
     run_cmd.add_argument("--input", action="append", default=[],
@@ -108,8 +111,8 @@ def _git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProce
                           capture_output=True, text=True)
 
 
-def _clone_and_verify(repo_url: str, commit: str, dest: Path) -> None:
-    """Clone a repo, check out the pinned commit, and verify HEAD matches."""
+def _clone(repo_url: str, commit: str, dest: Path) -> None:
+    """Clone a repo and check out the pinned commit, verifying HEAD matches."""
     if dest.exists():
         shutil.rmtree(dest)
     _git("clone", repo_url, str(dest), cwd=REPO)
@@ -123,6 +126,29 @@ def _clone_and_verify(repo_url: str, commit: str, dest: Path) -> None:
         )
 
 
+def _install_json_path(dest: Path) -> Path:
+    return dest / INSTALL_JSON
+
+
+def _write_install_json(dest: Path, listing: Listing, reviewed: bool) -> None:
+    record = {
+        "id": listing.id,
+        "repo": listing.repo,
+        "commit": listing.commit,
+        "reviewed": reviewed,
+        "installed_at": datetime.now(UTC).isoformat(),
+    }
+    _install_json_path(dest).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def _read_install_json(dest: Path) -> dict[str, Any]:
+    path = _install_json_path(dest)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read {path}: {exc}") from exc
+
+
 def _print_plan(plan: dict) -> None:
     print(f"Author: {plan['author']}")
     print(f"Licence: {plan['licence']}")
@@ -134,39 +160,22 @@ def _print_plan(plan: dict) -> None:
     print(plan["warning"])
 
 
-def _ask_yes() -> bool:
+def _ask_yes(prompt: str = "Continue?") -> bool:
     if not sys.stdin.isatty():
         return False
-    answer = input("Install? [y/N] ").strip().lower()
+    answer = input(f"{prompt} [y/N] ").strip().lower()
     return answer in {"y", "yes"}
 
 
-def _parse_inputs(items: list[str]) -> dict[str, str | int | float | bool]:
-    """Parse --input key=value strings into typed values."""
-    inputs: dict[str, str | int | float | bool] = {}
+def _collect_inputs(items: list[str]) -> dict[str, str]:
+    """Split --input key=value strings without coercing their types."""
+    inputs: dict[str, str] = {}
     for item in items:
         if "=" not in item:
             raise ValueError(f"--input must be key=value: {item!r}")
         key, value = item.split("=", 1)
-        inputs[key] = _coerce(value)
+        inputs[key] = value
     return inputs
-
-
-def _coerce(value: str) -> str | int | float | bool:
-    lowered = value.lower()
-    if lowered == "true":
-        return True
-    if lowered == "false":
-        return False
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    return value
 
 
 def _tool_by_id(manifest: Manifest, tool_id: str) -> Any:
@@ -179,15 +188,6 @@ def _tool_by_id(manifest: Manifest, tool_id: str) -> Any:
 def _all_files(directory: Path) -> set[Path]:
     """Every file under directory, resolved."""
     return {p.resolve() for p in directory.rglob("*") if p.is_file()}
-
-
-def _accepted_files(directory: Path, before: set[Path]) -> list[Path]:
-    """Files created inside directory since before."""
-    directory = directory.resolve()
-    return [
-        path for path in directory.rglob("*")
-        if path.is_file() and path.resolve() not in before and directory in path.resolve().parents
-    ]
 
 
 def cmd_list(args: argparse.Namespace) -> int:
@@ -204,6 +204,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_add(args: argparse.Namespace) -> int:
+    reviewed = True
     if args.unreviewed:
         match = re.fullmatch(r"(.+)@([0-9a-f]{40})", args.unreviewed)
         if not match:
@@ -211,6 +212,11 @@ def cmd_add(args: argparse.Namespace) -> int:
             return 2
         repo_url, commit = match.group(1), match.group(2)
         addon_id = Path(repo_url).stem.replace(".git", "")
+        try:
+            validate_addon_id(addon_id)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         listing = Listing(
             id=addon_id,
             name=addon_id,
@@ -220,10 +226,16 @@ def cmd_add(args: argparse.Namespace) -> int:
             summary="",
             type="tool",
         )
+        reviewed = False
         print(f"Warning: {addon_id} is not on the reviewed registry.")
     else:
         if not args.id:
             print("error: add requires an id or --unreviewed", file=sys.stderr)
+            return 2
+        try:
+            validate_addon_id(args.id)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
             return 2
         registry = _load_registry(args.index)
         matches = [entry for entry in registry if entry.id == args.id]
@@ -235,18 +247,31 @@ def cmd_add(args: argparse.Namespace) -> int:
         listing = matches[0]
 
     dest = _addon_dir(listing.id)
-    _clone_and_verify(listing.repo, listing.commit, dest)
-    manifest = read_manifest(dest / "addon.json")
-    plan = install_plan(listing, manifest)
-    _print_plan(plan)
-    if not args.yes and not _ask_yes():
-        print("Nothing installed.")
-        shutil.rmtree(dest, ignore_errors=True)
-        return 1
+    # Clone into a temp sibling folder so an existing install survives a "no".
+    temp_parent = ADDONS_DIR
+    temp_parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f".{listing.id}-install-", dir=temp_parent) as tmp:
+        temp_dest = Path(tmp)
+        _clone(listing.repo, listing.commit, temp_dest)
+        manifest = read_manifest(temp_dest / "addon.json")
+        if manifest.id != listing.id:
+            print(f"error: manifest id {manifest.id!r} does not match listing id {listing.id!r}",
+                  file=sys.stderr)
+            return 1
+        plan = install_plan(listing, manifest, reviewed=reviewed)
+        _print_plan(plan)
+        if not args.yes and not _ask_yes("Install?"):
+            print("Nothing installed.")
+            return 1
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.move(str(temp_dest), str(dest))
+    _write_install_json(dest, listing, reviewed=reviewed)
     if manifest.setup:
         print(f"Running setup: {' '.join(manifest.setup)}")
         result = subprocess.run(manifest.setup, cwd=str(dest), check=False)
         if result.returncode != 0:
+            shutil.rmtree(dest, ignore_errors=True)
             print("Setup failed.", file=sys.stderr)
             return 1
     print(f"Installed {listing.id} at {dest}")
@@ -254,6 +279,11 @@ def cmd_add(args: argparse.Namespace) -> int:
 
 
 def cmd_remove(args: argparse.Namespace) -> int:
+    try:
+        validate_addon_id(args.id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     dest = _addon_dir(args.id)
     if not dest.exists():
         print(f"error: {args.id} is not installed", file=sys.stderr)
@@ -264,6 +294,11 @@ def cmd_remove(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    try:
+        validate_addon_id(args.id)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     dest = _addon_dir(args.id)
     if not dest.exists():
         print(f"error: {args.id} is not installed", file=sys.stderr)
@@ -271,19 +306,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     manifest = read_manifest(dest / "addon.json")
     tool = _tool_by_id(manifest, args.tool)
 
-    registry = _load_registry(args.index)
-    matches = [entry for entry in registry if entry.id == args.id]
-    listing = matches[0] if matches else Listing(
-        id=manifest.id,
+    install_info = _read_install_json(dest)
+    listing = Listing(
+        id=install_info["id"],
         name=manifest.name,
-        repo="",
-        commit="",
+        repo=install_info["repo"],
+        commit=install_info["commit"],
         author=manifest.author,
         summary=manifest.summary,
         type=manifest.type,
     )
+    reviewed = bool(install_info.get("reviewed", True))
 
-    inputs = _parse_inputs(args.input)
+    raw_inputs = _collect_inputs(args.input)
+    inputs = parse_inputs(raw_inputs, tool, cwd=Path.cwd())
     out_dir = (args.output_dir or OUTPUT_DIR / output_dir(args.id, args.run_stem))
     out_dir.mkdir(parents=True, exist_ok=True)
     out_dir = out_dir.resolve()
@@ -292,39 +328,26 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     if not args.yes:
         print(f"Will run: {' '.join(argv)}")
-        if not _ask_yes():
+        if not _ask_yes("Run?"):
             print("Not running.")
             return 1
 
-    output_root = OUTPUT_DIR.resolve()
-    before = _all_files(output_root)
+    before = _all_files(out_dir)
     env = {**os.environ, "HF_HUB_OFFLINE": "1"}
     result = subprocess.run(argv, cwd=str(dest), env=env, check=False)
     if result.returncode != 0:
         print("Run failed.", file=sys.stderr)
         return 1
 
-    after = _all_files(output_root)
+    after = _all_files(out_dir)
     created = sorted(after - before)
-    if not created:
-        print("error: the add-on did not write a result file", file=sys.stderr)
+
+    result_file = (out_dir / f"{args.run_stem}.{tool.makes}").resolve()
+    if result_file not in created:
+        print(f"error: expected result {result_file.name} not written", file=sys.stderr)
         return 1
 
-    out_of_bounds = [p for p in created if out_dir not in p.parents]
-    if out_of_bounds:
-        print("error: refusing result written outside the run folder:", file=sys.stderr)
-        for path in out_of_bounds:
-            print(f"  {path}", file=sys.stderr)
-        return 1
-
-    result_file = out_dir / f"{args.run_stem}.{tool.makes}"
-    if result_file.resolve() not in created:
-        # Accept the first created file if the expected name is missing, but only inside out_dir.
-        result_file = created[0]
-    else:
-        result_file = result_file.resolve()
-
-    record = run_record(listing, manifest, tool, inputs)
+    record = run_record(listing, manifest, tool, inputs, reviewed=reviewed)
     record["output"] = {"path": str(result_file), "source": "add-on"}
     write_provenance(result_file.with_suffix(".provenance.json"), record)
     print(result_file)

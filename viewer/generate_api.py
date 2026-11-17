@@ -3000,13 +3000,13 @@ class Handler(SimpleHTTPRequestHandler):
         if parts == ["api", "roblox-export"]:
             self._roblox_export()
             return
-        if parts[:3] == ["api", "addons"] and len(parts) == 4 and parts[3] == "install":
+        if len(parts) == 4 and parts[:2] == ["api", "addons"] and parts[3] == "install":
             self._addon_install(parts[2])
             return
-        if parts[:3] == ["api", "addons"] and len(parts) == 4 and parts[3] == "remove":
+        if len(parts) == 4 and parts[:2] == ["api", "addons"] and parts[3] == "remove":
             self._addon_remove(parts[2])
             return
-        if parts[:3] == ["api", "addons"] and len(parts) == 5 and parts[3] == "run":
+        if len(parts) == 5 and parts[:2] == ["api", "addons"] and parts[3] == "run":
             self._addon_run(parts[2], parts[4])
             return
         if len(parts) == 5 and parts[:3] == ["api", "addons", "jobs"] and parts[4] == "cancel":

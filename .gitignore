@@ -9,6 +9,7 @@ __pycache__/
 htmlcov/
 .ruff_cache/
 output/
+addons/
 
 # Personal/local-network artifacts — real Tailscale IP baked in, never for the tracked repo.
 /scripts/image_gallery.py

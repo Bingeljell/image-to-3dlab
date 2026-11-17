@@ -15,6 +15,7 @@ import pytest
 
 from image_to_3dlab import addon_install as ai
 from tests.test_addons import (
+    RUN_PYTHON,
     listing,
     make_bare_repo,
     make_installed_addon,
@@ -181,3 +182,50 @@ def test_cancel_stops_a_run_that_prints_nothing():
     )
     assert time.monotonic() - started < 10
     assert result.returncode != 0
+
+
+def _model_tool_addon(tmp_path):
+    data = manifest(tools=[{
+        "id": "tweak", "label": "Tweak", "hint": "Changes a model.",
+        "inputs": [{"id": "src", "type": "model", "label": "Model"}],
+        "run": [RUN_PYTHON, "tweak.py", "{out}", "{src}"], "makes": "glb",
+    }])
+    addon_dir = make_installed_addon(tmp_path, data)
+    (addon_dir / "tweak.py").write_text(
+        "import sys, pathlib\n"
+        "out = pathlib.Path(sys.argv[1])\n"
+        "(out / f'{out.name}.glb').write_text('glb', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    return addon_dir
+
+
+def _run_tweak(tmp_path, source):
+    return ai.run_addon("vehicle-kit", "tweak", {"src": str(source)}, run_stem="run-abc",
+                        output_root=tmp_path, addons_dir=tmp_path / "addons", repo_dir=tmp_path)
+
+
+def test_result_keeps_the_licence_restriction_of_the_model_that_went_in(tmp_path):
+    _model_tool_addon(tmp_path)
+    source = tmp_path / "hunyuan.glb"
+    source.write_text("glb", encoding="utf-8")
+    source.with_suffix(".provenance.json").write_text(json.dumps({
+        "license": {"name": "Tencent Hunyuan Community", "conditions": ["Not licensed in the EU, UK or South Korea."]},
+        "output": {"classification": "restricted"},
+    }), encoding="utf-8")
+    result = _run_tweak(tmp_path, source)
+    record = json.loads(result.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    assert "Not licensed in the EU, UK or South Korea." in record["license"]["conditions"]
+    assert record["addon"]["id"] == "vehicle-kit"
+    assert record["output"]["sha256"]
+    assert record["output"]["source"] == "add-on"
+
+
+def test_result_from_a_model_with_no_record_counts_as_unverified(tmp_path):
+    _model_tool_addon(tmp_path)
+    source = tmp_path / "mystery.glb"
+    source.write_text("glb", encoding="utf-8")
+    result = _run_tweak(tmp_path, source)
+    record = json.loads(result.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    assert record["license"]["verified"] is False
+    assert record["output"]["classification"] == "unverified"

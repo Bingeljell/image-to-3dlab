@@ -33,7 +33,12 @@ from image_to_3dlab.addons import (
     validate_addon_id,
 )
 from image_to_3dlab.blender import find_blender
-from image_to_3dlab.provenance import write_provenance
+from image_to_3dlab.provenance import (
+    read_model_record,
+    sha256_file,
+    write_derived_sidecar,
+    write_provenance,
+)
 
 REGISTRY_URL = "https://assetfurnace.com/add-ons/index.json"
 USER_AGENT = f"image-to-3dlab/{__version__} (+https://github.com/Bingeljell/image-to-3dlab)"
@@ -370,9 +375,34 @@ def run_addon(
         raise RuntimeError(f"expected result {result_file.name} not written")
 
     record = run_record(listing, manifest, tool, parsed_inputs, reviewed=reviewed)
-    record["output"] = {"path": str(result_file), "source": "add-on"}
-    write_provenance(result_file.with_suffix(".provenance.json"), record)
+    write_add_on_record(result_file, record, tool, parsed_inputs)
     return result_file
+
+
+def write_add_on_record(result_file: Path, record: dict[str, Any], tool: Any,
+                        parsed_inputs: dict[str, Any]) -> None:
+    """Write the licence record for an add-on's result.
+
+    A model that went in keeps its licence: the result inherits it (and any restriction, such as
+    a model not licensed in some countries), through the same ancestry the core uses elsewhere.
+    A model with no record counts as unverified, never as clear.
+    """
+    sources = [Path(parsed_inputs[spec.id]) for spec in tool.inputs
+               if spec.type == "model" and spec.id in parsed_inputs]
+    if sources:
+        derived_path = write_derived_sidecar(
+            sources[0], result_file, operation=f"add-on:{record['addon']['id']}:{tool.id}",
+            component_records=[r for src in sources[1:]
+                               if (r := read_model_record(src)) is not None],
+        )
+        derived = json.loads(derived_path.read_text(encoding="utf-8"))
+        derived_output = derived.get("output", {})
+        record = {**derived, **{k: v for k, v in record.items() if k != "schema_version"}}
+        record["output"] = {**derived_output, "source": "add-on"}
+    else:
+        record["output"] = {"path": str(result_file), "sha256": sha256_file(result_file),
+                            "source": "add-on"}
+    write_provenance(result_file.with_suffix(".provenance.json"), record, atomic=True)
 
 
 def list_installed(addons_dir: Path | None = None) -> list[str]:

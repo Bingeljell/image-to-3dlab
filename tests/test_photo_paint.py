@@ -683,3 +683,17 @@ def test_a_flat_real_colour_past_the_outline_stays(colour):
     out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
                               settings=pp.Settings(match_colour=False))
     assert tuple(out[64, 115]) == colour
+
+
+def test_the_filler_is_told_by_the_generators_own_colour_not_the_matched_one():
+    # The colour match shifts the filler towards the picture (here strongly bluish), which must not
+    # hide it: the generator's own colour decides what is filler.
+    positions, faces, uvs = _grid()
+    photo = _cut_photo(768)
+    photo[..., :3] = (40, 60, 200)
+    view = _camera(size=768, image=photo)
+    texture = _placeholder_texture()
+    texture[:, :64] = (60, 60, 60)
+    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
+                              settings=pp.Settings(local_colour=False))
+    assert out[64, 115, 0] < 100   # the blue fur around it (red 40), not the shifted grey (red 180)

@@ -417,6 +417,7 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     out = texture.astype(np.float64).copy()
     flat = out.reshape(-1, out.shape[2])
     index = np.flatnonzero(covered.ravel())
+    generated = flat[index, :3].copy()   # the generator's own colour, before any colour match
     local = None
     if settings.match_colour and settings.local_colour:
         local = local_colour_offset(positions, faces, texel_face, texel_bary,
@@ -431,7 +432,7 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     painted = own * (1 - blend[:, None]) + photo * blend[:, None]
     filled = False
     if settings.outside_fill > 0:
-        reach = placeholder_reach(positions, faces, texel_face, own, past >= settings.outside_fill, blend)
+        reach = placeholder_reach(positions, faces, texel_face, generated, past >= settings.outside_fill, blend)
         around = surface_fill(positions, faces, texel_face, texel_bary, painted, reach < 0.5)
         if around is not None:
             own = own * (1 - reach[:, None]) + around * reach[:, None]

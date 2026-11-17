@@ -4,6 +4,8 @@
   padding: 2px 6px; border-radius: 99px; margin-left: 6px; vertical-align: 2px; }
 .addon-reviewed { background: #2a4436; color: #a8e0b8; }
 .addon-unreviewed { background: #5a3a26; color: #f0c9a8; }
+.addon-local { background: #2b2f3a; color: #b9c4dd; }
+.addon-cloud { background: #3b2a4a; color: #dcc2f2; }
 .addon-unlisted { background: #4a3a31; color: var(--ash); }
 .addon-rating { color: var(--flame); font-size: 11px; }
 .addon-tools-toggle { margin-top: 10px; background: var(--raise); border: 1px solid var(--line);

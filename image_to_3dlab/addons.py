@@ -14,6 +14,7 @@ from typing import Any
 
 INPUT_TYPES = {"text", "number", "choice", "toggle", "picture", "model"}
 ADDON_TYPES = {"tool", "app"}
+RUNS = {"local", "cloud"}
 REQUIRED_MANIFEST_FIELDS = ("schema", "id", "name", "version", "author", "licence", "summary")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -53,6 +54,7 @@ class Manifest:
     models: tuple[dict[str, Any], ...]
     tools: tuple[Tool, ...]
     type: str = "tool"
+    runs: str = "local"
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,7 @@ class Listing:
     summary: str
     type: str
     links: dict[str, str] = field(default_factory=dict)
+    runs: str = "local"
     rating: float | None = None
     ratings_count: int = 0
 
@@ -146,6 +149,9 @@ def read_manifest(path: Path) -> Manifest:
     addon_type = data.get("type", "tool")
     if addon_type not in ADDON_TYPES:
         raise ValueError(f"addon.json 'type' must be one of {ADDON_TYPES}; got {addon_type!r}")
+    runs = data.get("runs", "local")
+    if runs not in RUNS:
+        raise ValueError(f"addon.json 'runs' must be one of {sorted(RUNS)}; got {runs!r}")
     validate_addon_id(data["id"])
     return Manifest(
         schema=int(schema),
@@ -160,6 +166,7 @@ def read_manifest(path: Path) -> Manifest:
         models=tuple(dict(item) for item in data.get("models", [])),
         tools=tuple(_read_tool(i, item) for i, item in enumerate(tools)),
         type=addon_type,
+        runs=runs,
     )
 
 
@@ -202,6 +209,9 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
             ratings_count = int(item.get("ratings_count", 0))
         except (TypeError, ValueError):
             ratings_count = 0
+        runs = item.get("runs", "local")
+        if runs not in RUNS:
+            raise ValueError(f"{where} 'runs' must be one of {sorted(RUNS)}; got {runs!r}")
         listings.append(
             Listing(
                 id=str(item["id"]),
@@ -212,6 +222,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
                 summary=summary,
                 type=addon_type,
                 links=links,
+                runs=runs,
                 rating=rating,
                 ratings_count=ratings_count,
             )
@@ -226,22 +237,22 @@ def install_plan(listing: Listing, manifest: Manifest, *, reviewed: bool = True)
          "size": str(model.get("size", ""))}
         for model in manifest.models
     ]
+    where = (
+        "This add-on runs code on this machine."
+        if manifest.runs == "local"
+        else "This add-on uses the cloud: your models and pictures are sent off this machine to its service."
+    )
     if reviewed:
-        warning = (
-            "This add-on runs code on this machine. "
-            "It was checked by AssetFurnace."
-        )
+        warning = f"{where} It was checked by AssetFurnace."
     else:
-        warning = (
-            "This add-on runs code on this machine. "
-            "It is not checked by AssetFurnace; install it only if you trust the source."
-        )
+        warning = f"{where} It is not checked by AssetFurnace; install it only if you trust the source."
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,
         "version": manifest.version,
         "models": models,
         "setup": list(manifest.setup),
+        "runs": manifest.runs,
         "warning": warning,
     }
 

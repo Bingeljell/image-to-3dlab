@@ -424,6 +424,16 @@ def test_addons_page_shows_rating_and_unreviewed_badge():
 
 
 @needs_node
+def test_addons_page_badge_says_cloud_or_on_this_machine():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([m.runsBadge({ runs: "cloud" }), m.runsBadge({ runs: "local" }), m.runsBadge({})]));
+    """)
+    assert "Cloud" in out[0]
+    assert "On this machine" in out[1]
+    assert "On this machine" in out[2]
+
+
+@needs_node
 def test_addons_page_builds_input_controls():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([

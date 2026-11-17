@@ -68,6 +68,7 @@ def _installed_addon_payload(addon_id: str) -> dict[str, Any] | None:
         "author": manifest.author,
         "summary": manifest.summary,
         "type": manifest.type,
+        "runs": manifest.runs,
         "installed": True,
         "listed": False,
         "reviewed": bool(install_info.get("reviewed", False)),
@@ -83,6 +84,7 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         "author": listing.author,
         "summary": listing.summary,
         "type": listing.type,
+        "runs": listing.runs,
         "installed": listing.id in installed_ids,
         "listed": True,
         "reviewed": True,  # the list entry itself; an installed copy overrides this below
@@ -148,6 +150,7 @@ def install_payload(addon_id: str) -> dict[str, Any]:
         "version": plan["version"],
         "models": plan["models"],
         "setup": plan["setup"],
+        "runs": plan["runs"],
         "warning": plan["warning"],
         "reviewed": True,
     }

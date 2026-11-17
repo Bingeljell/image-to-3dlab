@@ -41,6 +41,12 @@ export function reviewBadge(addon) {
   return '<span class="addon-badge addon-reviewed">Reviewed</span>';
 }
 
+export function runsBadge(addon) {
+  return addon.runs === 'cloud'
+    ? '<span class="addon-badge addon-cloud">Cloud</span>'
+    : '<span class="addon-badge addon-local">On this machine</span>';
+}
+
 export function ratingLine(addon) {
   if (addon.rating == null) return '';
   const count = addon.ratings_count ? ` (${addon.ratings_count})` : '';
@@ -266,7 +272,7 @@ function addonCard(addon) {
       <span class="setup-dot ${installed ? 'ok' : 'off'}">${installed ? '●' : '○'}</span>
       <div class="setup-card-title">
         <strong>${escapeHtml(addon.name)}</strong>
-        ${reviewBadge(addon)}
+        ${reviewBadge(addon)}${runsBadge(addon)}
         <div class="setup-card-state addon-author">${authorLine(addon)} ${ratingLine(addon)}</div>
       </div>
       <div class="setup-card-action">${action}</div>

@@ -175,3 +175,13 @@ def test_installed_reviewed_copy_is_shown_as_reviewed(tmp_path, monkeypatch):
     monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
     make_installed_addon(tmp_path, manifest(), install={"reviewed": True})
     assert viewer.addons_payload()["addons"][0]["reviewed"] is True
+
+
+def test_payload_carries_runs_for_listed_and_installed(tmp_path, monkeypatch):
+    _set_paths(tmp_path, monkeypatch)
+    registry = tmp_path / "index.json"
+    registry.write_text(json.dumps([listing(runs="cloud")]), encoding="utf-8")
+    monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
+    assert viewer.addons_payload()["addons"][0]["runs"] == "cloud"
+    make_installed_addon(tmp_path, manifest(runs="cloud"))
+    assert viewer.addons_payload()["addons"][0]["runs"] == "cloud"

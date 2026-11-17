@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Add-ons — AssetFurnace</title>
+  <link rel="stylesheet" href="./studio/studio.css">
+  <link rel="stylesheet" href="./studio/setup.css">
+  <link rel="stylesheet" href="./studio/addons_page.css">
+</head>
+<body class="setup-body">
+<header class="bar">
+  <a class="brand" href="./studio.html" aria-label="AssetFurnace"><img src="./studio/mark.svg" alt=""><b>Asset<span>Furnace</span></b></a>
+  <span class="spacer"></span>
+  <a class="ghost" href="./setup.html">Setup & Status</a>
+</header>
+<main class="setup-page setup-scroll">
+  <div class="setup-head">
+    <div>
+      <h2>Add-ons</h2>
+      <p class="setup-sub">Extra tools from other repos. Installed ones run on this machine.</p>
+    </div>
+  </div>
+  <p id="addons-summary" class="setup-summary" hidden></p>
+  <div id="addons-list" class="setup-addons-list"></div>
+</main>
+<script type="module" src="./studio/addons_page.js"></script>
+</body>
+</html>

@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloud or on this machine**: every add-on says whether it runs on your machine or uses the cloud. The studio shows a badge, and the install plan says plainly when your models would be sent off this machine.
 - **Add-ons author guide** at `docs/add-ons.md`: how to write an `addon.json`, what v1
   add-ons can do, how to test locally, and the rules for being listed.
+- **`scripts/normal_map_facets.py`** says whether a finished model's shading breaks at its triangle edges, the facets a normal map baked against flat shading (or hard normals) leave: it reads the shading normal on both sides of each edge and compares the jump with the edge's angle. Models whose facets show keep 33-47 % of it, smooth ones 14-22 %, so 30 % is the line. Reports only.
 
 ### Fixed
 

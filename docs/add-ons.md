@@ -221,12 +221,15 @@ with one small file per add-on. It holds no add-on code, only a pointer to your 
 
 1. Publish your add-on as a public Git repository with a clear licence.
 2. Test it by installing it from your own repo (see above).
-3. Fork the list repo and add one file, `addons/<your-id>.json`. Copy `addons/pedestal.json`.
-4. Open a pull request. Automatic checks run and tell you what to fix.
-5. When the checks pass and it is merged, you are **Listed**.
-6. Want **Verified**? Say so in the pull request.
+3. Go to [assetfurnace.com/add-ons/submit](https://assetfurnace.com/add-ons/submit) and sign in with GitHub. You must
+   own the repo, or be a public member of the organisation that owns it.
+4. Send your repo link and the full 40-character commit code. Add a picture (PNG or JPG, under 600 KB).
+5. Automatic checks run, then a test run on a throwaway machine. If they pass, you are **Listed**, usually soon. If
+   not, you get a plain message saying what to fix.
+6. Want **Verified**? Tick "request Verified review" on the form.
 
-A new version of your add-on is a new pull request that changes the `commit` line. Nothing updates by itself.
+A new version is a new submission with the new commit code. Nothing updates by itself. Pull requests made directly
+on the list repo are closed automatically.
 The list repo's README has the full rules.
 
 ## What the labels mean

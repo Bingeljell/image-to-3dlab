@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `scripts/blender_reunwrap_bake.py` bakes again on Blender 5.2: it picked its bake target with
+  `is`, which never matches a Blender node there, so nothing was baked and the re-unwrapped
+  model came out all black. It compares with `==` now.
+
 ## [0.6.0] - 2026-11-18
 
 ### Added

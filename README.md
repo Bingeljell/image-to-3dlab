@@ -43,6 +43,7 @@ $1 to reserve, locked for 6 months. The app stays free and open source.</p>
 
 ## News
 
+- **2026-11-18 · 0.6.0** Add-ons: install tools other people built, from the studio, the command line or your agent. Make your own and submit it.
 - **2026-11-17 · 0.5.11** Export for Roblox: one click to a Roblox Studio-ready model. Plus Unity bone names on the Rig step.
 - **2026-11-13 · 0.5.10** Game-ready out of the box: real-world height, props that stand up straight, phone-sized textures, and Fast / Rebuild clean-up.
 - **2026-11-10 · 0.5.9** New moves (Sprint, Crouch sneak, Zombie walk, Robot dance and more), feet that stay planted, and smoother loops.

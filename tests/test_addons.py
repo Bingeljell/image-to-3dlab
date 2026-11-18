@@ -892,12 +892,21 @@ class TestPicture:
 
 
 class TestRunCheck:
+    def test_the_skipped_list_is_read_only_for_a_partial_result_and_only_strings(self):
+        entry = {"id": "a", "name": "A", "repo": "https://github.com/x/a.git", "commit": "a" * 40, "author": {"name": "X"}, "summary": "s", "type": "tool"}
+        def read(check):
+            return addons.read_registry([{**entry, "run_check": check}])[0].run_skipped
+        assert read({"status": "partial", "skipped": ["fit", 3, "label"]}) == ("fit", "label")
+        assert read({"status": "passed", "skipped": ["fit"]}) == ()
+        assert read({"status": "partial", "skipped": "fit"}) == ()
+
     def test_registry_reads_run_check_and_ignores_nonsense(self):
         entry = {"id": "pedestal", "name": "Pedestal", "repo": "https://github.com/x/y.git", "commit": "a" * 40,
                  "author": {"name": "X"}, "summary": "s"}
         read = lambda extra: addons.read_registry([{**entry, **extra}])[0].run_check
         assert read({"run_check": {"status": "passed", "date": "2026-11-18"}}) == "passed"
         assert read({"run_check": {"status": "not_run", "reason": "models"}}) == "not_run"
+        assert read({"run_check": {"status": "partial", "skipped": ["fit"]}}) == "partial"
         assert read({}) == ""
         assert read({"run_check": {"status": "great"}}) == ""
         assert read({"run_check": "passed"}) == ""
@@ -906,6 +915,9 @@ class TestRunCheck:
         assert "test run" in addons.tier_sentence("listed", "passed")
         assert "did not test-run" in addons.tier_sentence("listed", "")
         assert "did not test-run" in addons.tier_sentence("listed", "not_run")
+        partly = addons.tier_sentence("listed", "partial", ("fit", "label"))
+        assert "some of its tools" in partly and "fit, label" in partly and "did not test-run" not in partly
+        assert addons.tier_sentence("verified", "partial", ("fit",)) == addons.TIER_SENTENCES["verified"]
         assert addons.tier_sentence("verified", "") == addons.TIER_SENTENCES["verified"]
         assert addons.tier_sentence("unknown", "passed") == addons.TIER_SENTENCES["unknown"]
 

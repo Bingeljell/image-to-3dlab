@@ -1543,7 +1543,8 @@ def build_server(studio: Studio | None = None):
     def tool_list_addons():
         """Every add-on from the list (installed first): name, author, summary, links, rating,
         its label (Verified, Listed or Unknown; a Listed one with run_checked false is
-        "not run-checked": we did not test-run it), whether it runs on this machine or in the cloud,
+        "not run-checked": we did not test-run it; one with run_skipped filled in was only partly
+        run-checked: those tools need a file and were not run), whether it runs on this machine or in the cloud,
         a picture link of what it makes, and the tools it provides."""
         return safe(lambda: list_addons(studio))
 

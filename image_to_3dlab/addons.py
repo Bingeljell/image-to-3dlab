@@ -28,10 +28,15 @@ TIER_SENTENCES = {
 LISTED_RUN_CHECKED = "It passed automatic checks and a test run. We have not read its code. Use it at your own risk."
 
 
-def tier_sentence(tier: str, run_check: str = "") -> str:
-    """What a user is told about a tier. A Listed add-on says whether we test-ran it ("not run-checked" when we did not)."""
+def tier_sentence(tier: str, run_check: str = "", skipped: tuple[str, ...] | list[str] = ()) -> str:
+    """What a user is told about a tier. A Listed add-on says whether we test-ran it ("not run-checked" when we did not,
+    and which tools we could not run when only some were tested)."""
     if tier == "listed" and run_check == "passed":
         return LISTED_RUN_CHECKED
+    if tier == "listed" and run_check == "partial":
+        left_out = f" ({', '.join(skipped)})" if skipped else ""
+        return (f"It passed automatic checks and a test run of some of its tools. The ones that need a file{left_out} "
+                "were not run. We have not read its code. Use it at your own risk.")
     return TIER_SENTENCES[tier]
 
 
@@ -98,7 +103,8 @@ class Listing:
     picture: str | None = None
     rating: float | None = None
     ratings_count: int = 0
-    run_check: str = ""  # "passed" when the list's test run passed; anything else means it was not run-checked
+    run_check: str = ""  # "passed" or "partial" when the list's test run passed; anything else means it was not run-checked
+    run_skipped: tuple[str, ...] = ()  # with "partial": the tools the test run could not give a file to
 
 
 def validate_addon_id(addon_id: str) -> None:
@@ -249,8 +255,11 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
             raise ValueError(f"{where} 'tier' must be one of {sorted(LISTED_TIERS)}; got {tier!r}")
         raw_check = item.get("run_check")
         run_check = raw_check.get("status") if isinstance(raw_check, dict) else ""
-        if run_check not in ("passed", "not_run"):
+        if run_check not in ("passed", "partial", "not_run"):
             run_check = ""
+        run_skipped: tuple[str, ...] = ()
+        if run_check == "partial" and isinstance(raw_check.get("skipped"), list):
+            run_skipped = tuple(str(t)[:60] for t in raw_check["skipped"][:20] if isinstance(t, str))
         listings.append(
             Listing(
                 id=str(item["id"]),
@@ -267,6 +276,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
                 rating=rating,
                 ratings_count=ratings_count,
                 run_check=run_check,
+                run_skipped=run_skipped,
             )
         )
     return listings
@@ -284,7 +294,7 @@ def install_plan(listing: Listing, manifest: Manifest, *, tier: str = "listed") 
         if manifest.runs == "local"
         else "This add-on uses the cloud: your models and pictures are sent off this machine to its service."
     )
-    warning = f"{where} {tier_sentence(tier, listing.run_check)}"
+    warning = f"{where} {tier_sentence(tier, listing.run_check, listing.run_skipped)}"
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,

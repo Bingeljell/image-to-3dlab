@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Add-ons: "Partly run-checked"**: when only some of an add-on's tools could be test-run (the others need a picture or
+  model file), the studio, command line, install plan and agent tools say so and name the tools that were not run.
 - **Add-ons: "Not run-checked"**: a Listed add-on we could not test-run on a clean machine now says so in the studio, the
   command line, the install plan and the agent tools; one that passed the test run says "and a test run".
 - **Add-ons (core + CLI)**: install and run someone else's repo with an `addon.json` via

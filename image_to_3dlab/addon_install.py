@@ -376,7 +376,8 @@ def run_addon(
     argv = build_command(tool, parsed_inputs, out_dir=out_dir, blender=blender_path)
 
     started = datetime.now(UTC).timestamp()
-    env = {**os.environ, "HF_HUB_OFFLINE": "1"}
+    # PWD too: Blender on Linux finds a relative script (`-P crate.py`) from $PWD, which still names the folder we started in
+    env = {**os.environ, "HF_HUB_OFFLINE": "1", "PWD": str(addon_dir.resolve())}
     result = _run_subprocess(argv, addon_dir, env, logger, cancel_event=cancel_event)
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("cancelled")

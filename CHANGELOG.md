@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   add-ons can do, how to test locally, and the rules for being listed.
 
 ### Fixed
+- **Add-ons on Linux**: an add-on whose run command names its script by a bare file name (`-P crate.py`) now finds it, so the list's test run can run it.
 - **Add-ons docs**: "Getting listed" now describes the submit page, not a pull request on the list repo (those are closed).
 
 - Installing an unreviewed add-on no longer fails when its repo name differs from its id.

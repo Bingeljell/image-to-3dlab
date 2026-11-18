@@ -122,6 +122,35 @@ def test_run_addon_runs_tool_and_returns_result_path(tmp_path):
     assert result.with_suffix(".provenance.json").is_file()
 
 
+def test_run_addon_starts_the_tool_in_the_add_ons_own_folder_for_PWD_too(tmp_path):
+    """Blender on Linux finds a relative `-P script.py` from $PWD, so $PWD must name the add-on's folder, not ours."""
+    addon_dir = make_installed_addon(tmp_path, manifest())
+    (addon_dir / "shape_guide.py").write_text(
+        "import os, sys, pathlib\n"
+        "out = pathlib.Path(sys.argv[1])\n"
+        "out.mkdir(parents=True, exist_ok=True)\n"
+        "(out / 'where.txt').write_text(os.getcwd() + '\\n' + os.environ['PWD'], encoding='utf-8')\n"
+        "(out / f'{out.name}.glb').write_text('glb', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    old_pwd, old_cwd = os.environ.get("PWD"), os.getcwd()
+    os.chdir(elsewhere)
+    os.environ["PWD"] = str(elsewhere)
+    try:
+        result = ai.run_addon("vehicle-kit", "build", {"preset": "bus_12m"}, run_stem="run-pwd", output_root=tmp_path,
+                              addons_dir=tmp_path / "addons", repo_dir=tmp_path)
+    finally:
+        os.chdir(old_cwd)
+        if old_pwd is None:
+            os.environ.pop("PWD", None)
+        else:
+            os.environ["PWD"] = old_pwd
+    cwd, pwd = (result.parent / "where.txt").read_text(encoding="utf-8").splitlines()
+    assert Path(cwd).resolve() == addon_dir.resolve() and Path(pwd).resolve() == addon_dir.resolve()
+
+
 def test_run_addon_refuses_missing_tool(tmp_path):
     make_installed_addon(tmp_path, manifest())
     with pytest.raises(ValueError, match="tool"):

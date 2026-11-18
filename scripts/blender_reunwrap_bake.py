@@ -87,6 +87,18 @@ def base_colour_image(material):
     return None
 
 
+def make_bake_target(nodes, target) -> None:
+    """Make `target` the one active, selected node: Cycles bakes into that image node.
+
+    Compared with ``==``, not ``is``: Blender hands out a new Python object for a node on every
+    look at it, so ``node is target`` never matched on Blender 5.2, no node was selected, nothing
+    was baked, and the whole texture came out black.
+    """
+    for node in nodes:
+        node.select = node == target
+    nodes.active = target
+
+
 def main() -> int:
     import bpy
 
@@ -146,9 +158,7 @@ def main() -> int:
 
     target_tex = nodes.new("ShaderNodeTexImage")
     target_tex.image = target             # unconnected: bake destination only
-    nodes.active = target_tex
-    for node in nodes:
-        node.select = node is target_tex
+    make_bake_target(nodes, target_tex)
 
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"

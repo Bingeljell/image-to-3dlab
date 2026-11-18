@@ -20,9 +20,19 @@ LISTED_TIERS = {"listed", "verified"}  # what a list entry may say; "unknown" is
 TIER_LABELS = {"verified": "Verified", "listed": "Listed", "unknown": "Unknown"}
 TIER_SENTENCES = {
     "verified": "We read its code, ran it and checked its licences.",
-    "listed": "It passed automatic checks. We have not read its code. Use it at your own risk.",
+    "listed": "It passed automatic checks, but we did not test-run it. We have not read its code. Use it at your own risk.",
     "unknown": "It is not on our list and we have never looked at it. Install it only if you trust the source.",
 }
+
+
+LISTED_RUN_CHECKED = "It passed automatic checks and a test run. We have not read its code. Use it at your own risk."
+
+
+def tier_sentence(tier: str, run_check: str = "") -> str:
+    """What a user is told about a tier. A Listed add-on says whether we test-ran it ("not run-checked" when we did not)."""
+    if tier == "listed" and run_check == "passed":
+        return LISTED_RUN_CHECKED
+    return TIER_SENTENCES[tier]
 
 
 def tier_from_install(info: dict[str, Any]) -> str:
@@ -88,6 +98,7 @@ class Listing:
     picture: str | None = None
     rating: float | None = None
     ratings_count: int = 0
+    run_check: str = ""  # "passed" when the list's test run passed; anything else means it was not run-checked
 
 
 def validate_addon_id(addon_id: str) -> None:
@@ -236,6 +247,10 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         tier = item.get("tier", "listed")
         if tier not in LISTED_TIERS:
             raise ValueError(f"{where} 'tier' must be one of {sorted(LISTED_TIERS)}; got {tier!r}")
+        raw_check = item.get("run_check")
+        run_check = raw_check.get("status") if isinstance(raw_check, dict) else ""
+        if run_check not in ("passed", "not_run"):
+            run_check = ""
         listings.append(
             Listing(
                 id=str(item["id"]),
@@ -251,6 +266,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
                 picture=picture,
                 rating=rating,
                 ratings_count=ratings_count,
+                run_check=run_check,
             )
         )
     return listings
@@ -268,7 +284,7 @@ def install_plan(listing: Listing, manifest: Manifest, *, tier: str = "listed") 
         if manifest.runs == "local"
         else "This add-on uses the cloud: your models and pictures are sent off this machine to its service."
     )
-    warning = f"{where} {TIER_SENTENCES[tier]}"
+    warning = f"{where} {tier_sentence(tier, listing.run_check)}"
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,

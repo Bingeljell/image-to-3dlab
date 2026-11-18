@@ -1114,7 +1114,7 @@ def install_addon(studio: Studio, *, addon_id: str, confirm: bool = False) -> di
     if not confirm:
         plan["to_start"] = (
             "Nothing has been installed. Tell the user what this add-on does, who wrote it, "
-            "its licence, its label (Verified, Listed or Unknown) and whether it runs on their machine or in the cloud, then call again with confirm=true only after they say yes."
+            "its licence, its label (Verified, Listed or Unknown, and for a Listed one whether we test-ran it) and whether it runs on their machine or in the cloud, then call again with confirm=true only after they say yes."
         )
         return plan
     return studio.post_json(f"api/addons/{addon_id}/install", {"confirm": True})
@@ -1542,7 +1542,8 @@ def build_server(studio: Studio | None = None):
     @server.tool(name="list_addons", structured_output=False)
     def tool_list_addons():
         """Every add-on from the list (installed first): name, author, summary, links, rating,
-        its label (Verified, Listed or Unknown), whether it runs on this machine or in the cloud,
+        its label (Verified, Listed or Unknown; a Listed one with run_checked false is
+        "not run-checked": we did not test-run it), whether it runs on this machine or in the cloud,
         a picture link of what it makes, and the tools it provides."""
         return safe(lambda: list_addons(studio))
 

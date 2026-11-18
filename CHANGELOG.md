@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Add-ons: "Not run-checked"**: a Listed add-on we could not test-run on a clean machine now says so in the studio, the
+  command line, the install plan and the agent tools; one that passed the test run says "and a test run".
 - **Add-ons (core + CLI)**: install and run someone else's repo with an `addon.json` via
   `./lab addon list|add|remove|run`. Listed add-ons are pinned to an exact commit, verified
   on clone, and run with `HF_HUB_OFFLINE=1`. The core writes the `.provenance.json` sidecar.

@@ -4,6 +4,7 @@
   padding: 2px 6px; border-radius: 99px; margin-left: 6px; vertical-align: 2px; }
 .addon-verified { background: #2a4436; color: #a8e0b8; }
 .addon-listed { background: #4a4126; color: #ecd58f; }
+.addon-unchecked { background: #2c2a28; color: #b7a89d; }
 .addon-unknown { background: #5a3a26; color: #f0c9a8; }
 .addon-local { background: #2b2f3a; color: #b9c4dd; }
 .addon-cloud { background: #3b2a4a; color: #dcc2f2; }

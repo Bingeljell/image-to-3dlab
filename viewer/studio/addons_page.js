@@ -36,7 +36,10 @@ export function tierBadge(addon) {
     return '<span class="addon-badge addon-unlisted">No longer listed</span>';
   }
   if (addon.tier === 'verified') return '<span class="addon-badge addon-verified">Verified</span>';
-  if (addon.tier === 'listed') return '<span class="addon-badge addon-listed">Listed</span>';
+  if (addon.tier === 'listed') {
+    const note = addon.run_checked === false ? ' <span class="addon-badge addon-unchecked" title="We did not test-run it on a clean machine.">Not run-checked</span>' : '';
+    return '<span class="addon-badge addon-listed">Listed</span>' + note;
+  }
   return '<span class="addon-badge addon-unknown">Unknown</span>';
 }
 

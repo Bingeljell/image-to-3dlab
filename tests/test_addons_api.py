@@ -52,6 +52,15 @@ def test_addons_payload_shows_listed_and_installed(tmp_path, monkeypatch):
     assert payload["addons"][0]["installed"] is False
 
 
+def test_addons_payload_says_whether_we_test_ran_it(tmp_path, monkeypatch):
+    _set_paths(tmp_path, monkeypatch)
+    registry = tmp_path / "index.json"
+    registry.write_text(json.dumps([listing(), listing(id="two", run_check={"status": "passed"})]), encoding="utf-8")
+    monkeypatch.setattr(viewer, "INDEX_FILE", str(registry))
+    flags = {a["id"]: a["run_checked"] for a in viewer.addons_payload()["addons"]}
+    assert sorted(flags.values()) == [False, True] and flags["two"] is True
+
+
 def test_addons_payload_includes_links_and_rating(tmp_path, monkeypatch):
     _set_paths(tmp_path, monkeypatch)
     registry = tmp_path / "index.json"

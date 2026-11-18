@@ -889,3 +889,31 @@ class TestPicture:
         for bad in ("javascript:alert(1)", "http://example.com/a.png", "pictures/a.png", 7):
             assert addons.read_registry([listing(picture=bad)])[0].picture is None
         assert addons.read_registry([listing()])[0].picture is None
+
+
+class TestRunCheck:
+    def test_registry_reads_run_check_and_ignores_nonsense(self):
+        entry = {"id": "pedestal", "name": "Pedestal", "repo": "https://github.com/x/y.git", "commit": "a" * 40,
+                 "author": {"name": "X"}, "summary": "s"}
+        read = lambda extra: addons.read_registry([{**entry, **extra}])[0].run_check
+        assert read({"run_check": {"status": "passed", "date": "2026-11-18"}}) == "passed"
+        assert read({"run_check": {"status": "not_run", "reason": "models"}}) == "not_run"
+        assert read({}) == ""
+        assert read({"run_check": {"status": "great"}}) == ""
+        assert read({"run_check": "passed"}) == ""
+
+    def test_listed_sentence_says_whether_we_test_ran_it(self):
+        assert "test run" in addons.tier_sentence("listed", "passed")
+        assert "did not test-run" in addons.tier_sentence("listed", "")
+        assert "did not test-run" in addons.tier_sentence("listed", "not_run")
+        assert addons.tier_sentence("verified", "") == addons.TIER_SENTENCES["verified"]
+        assert addons.tier_sentence("unknown", "passed") == addons.TIER_SENTENCES["unknown"]
+
+    def test_the_install_plan_warning_follows_the_listing(self, tmp_path):
+        entry = {"id": "pedestal", "name": "Pedestal", "repo": "https://github.com/x/y.git", "commit": "a" * 40,
+                 "author": {"name": "X"}, "summary": "s"}
+        m = _manifest_object(tmp_path, manifest())
+        checked = addons.read_registry([{**entry, "run_check": {"status": "passed"}}])[0]
+        unchecked = addons.read_registry([entry])[0]
+        assert "test run" in addons.install_plan(checked, m, tier="listed")["warning"]
+        assert "did not test-run" in addons.install_plan(unchecked, m, tier="listed")["warning"]

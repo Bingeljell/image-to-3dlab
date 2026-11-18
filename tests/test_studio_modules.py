@@ -427,6 +427,20 @@ def test_addons_page_shows_rating_and_the_three_labels():
 
 
 @needs_node
+def test_addons_page_says_not_run_checked_only_for_a_listed_add_on_we_did_not_run():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.tierBadge({ tier: "listed", run_checked: false }),
+        m.tierBadge({ tier: "listed", run_checked: true }),
+        m.tierBadge({ tier: "listed" }),
+        m.tierBadge({ tier: "verified", run_checked: false }),
+      ]));
+    """)
+    assert "Not run-checked" in out[0]
+    assert "Not run-checked" not in out[1] and "Not run-checked" not in out[2] and "Not run-checked" not in out[3]
+
+
+@needs_node
 def test_addons_page_badge_says_cloud_or_on_this_machine():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([m.runsBadge({ runs: "cloud" }), m.runsBadge({ runs: "local" }), m.runsBadge({})]));

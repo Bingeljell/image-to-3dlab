@@ -235,8 +235,11 @@ Every add-on shows one label, in the studio, the command line, the agent tools a
 
 - **Verified**: we read the code, ran it and checked its licences. Pinned to that exact version. A new
   version is checked again.
-- **Listed**: it passed automatic checks (it installs, runs and makes a valid model). We have not read its
-  code. Use it at your own risk.
+- **Listed**: it passed automatic checks, and we test-ran it on a clean machine: it installed, ran and made
+  a real model. We have not read its code. Use it at your own risk.
+- **Listed, not run-checked**: the same, but we could not test-run it (it downloads models, needs a picture or
+  model file as input, needs a newer Blender than our test machine's, or makes something other than a `.glb`).
+  It says so everywhere the label shows.
 - **Unknown**: not on our list. We have never looked at it. The studio warns you every time.
 
 Add-ons run code on your machine, so read the label before you install.
@@ -244,6 +247,11 @@ Add-ons run code on your machine, so read the label before you install.
 ## How we review an add-on
 
 Listed is automatic. A person (or an agent working for us) is only involved in Verified.
+
+The test run happens on a throwaway machine that is started for each submission and deleted afterwards. It has no
+passwords or access to anything of ours. Your add-on is installed with the studio's own `addon add` command and each
+tool is run once with plain test values (the middle of a number's range, the first choice, `test` for text). The model
+it makes is checked on a separate machine.
 
 For Verified we read every script that runs, including `setup`; check that it does not reach the network,
 write outside its output folder or read your files beyond the inputs you give it, unless it says so; check

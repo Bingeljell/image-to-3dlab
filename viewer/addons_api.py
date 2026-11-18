@@ -88,6 +88,7 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         "installed": listing.id in installed_ids,
         "listed": True,
         "tier": listing.tier,  # the list entry itself; an installed copy overrides this below
+        "run_checked": listing.run_check == "passed",  # False = "Not run-checked": we did not test-run it
         "links": listing.links,
         "rating": listing.rating,
         "ratings_count": listing.ratings_count,

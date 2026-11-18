@@ -37,7 +37,14 @@ export function tierBadge(addon) {
   }
   if (addon.tier === 'verified') return '<span class="addon-badge addon-verified">Verified</span>';
   if (addon.tier === 'listed') {
-    const note = addon.run_checked === false ? ' <span class="addon-badge addon-unchecked" title="We did not test-run it on a clean machine.">Not run-checked</span>' : '';
+    const left = Array.isArray(addon.run_skipped) ? addon.run_skipped : [];
+    let note = '';
+    if (addon.run_checked === false) {
+      note = ' <span class="addon-badge addon-unchecked" title="We did not test-run it on a clean machine.">Not run-checked</span>';
+    } else if (left.length) {
+      const names = left.map((t) => String(t).replace(/[&<>"]/g, '')).join(', ');
+      note = ` <span class="addon-badge addon-unchecked" title="We test-ran its other tools on a clean machine. Not run, because they need a file: ${names}.">Partly run-checked</span>`;
+    }
     return '<span class="addon-badge addon-listed">Listed</span>' + note;
   }
   return '<span class="addon-badge addon-unknown">Unknown</span>';

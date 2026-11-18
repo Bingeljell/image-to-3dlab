@@ -441,6 +441,18 @@ def test_addons_page_says_not_run_checked_only_for_a_listed_add_on_we_did_not_ru
 
 
 @needs_node
+def test_addons_page_names_the_tools_a_partial_test_run_left_out():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.tierBadge({ tier: "listed", run_checked: true, run_skipped: ["fit", "la<b>el"] }),
+        m.tierBadge({ tier: "listed", run_checked: true, run_skipped: [] }),
+      ]));
+    """)
+    assert "Partly run-checked" in out[0] and "fit, label" in out[0] and "<b>" not in out[0]
+    assert "run-checked" not in out[1]
+
+
+@needs_node
 def test_addons_page_badge_says_cloud_or_on_this_machine():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([m.runsBadge({ runs: "cloud" }), m.runsBadge({ runs: "local" }), m.runsBadge({})]));

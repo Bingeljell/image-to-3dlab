@@ -240,7 +240,9 @@ Every add-on shows one label, in the studio, the command line, the agent tools a
   version is checked again.
 - **Listed**: it passed automatic checks, and we test-ran it on a clean machine: it installed, ran and made
   a real model. We have not read its code. Use it at your own risk.
-- **Listed, not run-checked**: the same, but we could not test-run it (it downloads models, needs a picture or
+- **Listed, partly run-checked**: we test-ran the tools we could. The ones that need a picture or model file as input
+  were not run, and the label names them.
+- **Listed, not run-checked**: the same, but we could not test-run it (it downloads models, every tool needs a picture or
   model file as input, needs a newer Blender than our test machine's, or makes something other than a `.glb`).
   It says so everywhere the label shows.
 - **Unknown**: not on our list. We have never looked at it. The studio warns you every time.

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pixel Match: sharper faces from the same pictures**: `photo_paint.py --sharpen 2` (and Finish's
+  `--photo-sharpen 2`) paints from the pictures upscaled twice by the Real-ESRGAN the Hero route already uses, so a
+  face drawn about 90 px wide keeps clean eyelids, brows and lips instead of a blur; `--texture-size` grows the model's
+  colour map first so it can hold them. Off by default; it needs the 67 MB upscaler and downloads nothing.
+
 ## [0.6.0] - 2026-11-18
 
 ### Added

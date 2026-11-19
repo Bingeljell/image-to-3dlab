@@ -60,13 +60,13 @@ def _git(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProce
 def _clone(repo_url: str, commit: str, dest: Path, cwd: Path) -> None:
     """Clone a repo and check out the pinned commit, verifying HEAD matches."""
     if dest.exists():
-        shutil.rmtree(dest)
+        _remove_tree(dest)
     _git("clone", repo_url, str(dest), cwd=cwd)
     _git("checkout", commit, cwd=dest)
     result = _git("rev-parse", "HEAD", cwd=dest)
     head = result.stdout.strip()
     if head != commit:
-        shutil.rmtree(dest, ignore_errors=True)
+        _remove_tree(dest, quiet=True)
         raise RuntimeError(
             f"HEAD mismatch: checked out {head}, expected pinned commit {commit}"
         )
@@ -190,7 +190,7 @@ def prepare_install(
             )
         return manifest, temp_path
     except Exception:
-        shutil.rmtree(temp_path, ignore_errors=True)
+        _remove_tree(temp_path, quiet=True)
         raise
 
 
@@ -204,7 +204,7 @@ def apply_install(
     """Move the prepared temp folder into addons_dir and write the install record."""
     dest = _addon_dir(listing.id, addons_dir)
     if dest.exists():
-        shutil.rmtree(dest)
+        _remove_tree(dest)
     shutil.move(str(temp_dest), str(dest))
     _write_install_json(dest, listing, tier=tier)
     return dest
@@ -249,7 +249,7 @@ def install_addon(
         listing = replace(listing, id=manifest.id, name=manifest.name)
     plan = install_plan(listing, manifest, tier=tier)
     if not confirm:
-        shutil.rmtree(temp_dest, ignore_errors=True)
+        _remove_tree(temp_dest, quiet=True)
         return {"plan": plan, "listing": listing, "manifest": manifest}
 
     try:
@@ -257,8 +257,19 @@ def install_addon(
         run_addon_setup(dest)
         return {"installed": True, "id": listing.id, "dir": dest}
     except Exception:
-        shutil.rmtree(temp_dest, ignore_errors=True)
+        _remove_tree(temp_dest, quiet=True)
         raise
+
+
+def _remove_tree(path: Path, *, quiet: bool = False) -> None:
+    """Remove a cloned add-on folder, read-only git objects included (Windows keeps them read-only, so a plain
+    `shutil.rmtree` stopped a reinstall and `ignore_errors` left every temporary clone behind in `addons/`).
+    `quiet` swallows what still fails, for clean-up on a path that is already failing."""
+    try:
+        shutil.rmtree(path, onerror=_remove_readonly)
+    except OSError:
+        if not quiet:
+            raise
 
 
 def _remove_readonly(func, path, _exc_info):
@@ -279,7 +290,7 @@ def remove_addon(addon_id: str, addons_dir: Path | None = None) -> None:
     dest = _addon_dir(addon_id, addons_dir)
     if not dest.exists():
         raise ValueError(f"{addon_id} is not installed")
-    shutil.rmtree(dest, onerror=_remove_readonly)
+    _remove_tree(dest)
 
 
 def _run_subprocess(

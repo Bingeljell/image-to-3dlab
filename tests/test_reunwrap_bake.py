@@ -132,3 +132,46 @@ def test_returns_none_for_a_material_without_nodes():
 
 def test_returns_none_for_no_material():
     assert reunwrap.base_colour_image(None) is None
+
+
+class _Wrapped:
+    """Blender's way with nodes: every look at a node hands out a new Python object for it. Two of them are
+    equal (==) when they stand for the same node, but never the same object (is)."""
+
+    def __init__(self, record):
+        self._record = record
+
+    def __eq__(self, other):
+        return isinstance(other, _Wrapped) and other._record is self._record
+
+    __hash__ = None
+
+    @property
+    def select(self):
+        return self._record["select"]
+
+    @select.setter
+    def select(self, value):
+        self._record["select"] = value
+
+
+class _Nodes:
+    def __init__(self, count):
+        self._records = [{"select": True} for _ in range(count)]
+        self.active = None
+
+    def __iter__(self):
+        return iter([_Wrapped(r) for r in self._records])
+
+    def __getitem__(self, i):
+        return _Wrapped(self._records[i])
+
+
+def test_the_bake_target_is_the_one_selected_node():
+    """Cycles bakes into the image node that is active and selected. Comparing nodes with `is` selected none on
+    Blender 5.2, so nothing was baked and the whole texture came out black."""
+    nodes = _Nodes(4)
+    target = nodes[2]
+    reunwrap.make_bake_target(nodes, target)
+    assert [n.select for n in nodes] == [False, False, True, False]
+    assert nodes.active == target

@@ -40,6 +40,9 @@ def test_install_addon_without_confirm_returns_plan_and_does_not_install(tmp_pat
     assert "plan" in result
     assert result["plan"]["author"] == "Ahnyth"
     assert not (tmp_path / "addons" / "vehicle-kit").exists()
+    # nor its temporary clone: on Windows its read-only git objects kept every planned install's clone in addons/
+    addons = tmp_path / "addons"
+    assert not addons.exists() or not any(addons.iterdir())
 
 
 def test_install_addon_with_confirm_installs_and_writes_record(tmp_path):
@@ -79,6 +82,27 @@ def test_install_addon_refuses_unlisted(tmp_path):
             addons_dir=tmp_path / "addons",
             repo_dir=tmp_path,
         )
+
+
+def test_install_addon_again_replaces_a_read_only_clone(tmp_path):
+    # Windows leaves a cloned repo's git objects read-only, so installing a new version over the old one stopped with
+    # "Access is denied" (PermissionError) while removing it worked
+    import stat
+
+    registry = tmp_path / "index.json"
+    repo = make_bare_repo(tmp_path, "vehicle-kit", files={"addon.json": json.dumps(manifest())})
+    registry.write_text(json.dumps([listing(repo=str(repo), commit=repo_head(repo))]), encoding="utf-8")
+
+    def install():
+        return ai.install_addon(addon_id="vehicle-kit", index=str(registry), confirm=True,
+                                addons_dir=tmp_path / "addons", repo_dir=tmp_path)
+
+    install()
+    stuck = tmp_path / "addons" / "vehicle-kit" / "object"
+    stuck.write_text("git object", encoding="utf-8")
+    os.chmod(stuck, stat.S_IREAD)
+    assert install()["installed"] is True
+    assert not stuck.exists()
 
 
 def test_remove_addon_removes_installed(tmp_path):

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
+  behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
+  "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned
+  folder now clears the read-only flag first, as `addon remove` already did.
+
 ## [0.6.0] - 2026-11-18
 
 ### Added

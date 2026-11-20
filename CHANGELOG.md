@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned
   folder now clears the read-only flag first, as `addon remove` already did.
+- `scripts/blender_reunwrap_bake.py` bakes again on Blender 5.2: it picked its bake target with
+  `is`, which never matches a Blender node there, so nothing was baked and the re-unwrapped
+  model came out all black. It compares with `==` now.
+- The installers' fallback when the locked PyTorch is not on PyTorch's CUDA index works again: dropping torch from the lock left its `--hash` lines behind, and the install stopped with `Unexpected '-'` (#276).
 
 ## [0.6.0] - 2026-11-18
 

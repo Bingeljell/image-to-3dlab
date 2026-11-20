@@ -188,7 +188,7 @@ def headless(blender: Path, script: str) -> list[str]:
 def retopo_command(
     source: Path, output: Path, faces: int, atlas: int, angle: float,
     voxel: float, metallic: float, roughness: float, ior: float,
-    blender: Path = BLENDER,
+    blender: Path = BLENDER, inner: str = "drop",
 ) -> list[str]:
     """The headless Blender invocation, as a list.
 
@@ -199,7 +199,7 @@ def retopo_command(
     return [
         *headless(blender, "blender_retopo_bake.py"),
         str(source), str(output), str(faces), str(atlas), str(angle),
-        str(voxel), str(metallic), str(roughness), str(ior),
+        str(voxel), str(metallic), str(roughness), str(ior), inner,
     ]
 
 
@@ -383,6 +383,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "original; the asset keeps flat surface settings")
     parser.add_argument("--skip-compress", action="store_true")
     parser.add_argument(
+        "--keep-inner", action="store_true",
+        help="keep the faces no ray from outside reaches (a generated mesh's hidden inner "
+             "wall); by default the classic route drops them so the face budget goes to "
+             "what is seen",
+    )
+    parser.add_argument(
         "--keep-mesh", action="store_true",
         help="full detail: keep every triangle of the source (no retopology, repaint or "
              "bake); Pixel Match paints it directly. For renders and stills, not games",
@@ -504,6 +510,7 @@ def main() -> int:
                 retopo_command(
                     args.source, retopo_glb, args.faces, args.atlas, args.angle,
                     args.voxel, args.metallic, args.roughness, args.ior, args.blender,
+                    inner="keep" if args.keep_inner else "drop",
                 ),
                 steps["retopo_log"], "retopologise",
             )
@@ -658,7 +665,8 @@ def main() -> int:
         "retopology": None if args.keep_mesh else (
             {**native_record, "atlas": args.atlas} if native_record else
             {"route": "pixal3d" if native else "classic", "faces": args.faces,
-             "atlas": args.atlas, "voxel": args.voxel, "angle": args.angle}),
+             "atlas": args.atlas, "voxel": args.voxel, "angle": args.angle,
+             "inner_wall": "kept" if args.keep_inner else "dropped"}),
         "full_detail": args.keep_mesh,
         "detail": args.detail,
         "calm": None if "calm" not in stages else (calm_record or {"reused": True}),

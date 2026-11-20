@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An add-on you installed without review is no longer shown as reviewed just because a listed add-on has the same name.
 - A model made by an add-on now keeps the licence of the model that went into it, including restrictions such as "not licensed in the EU, UK or South Korea". A model with no licence record counts as unverified. The record also holds a fingerprint of the result file.
 - Prop finishing writes file paths with forward slashes on every system, so its manifest reads the same on Windows.
+- The installers' fallback when the locked PyTorch is not on PyTorch's CUDA index works again: dropping torch from the lock left its `--hash` lines behind, and the install stopped with `Unexpected '-'` (#276).
 
 ## [0.5.11] - 2026-11-17
 

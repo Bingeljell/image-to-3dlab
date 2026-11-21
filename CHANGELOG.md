@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Build from four pictures** (`scripts/pixal3d_generate.py --right --left`): front, right side, back and left side
+  instead of front and back, every view at one shared scale. Front and back say nothing about how deep a subject is,
+  so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;
+  from four views they come out right.
+- **`scripts/make_side_views.py` draws those side pictures** with the studio's own picture engine: the right side from
+  the front picture, the left one its mirror (or drawn too with `--draw-left`, for a tail curled to one side), so both
+  agree on the length. `--four-legged` draws a side again until the legs stand apart (`image_to_3dlab/leg_check.py`):
+  legs that touch in a picture build as one lump.
+- **`pixal3d_generate.py --sides-shape-only`**: the side pictures shape the model and Finish paints from the front and
+  the back only. A drawn side never puts an eye or a nose exactly where the front has them; real side photos and a
+  vehicle's sides still paint without it.
+
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
@@ -58,40 +71,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own; hair, capes and gear keep their names under the nearest body bone. Also for agents
   (`advanced={"bone_names": "unity"}`), and `scripts/name_bones.py` does it for a model rigged
   before. The names live in `image_to_3dlab/bone_names.py`, one table per engine (#237).
-- `scripts/unity_humanoid_names.py` renames a rigged character's bones from `bone_0`... to Unity
-  Humanoid names (Hips, Spine, ... LeftToes) or Mixamo names, so game engines map the skeleton
-  on their own (#237).
-- `scripts/game_ready.py` makes a rigged character ready for a game engine in one go: a cleaned
-  mesh, one material with one texture atlas (the normal map's detail baked into the colour), the
-  real height with the feet on the floor, engine bone names, at most 4 bones per vertex, every
-  move kept. Optional: brighter for small on-screen figures (or `auto`, as much as the figure
-  takes), glowing accents in a chosen colour (thin lines only, if asked), fingers folded into the
-  hands. A report says what an engine would still trip over.
-- `scripts/pixal3d_generate.py --right --left`: build from four pictures (front, right side, back,
-  left side) instead of two, so the sides come from your pictures too and Finish paints them.
-- `scripts/make_side_views.py` draws those side pictures for you: the studio's own picture engine
-  draws the right side from the front picture, and the left one is its mirror, so both agree on
-  how long the subject is. Animals built from front and back alone often come out too short or
-  with a second pair of ears or legs; from four views they come out right.
-- `pixal3d_generate.py --sides-shape-only`: the side pictures shape the model, but Finish paints
-  only from the front and the back. A side drawn by `make_side_views.py` never puts an eye or a
-  nose exactly where the front has them, and painting from it gave an animal a second pair of
-  eyes; real side photos and a vehicle's sides (doors, lettering) still paint without it.
-- `make_side_views.py --four-legged` checks that the legs stand apart in the drawn side. Where the
-  front and the hind legs touch in a picture, the generator fuses them into one lump; such a side
-  is drawn again with the next seed (up to `--tries`, default 4), and the first one with open
-  space under the body is kept. A puppy drawn with its legs bunched (6 % of its height open under
-  the body, where clean builds had 21-36 %) built fused legs; the check
-  (`image_to_3dlab/leg_check.py`) also measures front and back views.
-- `make_side_views.py --draw-left` draws the left side too instead of mirroring the right one (it
-  draws the right side of the mirrored front and mirrors that back). A mirror puts a part that sits
-  on one side only, such as a tail curled to the right, on both sides, and the build then grows it
-  twice: a puppy's thin tail came out as a Y on four seeds.
-- `scripts/fx_markers.py` marks where an effect was taken out of a picture. A flame or a glow built
-  as geometry looks like a sheet of paper from the side; take it out of the front picture with the
-  studio's picture editor, build from that, and this lines the two pictures up, finds where the
-  effect sat and writes an empty node there (`fx_flame_1`, with its size), where a game attaches
-  its own moving effect. The mesh and textures stay as they are.
 
 ### Fixed
 - The Windows installer's anonymous started / stopped / finished count reaches the site.

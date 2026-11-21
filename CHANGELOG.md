@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Build from four pictures** (`scripts/pixal3d_generate.py --right --left`): front, right side, back and left side
+  instead of front and back, every view at one shared scale. Front and back say nothing about how deep a subject is,
+  so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;
+  from four views they come out right.
+- **`scripts/make_side_views.py` draws those side pictures** with the studio's own picture engine: the right side from
+  the front picture, the left one its mirror (or drawn too with `--draw-left`, for a tail curled to one side), so both
+  agree on the length. `--four-legged` draws a side again until the legs stand apart (`image_to_3dlab/leg_check.py`):
+  legs that touch in a picture build as one lump.
+- **`pixal3d_generate.py --sides-paint safe`** for a figure's drawn sides: they paint only the ears, the side hair, the
+  arms, the hands and the legs, never the face and never the body between the neck and a little below the hands, where
+  a drawn hand or a drawn profile eye never sits exactly where the model has it (a drawn hand was painted onto a coat
+  beside the holsters, a profile eye onto the brow as a second eye). The neck, the arms and the fingertips are read off
+  the front picture's cut-out, so no rig is needed (`image_to_3dlab/side_paint.py`); `photo_paint.py --sides` sets it
+  for a model painted again. `--sides-paint none` (or `--sides-shape-only`) lets the sides shape the model only;
+  `all`, the default, is right for real side photos and a vehicle's doors and lettering.
+
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with

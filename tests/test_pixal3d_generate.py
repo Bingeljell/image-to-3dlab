@@ -619,6 +619,99 @@ def test_front_and_back_views_share_one_rig_half_a_turn_apart(tmp_path):
         assert Image.open(folder / "view_000.png").size == (size, size)
 
 
+def test_four_views_put_each_camera_on_its_side(tmp_path):
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir)
+    for folder in (model_dir, paint_dir):
+        rig = json.loads((folder / "transforms.json").read_text())
+        names = [frame["file_path"] for frame in rig["frames"]]
+        assert names == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]  # front, right, back, left
+        where = {f["file_path"]: np.array(f["transform_matrix"])[:3, 3] for f in rig["frames"]}
+        d = np.linalg.norm(where["view_000.png"])
+        assert np.allclose(where["view_000.png"], (0, -d, 0))
+        # the subject faces the front camera, so its own right side is at -X and its left at +X
+        assert np.allclose(where["view_270.png"], (-d, 0, 0), atol=1e-9)
+        assert np.allclose(where["view_090.png"], (d, 0, 0), atol=1e-9)
+        assert np.allclose(where["view_180.png"], (0, d, 0), atol=1e-9)
+        assert all((folder / name).is_file() for name in names)
+
+
+def test_drawn_sides_can_shape_the_model_without_painting_it(tmp_path):
+    # a side drawn by make_side_views.py never puts an eye exactly where the front has it, so
+    # painting from it doubles the eye; the sides then go to the build only
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, sides_paint="none")
+    built = [f["file_path"] for f in json.loads((model_dir / "transforms.json").read_text())["frames"]]
+    painted = [f["file_path"] for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]]
+    assert built == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]
+    assert painted == ["view_000.png", "view_180.png"]
+    assert sorted(p.name for p in paint_dir.glob("view_*.png")) == ["view_000.png", "view_180.png"]
+    # the two paint views keep the four-view framing, so they still line up with the model
+    four = tmp_path / "four.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, tmp_path / "in4", four)
+    assert (paint_dir / "view_000.png").read_bytes() == (four / "view_000.png").read_bytes()
+
+
+def test_the_sides_shape_only_switch_reaches_the_views():
+    args = px.parse_args(["f.png", "o.glb", "--back", "b.png", "--right", "r.png", "--left", "l.png",
+                          "--sides-shape-only"])
+    assert args.sides_paint == "none"
+    assert px.parse_args(["f.png", "o.glb"]).sides_paint == "all"
+    assert px.parse_args(["f.png", "o.glb", "--sides-paint", "safe"]).sides_paint == "safe"
+    with pytest.raises(SystemExit):
+        px.parse_args(["f.png", "o.glb", "--sides-paint", "some"])
+
+
+def test_safe_sides_are_staged_with_their_paint_rule(tmp_path):
+    # a figure's drawn sides paint only where they cannot misplace a hand or an eye (side_paint.py):
+    # Pixel Match reads that from each frame of the paint views; the build itself is unchanged
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, sides_paint="safe")
+    painted = {f["file_path"]: f.get("paint", "all")
+               for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]}
+    assert painted == {"view_000.png": "all", "view_270.png": "safe", "view_180.png": "all", "view_090.png": "safe"}
+    built = json.loads((model_dir / "transforms.json").read_text())["frames"]
+    assert all("paint" not in f for f in built)
+    with pytest.raises(ValueError):
+        px.write_views({"front": cut, "back": cut}, model_dir, paint_dir, sides_paint="some")
+
+
+def _extent(image):
+    ys, xs = np.nonzero(np.asarray(image)[..., 3] > 127)
+    return xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+
+
+def test_four_views_share_one_scale_so_a_long_vehicle_stays_long(tmp_path):
+    # a van: narrow and tall from the front and the back, three times as long from the side
+    front = _cut(400, 400, (150, 100, 250, 300))   # 100 wide, 200 high
+    side = _cut(800, 400, (100, 100, 700, 300))    # 600 long, 200 high
+    px.write_views({"front": front, "right": side, "back": front, "left": side}, tmp_path / "in", tmp_path / "o.svviews")
+    from PIL import Image
+    _, fh = _extent(Image.open(tmp_path / "in" / "view_000.png"))
+    sw, sh = _extent(Image.open(tmp_path / "in" / "view_270.png"))
+    assert sh == pytest.approx(fh, abs=2)               # the same height in every view
+    assert sw / sh == pytest.approx(3.0, rel=0.02)      # the side keeps its length
+    assert sw <= 0.9 * 768 + 2                          # and still fits
+
+
+def test_front_and_back_through_write_views_keep_their_rig(tmp_path):
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    px.write_views({"front": cut, "back": cut}, tmp_path / "a", tmp_path / "a.svviews")
+    px.write_front_back_views(cut, cut, tmp_path / "b", tmp_path / "b.svviews")
+    assert (tmp_path / "a" / "transforms.json").read_text() == (tmp_path / "b" / "transforms.json").read_text()
+
+
+def test_side_pictures_need_the_back_and_each_other():
+    assert px.views_problem(back=None, right=Path("r.png"), left=Path("l.png"))
+    assert px.views_problem(back=Path("b.png"), right=Path("r.png"), left=None)
+    assert px.views_problem(back=Path("b.png"), right=Path("r.png"), left=Path("l.png")) is None
+    assert px.views_problem(back=Path("b.png"), right=None, left=None) is None
+    assert px.views_problem(back=None, right=None, left=None) is None
+
+
 def test_paint_copies_keep_a_bigger_pictures_detail(tmp_path):
     big = _cut(1024, 1024, (400, 50, 620, 980))
     px.write_front_back_views(big, big, tmp_path / "in", tmp_path / "out.svviews")

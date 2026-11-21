@@ -13,7 +13,9 @@ what Finish writes. Only the base-colour image changes; every other byte stays.
 
 `--weights` writes the per-texel trust map (white = photo, black = own paint), the first
 thing to look at when a result looks wrong. Each step can be switched off to compare:
-`--no-align`, `--no-local-colour`, `--cutout-edge 0`, `--inner-edge 0`.
+`--no-align`, `--no-local-colour`, `--cutout-edge 0`, `--inner-edge 0`. `--keep-top-paint`
+leaves surfaces that face up and that no picture sees (a hat's brim, shoulders, the top of
+the hair) in the model's own paint instead of shifting them like their neighbours.
 
 The logic lives in `image_to_3dlab/photo_paint.py`.
 """
@@ -52,6 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="match colour with one shift for the whole model instead")
     parser.add_argument("--no-align", action="store_true",
                         help="paint from the pictures as they are, without nudging them onto the model")
+    parser.add_argument("--keep-top-paint", action="store_true",
+                        help="surfaces facing up that no picture sees (a brim, shoulders, hair tops) keep the "
+                             "model's own paint instead of the colour shift of their neighbours")
     return parser
 
 
@@ -66,7 +71,7 @@ def main() -> int:
     settings = pp.Settings(facing_low=args.facing_low, facing_high=args.facing_high,
                            edge_px=args.edge_px, cutout_edge=args.cutout_edge,
                            inner_edge=args.inner_edge, local_colour=not args.no_local_colour,
-                           align=not args.no_align)
+                           align=not args.no_align, keep_top_paint=args.keep_top_paint)
     reports: list = []
     painted, weight = pp.paint_texture(texture, positions, uvs, faces, views, mesh_scale,
                                        settings=settings, align_reports=reports)

@@ -642,7 +642,7 @@ def test_drawn_sides_can_shape_the_model_without_painting_it(tmp_path):
     # painting from it doubles the eye; the sides then go to the build only
     cut = _cut(400, 400, (150, 40, 250, 360))
     model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
-    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, paint_sides=False)
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, sides_paint="none")
     built = [f["file_path"] for f in json.loads((model_dir / "transforms.json").read_text())["frames"]]
     painted = [f["file_path"] for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]]
     assert built == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]
@@ -657,8 +657,26 @@ def test_drawn_sides_can_shape_the_model_without_painting_it(tmp_path):
 def test_the_sides_shape_only_switch_reaches_the_views():
     args = px.parse_args(["f.png", "o.glb", "--back", "b.png", "--right", "r.png", "--left", "l.png",
                           "--sides-shape-only"])
-    assert args.sides_shape_only is True
-    assert px.parse_args(["f.png", "o.glb"]).sides_shape_only is False
+    assert args.sides_paint == "none"
+    assert px.parse_args(["f.png", "o.glb"]).sides_paint == "all"
+    assert px.parse_args(["f.png", "o.glb", "--sides-paint", "safe"]).sides_paint == "safe"
+    with pytest.raises(SystemExit):
+        px.parse_args(["f.png", "o.glb", "--sides-paint", "some"])
+
+
+def test_safe_sides_are_staged_with_their_paint_rule(tmp_path):
+    # a figure's drawn sides paint only where they cannot misplace a hand or an eye (side_paint.py):
+    # Pixel Match reads that from each frame of the paint views; the build itself is unchanged
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, sides_paint="safe")
+    painted = {f["file_path"]: f.get("paint", "all")
+               for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]}
+    assert painted == {"view_000.png": "all", "view_270.png": "safe", "view_180.png": "all", "view_090.png": "safe"}
+    built = json.loads((model_dir / "transforms.json").read_text())["frames"]
+    assert all("paint" not in f for f in built)
+    with pytest.raises(ValueError):
+        px.write_views({"front": cut, "back": cut}, model_dir, paint_dir, sides_paint="some")
 
 
 def _extent(image):

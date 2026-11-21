@@ -214,29 +214,41 @@ def pad_views(cuts: dict, size: int = VIEW_SIZE) -> dict:
     return out
 
 
-def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back")) -> dict:
-    frames = [(f"view_{SIDES[side]:03d}.png", turn(SIDES[side]) @ GAUGE_CAMERA) for side in sides]
-    return {"camera_angle_x": fov, "mesh_scale": 1, "frames": [
-        {"file_path": name, "transform_matrix": matrix.tolist(), "camera_angle_x": fov}
-        for name, matrix in frames]}
+def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back"), paint: dict | None = None) -> dict:
+    out = {"camera_angle_x": fov, "mesh_scale": 1, "frames": []}
+    for side in sides:
+        frame = {"file_path": f"view_{SIDES[side]:03d}.png",
+                 "transform_matrix": (turn(SIDES[side]) @ GAUGE_CAMERA).tolist(), "camera_angle_x": fov}
+        if paint and side in paint:
+            frame["paint"] = paint[side]
+        out["frames"].append(frame)
+    return out
 
 
-def write_views(cuts: dict, model_dir: Path, paint_dir: Path, paint_sides: bool = True) -> None:
+SIDES_PAINT = ("all", "safe", "none")
+
+
+def write_views(cuts: dict, model_dir: Path, paint_dir: Path, sides_paint: str = "all") -> None:
     """Stage the cut-outs of each side ("front", "right", "back", "left") with one camera rig,
     for Pixal3D (`model_dir`, 768 px) and for Pixel Match (`paint_dir`, at least the pictures'
-    own size). Front and back alone is the usual case; all four add the sides. With
-    `paint_sides` off the sides go to the build only, and Pixel Match paints from the front and
-    the back (framed as in the four-view build, so they still line up with the model).
+    own size). Front and back alone is the usual case; all four add the sides. `sides_paint`
+    says how Pixel Match uses the sides: "all" paints from them everywhere (real side photos, a
+    vehicle's doors), "safe" only where a drawn picture cannot be wrong (a figure's ears, side
+    hair, arms and legs: `image_to_3dlab/side_paint.py`), "none" not at all, they only shape the
+    model (the front and back still framed as in the four-view build, so they line up with it).
     """
+    if sides_paint not in SIDES_PAINT:
+        raise ValueError(f"sides_paint must be one of {SIDES_PAINT}, not {sides_paint!r}")
     sides = tuple(side for side in SIDE_ORDER if side in cuts)
-    painted = sides if paint_sides else tuple(side for side in sides if side in ("front", "back"))
+    painted = sides if sides_paint != "none" else tuple(side for side in sides if side in ("front", "back"))
+    paint = {"right": "safe", "left": "safe"} if sides_paint == "safe" else None
     paint_size = max(VIEW_SIZE, *(n for cut in cuts.values() for n in cut.size))
-    for folder, size, which in ((model_dir, VIEW_SIZE, sides), (paint_dir, paint_size, painted)):
+    for folder, size, which, how in ((model_dir, VIEW_SIZE, sides, None), (paint_dir, paint_size, painted, paint)):
         folder.mkdir(parents=True, exist_ok=True)
         padded = pad_views(cuts, size)
         for side in which:
             padded[side].save(folder / f"view_{SIDES[side]:03d}.png")
-        (folder / "transforms.json").write_text(json.dumps(_rig(sides=which), indent=2) + "\n")
+        (folder / "transforms.json").write_text(json.dumps(_rig(sides=which, paint=how), indent=2) + "\n")
 
 
 def views_problem(back: Path | None, right: Path | None, left: Path | None) -> str | None:
@@ -618,11 +630,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "is built from four views and Finish paints the sides too")
     parser.add_argument("--left", type=Path, default=None,
                         help="a picture of the subject's left side, with --right and --back")
-    parser.add_argument("--sides-shape-only", action="store_true",
-                        help="the side pictures shape the model, but Finish paints only from the front and "
-                             "the back: for sides drawn by make_side_views.py, whose eyes and noses never sit "
-                             "exactly where the front has them, so painting from them doubles a face. Leave "
-                             "it off for real side photos or a vehicle's sides (doors, windows, lettering)")
+    parser.add_argument("--sides-paint", choices=SIDES_PAINT, default="all",
+                        help="how Finish paints from the side pictures: all (default; real side photos, a "
+                             "vehicle's doors and lettering), safe (a figure's sides drawn by "
+                             "make_side_views.py: only the ears, side hair, arms, hands and legs, never the "
+                             "face or the body between the neck and the hands, where a drawn eye or hand "
+                             "never sits exactly where the model has it) or none (they only shape the model)")
+    parser.add_argument("--sides-shape-only", action="store_const", const="none", dest="sides_paint",
+                        help="the same as --sides-paint none")
     parser.add_argument("--models", type=Path, default=None,
                         help="weights folder (default: single-view, or multi-view with --back)")
     parser.add_argument("--cli", type=Path, default=CLI)
@@ -716,8 +731,7 @@ def main() -> int:
             cuts["right"] = cut_out(args.right.resolve(), "right")
             cuts["left"] = cut_out(args.left.resolve(), "left")
         model_views = args.output.with_suffix(".mvinput")
-        write_views(cuts, model_views, args.output.with_suffix(".svviews"),
-                    paint_sides=not args.sides_shape_only)
+        write_views(cuts, model_views, args.output.with_suffix(".svviews"), sides_paint=args.sides_paint)
         command = build_multiview_command(model_views, args.output, args.res, args.seed,
                                           args.models, args.cli, args.gss, args.gsh)
         print(f"[pixal3d] {' + '.join(side for side in SIDE_ORDER if side in cuts)}: "

@@ -276,6 +276,8 @@ SECTION_PIXELS = 200  # a limb's sections are filled on a grid this many pixels 
 SOLID_SHARE = 0.5     # a section's piece filling less of its outline's hull is a shell round a hollow: solid sections
                       # of the Revolverheld's, the Zauberer's and the Waechter's builds fill 0.97-1.0 of it, the
                       # Waechter's knuckle plate (open toward the palm) and cuff lip 0.12-0.18
+HOLLOW_LIMIT = 0.05   # a built hand with more of its sections below the wrist hollow has a hole for a palm: the
+                      # Waechter's first gauntlet 7 of 38, six good gloved and bare builds none
 
 
 def filled(segments: np.ndarray, pixel: float) -> tuple[np.ndarray, np.ndarray]:
@@ -447,7 +449,8 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
               select: np.ndarray | None = None, steps: int = PROFILE_STEPS, shift: float = SEAM_SHIFT) -> dict:
     """Where to cut a limb whose sections run from START (up the arm) along AXIS for LENGTH (past the fingertips):
     {"cut": the plane's point on the axis, "centre": the section's middle there, "found": False when no wrist
-    shows in the profile (the cut then sits halfway and the caller should say so), "areas", "ts"}."""
+    shows in the profile (the cut then sits halfway and the caller should say so), "areas", "ts", "hollow": the
+    share of the sections past the cut that hold a shell round a hollow (`mask_pieces`)}."""
     ts = np.linspace(0.0, length, steps)
     sections = sections_along(points, faces, start, axis, ts, select)
     areas = np.array([s["area"] for s in sections], dtype=np.float64)
@@ -461,8 +464,10 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
     here = np.asarray(start, dtype=np.float64) + t_cut * unit(axis)
     section = section_fill(points, faces, here, axis, select, section_pixel(points, axis, faces, select))
     found_piece = section["centre"] is not None
+    past = [s for t, s in zip(ts, sections) if t > t_cut and s["pieces"]]
     return {"cut": here, "centre": section["centre"] if found_piece else here, "found": found,
-            "area": section["piece_area"] if found_piece else float("nan"), "areas": areas, "ts": ts}
+            "area": section["piece_area"] if found_piece else float("nan"), "areas": areas, "ts": ts,
+            "hollow": sum(s["hollow"] for s in past) / max(len(past), 1)}
 
 
 def reach_of(points: np.ndarray, centre: np.ndarray) -> float:
@@ -706,7 +711,9 @@ def figure_wrist(positions: np.ndarray, faces: np.ndarray, bone: np.ndarray, for
 
 def hand_wrist(positions: np.ndarray, faces: np.ndarray, toward_camera: np.ndarray = FORWARD) -> dict:
     """A built hand's own wrist and frame. The drawing hangs the hand fingers down with the back of the hand to the
-    camera (Pixal3D's +Z), so its long axis is turned to point down and its thinnest direction to the camera."""
+    camera (Pixal3D's +Z), so its long axis is turned to point down and its thinnest direction to the camera.
+    "hollow" is the share of its sections below the wrist that are a shell round an empty inside: over
+    HOLLOW_LIMIT, the build is a plate with a hole where its palm should be (the Waechter's first gauntlet)."""
     points, wfaces, _ = weld(positions, faces)
     axis = principal_axes(points)[0]
     axis = -axis if axis[1] > 0 else axis
@@ -717,7 +724,7 @@ def hand_wrist(positions: np.ndarray, faces: np.ndarray, toward_camera: np.ndarr
     fingers, palm = hand_frame(points[beyond], seam["centre"])
     back = palm if palm @ toward_camera >= 0 else -palm
     return {"cut": seam["cut"], "axis": axis, "centre": seam["centre"], "found": seam["found"],
-            "area": seam["area"], "fingers": fingers, "back": back,
+            "area": seam["area"], "fingers": fingers, "back": back, "hollow": round(seam["hollow"], 3),
             "length": reach_of(points[beyond], seam["centre"])}
 
 

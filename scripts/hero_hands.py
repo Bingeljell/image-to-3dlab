@@ -17,7 +17,8 @@ hangs beside the thigh, seen from the thumb's side with the fingers stacked, and
               back, fingers down and apart; --tries drawings, kept only when their outline counts five digits
               and one thumb, up to --keep of them.
   4. build    Pixal3D on each kept drawing, --seeds each, kept only when the built hand's outline, seen from
-              twelve sides, counts five digits and one thumb; the first one that does is the hand.
+              twelve sides, counts five digits and one thumb and its palm is solid (an armoured hand can come
+              out as a plate round an empty inside); the first one that does is the hand.
   5. clean    Pixal3D's own clean-up of that build at --hand-faces.
   6. graft    each arm cut straight through below the cuff, the hand (the left one mirrored from the right, or
               built on its own with --left own) put on at the old hand's place, length and turn, its outer skin
@@ -148,27 +149,40 @@ def draw_hands(run: Run, side: str, up: Path, folder: Path, args, engine) -> lis
     return kept
 
 
-def build_hand(run: Run, side: str, drawings: list[Path], folder: Path, args) -> Path | None:
-    """The first Pixal3D build of a kept drawing whose outline counts five digits and one thumb."""
+def build_count(raw: Path) -> dict:
+    """A build's digits seen all round (`count_built`) and the share of it hollow below the wrist (`hand_wrist`),
+    kept beside it as <build>.count.json; "kept" when it counts five digits and one thumb and its palm is solid.
+    A count kept from before the hollow check gets it added."""
     from image_to_3dlab import hero_hands as hh
 
+    counted = raw.with_suffix(".count.json")
+    count = json.loads(counted.read_text(encoding="utf-8")) if counted.exists() else {}
+    if "digits" not in count or "hollow" not in count:
+        _, _, part = hh.read_part(raw.read_bytes())
+        if "digits" not in count:
+            count = hh.count_built(part["positions"], part["faces"], hh.DRAWN_DOWN)
+        count["hollow"] = hh.hand_wrist(part["positions"], part["faces"])["hollow"]
+        counted.write_text(json.dumps(count), encoding="utf-8")
+    return {**count, "kept": bool(count["ok"]) and count["hollow"] <= hh.HOLLOW_LIMIT}
+
+
+def build_hand(run: Run, side: str, drawings: list[Path], folder: Path, args) -> Path | None:
+    """The first Pixal3D build of a kept drawing whose outline counts five digits and one thumb and whose palm is
+    not a hole (Pixal3D built the Waechter's first gauntlet as a plate round an empty inside)."""
     for drawing in drawings:
         for seed in args.seeds:
             raw = folder / f"{drawing.stem}_b{seed}.glb"
-            counted = raw.with_suffix(".count.json")
             if not raw.exists():
                 run.say(f"build: Pixal3D on {drawing.name}, seed {seed}")
                 if not run.run([PYTHON, "-u", GENERATE, drawing, raw, "--seed", str(seed)], required=False):
                     run.flag(f"Pixal3D failed on {drawing.name} seed {seed} (see run.log)")
                     continue
-            if not counted.exists():
-                _, _, part = hh.read_part(raw.read_bytes())
-                count = hh.count_built(part["positions"], part["faces"], hh.DRAWN_DOWN)
-                counted.write_text(json.dumps(count), encoding="utf-8")
-            count = json.loads(counted.read_text(encoding="utf-8"))
+            count = build_count(raw)
+            hollow = (f", {count['hollow']:.0%} of it hollow below the wrist (a hole for a palm)"
+                      if not count["kept"] and count["ok"] else "")
             run.say(f"build: {raw.name} {count['digits']} digits, {count['thumbs']} thumb(s), "
-                    f"per view {count['per_view']}" + (" - kept" if count["ok"] else ""))
-            if count["ok"]:
+                    f"per view {count['per_view']}{hollow}" + (" - kept" if count["kept"] else ""))
+            if count["kept"]:
                 return raw
     return None
 
@@ -318,8 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         stage(run, "build", f"Building the {side} hand on its own (the long step)")
         raw = build_hand(run, side, drawings, folder, args)
         if raw is None:
-            raise SystemExit(f"[hero] no build of the {side} hand counts five digits and one thumb: try more "
-                             "seeds (--seeds) or drawings (--keep)")
+            raise SystemExit(f"[hero] no build of the {side} hand counts five digits and one thumb with a solid "
+                             "palm: try more seeds (--seeds) or drawings (--keep)")
         stage(run, "clean", f"Cleaning up the {side} hand")
         built[side], raws[side] = clean_hand(run, raw, args.hand_faces), raw
         records += [r for r in (read_model_record(raw), _picture_record(raw)) if r]

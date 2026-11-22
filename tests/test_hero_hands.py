@@ -285,6 +285,55 @@ def test_a_shell_open_toward_a_hollow_counts_as_what_it_encloses():
     assert found["hollow"].tolist() == [True]
 
 
+def c_shell(y_top, y_bottom, radius, thickness=0.01, gap_deg=80, steps=24):
+    """A closed shell whose sections are a C: a palm built as a plate round an empty inside, open on one side."""
+    a = np.radians(np.linspace(gap_deg / 2, 360 - gap_deg / 2, steps))
+    ring = np.concatenate([np.stack([radius * np.cos(a), radius * np.sin(a)], 1),
+                           np.stack([(radius - thickness) * np.cos(a[::-1]), (radius - thickness) * np.sin(a[::-1])],
+                                    1)])
+    n = len(ring)
+    top = np.stack([ring[:, 0], np.full(n, y_top), ring[:, 1]], 1)
+    bottom = np.stack([ring[:, 0], np.full(n, y_bottom), ring[:, 1]], 1)
+    faces = []
+    for j in range(n):                                       # the walls, facing out of the C's outline
+        j1 = (j + 1) % n
+        faces += [[j, n + j, j1], [j1, n + j, n + j1]]
+    for j in range(steps - 1):                               # the ends, as a strip between the two arcs
+        o0, o1, i0, i1 = j, j + 1, n - 1 - j, n - 2 - j
+        faces += [[o0, o1, i0], [o1, i1, i0], [n + o0, n + i0, n + o1], [n + o1, n + i0, n + i1]]
+    return np.concatenate([top, bottom]), np.array(faces)
+
+
+def hand_with_palm(hollow):
+    """A built hand fingers down: a cuff and a wrist turned in one piece, a palm (HOLLOW: a C-shaped shell round an
+    empty inside, as the Waechter's gauntlet build had it; else solid) and four fingers."""
+    import trimesh
+
+    v, f = turned([(0.50, 0.20), (0.30, 0.20), (0.299, 0.12), (0.17, 0.12), (0.169, 0.0)], ring=48)
+    parts = [trimesh.Trimesh(v, f, process=False)]
+    if hollow:
+        parts.append(trimesh.Trimesh(*c_shell(0.16, -0.10, 0.16), process=False))
+    else:
+        parts.append(trimesh.creation.cylinder(0.16, 0.26, sections=48,
+                                               transform=trimesh.transformations.rotation_matrix(np.pi / 2,
+                                                                                                 (1, 0, 0))))
+        parts[-1].apply_translation((0, 0.03, 0))
+    for x in (-0.12, -0.04, 0.04, 0.12):
+        parts.append(trimesh.creation.box((0.06, 0.28, 0.06),
+                                          trimesh.transformations.translation_matrix((x, -0.25, 0))))
+    hand = trimesh.util.concatenate(parts)
+    return np.asarray(hand.vertices), np.asarray(hand.faces)
+
+
+def test_hand_wrist_tells_a_palm_built_hollow():
+    # Pixal3D built the Waechter's gauntlet palm as a plate round an empty inside, and the hole showed on the
+    # figure's palm; such a build has open shells in its sections below the wrist, a good one none
+    for hollow in (True, False):
+        own = hh.hand_wrist(*hand_with_palm(hollow))
+        assert own["found"] and 0.10 < own["cut"][1] < 0.299
+        assert (own["hollow"] > hh.HOLLOW_LIMIT) == hollow, own["hollow"]
+
+
 @pytest.mark.parametrize("seed", [2, 3, 4, 5])
 def test_hand_wrist_finds_the_cuff_when_the_walls_touch_in_the_palm(seed):
     hand = shuffled(touching_walls(HAND, touch=(0.10, -0.10)), seed)

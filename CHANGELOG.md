@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same hands (`--also`). Armoured hands too: a section is measured as the solid its outer wall encloses, so a
   gauntlet built with an inner skin, a cuff's lip hanging round its wrist or a knuckle plate open toward the palm is
   cut below its cuff, not across its knuckles, where the Waechter's first gauntlet lost its thumb and needed a 0.70x
-  squeeze to meet the arm.
+  squeeze to meet the arm. A build whose palm came out as a plate round an empty inside is turned away for the next
+  seed.
 
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone

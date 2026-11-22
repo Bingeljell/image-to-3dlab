@@ -48,6 +48,20 @@ def test_the_defaults_are_round_22s_tested_ones():
     assert (hero_hands.TRIES, hero_hands.KEEP, hero_hands.SEEDS) == (8, 2, (42, 7))
 
 
+def test_a_build_with_a_hole_for_a_palm_is_not_kept(tmp_path):
+    # Pixal3D built the Waechter's first gauntlet as a plate round an empty inside: five digits and a thumb, and a
+    # hole where the palm should be, which showed on the figure
+    raw = tmp_path / "right_draw_s3_b42.glb"
+    counted = raw.with_suffix(".count.json")
+    five = {"digits": 5, "thumbs": 1, "ok": True, "per_view": [5, 3, 2]}
+    counted.write_text(json.dumps({**five, "hollow": 0.184}))
+    assert not hero_hands.build_count(raw)["kept"]
+    counted.write_text(json.dumps({**five, "hollow": 0.0}))
+    assert hero_hands.build_count(raw)["kept"]
+    counted.write_text(json.dumps({**five, "ok": False, "digits": 4, "hollow": 0.0}))
+    assert not hero_hands.build_count(raw)["kept"]
+
+
 def test_a_step_that_always_runs_forgets_its_old_notes(tmp_path):
     run = hero_hands.Run(tmp_path)
     run.current = "check"

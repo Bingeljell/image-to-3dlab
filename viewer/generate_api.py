@@ -913,11 +913,13 @@ def blender_install_command() -> list[str]:
     return [sys.executable, str(REPO / "scripts" / "bootstrap_blender.py"), "--yes"]
 
 
-def blender_install_refusal(caps: dict[str, Any], generating: bool,
+def blender_install_refusal(caps: dict[str, Any], waiting: str | None,
                             setting_up: bool) -> tuple[int, str] | None:
-    """Why Setup's Install Blender cannot start now, or None when it can."""
-    if generating:
-        return 409, "a generation is running; wait for it to finish"
+    """Why Setup's Install Blender cannot start now, or None when it can.
+
+    `waiting` is the shared rule's answer, `busy_reason("setup")`: the big job in the way."""
+    if waiting:
+        return 409, waiting
     if setting_up:
         return 409, "another setup is running; wait for it to finish"
     if not caps.get("blender_installable"):
@@ -926,11 +928,13 @@ def blender_install_refusal(caps: dict[str, Any], generating: bool,
     return None
 
 
-def gltfpack_install_refusal(tools: dict[str, Any], generating: bool,
+def gltfpack_install_refusal(tools: dict[str, Any], waiting: str | None,
                              setting_up: bool) -> tuple[int, str] | None:
-    """Why Setup's Install gltfpack cannot start now, or None when it can."""
-    if generating:
-        return 409, "a generation is running; wait for it to finish"
+    """Why Setup's Install gltfpack cannot start now, or None when it can.
+
+    `waiting` is the shared rule's answer, `busy_reason("setup")`: the big job in the way."""
+    if waiting:
+        return 409, waiting
     if setting_up:
         return 409, "another setup is running; wait for it to finish"
     if not tools.get("gltfpack_installable"):
@@ -4599,11 +4603,9 @@ class Handler(SimpleHTTPRequestHandler):
     def _start_blender_install(self) -> None:
         global SETUP_ACTIVE
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
             refusal = blender_install_refusal(
                 finish_capabilities(),
-                generating=active is not None
-                and active.status in {"queued", "running", "cancelling"},
+                waiting=busy_reason("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
                 self._send_json(refusal[0], {"error": refusal[1]})
@@ -4617,11 +4619,9 @@ class Handler(SimpleHTTPRequestHandler):
     def _start_gltfpack_install(self) -> None:
         global SETUP_ACTIVE
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
             refusal = gltfpack_install_refusal(
                 props_tools_payload(),
-                generating=active is not None
-                and active.status in {"queued", "running", "cancelling"},
+                waiting=busy_reason("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
                 self._send_json(refusal[0], {"error": refusal[1]})
@@ -4635,9 +4635,11 @@ class Handler(SimpleHTTPRequestHandler):
     def _start_setup(self) -> None:
         global SETUP_ACTIVE
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
-            if active is not None and active.status in {"queued", "running", "cancelling"}:
-                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
+            # The shared rule, not a list of its own: every big job waits for a setup, so a
+            # setup waits for every big job.
+            waiting = busy_reason("setup")
+            if waiting:
+                self._send_json(409, {"error": waiting})
                 return
             if SETUP_ACTIVE is not None:
                 self._send_json(409, {"error": "setup is already running"})

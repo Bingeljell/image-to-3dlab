@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.
+- **Setup waits for every other big job.** Installing Blender or gltfpack, and the Mac TRELLIS.2 setup, only waited
+  for a generation, so they could start beside a picture, Finish, a prop bake, a rig run, a skin or an add-on tool,
+  though all of those wait for a setup. They follow the same rule now.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

@@ -424,3 +424,75 @@ def test_props_waits_for_another_big_job(studio, monkeypatch, tmp_path):
     assert _post(studio, "/api/props", {"settings": "{}"}, {"asset": ("sheet.glb", GLB)}) == (
         409, {"error": "a picture is being made; wait for it to finish"})
     assert studio.started == [] and _folders(studio) == []
+
+
+# --- Setup starts: POST /api/setup/run, /api/blender/install, /api/gltfpack/install ---------
+
+SETUP_ROUTES = ["/api/setup/run", "/api/blender/install", "/api/gltfpack/install"]
+
+
+@pytest.fixture
+def installers(monkeypatch):
+    """Every setup may start as far as the machine goes, and none really runs: the list
+    collects the id of each run that was started."""
+    started = []
+
+    def start(run_id, command=None):
+        started.append(run_id)
+        return api.SetupRun(run_id)
+
+    monkeypatch.setattr(api, "_start_setup_run", start)
+    monkeypatch.setattr(api, "SETUP_RUNS", {})
+    monkeypatch.setattr(api, "setup_available", lambda: (True, None))
+    monkeypatch.setattr(api, "clean_port_build_present", lambda: False)
+    monkeypatch.setattr(api, "finish_capabilities", lambda: {"blender_installable": True})
+    monkeypatch.setattr(api, "props_tools_payload", lambda: {"gltfpack_installable": True})
+    monkeypatch.setattr(api, "download_active", lambda: None)
+    return started
+
+
+@pytest.mark.parametrize("route", SETUP_ROUTES)
+def test_a_setup_starts_when_nothing_else_is_running(studio, installers, route):
+    status, answer = _post(studio, route)
+
+    assert status == 202
+    [run_id] = installers
+    assert answer == {"setup_run_id": run_id, "events_url": f"/api/setup/run/{run_id}/events"}
+    assert api.SETUP_ACTIVE == run_id       # what makes every other big job wait for it
+
+
+@pytest.mark.parametrize("route", SETUP_ROUTES)
+@pytest.mark.parametrize("something_else_runs, words", [
+    (_a_picture_is_being_made, "a picture is being made"),
+    (_an_add_on_tool_is_running, "an add-on is running"),
+])
+def test_a_setup_waits_for_every_other_big_job_not_only_a_generation(
+        studio, installers, monkeypatch, tmp_path, route, something_else_runs, words):
+    # Each setup start asked only whether a generation was running. An install or a build
+    # started beside a picture, Finish, a prop bake, a rig run, a skin or an add-on tool,
+    # though all of those wait for a setup.
+    something_else_runs(monkeypatch, tmp_path)
+
+    assert _post(studio, route) == (409, {"error": f"{words}; wait for it to finish"})
+    assert installers == [] and api.SETUP_ACTIVE is None
+
+
+@pytest.mark.parametrize("route", SETUP_ROUTES)
+def test_a_setup_waits_for_a_running_generation(studio, installers, engine, route):
+    _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)})
+
+    assert _post(studio, route) == (409, {"error": "a generation is running; wait for it to finish"})
+    assert installers == [] and api.SETUP_ACTIVE is None
+
+
+@pytest.mark.parametrize("route, words", [
+    ("/api/setup/run", "setup is already running"),
+    ("/api/blender/install", "another setup is running; wait for it to finish"),
+    ("/api/gltfpack/install", "another setup is running; wait for it to finish"),
+])
+def test_a_second_setup_is_refused(studio, installers, route, words):
+    first, _ = _post(studio, route)
+
+    assert first == 202
+    assert _post(studio, route) == (409, {"error": words})
+    assert len(installers) == 1

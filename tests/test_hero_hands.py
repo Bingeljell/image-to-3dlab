@@ -459,6 +459,64 @@ def test_digit_count_rejects_six_digits_and_a_mitten():
     assert not hh.digit_count(mitten)["ok"]
 
 
+def flat_hand(thumb="right", thumb_length=105, splay=False, fingers=4):
+    """A flat hand from its back, fingers down, with control over the thumb: its side ('right', 'left', 'both' or
+    None), its length (as long as the fingers is allowed) and a little finger splayed outward at the other end."""
+    import cv2
+
+    mask = np.zeros((440, 520), np.uint8)
+    width, gap, left = 26, 12, 170
+    right = left + fingers * (width + gap) - gap                              # the palm is as wide as the fingers
+    cv2.rectangle(mask, (left - 10, 0), (right + 10, 60), 1, -1)              # sleeve
+    cv2.rectangle(mask, (left, 60), (right, 200), 1, -1)                      # palm, knuckles at y = 200
+
+    def digit(base, tip):                                                     # a digit with a round tip
+        cv2.line(mask, base, tip, 1, width)
+        cv2.circle(mask, tip, width // 2, 1, -1)
+
+    for k in range(fingers):
+        x = left + k * (width + gap) + width // 2
+        if splay and k == 0:                                                  # the little finger leans out
+            digit((x, 196), (x - 40, 290))
+        else:
+            digit((x, 196), (x, 200 + (110 if 0 < k < fingers - 1 else 90)))
+    for side in (("right", "left") if thumb == "both" else (thumb,) if thumb else ()):
+        # a thumb grows from the palm's side well above the knuckles, so its cleft runs deep toward the wrist
+        base, tip = (right + 5, 135), (right + 25 + int(0.35 * thumb_length), 135 + thumb_length)
+        if side == "left":
+            base, tip = (left + right - base[0], base[1]), (left + right - tip[0], tip[1])
+        digit(base, tip)
+    return mask
+
+
+def test_a_thumb_as_long_as_the_fingers_is_found_by_its_deep_cleft():
+    # the length rule took this for a sixth finger's row without a thumb; its cleft says thumb
+    result = hh.digit_count(flat_hand(thumb_length=190))
+    assert (result["digits"], result["thumbs"], result["thumb_at"], result["ok"]) == (5, 1, "right", True)
+
+
+def test_a_splayed_little_finger_is_not_a_second_thumb():
+    # the length rule read the short, outward little finger of good drawings as a second thumb
+    result = hh.digit_count(flat_hand(splay=True))
+    assert (result["digits"], result["thumbs"], result["ok"]) == (5, 1, True)
+
+
+def test_two_deep_clefts_are_two_thumbs():
+    result = hh.digit_count(flat_hand(thumb="both", fingers=3))
+    assert result["thumbs"] == 2 and not result["ok"]
+
+
+def test_a_thumb_on_the_side_the_editor_was_not_told_fails():
+    assert hh.digit_count(flat_hand(), thumb_side="right")["ok"]
+    left = hh.digit_count(flat_hand(thumb="left"), thumb_side="right")
+    assert left["thumb_at"] == "left" and not left["ok"]
+
+
+def test_five_fingers_in_a_row_have_no_thumb():
+    result = hh.digit_count(flat_hand(thumb=None, fingers=5))
+    assert result["thumbs"] == 0 and not result["ok"]
+
+
 def test_views_count_takes_the_views_that_see_the_most_digits():
     assert hh.views_count([(3, 0), (5, 1), (5, 1), (4, 1), (5, 0)]) == {
         "digits": 5, "thumbs": 1, "ok": True, "per_view": [3, 5, 5, 4, 5]}

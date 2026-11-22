@@ -43,6 +43,11 @@ HAND_CROP_PAD = 1.25      # crop side vs the hand's own size
 SCALE_LIMITS = (0.7, 1.4)   # a new wrist this much narrower or wider than the old one needs a human's glance
 TURN_LIMIT_DEG = 45.0       # the figure's own palm (the old hand's thinnest direction) this far from the placed one
                             # says the pose is not the usual A-pose with the palms to the thighs
+THUMB_HINT = 0.03           # the thumb's cleft reaches at least this share of the hand's length nearer the wrist than
+                            # the clefts between the fingers ...
+THUMB_CLEFT = 0.07          # ... and a cleft this deep at the row's other end is a second thumb, not a splayed little
+                            # finger (both measured on 32 drawings: thumbs 0.045-0.12, little fingers up to 0.06,
+                            # the drawn second thumbs 0.08-0.14; AssetFurnace Support D248)
 
 
 # --- Mesh pieces ----------------------------------------------------------------------------------------------
@@ -847,13 +852,20 @@ def hand_prompt(side: str, look: str | None = None) -> str:
 
 
 def digit_count(mask: np.ndarray, top_band: float = 0.25, prominence: float = 0.06,
-                thumb_short: float = 0.12) -> dict:
+                thumb_hint: float = THUMB_HINT, thumb_cleft: float = THUMB_CLEFT,
+                thumb_side: str | None = None) -> dict:
     """The digits of a hand seen flat with the fingers down, counted on its outline.
 
     The outline is walked round; its distance from the wrist (the middle of the outline's top band, where the
     sleeve enters) peaks at every fingertip. Peaks clearly higher than the dips beside them are digits; the top
-    TOP_BAND of the height (the sleeve's corners) holds none. A thumb is a digit at either end of the row whose tip
-    lies clearly (THUMB_SHORT) nearer the wrist than the fingers'. A normal hand: five digits, one thumb.
+    TOP_BAND of the height (the sleeve's corners) holds none. The dips between neighbouring digits are the clefts,
+    their depth measured along the hand. The thumb is told by its cleft, not its length: lay a hand flat on a table
+    and the gap between thumb and index finger runs deeper toward the wrist than the gaps between the fingers. So the
+    thumb is the row's end whose cleft lies deeper than the fingers' clefts (by THUMB_HINT of the hand's length) and
+    deeper than the other end's; a cleft at the other end that is just as deep (THUMB_CLEFT) is a second thumb, a
+    shallower one a splayed little finger. The length rule this replaces took good drawings' little fingers for
+    second thumbs. With THUMB_SIDE ('left' or 'right' in the picture, where the picture editor was told to put it) a
+    thumb on the other side fails the count. A normal hand: five digits, one thumb.
     """
     import cv2
     from scipy.signal import find_peaks
@@ -876,12 +888,43 @@ def digit_count(mask: np.ndarray, top_band: float = 0.25, prominence: float = 0.
     peaks, _ = find_peaks(np.concatenate([signal] * 3), prominence=prominence * scale, distance=max(3, k // 80))
     peaks = sorted({p % k for p in peaks if k <= p < 2 * k})              # the outline is closed
     tips = sorted((float(outline[p, 0]), float(outline[p, 1]), float(reach[p] / scale)) for p in peaks)
-    thumbs = 0
-    if len(tips) >= 3:
-        inner = np.median([t[2] for t in tips[1:-1]])
-        thumbs = sum(1 for t in (tips[0], tips[-1]) if t[2] < inner * (1 - thumb_short))
-    return {"digits": len(tips), "thumbs": thumbs, "ok": len(tips) == 5 and thumbs == 1,
-            "tips": [(round(x), round(y), round(q, 2)) for x, y, q in tips], "wrist": wrist.round().tolist()}
+    result = {"digits": len(tips), "thumbs": 0, "ok": False, "thumb_at": None, "clefts": [],
+              "tips": [(round(x), round(y), round(q, 2)) for x, y, q in tips], "wrist": wrist.round().tolist()}
+    if len(peaks) < 3:
+        return result
+    # each stretch of the outline between neighbouring tips dips to a cleft; the one stretch that runs through the
+    # sleeve band (where the signal is 0) is the hand's outer edge, so the row of digits starts and ends beside it
+    # a cleft's depth is measured along the hand (wrist to the fingertips' middle), not as a distance from the wrist:
+    # the thumb's cleft sits at the side of the palm, where the sideways offset hides how far up it reaches
+    axis = np.mean(outline[peaks], axis=0) - wrist
+    axis /= np.linalg.norm(axis)
+    along = (outline - wrist) @ axis
+    along_signal = np.where(signal > 0, along / along[peaks].max(), 0.0)
+    lows = []
+    for a, b in zip(peaks, peaks[1:] + peaks[:1]):
+        stretch = along_signal[a:b + 1] if b > a else np.concatenate([along_signal[a:], along_signal[:b + 1]])
+        lows.append(float(max(stretch.min(), 0.0)))
+    outer = [i for i, low in enumerate(lows) if low == 0.0]
+    if len(outer) != 1:
+        return result
+    j, n = outer[0], len(peaks)
+    row = [peaks[(j + 1 + i) % n] for i in range(n)]                      # the digits in order along the hand
+    clefts = [lows[(j + 1 + i) % n] for i in range(n - 1)]                # clefts[i] lies between row[i] and row[i+1]
+    # measured against the deepest cleft between the fingers: two fingers that touch leave a shallow one, which a
+    # median of so few would follow (a gauntlet's build read a second thumb that way)
+    middle = clefts[1:-1] or clefts
+    usual = float(min(middle))
+    deep = [(usual - clefts[0], row[0], row[-1]), (usual - clefts[-1], row[-1], row[0])]
+    deep.sort(key=lambda d: d[0], reverse=True)
+    (deepest, thumb, other), (second, _, _) = deep
+    if deepest >= thumb_hint:
+        result["thumbs"] = 2 if second >= thumb_cleft else 1
+    result["clefts"] = [round(c, 2) for c in clefts]
+    if result["thumbs"] == 1:
+        result["thumb_at"] = "right" if outline[thumb, 0] > outline[other, 0] else "left"
+    result["ok"] = (len(tips) == 5 and result["thumbs"] == 1
+                    and (thumb_side is None or result["thumb_at"] == thumb_side))
+    return result
 
 
 def views_count(counts: list[tuple[int, int]]) -> dict:

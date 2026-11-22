@@ -134,9 +134,11 @@ def draw_hands(run: Run, side: str, up: Path, folder: Path, args, engine) -> lis
             record = image_api.provenance(prompt, settings, time.time() - started, drawing, engine)
             record["reference"] = {"picture": str(up), "mode": "edit (hand seen flat from its back)"}
             write_provenance(drawing.with_suffix(".provenance.json"), record)
-        if not counted.exists():
-            counted.write_text(json.dumps(hh.digit_count(mask_of(drawing))), encoding="utf-8")
-        count = json.loads(counted.read_text(encoding="utf-8"))
+        count = json.loads(counted.read_text(encoding="utf-8")) if counted.exists() else {}
+        if count.get("rule") != "cleft":       # a count from before the thumb was told by its cleft is redone
+            # the prompt puts a right hand's thumb on the picture's right, a left hand's on its left
+            count = {**hh.digit_count(mask_of(drawing), thumb_side=side), "rule": "cleft"}
+            counted.write_text(json.dumps(count), encoding="utf-8")
         run.say(f"draw: {drawing.name} {count['digits']} digits, {count['thumbs']} thumb(s)"
                 + (" - kept" if count["ok"] else ""))
         if count["ok"]:

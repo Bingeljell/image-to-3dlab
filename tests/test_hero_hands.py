@@ -306,6 +306,24 @@ def test_graft_model_leaves_one_closed_surface_with_no_gap_and_no_overlap():
         (hands["positions"][:, 1] < 0.0).sum())
 
 
+def test_a_mirrored_hand_on_the_left_arm_also_closes_and_faces_out():
+    arm = figure_arm(x=0.2)                                   # the figure's left arm, at +x
+    bone = arm["dense"].argmax(1)
+    plan = hh.figure_wrist(arm["positions"], arm["faces"], bone, 1, [2], np.array([0.2, 0.30, 0]),
+                           np.array([0.2, 0.12, 0]), "left")
+    assert plan["back"][0] > 0.95                             # a left hand's back faces out, +x
+    hand = built_hand(double=True)
+    hand["positions"], hand["faces"], _ = hh.mirror_x(hand["positions"], hand["faces"])
+    own = hh.hand_wrist(hand["positions"], hand["faces"])
+    tf = hh.placement(own["centre"], own["fingers"], own["back"], own["length"],
+                      plan["centre"], plan["fingers"], plan["back"], plan["length"])
+    assert np.linalg.det(tf[:3, :3]) > 0                      # a turn, never a mirror, onto the figure
+    body, hands, report = hh.graft_model(arm, bone, {"left": plan}, {"left": {"part": hand, "tf": tf}})
+    v = np.concatenate([body["positions"], hands["positions"]])
+    f = np.concatenate([body["faces"], hands["faces"] + len(body["positions"])])
+    assert closed_edges(v, f) == (0, 0) and not report["left"]["rims_turn_alike"]
+
+
 def test_graft_model_cuts_only_the_arm_it_was_told():
     arm = figure_arm()
     coat = figure_arm(x=0.2)                                  # another limb beside it, same heights, bone 0

@@ -1593,7 +1593,8 @@ def _running(manager) -> bool:
 # OTHER kind runs (its own manager refuses a second of its kind), so the studio, the MCP
 # and a second tab all meet the same rule; the page's busy flag is only a convenience.
 HEAVY_JOBS: dict[str, Callable[[], bool]] = {
-    "setup": lambda: SETUP_ACTIVE is not None,
+    # a setup run, or an engine being downloaded or built from Setup & Status
+    "setup": lambda: SETUP_ACTIVE is not None or download_active() is not None,
     "generate": lambda: _running(JOBS),
     "image": lambda: _running(image_api.MANAGER),
     "finish": lambda: _running(FINISH_JOBS),
@@ -4578,16 +4579,28 @@ class Handler(SimpleHTTPRequestHandler):
         spends the user's disk and bandwidth, and AGENTS.md requires it to name what it
         is fetching before it runs. The page does the naming; this refuses to start a
         second download while one is in flight.
+
+        A download or a build is a setup like any other, so the shared rule decides: it
+        waits for every big job, and they wait for it. Removing waits too, because the
+        job that is running may be using those weights. Cancel is never refused.
         """
         try:
             if action == "cancel":
                 cancel_download(backend_id)
                 self._send_json(202, {"backend": backend_id, "status": "cancelling"})
                 return
+            with SETUP_LOCK:
+                waiting = busy_reason("setup")
+                if waiting is None and action != "remove" and SETUP_ACTIVE is not None:
+                    waiting = "another setup is running; wait for it to finish"
+                if waiting:
+                    self._send_json(409, {"error": waiting})
+                    return
+                if action != "remove":
+                    start_download(backend_id, rebuild=action == "rebuild")
             if action == "remove":
                 self._send_json(200, remove_weights(backend_id))
                 return
-            start_download(backend_id, rebuild=action == "rebuild")
         except KeyError as exc:
             self._send_json(404, {"error": str(exc)})
             return
@@ -4641,7 +4654,7 @@ class Handler(SimpleHTTPRequestHandler):
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
-            if SETUP_ACTIVE is not None:
+            if SETUP_ACTIVE is not None or download_active() is not None:
                 self._send_json(409, {"error": "setup is already running"})
                 return
             if clean_port_build_present():

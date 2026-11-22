@@ -496,3 +496,88 @@ def test_a_second_setup_is_refused(studio, installers, route, words):
     assert first == 202
     assert _post(studio, route) == (409, {"error": words})
     assert len(installers) == 1
+
+
+# --- Engines from Setup & Status: POST /api/setup/<engine>/download|rebuild|remove|cancel ----
+
+ENGINE_ACTIONS = ["download", "rebuild", "remove"]
+
+
+@pytest.fixture
+def engines(monkeypatch):
+    """Setup & Status's actions, recorded instead of run: nothing is downloaded, built or
+    deleted here. The list collects (action, engine) for each one the route let through."""
+    asked = []
+    monkeypatch.setattr(api, "start_download", lambda backend_id, rebuild=False: asked.append(
+        ("rebuild" if rebuild else "download", backend_id)))
+    monkeypatch.setattr(api, "remove_weights", lambda backend_id: asked.append(("remove", backend_id)) or {"freed": 0})
+    monkeypatch.setattr(api, "cancel_download", lambda backend_id: asked.append(("cancel", backend_id)))
+    monkeypatch.setattr(api, "download_active", lambda: None)
+    return asked
+
+
+@pytest.mark.parametrize("action", ENGINE_ACTIONS)
+def test_an_engine_is_set_up_rebuilt_or_removed_when_nothing_else_is_running(studio, engines, action):
+    status, _ = _post(studio, f"/api/setup/pixal3d/{action}")
+
+    assert status == (200 if action == "remove" else 202)
+    assert engines == [(action, "pixal3d")]
+
+
+@pytest.mark.parametrize("action", ENGINE_ACTIONS)
+@pytest.mark.parametrize("something_else_runs, words", [
+    (_a_picture_is_being_made, "a picture is being made"),
+    (_an_add_on_tool_is_running, "an add-on is running"),
+])
+def test_an_engine_is_not_set_up_rebuilt_or_removed_while_something_is_being_made(
+        studio, engines, monkeypatch, tmp_path, action, something_else_runs, words):
+    # Only a second download was refused. An engine could be rebuilt, or its weights deleted,
+    # under the job that was using it.
+    something_else_runs(monkeypatch, tmp_path)
+
+    assert _post(studio, f"/api/setup/pixal3d/{action}") == (409, {"error": f"{words}; wait for it to finish"})
+    assert engines == []
+
+
+@pytest.mark.parametrize("action", ENGINE_ACTIONS)
+def test_an_engine_is_not_set_up_rebuilt_or_removed_during_a_generation(studio, engines, engine, action):
+    _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)})
+
+    assert _post(studio, f"/api/setup/pixal3d/{action}") == (
+        409, {"error": "a generation is running; wait for it to finish"})
+    assert engines == []
+
+
+def test_nothing_else_starts_while_an_engine_is_being_set_up(studio, engines, engine, blender, monkeypatch):
+    # A download or a build was not a setup as far as the shared rule knew, so a generation
+    # could start on an engine that was being rebuilt under it.
+    monkeypatch.setattr(api, "download_active", lambda: object())
+    wait = (409, {"error": "setup is running; wait for it to finish"})
+
+    assert _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)}) == wait
+    assert _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)}) == wait
+    assert _post(studio, "/api/props", {"settings": "{}"}, {"asset": ("sheet.glb", GLB)}) == wait
+    assert studio.started == []
+
+
+@pytest.mark.parametrize("action", ["download", "rebuild"])
+def test_an_engine_setup_waits_for_another_setup(studio, engines, monkeypatch, action):
+    monkeypatch.setattr(api, "SETUP_ACTIVE", "a" * 32)       # Blender is being installed, say
+
+    assert _post(studio, f"/api/setup/pixal3d/{action}") == (
+        409, {"error": "another setup is running; wait for it to finish"})
+    assert engines == []
+
+
+def test_the_mac_setup_waits_for_an_engine_being_set_up(studio, installers, monkeypatch):
+    monkeypatch.setattr(api, "download_active", lambda: object())
+
+    assert _post(studio, "/api/setup/run") == (409, {"error": "setup is already running"})
+    assert installers == []
+
+
+def test_a_download_can_be_cancelled_whatever_else_is_running(studio, engines, monkeypatch, tmp_path):
+    _a_picture_is_being_made(monkeypatch, tmp_path)
+
+    assert _post(studio, "/api/setup/pixal3d/cancel") == (202, {"backend": "pixal3d", "status": "cancelling"})
+    assert engines == [("cancel", "pixal3d")]

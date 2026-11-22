@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Setup waits for every other big job.** Installing Blender or gltfpack, and the Mac TRELLIS.2 setup, only waited
   for a generation, so they could start beside a picture, Finish, a prop bake, a rig run, a skin or an add-on tool,
   though all of those wait for a setup. They follow the same rule now.
+- **An engine is not set up, rebuilt or removed under a running job, and nothing starts while one is being set up.**
+  Setup & Status only refused a second download: an engine could be rebuilt, or its weights deleted, while a
+  generation was using it, and a generation could start on an engine that was still downloading or building.
+  Download, Rebuild and Remove now wait for every big job, and every big job waits for a download or a build
+  ("setup is running; wait for it to finish"). **This means nothing else can be made during a download**, however
+  long it takes; Cancel still works at any time.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

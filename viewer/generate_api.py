@@ -3294,31 +3294,43 @@ class Handler(SimpleHTTPRequestHandler):
         state["build_job"] = build.describe() if build else None
         return state
 
-    def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
-        """Start one picture try, or answer why not (and return None)."""
-        # Checked before the try is recorded: a refused start must not leave a try with no picture.
+    def _skin_try_refusal(self, skin: skins_api.Skin | None = None) -> tuple[int, dict[str, Any]] | None:
+        """Why a picture try cannot start now, as (status, answer); None when it can.
+        `skin`: the one asking, sent back with a wait. None for a new skin, which is not kept yet."""
         waiting = self._claim("image") or ("a picture is being made; wait for it to finish"
                                            if _running(image_api.MANAGER) else None)
         if waiting or skins_api.BUILDS.running():
-            self._send_json(409, {"error": waiting or "a skin is being made; wait for it to finish",
-                                  "skin": self._skin_state(skin)})
-            return None
+            answer = {"error": waiting or "a skin is being made; wait for it to finish"}
+            if skin is not None:
+                answer["skin"] = self._skin_state(skin)
+            return 409, answer
         if not image_api.BINARY.exists():
-            self._send_json(503, {"error": "The picture engine is not installed.", "needs_setup": True})
-            return None
+            return 503, {"error": "The picture engine is not installed.", "needs_setup": True}
         try:
             image_api.resolve_weights()
             if image_api.resolve_vision() is None:
                 raise image_api.MissingWeights([image_api.VISION_FILE[1]])
         except image_api.MissingWeights as exc:
-            self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
-            return None
+            return 503, {"error": str(exc), "needs_setup": True, "missing": exc.missing}
+        return None
+
+    def _draw_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any]:
+        """Record one picture try and start drawing it. Ask `_skin_try_refusal` first."""
         reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
         job = image_api.start_edit(reference, target, prompt, seed)
         skin.tries[side][-1].update(job_id=job.id, started=time.time())
         skins_api.STORE.save(skin)
         return {"job_id": job.id, "status_url": f"/api/image/{job.id}/status",
                 "events_url": f"/api/image/{job.id}/events"}
+
+    def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
+        """Start one picture try, or answer why not (and return None)."""
+        # Checked before the try is recorded: a refused start must not leave a try with no picture.
+        refusal = self._skin_try_refusal(skin)
+        if refusal:
+            self._send_json(*refusal)
+            return None
+        return self._draw_skin_try(skin, side, instruction)
 
     def _skins_get(self, rest: list[str]) -> None:
         """GET /api/skins?finished=<path> (a model's finished skins), /api/skins/<id>,
@@ -3375,10 +3387,20 @@ class Handler(SimpleHTTPRequestHandler):
                 asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == str(body.get("asset", ""))), None)
                 if asset is None:
                     raise skins_api.SkinError("no such model in the Library")
-                skin = skins_api.STORE.create(asset, str(body.get("instruction", "")), body.get("name"))
-                started = self._start_skin_try(skin, "front", None)
-                if started is not None:
-                    self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
+                skin = skins_api.STORE.draft(asset, str(body.get("instruction", "")), body.get("name"))
+                # Asked before the skin is kept: each refused start used to leave a skin with
+                # nothing drawn, and an agent may not delete one.
+                refusal = self._skin_try_refusal()
+                if refusal:
+                    self._send_json(*refusal)
+                    return
+                skins_api.STORE.save(skin)
+                try:
+                    started = self._draw_skin_try(skin, "front", None)
+                except Exception:       # the picture manager took another start first
+                    skins_api.STORE.discard(skin)
+                    raise
+                self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
                 return
             if len(rest) == 3 and rest[0] == "build" and rest[2] == "cancel":
                 ok = skins_api.BUILDS.cancel(rest[1])

@@ -1187,6 +1187,46 @@ def test_a_new_skin_starts_drawing_its_front_from_the_models_own_picture(studio,
     assert _soon(lambda: studio.started == [("picture", job)])
 
 
+def _no_picture_engine(monkeypatch, tmp_path):
+    monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
+
+
+@pytest.mark.parametrize("in_the_way, answer", [
+    (_an_add_on_tool_is_running, (409, {"error": "an add-on is running; wait for it to finish"})),
+    (_a_picture_is_being_made, (409, {"error": "a picture is being made; wait for it to finish"})),
+    (_no_picture_engine, (503, {"error": "The picture engine is not installed.", "needs_setup": True})),
+])
+def test_a_new_skin_that_cannot_start_drawing_is_not_kept(studio, workshop, monkeypatch, tmp_path, in_the_way, answer):
+    # The skin was saved before anyone asked whether its first picture could be drawn. Each
+    # refusal left one with nothing drawn in the Library; asked twice, two. An agent may not
+    # delete a skin, so only the person could clear them out.
+    kept = sorted(skin.id for skin in workshop.skins.all())
+    in_the_way(monkeypatch, tmp_path)
+
+    assert _new_skin(studio, workshop) == answer
+    assert sorted(skin.id for skin in workshop.skins.all()) == kept
+
+
+def test_a_new_skin_whose_first_picture_fails_to_start_is_not_kept(studio, workshop, monkeypatch):
+    # Two new skins asked for at the same moment are both let through (they are the same kind
+    # of job), and the picture manager then takes only one.
+    def taken(*_args, **_more):
+        raise RuntimeError("an image is already being generated")
+    monkeypatch.setattr(api.image_api, "start_edit", taken)
+    kept = sorted(skin.id for skin in workshop.skins.all())
+
+    assert _new_skin(studio, workshop) == (409, {"error": "an image is already being generated"})
+    assert sorted(skin.id for skin in workshop.skins.all()) == kept
+
+
+def test_a_new_skin_nobody_could_make_is_still_told_why_before_being_told_to_wait(
+        studio, workshop, monkeypatch, tmp_path):
+    _an_add_on_tool_is_running(monkeypatch, tmp_path)
+
+    assert _send(studio, "/api/skins", {"asset": workshop.paladin["id"], "instruction": "   "}) == (
+        422, {"error": 'Say what to change, for example "make the skirt gold".'})
+
+
 def _tries(shop):
     return shop.skins.get(shop.draft.id).tries["front"]
 

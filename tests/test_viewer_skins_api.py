@@ -200,6 +200,20 @@ def test_an_empty_or_huge_change_is_refused(output):
         store.create(_asset(), "x" * (sk.MAX_INSTRUCTION + 1))
 
 
+def test_a_draft_is_checked_like_any_skin_and_kept_only_once_it_is_saved(output):
+    """The studio asks whether the first picture can be drawn before it keeps a new skin."""
+    store = sk.SkinStore(output)
+    with pytest.raises(sk.SkinError, match="Say what to change"):
+        store.draft(_asset(), "   ")
+    with pytest.raises(sk.SkinError, match="finished model"):
+        store.draft(_asset(finished=None), "gold skirt")
+    skin = store.draft(_asset(), "gold skirt", "Parade")
+    assert (skin.name, skin.instruction) == ("Parade", "gold skirt")
+    assert store.all() == [] and not store.folder(skin.id).exists()
+    store.save(skin)
+    assert [kept.id for kept in store.all()] == [skin.id]
+
+
 def test_ids_from_urls_are_checked(output):
     with pytest.raises(sk.SkinError):
         sk.SkinStore(output).get("../../etc")

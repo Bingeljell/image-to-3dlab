@@ -246,14 +246,19 @@ class SkinStore:
                 continue
         return sorted(found, key=lambda s: s.created)
 
-    def create(self, asset: dict[str, Any], instruction: str, name: str | None = None) -> Skin:
+    def draft(self, asset: dict[str, Any], instruction: str, name: str | None = None) -> Skin:
+        """A new skin, checked but not kept: `save` keeps it. The studio asks in between whether
+        its first picture can be drawn, so a start that is refused leaves nothing behind."""
         instruction = (instruction or "").strip()
         if not instruction:
             raise SkinError("Say what to change, for example \"make the skirt gold\".")
         if len(instruction) > MAX_INSTRUCTION:
             raise SkinError(f"Keep the change under {MAX_INSTRUCTION} characters.")
         base = base_from_asset(self.output, asset)
-        skin = Skin(name=skin_name(instruction, name), instruction=instruction, base=base)
+        return Skin(name=skin_name(instruction, name), instruction=instruction, base=base)
+
+    def create(self, asset: dict[str, Any], instruction: str, name: str | None = None) -> Skin:
+        skin = self.draft(asset, instruction, name)
         self.save(skin)
         return skin
 

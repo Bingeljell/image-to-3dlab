@@ -1373,6 +1373,7 @@ def test_finish_offers_a_game_budget_and_a_surface_maps_switch():
     assert out["sizeHint"] is True
 
 
+@needs_node
 def test_the_texture_size_hint_is_plain_words():
     out = _run("steps.js", """
       const ctx = { presets: [], engines: [] };
@@ -1815,6 +1816,7 @@ def test_every_back_version_thumbnail_can_be_shown_big():
     assert out == [True, True]
 
 
+@needs_node
 def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing_it():
     """Two full-size canvases for a huge picture froze the tab (security review 2026-10-31)."""
     out = _run("brush.js", """console.log(JSON.stringify([
@@ -1825,6 +1827,7 @@ def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing
     assert limit == image_api.MAX_PICTURE_SIDE
 
 
+@needs_node
 def test_the_setup_question_lists_what_comes_down_beyond_the_weights():
     url = (REPO / "viewer" / "components" / "also-fetches.js").as_uri()
     program = f"import * as m from {json.dumps(url)};\n" + """console.log(JSON.stringify([

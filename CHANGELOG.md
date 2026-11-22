@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A new skin that cannot start leaves nothing behind.** Asking for a skin while something else was running, or
   before the picture engine was set up, answered "wait" or "not installed" but still kept an empty skin on the
   model; asking twice kept two. The skin is now kept only once its first picture has started.
+- **A picture or back-view request that is not a JSON object gets an answer.** Sent a list or a number, the studio
+  closed the connection without a word, so a script or an agent could not tell what was wrong. It now answers
+  "expected a JSON object".
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

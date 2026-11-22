@@ -982,6 +982,18 @@ def test_a_picture_refuses_a_request_that_is_not_json(studio, workshop):
     assert workshop.pictures.jobs == {}
 
 
+NOT_OBJECTS = [[1, 2], "a rune knight", 7, None]       # each is valid JSON, and none has fields
+
+
+@pytest.mark.parametrize("request_body", NOT_OBJECTS, ids=repr)
+def test_a_picture_request_that_is_not_a_json_object_is_answered_not_dropped(studio, workshop, request_body):
+    # Reading a field from a list raised, and the connection closed with no answer at all: an
+    # agent or a script saw "remote end closed connection" and nothing about why.
+    assert _send(studio, "/api/image", request_body) == (
+        400, {"error": "could not read the request: expected a JSON object"})
+    assert workshop.pictures.jobs == {}
+
+
 def test_a_picture_says_when_the_picture_engine_is_not_installed(studio, workshop, monkeypatch, tmp_path):
     monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
 
@@ -1055,6 +1067,12 @@ def test_a_back_refuses_a_request_it_cannot_draw(studio, workshop, request_body,
     status, answer = _send(studio, "/api/image/back", request_body)
 
     assert status == 422 and answer["error"].startswith(error)
+    assert workshop.pictures.jobs == {}
+
+
+@pytest.mark.parametrize("request_body", NOT_OBJECTS, ids=repr)
+def test_a_back_request_that_is_not_a_json_object_is_answered_not_dropped(studio, workshop, request_body):
+    assert _send(studio, "/api/image/back", request_body) == (422, {"error": "expected a JSON object"})
     assert workshop.pictures.jobs == {}
 
 

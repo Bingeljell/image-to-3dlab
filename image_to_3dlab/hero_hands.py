@@ -84,21 +84,24 @@ def plane_basis(normal: np.ndarray) -> np.ndarray:
     return np.stack([u, np.cross(n, u)])
 
 
-def chain_loops(edges: np.ndarray) -> list[np.ndarray]:
+def chain_loops(edges: np.ndarray, rank: np.ndarray | None = None) -> list[np.ndarray]:
     """Closed loops from directed edges (a -> b), as arrays of the ids in walking order.
 
     Every id should have one edge out and one in. Where a cut grazes a vertex shared by two loops, an id has two
-    out; the walk then takes the first unused one, so each edge lands in exactly one loop. Open chains (a mesh
-    that was not closed there) come back too, so nothing is lost silently.
+    out; the walk then takes the unused one of lowest RANK (by default the first), so each edge lands in exactly one
+    loop, and walks start from the lowest ranks. Open chains (a mesh that was not closed there) come back too, so
+    nothing is lost silently.
     """
     edges = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
+    rank = np.arange(len(edges)) if rank is None else np.asarray(rank)
     outgoing: dict[int, list[int]] = {}
-    for index, (a, _) in enumerate(edges):
-        outgoing.setdefault(int(a), []).append(index)
+    for index in np.argsort(rank, kind="stable"):
+        outgoing.setdefault(int(edges[index, 0]), []).append(int(index))
     used = np.zeros(len(edges), dtype=bool)
     incoming = {int(b) for _, b in edges}
     # Open chains first, from their free ends, so a closed walk never starts in their middle.
-    starts = [i for i, (a, _) in enumerate(edges) if int(a) not in incoming] + list(range(len(edges)))
+    by_rank = [int(i) for i in np.argsort(rank, kind="stable")]
+    starts = [i for i in by_rank if int(edges[i, 0]) not in incoming] + by_rank
     loops = []
     for first in starts:
         if used[first]:
@@ -544,18 +547,40 @@ def mirror_x(vertices: np.ndarray, faces: np.ndarray, normals: np.ndarray | None
 
 # --- The seam -------------------------------------------------------------------------------------------------
 
+RIM_PIXELS = 600   # a cut's outline is filled on a grid this many pixels across: an inner wall ~0.5 % in is 3 apart
+RIM_LIMIT = 0.8    # a stitch closing less of the hand's cross-section leaves the wrist open (`rim_share`): a tube
+                   # closes 0.97-1.0, the Waechter's gauntlet with open plates at its wrist 0.13
+
+
+def rim_fill(vertices: np.ndarray, rim: np.ndarray, normal: np.ndarray):
+    """(each rim edge's distance from outside, in grid cells; the area its outline encloses): RIM's edges drawn in
+    the plane and filled from outside (`filled`)."""
+    import cv2
+
+    seg = (np.asarray(vertices, dtype=np.float64)[np.asarray(rim)] @ plane_basis(normal).T).reshape(-1, 2, 2)
+    pixel = max(float(np.ptp(seg.reshape(-1, 2), axis=0).max()), 1e-12) / RIM_PIXELS
+    inside, corner = filled(seg, pixel)
+    depth = cv2.distanceTransform(inside.astype(np.uint8), cv2.DIST_L2, 3)
+    middle = np.round((seg.mean(axis=1) - corner) / pixel).astype(int)
+    end = np.round((seg[:, 1] - corner) / pixel).astype(int)
+    return depth[middle[:, 1], middle[:, 0]] + depth[end[:, 1], end[:, 0]], float(inside.sum()) * pixel ** 2
+
+
 def rim_loop(vertices: np.ndarray, rim: np.ndarray, normal: np.ndarray, centre: np.ndarray):
     """(vertex ids in walking order, welded positions) of the cut's outline round the limb.
 
     RIM is `clip`'s edge list; a UV seam that crosses the cut leaves two vertices at one place, so the outline is
-    walked on welded positions and each place keeps one of its vertices."""
+    walked on welded positions and each place keeps one of its vertices. The walk keeps to the outer wall: it
+    starts on the edges nearest the outside and, where a build's inner wall is fused to the outer one, goes on
+    along the outermost edge (`rim_fill`); the Waechter's gauntlet walked into its inner wall, broke into seven
+    loops and was stitched to one a tenth the wrist's size."""
     ids = np.unique(rim)
     group = weld_groups(np.asarray(vertices)[ids])
     first = np.zeros(group.max() + 1, dtype=np.int64)
     first[group[::-1]] = ids[::-1]                       # one vertex per place (the lowest id)
     lookup = np.full(int(ids.max()) + 1, -1, dtype=np.int64)
     lookup[ids] = group
-    loops = chain_loops(lookup[rim])
+    loops = chain_loops(lookup[rim], rim_fill(vertices, rim, normal)[0])
     points = [np.asarray(vertices)[first[loop]] for loop in loops]
     best = limb_loop(points, normal, centre)
     if best is None:
@@ -785,17 +810,31 @@ def hand_onto(hand: dict, tf: np.ndarray, plan: dict, gap: float):
     """(the built HAND cut at the figure's seam moved GAP toward the fingers, put in place by TF; its rim).
 
     The cut is the figure's plane carried back into the hand's own space, so after the move the two rims lie in
-    parallel planes and the stitch between them is an even band. Only the outer skin is kept (`outer_wall`)."""
+    parallel planes and the stitch between them is an even band. Only the outer skin is kept (`outer_wall`). The
+    part keeps "section": the hand's cross-section there as the solid it outlines (`section_fill`), placed, for
+    `rim_share`."""
     inverse = np.linalg.inv(tf)
     origin = moved(inverse, plan["cut"] + gap * plan["axis"])
     normal = unit(inverse[:3, :3] @ -plan["axis"])
+    section = section_fill(*weld(hand["positions"], hand["faces"])[:2], origin, normal)["area"]
     part, rim = cut_part(hand, origin, normal)
     part, rim = keep_faces(part, outer_wall(part["positions"], part["faces"], rim, normal), rim)
-    turn = tf[:3, :3] / np.cbrt(np.linalg.det(tf[:3, :3]))
-    out = {**part, "positions": moved(tf, part["positions"])}
+    scale = np.cbrt(np.linalg.det(tf[:3, :3]))
+    out = {**part, "positions": moved(tf, part["positions"]), "section": float(section) * scale ** 2}
     if part.get("normals") is not None:
-        out["normals"] = part["normals"] @ turn.T
+        out["normals"] = part["normals"] @ (tf[:3, :3] / scale).T
     return out, rim
+
+
+def rim_share(hand: dict, tf: np.ndarray, plan: dict, gap: float) -> float:
+    """How much of the placed HAND's cross-section at the figure's cut a stitch would close: the area its outer rim
+    loop goes round (`rim_loop`) over the section's (`hand_onto`). About 1 for a wrist that is a tube; the
+    Waechter's gauntlet build of drawing 3, seed 7 was overlapping open plates there and closed a seventh."""
+    placed, rim = hand_onto(hand, tf, plan, gap)
+    if not len(rim):
+        return 0.0
+    _, loop = rim_loop(placed["positions"], rim, plan["axis"], plan["centre"])
+    return loop_area(loop, plan["axis"]) / max(placed["section"], 1e-18) if len(loop) else 0.0
 
 
 def stitch(body: dict, body_rim: np.ndarray, hand: dict, hand_rim: np.ndarray, plan: dict,
@@ -812,6 +851,9 @@ def stitch(body: dict, body_rim: np.ndarray, hand: dict, hand_rim: np.ndarray, p
     hand_ids, hand_loop = rim_loop(hand["positions"], hand_rim, axis, plan["centre"])
     if not len(body_ids) or not len(hand_ids):
         raise ValueError(f"the {plan['side']} wrist's cut left no rim to stitch")
+    # how much of the hand's cross-section the stitched loop closes (`rim_share`): under RIM_LIMIT, the wrist is open
+    section = hand.get("section") or rim_fill(hand["positions"], hand_rim, axis)[1]
+    rim_closed = loop_area(hand_loop, axis) / max(section, 1e-18)
     ratio = float(np.sqrt(loop_area(body_loop, axis) / max(loop_area(hand_loop, axis), 1e-18)))
     hand = {**hand, "positions": blend_wrist(hand["positions"], hand_loop.mean(axis=0), axis,
                                              hand_loop.mean(axis=0), body_loop.mean(axis=0), ratio,
@@ -844,7 +886,8 @@ def stitch(body: dict, body_rim: np.ndarray, hand: dict, hand_rim: np.ndarray, p
     out["faces"] = np.concatenate([hand["faces"], faces])
     band = np.linalg.norm(body_loop.mean(axis=0) - hand_loop.mean(axis=0))
     report = {"wrist_ratio": round(ratio, 3), "rim_points": [len(body_ids), len(hand_ids)],
-              "stitch_faces": int(len(faces)), "band_length": float(band), "rims_turn_alike": bool(alike)}
+              "stitch_faces": int(len(faces)), "band_length": float(band), "rims_turn_alike": bool(alike),
+              "rim_share": round(float(rim_closed), 3)}
     return out, report
 
 

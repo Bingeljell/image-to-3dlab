@@ -79,6 +79,33 @@ def test_each_model_takes_the_hand_at_the_size_its_density_asks(monkeypatch, tmp
     assert hero_hands.hand_size(None, hand, None, rigged=False) == raw
 
 
+def test_a_build_whose_wrist_will_not_close_is_not_kept(tmp_path):
+    # the Waechter's gauntlet build (drawing 3, seed 7) counted five digits and a thumb with a solid palm, but at the
+    # figure's cut its wrist was open plates: the stitch closed a seventh of it; the next build is tried instead
+    import argparse
+
+    folder = tmp_path / "hands"
+    folder.mkdir()
+    five = {"digits": 5, "thumbs": 1, "ok": True, "per_view": [5, 3, 2], "hollow": 0.0}
+    four = {**five, "digits": 4, "ok": False}
+    for name, count in (("right_draw_s3_b7", five), ("right_draw_s3_b42", four), ("right_draw_s6_b7", four),
+                        ("right_draw_s6_b42", five)):
+        (folder / f"{name}.glb").write_bytes(b"built")                    # built already: nothing is run
+        (folder / f"{name}.count.json").write_text(json.dumps(count))
+    run = hero_hands.Run(tmp_path)
+    args = argparse.Namespace(seeds=[7, 42])
+    drawings = [folder / "right_draw_s3.png", folder / "right_draw_s6.png"]
+    asked = []
+
+    def fits(raw):
+        asked.append(raw.name)
+        return 0.13 if "s3" in raw.name else 0.99
+
+    assert hero_hands.build_hand(run, "right", drawings, folder, args, fits) == folder / "right_draw_s6_b42.glb"
+    assert asked == ["right_draw_s3_b7.glb", "right_draw_s6_b42.glb"]
+    assert "closes only 13%" in (tmp_path / "run.log").read_text(encoding="utf-8")
+
+
 def test_both_hands_of_one_build_share_one_clean_up(tmp_path):
     # a left hand mirrored from the right asked for 33k faces where the right asked for 32k: two clean-ups of one build
     one, other = tmp_path / "right_draw_s6_b42.glb", tmp_path / "left_draw_s2_b7.glb"

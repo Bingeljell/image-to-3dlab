@@ -22,8 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same hands (`--also`). Armoured hands too: a section is measured as the solid its outer wall encloses, so a
   gauntlet built with an inner skin, a cuff's lip hanging round its wrist or a knuckle plate open toward the palm is
   cut below its cuff, not across its knuckles, where the Waechter's first gauntlet lost its thumb and needed a 0.70x
-  squeeze to meet the arm. A build whose palm came out as a plate round an empty inside is turned away for the next
-  seed. Each model's hands are as fine as the model round its wrists (`--hand-detail`; Pixal3D's own clean-up at that
+  squeeze to meet the arm. A build whose palm came out as a plate round an empty inside, or whose wrist is open plates
+  where the figure's cut falls, is turned away for the next seed; where a build's inner wall is fused to its outer
+  one, the stitch keeps to the outer wall. Each model's hands are as fine as the model round its wrists (`--hand-detail`; Pixal3D's own clean-up at that
   size), so a game-ready step thins them with the rest of the figure: with a raw hand in its shape model, the
   Waechter's game figure stopped at 37,887 triangles instead of 14,000 and came out 10 cm short.
 

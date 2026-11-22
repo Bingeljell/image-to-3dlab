@@ -465,6 +465,49 @@ def test_graft_model_leaves_one_closed_surface_with_no_gap_and_no_overlap():
         (hands["positions"][:, 1] < 0.0).sum())
 
 
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_a_hand_whose_walls_touch_at_the_cut_is_stitched_to_its_outer_wall(seed):
+    # the Waechter's gauntlet build (drawing 3, seed 7) has its two walls fused all down the hand: the cut's rim
+    # walked into the inner wall and broke into seven loops, the arm was stitched to one a tenth the wrist's size and
+    # the wrist eased 3.1x
+    arm = figure_arm()
+    bone = arm["dense"].argmax(1)
+    plan = hh.figure_wrist(arm["positions"], arm["faces"], bone, 1, [2], np.array([-0.2, 0.30, 0]),
+                           np.array([-0.2, 0.12, 0]), "right")
+    hand = shuffled(touching_walls(HAND, touch=(0.50, -0.30)), seed)
+    own = hh.hand_wrist(hand["positions"], hand["faces"])
+    tf = hh.placement(own["centre"], own["fingers"], own["back"], own["length"],
+                      plan["centre"], plan["fingers"], plan["back"], plan["length"])
+    _, _, report = hh.graft_model(arm, bone, {"right": plan}, {"right": {"part": hand, "tf": tf}})
+    assert 0.7 < report["right"]["wrist_ratio"] < 1.4, report["right"]
+    assert report["right"]["rim_share"] > 0.9, report["right"]
+
+
+def test_rim_share_tells_a_wrist_of_open_plates_from_a_tube():
+    # the Waechter's gauntlet build (drawing 3, seed 7): at the figure's cut its wrist was overlapping open plates,
+    # the rim closed a seventh of the section, and the arm was stitched to that seventh, eased 3.5x
+    import trimesh
+
+    arm = figure_arm()
+    bone = arm["dense"].argmax(1)
+    plan = hh.figure_wrist(arm["positions"], arm["faces"], bone, 1, [2], np.array([-0.2, 0.30, 0]),
+                           np.array([-0.2, 0.12, 0]), "right")
+    shares = {}
+    for plates in (True, False):
+        v, f = hand_with_palm(False)
+        if plates:                                            # the wrist's tube replaced by an open plate
+            keep = ~((v[f].mean(axis=1)[:, 1] > 0.17) & (v[f].mean(axis=1)[:, 1] < 0.30))
+            mesh = trimesh.Trimesh(v, f[keep], process=False)
+            plate_v, plate_f = c_shell(0.30, 0.17, 0.12, gap_deg=140)
+            mesh = trimesh.util.concatenate([mesh, trimesh.Trimesh(plate_v, plate_f, process=False)])
+            v, f = np.asarray(mesh.vertices), np.asarray(mesh.faces)
+        hand = {"positions": v, "faces": f}
+        tf = hh.placement(np.array([0.0, 0.25, 0.0]), np.array([0.0, -1.0, 0.0]), np.array([0.0, 0.0, 1.0]), 0.65,
+                          plan["centre"], plan["fingers"], plan["back"], plan["length"])
+        shares[plates] = hh.rim_share(hand, tf, plan, hh.GAP_SHARE * plan["length"])
+    assert shares[False] > hh.RIM_LIMIT and shares[True] < 0.5, shares
+
+
 def test_a_mirrored_hand_on_the_left_arm_also_closes_and_faces_out():
     arm = figure_arm(x=0.2)                                   # the figure's left arm, at +x
     bone = arm["dense"].argmax(1)

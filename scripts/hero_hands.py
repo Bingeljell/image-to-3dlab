@@ -3,7 +3,7 @@
 
     .venv/bin/python scripts/hero_hands.py rigged.glb front.png [--out output/hero_hands/NAME]
         [--also finer.glb ...] [--left mirror|own] [--tries 8] [--keep 2] [--seeds 42 7]
-        [--hand-faces 20000] [--look "black fingerless gloves, black cuffs with teal stripes"]
+        [--hand-faces 20000] [--hand-detail 1] [--look "black fingerless gloves, black cuffs with teal stripes"]
 
 A hand that is a few dozen pixels of a full-body picture comes out of Pixal3D as a mitten. Built on its own it
 fills Pixal3D's whole box and keeps its fingers, but only if its picture shows them: in an A-pose picture a hand
@@ -19,12 +19,14 @@ hangs beside the thigh, seen from the thumb's side with the fingers stacked, and
   4. build    Pixal3D on each kept drawing, --seeds each, kept only when the built hand's outline, seen from
               twelve sides, counts five digits and one thumb and its palm is solid (an armoured hand can come
               out as a plate round an empty inside); the first one that does is the hand.
-  5. clean    Pixal3D's own clean-up of that build at --hand-faces.
+  5. clean    Pixal3D's own clean-up of that build at --hand-faces: the hand's wrist and size are measured on it.
   6. graft    each arm cut straight through below the cuff, the hand (the left one mirrored from the right, or
               built on its own with --left own) put on at the old hand's place, length and turn, its outer skin
               kept, eased into the wrist and stitched to it as one surface. The figure keeps its skeleton and
               every body weight; the new hand takes the old hand's. Every --also model (the finer models a
-              game-ready step bakes paint and bumps from, in the same frame) gets the same hands, built finer.
+              game-ready step bakes paint and bumps from, in the same frame) gets the same hands. Each model's
+              hands are as fine as the model round its wrists (--hand-detail; Pixal3D's own clean-up at that
+              size), so a game-ready step thins them with the rest of the figure.
   7. check    each grafted hand's digits counted again, on the figure.
 
 Writes <out>/<model>_hands.glb (and <out>/<also>_hands.glb), with hands.json (every number) and a licence
@@ -53,6 +55,7 @@ GENERATE = REPO / "scripts" / "pixal3d_generate.py"
 UPSCALE = REPO / "scripts" / "upscale_esrgan.py"
 TRIES, KEEP, SEEDS = 8, 2, (42, 7)   # round 22's test: 2 of 8 drawings had five digits, both built right
 HAND_FACES = 20000                   # Pixal3D's clean-up of the whole build; the hand below the cuff keeps ~a quarter
+HAND_DETAIL = 1.0                    # each model's new hands as fine as the figure round its wrists
 DRAW_SIZE = 1024
 LICENCES = [{"component": "Real-ESRGAN x4plus", "license": "BSD-3-Clause", "purpose": "hand crop upscale"}]
 
@@ -191,7 +194,8 @@ def clean_hand(run: Run, raw: Path, faces: int) -> Path:
     """Pixal3D's own clean-up of the build: a light mesh with one painted atlas, in the build's own frame."""
     from image_to_3dlab import pixal3d_native as native
 
-    clean = raw.with_name(f"{raw.stem}_clean{faces // 1000}k.glb")
+    clean = raw.with_name(f"{raw.stem}_clean{faces // 1000}k.glb" if faces % 1000 == 0
+                          else f"{raw.stem}_clean{faces}.glb")
     if not clean.exists():
         replay = raw.with_name(f"{raw.stem}.replay.glb")
         run.run(native.replay_command(raw.with_suffix(native.DUMP_SUFFIX), replay, faces, 2048))
@@ -215,18 +219,53 @@ def hand_of(path: Path, mirrored: bool) -> dict:
     return part
 
 
-def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, which: str):
-    """MODEL with both hands grafted on, written to OUT: (the report per side, both hands as one part, the
-    body part)."""
+def glb_faces(path: Path) -> int:
+    """How many triangles a one-part GLB holds, from its document alone."""
+    from image_to_3dlab.glb_turn import parse_glb
+
+    doc, _ = parse_glb(path.read_bytes())
+    primitive = doc["meshes"][0]["primitives"][0]
+    return int(doc["accessors"][primitive["indices"]]["count"]) // 3
+
+
+def hand_size(run: Run, hand: dict, faces: int | None, rigged: bool) -> Path:
+    """The hand build at the size a model needs: Pixal3D's own clean-up at FACES (it paints its own atlas at any
+    size), the raw build when that is not finer; without FACES (--hand-detail 0) as before this option: the
+    reference clean-up for the rigged model, the raw build for the finer ones."""
+    if faces is None:
+        return hand["reference"] if rigged else hand["raw"]
+    if faces >= hand.setdefault("raw_faces", glb_faces(hand["raw"])):
+        return hand["raw"]
+    return clean_hand(run, hand["raw"], faces)
+
+
+def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, detail: float, rigged: bool,
+              loaded: dict):
+    """MODEL with both hands grafted on, written to OUT, each hand as fine as the model round its wrists times
+    DETAIL (`wrist_density`, `hand_faces`): (the report per side, both hands as one part, the body part, how the
+    hands were sized). LOADED keeps each hand build read once."""
     from image_to_3dlab import hero_hands as hh
 
     data = model.read_bytes()
     _, _, part = hh.read_part(data)
-    body, both, report = hh.graft_model(part, bone(part), plans,
-                                        {s: {"part": h[which], "tf": h["tf"]} for s, h in hands.items()})
+    model_bone = bone(part)
+    density = hh.wrist_density(part["positions"], part["faces"], model_bone, plans)
+    put, used = {}, {}
+    for side, hand in hands.items():
+        faces = hh.hand_faces(density, hand["area"], detail) if detail > 0 else None
+        path = hand_size(run, hand, faces, rigged)
+        if (path, hand["mirrored"]) not in loaded:
+            loaded[path, hand["mirrored"]] = hand_of(path, mirrored=hand["mirrored"])
+        put[side] = {"part": loaded[path, hand["mirrored"]], "tf": hand["tf"]}
+        used[side] = str(path)
+    body, both, report = hh.graft_model(part, model_bone, plans, put)
     out.write_bytes(hh.regraft_glb(data, [hh.finish_part(body), hh.finish_part(both, smooth=True)]))
-    run.say(f"graft: {out.name}: body {len(body['faces'])} faces, hands {len(both['faces'])} faces")
-    return report, both, body
+    finer = len(both["faces"]) / max(hh.surface_area(both["positions"], both["faces"]), 1e-18) / max(density, 1e-18)
+    run.say(f"graft: {out.name}: body {len(body['faces'])} faces, hands {len(both['faces'])} faces "
+            f"({finer:.1f} times as fine as the figure round its wrists; from "
+            f"{', '.join(sorted({Path(p).name for p in used.values()}))})")
+    sizing = {"figure_density": round(density, 1), "hands_finer": round(finer, 2), "built_from": used}
+    return report, both, body, sizing
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -244,7 +283,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tries", type=int, default=TRIES, help="drawings per hand")
     parser.add_argument("--keep", type=int, default=KEEP, help="drawings with five digits to build from")
     parser.add_argument("--seeds", type=int, nargs="+", default=list(SEEDS), help="Pixal3D seeds per drawing")
-    parser.add_argument("--hand-faces", type=int, default=HAND_FACES, help="the hand build's clean-up size")
+    parser.add_argument("--hand-faces", type=int, default=HAND_FACES,
+                        help="the hand build's clean-up the new hand is measured on (with --hand-detail 0 also the "
+                             "rigged model's hand)")
+    parser.add_argument("--hand-detail", type=float, default=HAND_DETAIL,
+                        help="how fine the new hands are against the figure round their wrists: 1 as fine, so a "
+                             "game-ready step thins them with the rest; 2 twice as fine; 0 as built")
     parser.add_argument("--look", default=None,
                         help="what the hand wears, in words, for the drawing (default: as in the picture)")
     args = parser.parse_args(argv)
@@ -341,20 +385,23 @@ def main(argv: list[str] | None = None) -> int:
     # 6. graft
     stage(run, "graft", "Putting the hands on")
     fresh(run, "graft")
-    hands = {}
+    hands, loaded = {}, {}
     for side, plan in plans.items():
         source = side if side in built else sources[0]
         clean = hand_of(built[source], mirrored=source != side)
         own = hh.hand_wrist(clean["positions"], clean["faces"])
         tf = hh.placement(own["centre"], own["fingers"], own["back"], own["length"], plan["centre"],
                           plan["fingers"], plan["back"], plan["length"])
-        hands[side] = {"clean": clean, "tf": tf, "raw": hand_of(raws[source], mirrored=source != side),
-                       "scale": float(np.cbrt(np.linalg.det(tf[:3, :3]))),
-                       "down": hh.unit(tf[:3, :3] @ hh.DRAWN_DOWN)}
+        scale = float(np.cbrt(np.linalg.det(tf[:3, :3])))
+        # the build's whole area in the figure's units sizes each model's clean-up (`hand_faces`)
+        hands[side] = {"tf": tf, "scale": scale, "down": hh.unit(tf[:3, :3] @ hh.DRAWN_DOWN),
+                       "reference": built[source], "raw": raws[source], "mirrored": source != side,
+                       "area": hh.surface_area(clean["positions"], clean["faces"]) * scale ** 2}
         if not own["found"]:
             run.flag(f"the built {source} hand showed no wrist below its cuff; it is cut halfway")
     result = out / f"{args.model.stem}_hands.glb"
-    report, both, body = graft_one(run, args.model, result, bone, plans, hands, "clean")
+    report, both, body, sizing = graft_one(run, args.model, result, bone, plans, hands, args.hand_detail, True,
+                                           loaded)
     for side, entry in report.items():
         if not hh.SCALE_LIMITS[0] <= entry["wrist_ratio"] <= hh.SCALE_LIMITS[1]:
             run.flag(f"the new {side} wrist had to be eased {entry['wrist_ratio']}x to meet the arm: check its size")
@@ -363,15 +410,17 @@ def main(argv: list[str] | None = None) -> int:
                      "beside the wrist): look for holes at the cuff")
         if entry["rims_turn_alike"]:
             run.flag(f"at the {side} wrist one part faces inward: the stitch is turned wrongly")
+    also = {}
     for extra in args.also:
         target = out / f"{extra.stem}_hands.glb"
         if run.step(f"graft {extra.name}", target):
-            graft_one(run, extra, target, bone, plans, hands, "raw")
+            also[extra.name] = graft_one(run, extra, target, bone, plans, hands, args.hand_detail, False, loaded)[3]
 
     # 7. check
     stage(run, "check", "Counting the grafted hands' fingers")
     fresh(run, "check")
-    summary = {"model": str(args.model), "picture": str(args.picture), "result": str(result), "sides": {}}
+    summary = {"model": str(args.model), "picture": str(args.picture), "result": str(result), "sides": {},
+               "hand_detail": args.hand_detail, "sizing": {args.model.name: sizing, **also}}
     for index, side in enumerate(plans):
         # framed as its drawing was: the hand with the figure's cuff above it
         hand = hh.merge_parts([hh.side_faces(both, both["side_of_face"], index), hh.arm_stub(body, plans[side])])
@@ -385,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
             "count": count, "scale": round(hands[side]["scale"], 4), **report[side],
             "wrist": np.round(plan["cut"], 5).tolist(), "found": plan["found"],
             "hand_length": round(plan["length"], 5), "turn_check_deg": round(plan["turn_check_deg"], 1),
-            "built_from": str(built.get(side) or built[sources[0]]), "mirrored": side not in built}
+            "built_from": sizing["built_from"][side], "mirrored": side not in built}
     summary["unsure"] = run.unsure
     (out / "hands.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     record = read_model_record(args.model)

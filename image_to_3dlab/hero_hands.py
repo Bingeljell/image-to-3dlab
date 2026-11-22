@@ -735,6 +735,38 @@ def arm_faces(positions: np.ndarray, faces: np.ndarray, bone: np.ndarray, plan: 
     return on_arm & (np.linalg.norm(middle - plan["centre"], axis=1) < plan["reach"])
 
 
+LEAST_HAND_FACES = 1000   # a hand build's clean-up never goes below this: the fingers keep their shape
+FACES_STEP = 500          # clean-up sizes are rounded up to this, so close densities share one clean-up
+
+
+def surface_area(positions: np.ndarray, faces: np.ndarray) -> float:
+    """The total area of a mesh's triangles."""
+    p = np.asarray(positions, dtype=np.float64)
+    f = np.asarray(faces, dtype=np.int64)
+    a, b, c = p[f[:, 0]], p[f[:, 1]], p[f[:, 2]]
+    return float(0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1).sum())
+
+
+def wrist_density(positions: np.ndarray, faces: np.ndarray, bone: np.ndarray, plans: dict[str, dict]) -> float:
+    """Triangles per unit of area of a model round its wrists: the arm's faces near each seam (`arm_faces`), every
+    side together. A new hand is put on at this density, so a game-ready step thins it with the rest of the
+    figure: the Waechter's shape model (35,000 a unit) took a raw hand at 10 million, its thinning stopped at 37,887
+    triangles instead of 14,000 and squashed the figure 10 cm (AssetFurnace Support D241)."""
+    count, area = 0, 0.0
+    for plan in plans.values():
+        near = arm_faces(positions, faces, bone, plan)
+        count += int(near.sum())
+        area += surface_area(positions, np.asarray(faces)[near])
+    return count / area if area > 0 else 0.0
+
+
+def hand_faces(density: float, area: float, detail: float = 1.0) -> int:
+    """How many faces a clean-up of a hand build covering AREA (in the figure's units) needs to be DETAIL times as
+    fine as a figure of DENSITY: rounded up to FACES_STEP, never under LEAST_HAND_FACES."""
+    wanted = detail * density * area
+    return int(max(LEAST_HAND_FACES, FACES_STEP * np.ceil(wanted / FACES_STEP)))
+
+
 def hand_onto(hand: dict, tf: np.ndarray, plan: dict, gap: float):
     """(the built HAND cut at the figure's seam moved GAP toward the fingers, put in place by TF; its rim).
 

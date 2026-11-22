@@ -62,6 +62,23 @@ def test_a_build_with_a_hole_for_a_palm_is_not_kept(tmp_path):
     assert not hero_hands.build_count(raw)["kept"]
 
 
+def test_each_model_takes_the_hand_at_the_size_its_density_asks(monkeypatch, tmp_path):
+    from tests.test_hero_hands import tiny_glb
+
+    raw, reference = tmp_path / "right_draw_s3_b42.glb", tmp_path / "right_draw_s3_b42_clean20k.glb"
+    raw.write_bytes(tiny_glb(skinned=False))                    # one triangle
+    asked = []
+    monkeypatch.setattr(hero_hands, "clean_hand", lambda run, path, faces: asked.append(faces) or tmp_path / "c.glb")
+    hand = {"raw": raw, "reference": reference}
+    assert hero_hands.glb_faces(raw) == 1
+    assert hero_hands.hand_size(None, hand, 3000, rigged=True) == raw           # not finer than the raw build
+    hand["raw_faces"] = 960058                                                  # a real raw build's size
+    assert hero_hands.hand_size(None, hand, 3000, rigged=False) == tmp_path / "c.glb" and asked == [3000]
+    # --hand-detail 0: as before the option, the reference clean-up for the rigged model, the raw for the others
+    assert hero_hands.hand_size(None, hand, None, rigged=True) == reference
+    assert hero_hands.hand_size(None, hand, None, rigged=False) == raw
+
+
 def test_a_step_that_always_runs_forgets_its_old_notes(tmp_path):
     run = hero_hands.Run(tmp_path)
     run.current = "check"

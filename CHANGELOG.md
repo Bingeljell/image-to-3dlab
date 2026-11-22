@@ -23,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gauntlet built with an inner skin, a cuff's lip hanging round its wrist or a knuckle plate open toward the palm is
   cut below its cuff, not across its knuckles, where the Waechter's first gauntlet lost its thumb and needed a 0.70x
   squeeze to meet the arm. A build whose palm came out as a plate round an empty inside is turned away for the next
-  seed.
+  seed. Each model's hands are as fine as the model round its wrists (`--hand-detail`; Pixal3D's own clean-up at that
+  size), so a game-ready step thins them with the rest of the figure: with a raw hand in its shape model, the
+  Waechter's game figure stopped at 37,887 triangles instead of 14,000 and came out 10 cm short.
 
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone

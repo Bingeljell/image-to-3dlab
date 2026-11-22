@@ -500,6 +500,42 @@ def test_arm_stub_takes_the_cuff_above_the_cut_and_not_the_limb_beside_it():
     assert (np.abs(stub["positions"][:, 0] + 0.2) < 0.05).all()   # all on this arm
 
 
+def test_wrist_density_is_the_arms_faces_per_area_round_its_seam():
+    arm = figure_arm()
+    bone = arm["dense"].argmax(1)
+    plan = hh.figure_wrist(arm["positions"], arm["faces"], bone, 1, [2], np.array([-0.2, 0.30, 0]),
+                           np.array([-0.2, 0.12, 0]), "right")
+    near = hh.arm_faces(arm["positions"], arm["faces"], bone, plan)
+    expected = near.sum() / hh.surface_area(arm["positions"], arm["faces"][near])
+    assert hh.wrist_density(arm["positions"], arm["faces"], bone, {"right": plan}) == pytest.approx(expected)
+    # the same arm with every triangle split in four is four times as dense
+    v, f = arm["positions"], arm["faces"]
+    mids = {}
+
+    def mid(a, b):
+        key = (min(a, b), max(a, b))
+        if key not in mids:
+            mids[key] = len(v) + len(mids)
+        return mids[key]
+
+    finer = []
+    for a, b, c in f:
+        ab, bc, ca = mid(a, b), mid(b, c), mid(c, a)
+        finer += [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]]
+    points = np.concatenate([v, [(v[a] + v[b]) / 2 for a, b in mids]])
+    bone4 = np.concatenate([bone, [bone[a] for a, _ in mids]])
+    # (within 10 %: the region round the seam takes a face by its middle, and halves change which ones fall in)
+    assert hh.wrist_density(points, np.array(finer), bone4, {"right": plan}) == pytest.approx(4 * expected, rel=0.1)
+
+
+def test_hand_faces_make_the_hand_as_fine_as_the_figure_round_it():
+    # the Waechter's shape model (35,000 triangles a unit of area) took a raw hand at 10 million: game_ready's thinning
+    # stopped at 37,887 triangles instead of 14,000
+    assert hh.hand_faces(35000, 0.08) == 3000                      # 2,800 rounded up to 500s
+    assert hh.hand_faces(35000, 0.08, detail=2) == 6000
+    assert hh.hand_faces(100, 0.08) == hh.LEAST_HAND_FACES         # never so few that the fingers melt
+
+
 # --- skin weights -------------------------------------------------------------------------------------------
 
 def test_dense_and_top_weights_round_trip_and_cap_at_four():

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Hero hands** (`scripts/hero_hands.py`): a rigged figure's mitten hands replaced by hands with real fingers. Each
+  hand is cut from the picture, upscaled, redrawn flat by the picture editor (fingers apart, seen from the back of the
+  hand) and built on its own, so it fills Pixal3D's whole box; drawings and builds are kept only when their outline
+  counts five digits and one thumb. The wrists are found from the rig (no hand-drawn box), each arm is cut straight
+  through below its cuff, and the new hand is put on at the old hand's place, length and turn and stitched to the arm as
+  one surface: no overlapping skins at the seam (the Hero face's fault in #229). The figure keeps its skeleton and every
+  body weight; the new hand moves as the old one did. The finer models a game-ready step bakes paint and bumps from get
+  the same hands (`--also`).
+
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with

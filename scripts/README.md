@@ -51,6 +51,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `pixal3d_generate.py` | End-to-end Pixal3D generation: image -> textured GLB, on a Mac, NVIDIA or AMD. |
 | `hero_route.py` | Build a hero character: a full-body model with a high-detail head grafted on, as one GLB. |
 | `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
+| `hero_hands.py` | Give a rigged figure hands with real fingers: each hand built on its own and grafted on at the wrist. |
 | `upscale_esrgan.py` | Upscale a picture 4x with Real-ESRGAN, then resize it to a square of SIZE pixels. |
 | `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |

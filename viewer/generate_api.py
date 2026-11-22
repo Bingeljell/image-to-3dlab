@@ -917,7 +917,7 @@ def blender_install_refusal(caps: dict[str, Any], waiting: str | None,
                             setting_up: bool) -> tuple[int, str] | None:
     """Why Setup's Install Blender cannot start now, or None when it can.
 
-    `waiting` is the shared rule's answer, `busy_reason("setup")`: the big job in the way."""
+    `waiting` is the shared rule's answer for a setup: the big job in the way."""
     if waiting:
         return 409, waiting
     if setting_up:
@@ -932,7 +932,7 @@ def gltfpack_install_refusal(tools: dict[str, Any], waiting: str | None,
                              setting_up: bool) -> tuple[int, str] | None:
     """Why Setup's Install gltfpack cannot start now, or None when it can.
 
-    `waiting` is the shared rule's answer, `busy_reason("setup")`: the big job in the way."""
+    `waiting` is the shared rule's answer for a setup: the big job in the way."""
     if waiting:
         return 409, waiting
     if setting_up:
@@ -1592,6 +1592,10 @@ def _running(manager) -> bool:
 # Every job that holds the GPU or gigabytes of unified memory. Each start waits while any
 # OTHER kind runs (its own manager refuses a second of its kind), so the studio, the MCP
 # and a second tab all meet the same rule; the page's busy flag is only a convenience.
+#
+# A start asks through `claim_start`, which answers and takes the slot in one step. A job
+# is only on its manager's books some time after it asked (an upload is read, a picture
+# is cut out), and in between another kind saw nothing running and started as well.
 HEAVY_JOBS: dict[str, Callable[[], bool]] = {
     # a setup run, or an engine being downloaded or built from Setup & Status
     "setup": lambda: SETUP_ACTIVE is not None or download_active() is not None,
@@ -1615,12 +1619,41 @@ BUSY_WORDS = {
 }
 
 
+# Starts that were told they may go and are not on the books yet, by kind.
+_STARTING: dict[str, int] = {}
+_STARTING_LOCK = threading.Lock()
+
+
 def busy_reason(starting: str) -> str | None:
-    """Why a `starting` job must wait, or None."""
+    """Why a `starting` job must wait, or None. Only an answer: a start asks `claim_start`."""
     for kind, running in HEAVY_JOBS.items():
-        if kind != starting and running():
+        if kind != starting and (_STARTING.get(kind) or running()):
             return f"{BUSY_WORDS[kind]}; wait for it to finish"
     return None
+
+
+def claim_start(kind: str) -> str | None:
+    """Why a `kind` job must wait, or None, and then the slot is the caller's.
+
+    Asking and taking are one step, so of two kinds that ask together one is told to wait.
+    The caller hands the slot back with `release_start` once its job is on its manager's
+    books, or once the start was refused or failed. Two starts of one kind may both hold
+    it: their own manager settles which of them runs.
+    """
+    with _STARTING_LOCK:
+        waiting = busy_reason(kind)
+        if waiting is None:
+            _STARTING[kind] = _STARTING.get(kind, 0) + 1
+        return waiting
+
+
+def release_start(kind: str) -> None:
+    with _STARTING_LOCK:
+        left = _STARTING.get(kind, 0) - 1
+        if left > 0:
+            _STARTING[kind] = left
+        else:
+            _STARTING.pop(kind, None)
 
 
 def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
@@ -2826,13 +2859,28 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self._status_code = None
+        self._claims: list[str] = []
         try:
             # every POST changes something: weights, the HF token, jobs, names
             if self._allowed(mutation=True):
                 self._route_post()
         finally:
+            for kind in self._claims:
+                release_start(kind)
             usage_api.note_request(self._path_parts(), self.headers.get(usage_api.CLIENT_HEADER),
                                    "POST", self._status_code)
+
+    def _claim(self, kind: str) -> str | None:
+        """Why a `kind` job cannot start now, or None, and then no other kind starts until
+        this request has ended: by then the job it started is on its manager's books, or the
+        start was refused. Every route that starts a big job asks here."""
+        claims = getattr(self, "_claims", None)
+        if claims is None:
+            return busy_reason(kind)    # not inside a POST: there is nothing to hold, only the answer
+        waiting = claim_start(kind)
+        if waiting is None:
+            claims.append(kind)
+        return waiting
 
     def _route_post(self) -> None:
         parts = self._path_parts()
@@ -3090,7 +3138,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not image_api.BINARY.exists():
             self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
             return
-        waiting = busy_reason("image")
+        waiting = self._claim("image")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -3126,7 +3174,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not image_api.BINARY.exists():
             self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
             return
-        waiting = busy_reason("image")
+        waiting = self._claim("image")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -3201,7 +3249,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "needs_setup": True,
             })
             return
-        waiting = busy_reason("image")
+        waiting = self._claim("image")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -3249,7 +3297,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
         """Start one picture try, or answer why not (and return None)."""
         # Checked before the try is recorded: a refused start must not leave a try with no picture.
-        waiting = busy_reason("image") or ("a picture is being made; wait for it to finish"
+        waiting = self._claim("image") or ("a picture is being made; wait for it to finish"
                                            if _running(image_api.MANAGER) else None)
         if waiting or skins_api.BUILDS.running():
             self._send_json(409, {"error": waiting or "a skin is being made; wait for it to finish",
@@ -3374,7 +3422,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"discarded": skin.id})
                 return
             if action == "build":
-                waiting = busy_reason("skin")
+                waiting = self._claim("skin")
                 if waiting:
                     self._send_json(409, {"error": waiting})
                     return
@@ -3782,7 +3830,7 @@ class Handler(SimpleHTTPRequestHandler):
             # one card, and a shared-memory chip (an AMD APU) can report a small VRAM figure
             # while the GPU borrows system RAM, so a refusal would lock out runs that work.
             busy = gpu_busy_check(spec)
-            waiting = busy_reason("generate")
+            waiting = self._claim("generate")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
@@ -3882,7 +3930,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _create_rig_job(self) -> None:
         try:
-            waiting = busy_reason("rebind")
+            waiting = self._claim("rebind")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
@@ -3924,7 +3972,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _animate_blocked(self) -> str | None:
         """Why an Animate job cannot start now. The auto-rig loads an ~8 GB model, so it
         waits for anything else that holds the GPU or unified memory."""
-        waiting = busy_reason("animate")
+        waiting = self._claim("animate")
         if waiting:
             return waiting
         if not autorig_installed():
@@ -4018,7 +4066,7 @@ class Handler(SimpleHTTPRequestHandler):
         kept a list of its own, which missed every kind of job added after it was written.
         """
         try:
-            waiting = busy_reason("finish")
+            waiting = self._claim("finish")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
@@ -4119,7 +4167,7 @@ class Handler(SimpleHTTPRequestHandler):
         only lost its compression costs a second.
         """
         with SETUP_LOCK:
-            waiting = busy_reason("finish")
+            waiting = self._claim("finish")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
@@ -4153,15 +4201,6 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self._send_json(202, {"job_id": job.id, "status": job.status})
 
-    def _props_busy(self) -> str | None:
-        """Why a prop-sheet job cannot start now, or None.
-
-        Its bakes are Blender on the CPU, but a generation or a finishing repaint holds
-        gigabytes of model in unified memory, and a Blender bake on top of that is how
-        this machine starts swapping.
-        """
-        return busy_reason("props")
-
     def _start_props_job(self, job) -> None:
         threading.Thread(
             target=run_props_job, args=(job,), daemon=True, name=f"props-{job.id[:8]}"
@@ -4179,9 +4218,13 @@ class Handler(SimpleHTTPRequestHandler):
 
         The GLB is an upload, or one the Generate tab already wrote, named by the path
         `/api/props/runs` listed it under; nothing else on disk can be named.
+
+        It waits like every big job: its bakes are Blender on the CPU, but a generation or a
+        finishing repaint holds gigabytes of model in unified memory, and a Blender bake on
+        top of that is how this machine starts swapping.
         """
         try:
-            busy = self._props_busy()
+            busy = self._claim("props")
             if busy:
                 self._send_json(409, {"error": busy})
                 return
@@ -4234,7 +4277,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _turn_prop(self, name: str) -> None:
         """Turn one prop of a finished run about the vertical and re-bake only it."""
         try:
-            busy = self._props_busy()
+            busy = self._claim("props")
             if busy:
                 self._send_json(409, {"error": busy})
                 return
@@ -4484,7 +4527,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not isinstance(inputs, dict):
             self._send_json(422, {"error": "inputs must be an object"})
             return
-        waiting = busy_reason("addon")
+        waiting = self._claim("addon")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -4590,7 +4633,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(202, {"backend": backend_id, "status": "cancelling"})
                 return
             with SETUP_LOCK:
-                waiting = busy_reason("setup")
+                waiting = self._claim("setup")
                 if waiting is None and action != "remove" and SETUP_ACTIVE is not None:
                     waiting = "another setup is running; wait for it to finish"
                 if waiting:
@@ -4618,7 +4661,7 @@ class Handler(SimpleHTTPRequestHandler):
         with SETUP_LOCK:
             refusal = blender_install_refusal(
                 finish_capabilities(),
-                waiting=busy_reason("setup"),
+                waiting=self._claim("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
                 self._send_json(refusal[0], {"error": refusal[1]})
@@ -4634,7 +4677,7 @@ class Handler(SimpleHTTPRequestHandler):
         with SETUP_LOCK:
             refusal = gltfpack_install_refusal(
                 props_tools_payload(),
-                waiting=busy_reason("setup"),
+                waiting=self._claim("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
                 self._send_json(refusal[0], {"error": refusal[1]})
@@ -4650,7 +4693,7 @@ class Handler(SimpleHTTPRequestHandler):
         with SETUP_LOCK:
             # The shared rule, not a list of its own: every big job waits for a setup, so a
             # setup waits for every big job.
-            waiting = busy_reason("setup")
+            waiting = self._claim("setup")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return

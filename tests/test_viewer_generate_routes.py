@@ -49,6 +49,9 @@ def studio(tmp_path, monkeypatch):
     finally:
         server.shutdown()
         server.server_close()
+    # Every request hands back the slot it claimed, whatever it answered: one that did not
+    # would make every other kind of job wait until the studio is restarted.
+    assert api._STARTING == {}
 
 
 @pytest.fixture
@@ -581,3 +584,91 @@ def test_a_download_can_be_cancelled_whatever_else_is_running(studio, engines, m
 
     assert _post(studio, "/api/setup/pixal3d/cancel") == (202, {"backend": "pixal3d", "status": "cancelling"})
     assert engines == [("cancel", "pixal3d")]
+
+
+# --- A start holds the slot from its waiting check until its job is on the books ------------
+
+def _plain_picture() -> bytes:
+    """A real picture with no transparency: the kind an engine needs cut out first."""
+    import io
+
+    from PIL import Image
+
+    picture = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(picture, "PNG")
+    return picture.getvalue()
+
+
+def _hold(monkeypatch, name, answer):
+    """Make `api.<name>` stop where it is called until `let_go` is set, then answer.
+    Returns (reached, let_go): `reached` is set once a request is waiting inside it."""
+    reached, let_go = threading.Event(), threading.Event()
+
+    def held(*args):
+        reached.set()
+        assert let_go.wait(20), "the test never let this start go on"
+        return answer(*args)
+
+    monkeypatch.setattr(api, name, held)
+    return reached, let_go
+
+
+def _in_the_background(call):
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(call()), daemon=True)
+    thread.start()
+    return thread, answers
+
+
+def test_a_generation_that_is_still_starting_already_makes_finish_wait(studio, engine, blender, monkeypatch):
+    # The waiting check and the job's entry on the books were two steps, seconds apart while
+    # the picture is cut out. Finish asked in between, saw nothing running, and started too.
+    monkeypatch.setitem(api.BACKENDS, "trellis", dataclasses.replace(engine, requires_alpha=True))
+    reached, let_go = _hold(monkeypatch, "matte_upload", lambda path: (path, "birefnet-general-lite"))
+    generating, answers = _in_the_background(lambda: _post(
+        studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", _plain_picture())}))
+    assert reached.wait(20)
+    try:
+        assert _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)}) == (
+            409, {"error": "a generation is running; wait for it to finish"})
+    finally:
+        let_go.set()
+        generating.join(20)
+
+    assert answers[0][0] == 202
+    assert [runner for runner, _ in studio.started] == ["_run_job"]
+
+
+def test_a_finish_that_is_still_starting_already_makes_a_generation_wait(studio, engine, monkeypatch):
+    reached, let_go = _hold(monkeypatch, "find_blender", lambda: "/usr/bin/blender")
+    finishing, answers = _in_the_background(lambda: _post(
+        studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)}))
+    assert reached.wait(20)
+    try:
+        assert _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)}) == (
+            409, {"error": "a model is being finished; wait for it to finish"})
+    finally:
+        let_go.set()
+        finishing.join(20)
+
+    assert answers[0][0] == 202
+    assert [runner for runner, _ in studio.started] == ["run_finish_job"]
+
+
+def test_a_start_that_is_refused_gives_the_slot_back(studio, engine, blender):
+    refused, _ = _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.gif", PICTURE)})
+
+    assert refused == 422       # after its waiting check: it had the slot
+    assert _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)})[0] == 202
+
+
+def test_a_slot_stays_held_until_every_start_of_that_kind_has_let_go(studio):
+    # Two generations can ask together; their own manager settles which one runs. The one it
+    # refuses lets go first, and the other is still on its way to the books.
+    assert api.claim_start("generate") is None and api.claim_start("generate") is None
+    try:
+        api.release_start("generate")
+        assert api.busy_reason("finish") == "a generation is running; wait for it to finish"
+    finally:
+        api.release_start("generate")
+    assert api.busy_reason("finish") is None

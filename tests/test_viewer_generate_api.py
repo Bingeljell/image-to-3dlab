@@ -1015,13 +1015,13 @@ def test_a_prop_bake_waits_for_a_running_rig_rebind(tmp_path, monkeypatch):
     """Both are headless Blender; a generation already refused to start beside either."""
     rig_jobs = api.RIG_JOBS.__class__(tmp_path)
     monkeypatch.setattr(api, "RIG_JOBS", rig_jobs)
-    assert api.Handler._props_busy(None) is None
+    assert api.busy_reason("props") is None
     job = rig_jobs.create(
         "asset.glb", b"glb", b"blend", _valid_rig_sidecar(b"glb", b"blend")
     )
-    assert api.Handler._props_busy(None) == "a rig rebind is running; wait for it to finish"
+    assert api.busy_reason("props") == "a rig rebind is running; wait for it to finish"
     job.status = "done"
-    assert api.Handler._props_busy(None) is None
+    assert api.busy_reason("props") is None
 
 
 @pytest.mark.posix

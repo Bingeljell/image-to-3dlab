@@ -320,6 +320,30 @@ def test_finish_waits_for_a_running_generation(studio, blender, engine):
     assert [runner for runner, _ in studio.started] == ["_run_job"]
 
 
+def _an_add_on_tool_is_running(monkeypatch, _tmp_path):
+    tools = api.addons_api.AddonJobManager()
+    job = api.addons_api.AddonJob("d" * 32, "vehicle-kit", "build", {}, "run")
+    job.status = "running"
+    tools.jobs[job.id], tools.active = job, job.id
+    monkeypatch.setattr(api.addons_api, "ADDON_JOBS", tools)
+
+
+@pytest.mark.parametrize("something_else_runs, words", [
+    (_a_picture_is_being_made, "a picture is being made"),
+    (_an_add_on_tool_is_running, "an add-on is running"),
+])
+def test_finish_waits_for_every_other_big_job_not_only_the_ones_it_listed(
+        studio, blender, monkeypatch, tmp_path, something_else_runs, words):
+    # Finish kept its own list of what to wait for (a generation, setup, a prop bake, a rig run),
+    # written before pictures, rebinds, skins and add-on tools joined the shared rule. It started
+    # beside any of those; resuming a Finish run already asked the shared rule.
+    something_else_runs(monkeypatch, tmp_path)
+
+    assert _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)}) == (
+        409, {"error": f"{words}; wait for it to finish"})
+    assert studio.started == [] and not any((studio.output / "finish").glob("*"))
+
+
 def test_finish_refuses_a_second_finish(studio, blender):
     first, _ = _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)})
 

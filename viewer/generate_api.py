@@ -4007,23 +4007,15 @@ class Handler(SimpleHTTPRequestHandler):
     def _create_finish_job(self) -> None:
         """Retopologise, repaint and compress a GLB the viewer already has.
 
-        Deliberately refuses while a generation is running: the repaint stage loads its own
+        Deliberately refuses while another big job is running: the repaint stage loads its own
         multi-gigabyte model, and two of those at once is how this machine runs out of
-        unified memory.
+        unified memory. The shared rule decides, as it does for a resumed run: this route
+        kept a list of its own, which missed every kind of job added after it was written.
         """
         try:
-            active = JOBS.get(JOBS.active) if JOBS.active else None
-            if active is not None and active.status in {"queued", "running", "cancelling"}:
-                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
-                return
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is running; wait for it to finish"})
-                return
-            if _props_baking():
-                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
-                return
-            if _animate_running():
-                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+            waiting = busy_reason("finish")
+            if waiting:
+                self._send_json(409, {"error": waiting})
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 768 * 1024 * 1024:

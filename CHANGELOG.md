@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lets the daily count go, and left the counts on until you unticked the box on About. "See exactly what's sent" no
   longer counts as a yes either: it opens About, and the card is back at the next start until you choose.
 
+### Security
+- **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as
+  written. They are now shown only when they are plain `https://` addresses, and the list reader drops anything else.
+
 ## [0.6.0] - 2026-11-18
 
 ### Added

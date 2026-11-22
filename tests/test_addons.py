@@ -186,6 +186,15 @@ class TestReadRegistry:
         assert entry.rating == 4.5
         assert entry.ratings_count == 12
 
+    def test_a_link_that_is_not_a_plain_https_address_is_dropped(self):
+        # The studio puts these in a link; a list entry is written by someone else.
+        entry = addons.read_registry([listing(
+            author={"name": "X", "url": "javascript:alert(1)"},
+            links={"repo": "javascript:alert(1)", "site": "https://ok.example",
+                   "docs": 'https://x.example/" onfocus="alert(1)', "old": "http://plain.example"})])[0]
+        assert entry.author == {"name": "X", "url": ""}
+        assert entry.links == {"site": "https://ok.example"}
+
     def test_missing_links_and_rating_default_safely(self):
         entry = addons.read_registry([listing(links=None, rating=None, ratings_count=None)])[0]
         assert entry.links == {}

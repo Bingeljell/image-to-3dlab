@@ -91,7 +91,8 @@ up to you.
   in `output/`.
 - `name`: the human name shown in the studio and CLI.
 - `version`: any string you like; shown to users but not parsed.
-- `author`: an object with at least `name`. `url` is optional and shown as a link.
+- `author`: an object with at least `name`. `url` is optional and shown as a link. It must be a plain
+  `https://` address; anything else is not shown.
 - `licence`: the SPDX name or short name of the licence for the add-on itself.
 - `summary`: one sentence describing what the add-on does.
 
@@ -199,7 +200,7 @@ ADDONS_INDEX=/path/to/index.json ./lab addon list
 
 The index file is a JSON list of listing objects. Each listing needs `id`, `name`,
 `repo`, `commit`, `author`, `summary`, `type`, and can include `links`, `rating` and
-`ratings_count`.
+`ratings_count`. The addresses in `links` must be plain `https://` ones; any other is dropped.
 
 ## Rules
 

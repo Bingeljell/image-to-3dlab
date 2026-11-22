@@ -411,6 +411,20 @@ def test_addons_page_escapes_html_and_builds_author_line():
 
 
 @needs_node
+def test_addons_page_links_cannot_carry_script_or_break_out_of_the_link():
+    # The author and source links come from the add-on list, which other people write.
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.authorLine({ author: { name: "a", url: 'https://x.test/" onfocus="alert(1)' } }),
+        m.authorLine({ author: { name: "a", url: "javascript:alert(1)" },
+                       links: { repo: "javascript:alert(1)", site: "http://plain.test" } }),
+      ]));
+    """)
+    assert out[0] == 'by <a href="https://x.test/&quot; onfocus=&quot;alert(1)" target="_blank" rel="noopener">a</a>'
+    assert out[1] == "by a"
+
+
+@needs_node
 def test_addons_page_shows_rating_and_the_three_labels():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([

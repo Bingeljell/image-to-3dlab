@@ -156,6 +156,18 @@ def test_install_help_for_blender_is_shown_as_it_is():
 
 
 @needs_node
+def test_what_a_plan_still_needs_is_shown_as_it_is():
+    """The list can name Blender and an engine that is not set up; either word alone was reworded
+    as a crash or as one missing engine, and the list was lost."""
+    import activity_api
+
+    message = (f"{activity_api.PLAN_NEEDS} a picture engine (for Picture); Blender 4.2 or newer (for Finish); "
+               "the auto-rig (for Rig and Animate). Each is on the Setup & Status page.")
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.plainError({json.dumps(message)})));")
+    assert out == message
+
+
+@needs_node
 def test_following_a_job_reports_progress_and_ends_on_a_terminal_status():
     out = _run("jobs.js", """
       const replies = [

@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   setup script "free under $1M annual revenue", and the record written beside each model "Commercial registration
   required". The card now names the licence and links to it, like every other card, and agents are told the same.
   The setup script keeps its $1M line and adds the record's two conditions word for word. The record is unchanged.
+- **Create says what is missing before it starts.** A plan was only checked for Blender. A missing picture engine,
+  3D engine or auto-rig showed when the run reached that step: the auto-rig only after the picture, the model and
+  Finish had been made. The studio now names everything the chosen steps still need in one answer ("Before this
+  can start, set up: a picture engine (for Picture); the auto-rig (for Rig and Animate)…") and starts nothing
+  until they are set up. Agents get the same answer.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

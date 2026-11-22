@@ -2,7 +2,8 @@
 
 Every big job (a generation, a Finish run, a prop sheet, setup and engine downloads, and then
 pictures, skins, rig rebinds and animations) is started here over HTTP, against the real
-request handler. Only the job runners are replaced: a run costs minutes and needs a model.
+request handler, and so is a whole plan. Only the job runners are replaced: a run costs
+minutes and needs a model.
 Before this file nothing ran these handlers, so a wrong status code, a size limit that stopped
 working or a missing wait would have shipped.
 """
@@ -1205,8 +1206,8 @@ def test_a_new_skin_starts_drawing_its_front_from_the_models_own_picture(studio,
     assert _soon(lambda: studio.started == [("picture", job)])
 
 
-def _no_picture_engine(monkeypatch, tmp_path):
-    monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
+def _no_picture_engine(monkeypatch, _tmp_path=None):
+    monkeypatch.setattr(api.image_api, "BINARY", api.REPO / "nothing-here")      # REPO is a temp folder here
 
 
 @pytest.mark.parametrize("in_the_way, answer", [
@@ -1513,3 +1514,152 @@ def test_every_other_json_route_answers_a_body_that_is_not_an_object(
     assert _send(studio, path.format(asset=workshop.paladin["id"]), request_body) == (
         422, {"error": "expected a JSON object"})
     assert done == [] and api.list_assets(studio.output) == library
+
+
+# --- A plan: POST /api/chains ---------------------------------------------------------------
+#
+# Create sends a whole plan (picture, back, 3D model, Finish, rig, a move). Each step asked its
+# own route whether its engine was set up only when the run reached it, so a missing auto-rig
+# showed after the picture, the model and Finish had been made.
+
+ALL_SET_UP = "Each is on the Setup & Status page."
+
+
+@pytest.fixture
+def plans(studio, workshop, engine, blender, monkeypatch):
+    """Everything a plan can need is set up; a test takes away what it is about. No plan runs:
+    `plans` collects the ones that were let through."""
+    let_through = []
+    monkeypatch.setattr(api.ChainRunner, "submit", lambda self, chain, **_more: let_through.append(chain))
+    return let_through
+
+
+def _plan(studio, steps, files=None, **fields):
+    return _post(studio, "/api/chains", {"title": "a rune knight", "steps": json.dumps(steps), **fields}, files)
+
+
+def _no_auto_rig(monkeypatch):
+    monkeypatch.setattr(api, "autorig_installed", lambda: False)
+
+
+def _no_3d_engine(monkeypatch):
+    monkeypatch.setitem(api.BACKENDS, "trellis",
+                        dataclasses.replace(api.BACKENDS["trellis"], readiness=lambda: {"ready": False}))
+
+
+def _no_blender(monkeypatch):
+    monkeypatch.setattr(api, "find_blender", lambda: None)
+
+
+def _no_back_drawer(monkeypatch):
+    monkeypatch.setattr(api, "back_drawer_ready", lambda: False)
+
+
+CHARACTER = ["picture", "back", "model", "finished", "rigged", "animated"]
+
+
+def test_a_plan_starts_when_everything_its_steps_need_is_set_up(studio, plans):
+    status, answer = _plan(studio, CHARACTER, engine="trellis", first_move="walk")
+
+    assert status == 202 and answer["steps"] == CHARACTER
+    assert [chain.steps for chain in plans] == [CHARACTER]
+
+
+def test_a_plan_is_refused_up_front_naming_everything_its_steps_still_need(studio, plans, engine, monkeypatch, tmp_path):
+    _no_picture_engine(monkeypatch, tmp_path)
+    _no_back_drawer(monkeypatch)
+    _no_3d_engine(monkeypatch)
+    _no_blender(monkeypatch)
+    _no_auto_rig(monkeypatch)
+
+    status, answer = _plan(studio, CHARACTER, engine="trellis")
+
+    assert status == 409 and plans == []
+    assert answer == {"needs_setup": True, "needs_blender": True, "error": (
+        "Before this can start, set up: a picture engine that can also draw a back view (for Picture and "
+        f"Back picture); {engine.label} (for 3D model); Blender 4.2 or newer (for Finish); the auto-rig "
+        f"(for Rig and Animate). {ALL_SET_UP}")}
+
+
+@pytest.mark.parametrize("taken_away, steps, still_needed", [
+    (_no_auto_rig, CHARACTER, "the auto-rig (for Rig and Animate)"),
+    (_no_auto_rig, ["rigged"], "the auto-rig (for Rig)"),
+    (_no_back_drawer, CHARACTER, "a picture engine that can draw a back view (for Back picture)"),
+    (_no_picture_engine, ["picture", "model"], "a picture engine (for Picture)"),
+])
+def test_a_plan_names_the_one_thing_missing_and_the_steps_it_is_for(studio, plans, monkeypatch, taken_away, steps, still_needed):
+    taken_away(monkeypatch)
+
+    status, answer = _plan(studio, steps, engine="trellis")
+
+    assert status == 409 and plans == []
+    assert answer == {"needs_setup": True, "error": f"Before this can start, set up: {still_needed}. {ALL_SET_UP}"}
+
+
+def test_a_plan_names_the_3d_engine_it_asked_for(studio, plans, engine, monkeypatch):
+    _no_3d_engine(monkeypatch)
+
+    status, answer = _plan(studio, ["picture", "model"], engine="trellis")
+
+    assert status == 409 and plans == []
+    assert answer["error"] == f"Before this can start, set up: {engine.label} (for 3D model). {ALL_SET_UP}"
+
+
+def test_a_plan_names_the_picture_engine_it_asked_for(studio, plans, monkeypatch):
+    def only_flux_is_here(engine=None):
+        if engine is api.image_api.QWEN:
+            raise api.image_api.MissingWeights(["weights.gguf"], engine)
+        return {}
+    monkeypatch.setattr(api.image_api, "resolve_weights", only_flux_is_here)
+
+    status, answer = _plan(studio, ["picture"], picture_engine="qwen")
+
+    assert status == 409 and plans == []
+    assert answer["error"] == (
+        f"Before this can start, set up: the Qwen-Image 2.1 picture engine (for Picture). {ALL_SET_UP}")
+    assert _plan(studio, ["picture"], picture_engine="flux")[0] == 202       # the one that is here
+
+
+@pytest.mark.parametrize("taken_away, steps", [
+    (_no_auto_rig, ["picture", "back", "model", "finished"]),
+    (_no_blender, ["picture", "model"]),
+    (_no_3d_engine, ["picture"]),
+    (_no_back_drawer, ["picture", "model"]),
+    (_no_picture_engine, ["finished"]),
+])
+def test_a_plan_is_asked_only_for_what_its_own_steps_need(studio, plans, monkeypatch, taken_away, steps):
+    taken_away(monkeypatch)
+
+    assert _plan(studio, steps, engine="trellis")[0] == 202
+    assert len(plans) == 1
+
+
+def test_a_plan_missing_only_blender_keeps_its_own_longer_help(studio, plans, monkeypatch):
+    _no_blender(monkeypatch)
+
+    status, answer = _plan(studio, ["picture", "model", "finished"], engine="trellis")
+
+    assert status == 409 and plans == [] and answer["needs_blender"] is True
+    assert "Install Blender" in answer["error"] and "stop after the 3D model" in answer["error"]
+
+
+def test_a_plan_with_your_own_back_picture_needs_nothing_to_draw_one(studio, plans, monkeypatch):
+    _no_back_drawer(monkeypatch)
+    monkeypatch.setitem(api.BACKENDS, "pixal3d",
+                        dataclasses.replace(api.BACKENDS["pixal3d"], readiness=lambda: {"ready": True}))
+
+    status, _ = _plan(studio, ["back", "model"], engine="pixal3d",
+                      files={"file": ("knight.png", _picture()), "back_file": ("knight-back.png", _picture())})
+
+    assert status == 202 and len(plans) == 1
+
+
+@pytest.mark.parametrize("fields, error", [
+    ({"picture_engine": "dall-e"}, NO_ENGINE),
+    ({"engine": "no-such-engine"}, "unknown backend 'no-such-engine'"),
+])
+def test_a_plan_that_names_an_engine_nobody_knows_is_refused_at_once(studio, plans, fields, error):
+    status, answer = _plan(studio, ["picture", "model"], **fields)
+
+    assert status == 400 and answer["error"].startswith(error)
+    assert plans == []

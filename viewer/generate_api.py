@@ -181,6 +181,7 @@ from update_api import check as update_check
 from welcome_api import payload as welcome_payload
 
 from image_to_3dlab import models_home, processes
+from image_to_3dlab.blender import MIN_VERSION as BLENDER_MIN_VERSION
 from image_to_3dlab.blender import find_blender
 from image_to_3dlab.blender import missing_help as blender_missing_help
 from image_to_3dlab.gpu_memory import gpu_busy_note
@@ -582,6 +583,7 @@ def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
 BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
 # A plan's uploads: a picture or two, or a model GLB (a million-triangle one is a few hundred MB)
 CHAIN_UPLOAD_LIMIT = 1024 * 1024 * 1024
+BLENDER_NEED = f"Blender {BLENDER_MIN_VERSION[0]}.{BLENDER_MIN_VERSION[1]} or newer"
 
 
 BACK_VERSIONS_LOCK = threading.Lock()   # "use" and "delete" of a kept back, one at a time
@@ -664,6 +666,66 @@ def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = No
     except ValueError:
         seed = 42
     return picture, stroke, instruction, seed, keep_old
+
+
+def plan_needs(chain: activity_api.Chain) -> list[tuple[str, list[str]]]:
+    """What a plan's steps still need set up, as (what, the steps it is for), in the order the
+    steps run; empty when the plan can start.
+
+    Each step is asked what its own route asks when the run reaches it. Asked here, the plan is
+    refused before anything is made: a missing auto-rig used to show only after the picture, the
+    3D model and Finish. Raises ValueError for an engine nobody knows.
+    """
+    needs: dict[str, list[str]] = {}
+
+    def need(what: str, step: str) -> None:
+        needs.setdefault(what, []).append(activity_api.LABELS[step])
+
+    for step in chain.steps:
+        if step == "picture":
+            engine = image_api.pick_engine(chain.picture_engine or None)
+            if not image_api.is_installed(engine):
+                need(f"the {engine.label} picture engine" if chain.picture_engine else "a picture engine", step)
+        elif step == "back" and not chain.back_upload:      # your own back picture: nothing to draw
+            asked = chain.back_settings.get("engine")
+            can_draw = (image_api.usable(image_api.pick_engine(str(asked)), edit=True) if asked
+                        else back_drawer_ready())
+            if not (image_api.BINARY.exists() and can_draw):
+                need("a picture engine that can draw a back view", step)
+        elif step == "model":
+            backend_id = chain.engine or "trellis"           # what the generate route takes for none
+            spec = backend_spec(backend_id)
+            if spec is None:
+                raise ValueError(f"unknown backend {backend_id!r}")
+            if not spec.readiness()["ready"]:
+                need(spec.label, step)
+        elif step in activity_api.NEEDS_BLENDER:
+            if find_blender() is None:
+                need(BLENDER_NEED, step)
+        elif step in ("rigged", "animated") and not autorig_installed():
+            need("the auto-rig", step)
+    # one engine to set up, not two lines that read as two downloads
+    plain, drawing = "a picture engine", "a picture engine that can draw a back view"
+    if plain in needs and drawing in needs:
+        both = needs.pop(plain) + needs.pop(drawing)
+        needs = {"a picture engine that can also draw a back view": both, **needs}
+    return list(needs.items())
+
+
+def plan_refusal(needs: list[tuple[str, list[str]]]) -> dict[str, Any]:
+    """The answer to a plan that cannot start yet: everything to set up, in one sentence."""
+    blender = [steps for what, steps in needs if what == BLENDER_NEED]
+    if blender and len(needs) == 1:
+        # Blender alone: its own help says how to install it on this system, and what to do meanwhile
+        return {"error": blender_missing_help() + " Or make it without Finish for now: "
+                         "stop after the 3D model, and Finish it once Blender is in.",
+                "needs_blender": True}
+    listed = "; ".join(f"{what} (for {' and '.join(steps)})" for what, steps in needs)
+    answer: dict[str, Any] = {"error": f"{activity_api.PLAN_NEEDS} {listed}. Each is on the Setup & Status page.",
+                              "needs_setup": True}
+    if blender:
+        answer["needs_blender"] = True
+    return answer
 
 
 def back_drawer_ready() -> bool:
@@ -2912,11 +2974,10 @@ class Handler(SimpleHTTPRequestHandler):
                                      else "The request is empty."})
                     return
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
-                # Before the picture and the 3D model, not ten minutes later at Finish
-                if set(chain.steps) & activity_api.NEEDS_BLENDER and find_blender() is None:
-                    self._send_json(409, {"error": blender_missing_help() + " Or make it without Finish for now: "
-                                          "stop after the 3D model, and Finish it once Blender is in.",
-                                          "needs_blender": True})
+                # Before the picture and the 3D model, not ten minutes later at Finish or at Rig
+                needs = plan_needs(chain)
+                if needs:
+                    self._send_json(409, plan_refusal(needs))
                     return
                 chain.client = usage_api.source_of(self.headers.get(usage_api.CLIENT_HEADER))
                 self._chains().submit(chain)

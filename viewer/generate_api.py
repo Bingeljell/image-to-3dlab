@@ -3132,9 +3132,7 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             # room for a 500-character "what to change" in any script (JSON escapes it 6x)
-            payload = json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {}
-            if not isinstance(payload, dict):       # a list or a number is JSON too, with no fields
-                raise ValueError("expected a JSON object")
+            payload = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {})
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
             instruction = str(payload.get("instruction") or "")
@@ -3235,9 +3233,7 @@ class Handler(SimpleHTTPRequestHandler):
             if length <= 0 or length > 64 * 1024:
                 self._send_json(400, {"error": "expected a small JSON body"})
                 return
-            payload = json.loads(self.rfile.read(length))
-            if not isinstance(payload, dict):       # a list or a number is JSON too, with no fields
-                raise ValueError("expected a JSON object")
+            payload = _json_object(json.loads(self.rfile.read(length)))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": f"could not read the request: {exc}"})
             return

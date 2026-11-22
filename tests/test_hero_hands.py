@@ -696,6 +696,43 @@ def test_five_fingers_in_a_row_have_no_thumb():
     assert result["thumbs"] == 0 and not result["ok"]
 
 
+def test_plated_fingers_count_as_fingers():
+    # a gauntlet's fingers are rows of plates: the outline narrows at every joint and widens at every plate's rim
+    import cv2
+
+    mask = flat_hand()
+    for x in (183, 221, 259, 297):                                            # each finger's middle
+        for y in (235, 270):                                                  # two joints a finger
+            cv2.rectangle(mask, (x - 13, y - 2), (x - 10, y + 2), 0, -1)      # a notch on each side ...
+            cv2.rectangle(mask, (x + 10, y - 2), (x + 13, y + 2), 0, -1)
+            cv2.rectangle(mask, (x - 16, y + 4), (x + 16, y + 7), 1, -1)      # ... and a plate's rim below it
+    result = hh.digit_count(mask)
+    assert (result["digits"], result["thumbs"], result["ok"]) == (5, 1, True)
+
+
+def test_count_built_counts_plated_fingers_from_all_round():
+    # the Waechter's builds: each finger three plates round a thinner under-glove, a gap at every joint
+    import trimesh
+
+    move = trimesh.transformations.translation_matrix
+    parts = [trimesh.creation.box((0.30, 0.20, 0.08), move((0, 0.1, 0))),
+             trimesh.creation.box((0.34, 0.12, 0.06), move((0, 0.26, 0)))]
+    for k, x in enumerate((-0.12, -0.04, 0.04, 0.12)):
+        length = 0.30 if k in (1, 2) else 0.24
+        parts.append(trimesh.creation.box((0.035, length, 0.035), move((x, -length / 2, 0))))      # the under-glove
+        plate = length / 3
+        for j in range(3):
+            parts.append(trimesh.creation.box((0.055, plate - 0.012, 0.05),
+                                              move((x, -(j + 0.5) * plate, 0.006))))           # a plate, a gap
+    thumb = trimesh.creation.box((0.05, 0.16, 0.05))
+    thumb.apply_transform(trimesh.transformations.rotation_matrix(0.7, (0, 0, 1)))
+    thumb.apply_translation((0.21, 0.02, 0))
+    parts.append(thumb)
+    hand = trimesh.util.concatenate(parts)
+    result = hh.count_built(hand.vertices, hand.faces, [0, -1, 0])
+    assert result["ok"], result
+
+
 def test_views_count_takes_the_views_that_see_the_most_digits():
     assert hh.views_count([(3, 0), (5, 1), (5, 1), (4, 1), (5, 0)]) == {
         "digits": 5, "thumbs": 1, "ok": True, "per_view": [3, 5, 5, 4, 5]}

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **The background remover no longer cuts a glowing eye out of a face.** On a close crop of a face (as the Hero route
+  makes) BiRefNet-lite cut a bright cyan eye away as if it were background, and the 3D build got a hole there. A hole
+  closed in by the subject on every side whose pixels are not the picture's backdrop colour is now given back; a real
+  see-through gap (a trigger guard, a cup's handle) shows the backdrop and stays cut, and so does any hole larger than
+  2 % of the subject.
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned

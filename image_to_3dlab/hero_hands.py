@@ -258,20 +258,39 @@ def limb_loop(loops: list[np.ndarray], normal: np.ndarray, centre: np.ndarray) -
 
 # --- The wrist ------------------------------------------------------------------------------------------------
 
+PIECE_SHARE = 0.05   # an outline under this share of a section's largest is a sliver, not a piece (a cuff's rim
+                     # left specks of 1e-6 beside the Revolverheld's left wrist, of 1.2e-3)
+
+
+def pieces(loops: list[np.ndarray], normal: np.ndarray, least: float = PIECE_SHARE) -> int:
+    """How many separate pieces a section's outlines make: an outline inside another (a double-walled build's
+    inner skin, a hollow sleeve's lining) is part of that one, and slivers do not count. A wrist is one piece,
+    a row of fingers several."""
+    areas = [loop_area(loop, normal) for loop in loops]
+    big = [loop for loop, area in zip(loops, areas) if area >= least * max(areas, default=0.0)]
+    count = 0
+    for i, loop in enumerate(big):
+        if not any(j != i and contains(other, normal, loop[0]) for j, other in enumerate(big)):
+            count += 1
+    return count
+
+
 def profile(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np.ndarray, ts: np.ndarray,
-            select: np.ndarray | None = None) -> np.ndarray:
-    """The area of the limb's sections at START + t AXIS for every t (all its outlines together: past the
-    knuckles the fingers are five); NaN where the plane misses it.
+            select: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """(area, pieces) of the limb's sections at START + t AXIS for every t: the area of all its outlines together
+    (past the knuckles the fingers are five), NaN where the plane misses it, and how many separate pieces they
+    make (`pieces`).
 
     All outlines, not the one round the axis: between the fingers the axis holds none, the nearest finger
     stood in for the hand, and the walk took a knuckle for the wrist."""
     axis = unit(axis)
-    areas = np.full(len(ts), np.nan)
+    areas, counts = np.full(len(ts), np.nan), np.zeros(len(ts), dtype=np.int64)
     for i, t in enumerate(ts):
         loops = section_loops(points, faces, np.asarray(start, dtype=np.float64) + t * axis, axis, select)
         if loops:
             areas[i] = sum(loop_area(loop, axis) for loop in loops)
-    return areas
+            counts[i] = pieces(loops, axis)
+    return areas, counts
 
 
 def running_median(values: np.ndarray, width: int = 3) -> np.ndarray:
@@ -288,27 +307,29 @@ def running_median(values: np.ndarray, width: int = 3) -> np.ndarray:
     return out
 
 
-def seam_index(areas: np.ndarray, rise: float = SEAM_RISE) -> int | None:
-    """The wrist in a profile of section areas along an arm: its deepest valley.
+def seam_index(areas: np.ndarray, counts: np.ndarray | None = None, rise: float = SEAM_RISE) -> int | None:
+    """The wrist in a profile of section areas along an arm, from the arm (first) to the fingertips (last): the
+    valley nearest the fingertips that is one piece and RISE deep.
 
-    A wrist is narrower than the palm on one side and a cuff or the forearm on the other. Each local narrowest
-    section whose widest sections on both sides are at least RISE times wider is a candidate, and the one that
-    lies deepest below the lower of those two wins: a gap between two fingers lies between two fingers, so even
-    a deep one is shallow next to the wrist below the palm. Not simply the narrowest section: a fingertip is
-    narrower still. Smoothed over three sections first; wider, the median hid the Revolverheld's left wrist,
-    narrow for one section below its cuff. A flat wrist's last section (nearest the palm) wins a tie. None when
-    no valley is deep enough (a mitten as wide as its sleeve).
+    A wrist is narrower than the palm on one side and a cuff or the forearm on the other: a valley whose widest
+    sections on both sides are at least RISE times wider. It is one piece (COUNTS, from `profile`), which a gap
+    between two fingers is not. Of the valleys left, the wrist is the first above the hand: a drawn hand with a
+    long sleeve has a second valley above its cuff, wider in area than the wrist and so deeper by area alone (the
+    Revolverheld's seed-4 hand: its cuff came along onto the figure as a second cuff). Not simply the narrowest
+    section: a fingertip is narrower still. Smoothed over three sections first; wider, the median hid the
+    Revolverheld's left wrist, narrow for one section below its cuff. None when no valley qualifies (a mitten as
+    wide as its sleeve).
     """
     a = running_median(areas)
+    one = np.ones(len(a), bool) if counts is None else np.asarray(counts) == 1
     valid = np.flatnonzero(~np.isnan(a))
-    best, depth = None, -np.inf
+    best = None
     for k in range(1, len(valid) - 1):
         i = valid[k]
-        if a[i] <= 0 or a[i] > a[valid[k - 1]] or a[i] > a[valid[k + 1]]:
+        if a[i] <= 0 or not one[i] or a[i] > a[valid[k - 1]] or a[i] > a[valid[k + 1]]:
             continue
-        rim = min(a[valid[:k]].max(), a[valid[k + 1:]].max())
-        if rim >= rise * a[i] and rim - a[i] >= depth:
-            best, depth = int(i), rim - a[i]
+        if min(a[valid[:k]].max(), a[valid[k + 1:]].max()) >= rise * a[i]:
+            best = int(i)
     return best
 
 
@@ -318,8 +339,8 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
     {"cut": the plane's point on the axis, "centre": the section's middle there, "found": False when no wrist
     shows in the profile (the cut then sits halfway and the caller should say so), "areas", "ts"}."""
     ts = np.linspace(0.0, length, steps)
-    areas = profile(points, faces, start, axis, ts, select)
-    low = seam_index(areas)
+    areas, counts = profile(points, faces, start, axis, ts, select)
+    low = seam_index(areas, counts)
     found = low is not None
     t_low = ts[low] if found else 0.5 * length
     valid = np.flatnonzero(~np.isnan(areas))
@@ -678,6 +699,21 @@ def merge_parts(parts: list[dict]) -> dict:
 def side_faces(part: dict, side_of_face: np.ndarray, side: int) -> dict:
     """The faces of one hand of a merged part, as a part of their own (for its digit count)."""
     return keep_faces(part, np.asarray(side_of_face) == side)[0]
+
+
+def arm_stub(part: dict, plan: dict, share: float = FOREARM_SHARE) -> dict:
+    """The figure's arm just above PLAN's cut: SHARE of the hand's length of it, as far round the axis as twice
+    the wrist's radius (a cuff, not the coat beside it).
+
+    A grafted hand is counted with this stub on, framed as its drawing was (a sleeve on top): counted from its
+    cut alone, the outline's wrist point sat so near the fingers that a little finger read as a second thumb."""
+    p = np.asarray(part["positions"], dtype=np.float64)
+    middle = p[np.asarray(part["faces"])].mean(axis=1)
+    along = (middle - plan["cut"]) @ plan["axis"]
+    off = middle - plan["centre"] - np.outer((middle - plan["centre"]) @ plan["axis"], plan["axis"])
+    radius = 2.0 * np.sqrt(max(plan["area"], 0.0) / np.pi)
+    keep = (along <= 0) & (along > -share * plan["length"]) & (np.linalg.norm(off, axis=1) < radius)
+    return keep_faces({"positions": p, "faces": part["faces"]}, keep)[0]
 
 
 def graft_model(body: dict, bone: np.ndarray, plans: dict[str, dict], hands: dict[str, dict],

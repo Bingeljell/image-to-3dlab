@@ -170,10 +170,32 @@ def test_outer_wall_drops_the_second_skin_once_cut_below_its_rim():
 
 # --- the wrist ----------------------------------------------------------------------------------------------
 
-def test_seam_index_takes_the_deepest_valley_not_a_finger_gap():
-    # arm -> cuff -> wrist -> palm -> fingers with a deep gap two sections wide between two of them -> tip
-    areas = [3.0, 3.0, 5.0, 5.0, 2.0, 2.0, 2.2, 3.0, 3.2, 1.0, 0.7, 0.7, 1.0, 0.4, 0.1]
-    assert hh.seam_index(areas) in (4, 5)
+def test_seam_index_skips_a_gap_between_fingers():
+    # arm -> cuff -> wrist -> palm -> fingers (several pieces) with a deep gap two sections wide -> tip
+    areas = [3.0, 3.0, 5.0, 5.0, 2.0, 2.0, 2.2, 3.0, 3.2, 1.0, 1.0, 0.7, 0.7, 1.0, 1.0, 0.4, 0.1]
+    counts = [1] * 9 + [4] * 8
+    assert hh.seam_index(areas, counts) in (4, 5)
+    assert hh.seam_index(areas) in (11, 12)                # without the pieces, the gap would pass for a wrist
+
+
+def test_seam_index_takes_the_wrist_below_the_cuff_not_the_sleeve_above_it():
+    # a drawn hand with a long sleeve (the Revolverheld's seed-4 drawing): sleeve narrowing to a valley, a cuff,
+    # the wrist, the palm. By area the sleeve's valley is the deeper one; the wrist is the one above the hand.
+    areas = [0.136, 0.131, 0.124, 0.117, 0.111, 0.1085, 0.1085, 0.110, 0.122, 0.140, 0.140, 0.137,
+             0.102, 0.082, 0.065, 0.070, 0.078, 0.085, 0.090, 0.087, 0.078, 0.06, 0.04, 0.02]
+    counts = [1] * 21 + [5, 5, 4]
+    assert hh.seam_index(areas, counts) in (14, 15)
+
+
+def test_pieces_counts_outlines_side_by_side_not_one_inside_another_nor_specks():
+    def ring(cx, r, n=16):
+        a = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        return np.stack([cx + r * np.cos(a), np.zeros(n), r * np.sin(a)], 1)
+
+    axis = [0, 1, 0]
+    assert hh.pieces([ring(0, 1.0), ring(0, 0.98)], axis) == 1          # a double wall: one piece
+    assert hh.pieces([ring(-3, 0.5), ring(-1, 0.5), ring(1, 0.5), ring(3, 0.5)], axis) == 4   # four fingers
+    assert hh.pieces([ring(0, 1.0), ring(2.5, 0.01)], axis) == 1        # a speck beside the wrist
 
 
 def test_seam_index_keeps_a_wrist_one_section_wide():
@@ -296,6 +318,20 @@ def test_graft_model_cuts_only_the_arm_it_was_told():
     out, _, _ = hh.graft_model(body, bone, {"right": plan}, {"right": {"part": hand, "tf": tf}})
     beside = out["positions"][out["positions"][:, 0] > 0.1]
     assert beside[:, 1].min() == pytest.approx(-0.05)       # the other limb keeps its tip
+
+
+def test_arm_stub_takes_the_cuff_above_the_cut_and_not_the_limb_beside_it():
+    arm = figure_arm()
+    coat = figure_arm(x=-0.1)                                 # another limb 10 cm beside it
+    body = {"positions": np.concatenate([arm["positions"], coat["positions"]]),
+            "faces": np.concatenate([arm["faces"], coat["faces"] + len(arm["positions"])])}
+    plan = hh.figure_wrist(arm["positions"], arm["faces"], arm["dense"].argmax(1), 1, [2],
+                           np.array([-0.2, 0.30, 0]), np.array([-0.2, 0.12, 0]), "right")
+    stub = hh.arm_stub(body, plan)
+    above = (stub["positions"] - plan["cut"]) @ plan["axis"]
+    assert len(stub["faces"]) and above.max() <= 1e-9
+    assert above.min() > -hh.FOREARM_SHARE * plan["length"] - 0.02
+    assert (np.abs(stub["positions"][:, 0] + 0.2) < 0.05).all()   # all on this arm
 
 
 # --- skin weights -------------------------------------------------------------------------------------------

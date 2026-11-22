@@ -21,14 +21,40 @@ def test_hero_hands_stops_before_any_work_when_a_part_is_missing(monkeypatch, tm
     assert not (tmp_path / "run").exists()                   # nothing started, nothing written
 
 
-def test_a_builds_drawing_lends_its_licence_with_the_classification_on_top(tmp_path):
-    drawing = {"kind": "generated-image", "license": {"name": "Apache-2.0", "classification": "commercial-clear"}}
+def test_a_builds_drawing_joins_the_licence_ancestry(tmp_path):
+    from image_to_3dlab.provenance import write_derived_sidecar
+
+    # shaped as viewer/image_api.provenance writes it: "output" is a bare file name, and it once stopped the run
+    drawing = {"schema_version": 1, "kind": "generated-image", "model": {"id": "flux2-klein-4b"},
+               "license": {"name": "Apache-2.0", "classification": "commercial-clear",
+                           "inherited_by_derivatives": "yours"}, "output": "right_draw_s3.png"}
     (tmp_path / "right_draw_s3.provenance.json").write_text(json.dumps(drawing))
     record = hero_hands._picture_record(tmp_path / "right_draw_s3_b42.glb")
     assert record["classification"] == "commercial-clear" and record["license"]["name"] == "Apache-2.0"
     assert hero_hands._picture_record(tmp_path / "left_draw_s1_b7.glb") is None
+    model, result = tmp_path / "rigged.glb", tmp_path / "rigged_hands.glb"
+    model.write_bytes(b"a")
+    result.write_bytes(b"b")
+    source = {"license": {"name": "MIT"}, "output": {"classification": "commercial-clear"}}
+    sidecar = write_derived_sidecar(model, result, operation="hero_hands", source_record=source,
+                                    component_records=[record])
+    written = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert written["output"]["classification"] == "commercial-clear"
+    assert "Apache-2.0" in written["license"]["name"] and written["components"][0]["license"] == "Apache-2.0"
 
 
 def test_the_defaults_are_round_22s_tested_ones():
     # 2 of 8 drawings had five digits, and both seeds built them right (round 22 of the AssetFurnace Support notes)
     assert (hero_hands.TRIES, hero_hands.KEEP, hero_hands.SEEDS) == (8, 2, (42, 7))
+
+
+def test_a_step_that_always_runs_forgets_its_old_notes(tmp_path):
+    run = hero_hands.Run(tmp_path)
+    run.current = "check"
+    run.flag("the grafted right hand counts 5 digits and 2 thumb(s)")
+    run.current = "draw"
+    run.flag("the picture editor failed on seed 3")
+    again = hero_hands.Run(tmp_path)                          # a rerun reads the notes back from disk ...
+    hero_hands.fresh(again, "check")                          # ... and the check runs again
+    assert again.unsure == ["the picture editor failed on seed 3"]
+    assert "check" not in json.loads((tmp_path / "unsure.json").read_text(encoding="utf-8"))

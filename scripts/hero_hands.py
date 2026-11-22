@@ -56,6 +56,14 @@ DRAW_SIZE = 1024
 LICENCES = [{"component": "Real-ESRGAN x4plus", "license": "BSD-3-Clause", "purpose": "hand crop upscale"}]
 
 
+def fresh(run: Run, name: str) -> None:
+    """Start a step that always runs (it is quick): its notes from an earlier run go, as `Run.step` does for a step
+    it runs again, so the closing list says only what this run found."""
+    run.current = name
+    if run.notes.pop(name, None) is not None:
+        run.unsure_file.write_text(json.dumps(run.notes, indent=2), encoding="utf-8")
+
+
 def needed_parts() -> dict[str, Path]:
     """Everything the steps run, by what to install to get it."""
     import pixal3d_generate
@@ -192,7 +200,8 @@ def hand_of(path: Path, mirrored: bool) -> dict:
 
 
 def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, which: str):
-    """MODEL with both hands grafted on, written to OUT: (the report per side, both hands as one part)."""
+    """MODEL with both hands grafted on, written to OUT: (the report per side, both hands as one part, the
+    body part)."""
     from image_to_3dlab import hero_hands as hh
 
     data = model.read_bytes()
@@ -201,7 +210,7 @@ def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, 
                                         {s: {"part": h[which], "tf": h["tf"]} for s, h in hands.items()})
     out.write_bytes(hh.regraft_glb(data, [hh.finish_part(body), hh.finish_part(both, smooth=True)]))
     run.say(f"graft: {out.name}: body {len(body['faces'])} faces, hands {len(both['faces'])} faces")
-    return report, both
+    return report, both, body
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -248,6 +257,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 1. measure
     stage(run, "measure", "Finding the wrists")
+    fresh(run, "measure")
     rig = args.rig or args.model
     parents, heads = skeleton(rig)
     rig_doc, _, rig_part = hh.read_part(rig.read_bytes())
@@ -314,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 6. graft
     stage(run, "graft", "Putting the hands on")
+    fresh(run, "graft")
     hands = {}
     for side, plan in plans.items():
         source = side if side in built else sources[0]
@@ -327,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
         if not own["found"]:
             run.flag(f"the built {source} hand showed no wrist below its cuff; it is cut halfway")
     result = out / f"{args.model.stem}_hands.glb"
-    report, both = graft_one(run, args.model, result, bone, plans, hands, "clean")
+    report, both, body = graft_one(run, args.model, result, bone, plans, hands, "clean")
     for side, entry in report.items():
         if not hh.SCALE_LIMITS[0] <= entry["wrist_ratio"] <= hh.SCALE_LIMITS[1]:
             run.flag(f"the new {side} wrist had to be eased {entry['wrist_ratio']}x to meet the arm: check its size")
@@ -343,9 +354,11 @@ def main(argv: list[str] | None = None) -> int:
 
     # 7. check
     stage(run, "check", "Counting the grafted hands' fingers")
+    fresh(run, "check")
     summary = {"model": str(args.model), "picture": str(args.picture), "result": str(result), "sides": {}}
     for index, side in enumerate(plans):
-        hand = hh.side_faces(both, both["side_of_face"], index)
+        # framed as its drawing was: the hand with the figure's cuff above it
+        hand = hh.merge_parts([hh.side_faces(both, both["side_of_face"], index), hh.arm_stub(body, plans[side])])
         count = hh.count_built(hand["positions"], hand["faces"], hands[side]["down"])
         run.say(f"check: grafted {side} hand {count['digits']} digits, {count['thumbs']} thumb(s), "
                 f"per view {count['per_view']}")
@@ -373,15 +386,22 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _picture_record(raw: Path) -> dict | None:
-    """The drawing's licence record, for the build made from it (its classification lifted to the top, where the
-    licence ancestry reads it)."""
+    """The licence record of the drawing a build was made from, as a component record: the classification and the
+    output's path where the licence ancestry (`write_derived_sidecar`) reads them. The picture editor's own record
+    keeps its output as a bare file name, and the ancestry stopped on it."""
     name = raw.stem.rsplit("_b", 1)[0]
     path = raw.with_name(f"{name}.provenance.json")
     if not path.is_file():
         return None
-    record = json.loads(path.read_text(encoding="utf-8"))
-    record["classification"] = (record.get("license") or {}).get("classification", "unverified")
-    return record
+    picture = json.loads(path.read_text(encoding="utf-8"))
+    licence = picture.get("license") or {}
+    classification = licence.get("classification", "unverified")
+    model = picture.get("model") or {}
+    return {"operation": "hand drawing", "license": licence, "classification": classification, "model": model,
+            "output": {"path": str(raw.with_name(f"{name}.png")), "classification": classification},
+            "components": [{"component": model.get("id", "picture editor"), "license": licence.get("name"),
+                            "purpose": "the hand redrawn flat, fingers apart"}],
+            "picture_record": picture}
 
 
 if __name__ == "__main__":

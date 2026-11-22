@@ -19,7 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through below its cuff, and the new hand is put on at the old hand's place, length and turn and stitched to the arm as
   one surface: no overlapping skins at the seam (the Hero face's fault in #229). The figure keeps its skeleton and every
   body weight; the new hand moves as the old one did. The finer models a game-ready step bakes paint and bumps from get
-  the same hands (`--also`).
+  the same hands (`--also`). Armoured hands too: a section is measured as the solid its outer wall encloses, so a
+  gauntlet built with an inner skin, a cuff's lip hanging round its wrist or a knuckle plate open toward the palm is
+  cut below its cuff, not across its knuckles, where the Waechter's first gauntlet lost its thumb and needed a 0.70x
+  squeeze to meet the arm.
 
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone

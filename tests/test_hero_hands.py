@@ -96,6 +96,43 @@ def built_hand(double=True):
     return {"positions": v, "faces": np.concatenate(faces), "uvs": v[:, :2].copy()}
 
 
+def touching_walls(profile, touch, shrink=0.9, squash=(1.0, 0.5), ring=24):
+    """Pixal3D's double wall, as the Waechter's gauntlet build has it: an inner skin SHRINK times the outer one,
+    facing inward, joined to the outer at the open top. Between the heights TOUCH (high, low) its side at angle 0
+    lies on the outer skin, so the two walls share a line there and a section's walk can run round both in one go
+    (their turns cancel). PROFILE is (y, radius) from the top down, the last radius 0 (a tip)."""
+    def rings(scale, shifted):
+        out = []
+        for y, r in profile[:-1]:
+            a = np.linspace(0, 2 * np.pi, ring, endpoint=False)
+            x0 = (1 - scale) * r * squash[0] if shifted and touch[1] <= y <= touch[0] else 0.0
+            out.append(np.stack([x0 + scale * r * np.cos(a) * squash[0], np.full(ring, y),
+                                 scale * r * np.sin(a) * squash[1]], 1))
+        return out
+
+    outer, inner = rings(1.0, False), rings(shrink, True)
+    n = len(outer)
+    tip_y = profile[-1][0]
+    v = np.concatenate([*outer, *inner, [[0.0, tip_y, 0.0]], [[0.0, tip_y + 0.01, 0.0]]])
+    o, i = 0, n * ring                                       # first ids of the outer and inner rings
+    tip_o, tip_i = 2 * n * ring, 2 * n * ring + 1
+    faces = []
+    for k in range(n - 1):
+        for j in range(ring):
+            j1 = (j + 1) % ring
+            a, b, c, d = o + k * ring + j, o + k * ring + j1, o + (k + 1) * ring + j, o + (k + 1) * ring + j1
+            faces += [[a, b, c], [b, d, c]]
+            a, b, c, d = i + k * ring + j, i + k * ring + j1, i + (k + 1) * ring + j, i + (k + 1) * ring + j1
+            faces += [[a, c, b], [b, c, d]]                  # the inner skin faces inward
+    for j in range(ring):
+        j1 = (j + 1) % ring
+        faces.append([o + (n - 1) * ring + j, o + (n - 1) * ring + j1, tip_o])
+        faces.append([i + (n - 1) * ring + j1, i + (n - 1) * ring + j, tip_i])
+        a, b, c, d = o + j, o + j1, i + j, i + j1             # the open top joins the two skins
+        faces += [[a, c, b], [b, c, d]]
+    return {"positions": v, "faces": np.array(faces), "uvs": v[:, :2].copy()}
+
+
 # --- mesh pieces --------------------------------------------------------------------------------------------
 
 def test_weld_groups_joins_vertices_at_one_place():
@@ -196,6 +233,63 @@ def test_pieces_counts_outlines_side_by_side_not_one_inside_another_nor_specks()
     assert hh.pieces([ring(0, 1.0), ring(0, 0.98)], axis) == 1          # a double wall: one piece
     assert hh.pieces([ring(-3, 0.5), ring(-1, 0.5), ring(1, 0.5), ring(3, 0.5)], axis) == 4   # four fingers
     assert hh.pieces([ring(0, 1.0), ring(2.5, 0.01)], axis) == 1        # a speck beside the wrist
+
+
+def shuffled(part, seed):
+    """PART with its faces in another order: where two walls share a line, the order decides whether a section's
+    walk switches walls there, as it does in a real build."""
+    order = np.random.default_rng(seed).permutation(len(part["faces"]))
+    return {**part, "faces": part["faces"][order]}
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_a_sections_area_is_what_its_outer_wall_encloses_however_the_walls_touch(seed):
+    # the Waechter's gauntlet build: where its two walls touch, one walk ran round both and their areas cancelled
+    # (0.009 where the outline enclosed about 0.05), elsewhere the inner wall's area was added; the wrist was taken
+    # at such a false valley, on the knuckle plate
+    tube = shuffled(touching_walls([(0.3, 0.1), (0.2, 0.1), (0.1, 0.1), (0.0, 0.1), (-0.1, 0.0)], touch=(0.3, 0.0),
+                                   squash=(1.0, 1.0), ring=48), seed)
+    points, faces, _ = hh.weld(tube["positions"], tube["faces"])
+    areas, counts = hh.profile(points, faces, [0, 0.3, 0], [0, -1, 0], np.linspace(0.05, 0.25, 5))
+    assert np.allclose(areas, np.pi * 0.1 ** 2, rtol=0.05), areas
+    assert counts.tolist() == [1] * 5
+
+
+def arc(mask, centre, radius, start, end, thickness=3):
+    """A thin open shell's section drawn into MASK: a circle's arc from START to END degrees."""
+    import cv2
+
+    cv2.ellipse(mask, centre, (radius, radius), 0, start, end, 1, thickness)
+    return mask
+
+
+def test_a_lip_hanging_round_the_wrist_is_not_a_piece_of_its_own():
+    # the Waechter's build: the cuff's lip hangs round the wrist, open on one side; it took the wrist's section to
+    # two pieces, and the one-piece rule skipped the real wrist
+    import cv2
+
+    mask = np.zeros((200, 200), np.uint8)
+    cv2.circle(mask, (100, 100), 40, 1, -1)
+    arc(mask, (100, 100), 60, 30, 330)
+    found = hh.mask_pieces(mask.astype(bool))
+    assert len(found["areas"]) == 1 and found["areas"][0] == pytest.approx(np.pi * 40 ** 2, rel=0.05)
+    assert not found["hollow"].any()
+
+
+def test_a_shell_open_toward_a_hollow_counts_as_what_it_encloses():
+    # the Waechter's build: its knuckle plate is a shell open toward an empty palm; filled from outside it read a
+    # tenth of the hand's width, and the wrist was taken there
+    mask = arc(np.zeros((200, 200), np.uint8), (100, 100), 60, 30, 330)
+    found = hh.mask_pieces(mask.astype(bool))
+    assert len(found["areas"]) == 1 and found["areas"][0] > 0.8 * np.pi * 60 ** 2
+    assert found["hollow"].tolist() == [True]
+
+
+@pytest.mark.parametrize("seed", [2, 3, 4, 5])
+def test_hand_wrist_finds_the_cuff_when_the_walls_touch_in_the_palm(seed):
+    hand = shuffled(touching_walls(HAND, touch=(0.10, -0.10)), seed)
+    own = hh.hand_wrist(hand["positions"], hand["faces"])
+    assert own["found"] and 0.15 < own["cut"][1] < 0.299      # below the cuff, not in the palm
 
 
 def test_seam_index_keeps_a_wrist_one_section_wide():

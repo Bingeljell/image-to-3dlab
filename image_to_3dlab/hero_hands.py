@@ -132,12 +132,10 @@ def _cut_edges(faces: np.ndarray, out: np.ndarray, select: np.ndarray):
         yield "out", a[one_out], b[one_out], c[one_out]
 
 
-def section_loops(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, normal: np.ndarray,
-                  select: np.ndarray | None = None) -> list[np.ndarray]:
-    """The closed outlines where a plane cuts a welded mesh (`weld`), as arrays of 3D points.
-
-    SELECT (bool per face) limits the cut to some faces: an arm, not the coat beside it.
-    """
+def crossings(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, normal: np.ndarray,
+              select: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """(the points where a plane crosses a welded mesh's edges, the segments between them as pairs of their ids,
+    each running as the kept faces' boundary). SELECT (bool per face) limits the cut to some faces."""
     faces = np.asarray(faces, dtype=np.int64)
     d = _signed(points, origin, normal)
     chosen = np.ones(len(faces), bool) if select is None else np.asarray(select, dtype=bool)
@@ -148,13 +146,22 @@ def section_loops(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, nor
             # the outline runs as the kept faces' boundary: P(a,b) -> P(c,a) when only a is kept, else reversed
             segments.append(np.stack([ab, ca], 1) if kind == "in" else np.stack([ca, ab], 1))
     if not segments:
-        return []
+        return np.zeros((0, 3)), np.zeros((0, 2), dtype=np.int64)
     seg = np.concatenate(segments)                       # (s, 2 ends, 2 vertex ids of the crossed edge)
     keys, inverse = np.unique(seg.reshape(-1, 2), axis=0, return_inverse=True)
     t = d[keys[:, 0]] / (d[keys[:, 0]] - d[keys[:, 1]])
     crossing = points[keys[:, 0]] + (points[keys[:, 1]] - points[keys[:, 0]]) * t[:, None]
-    loops = chain_loops(inverse.reshape(-1, 2))
-    return [crossing[loop] for loop in loops if len(loop) >= 3]
+    return crossing, inverse.reshape(-1, 2)
+
+
+def section_loops(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, normal: np.ndarray,
+                  select: np.ndarray | None = None) -> list[np.ndarray]:
+    """The closed outlines where a plane cuts a welded mesh (`weld`), as arrays of 3D points.
+
+    SELECT (bool per face) limits the cut to some faces: an arm, not the coat beside it.
+    """
+    crossing, seg = crossings(points, faces, origin, normal, select)
+    return [crossing[loop] for loop in chain_loops(seg) if len(loop) >= 3]
 
 
 def clip(vertices: np.ndarray, faces: np.ndarray, origin: np.ndarray, normal: np.ndarray,
@@ -265,37 +272,135 @@ def limb_loop(loops: list[np.ndarray], normal: np.ndarray, centre: np.ndarray) -
 
 PIECE_SHARE = 0.05   # an outline under this share of a section's largest is a sliver, not a piece (a cuff's rim
                      # left specks of 1e-6 beside the Revolverheld's left wrist, of 1.2e-3)
+SECTION_PIXELS = 200  # a limb's sections are filled on a grid this many pixels across its widest: a wrist ~100 across
+SOLID_SHARE = 0.5     # a section's piece filling less of its outline's hull is a shell round a hollow: solid sections
+                      # of the Revolverheld's, the Zauberer's and the Waechter's builds fill 0.97-1.0 of it, the
+                      # Waechter's knuckle plate (open toward the palm) and cuff lip 0.12-0.18
+
+
+def filled(segments: np.ndarray, pixel: float) -> tuple[np.ndarray, np.ndarray]:
+    """(inside, corner): flat SEGMENTS (s, 2 ends, 2) drawn as lines on a grid of PIXEL and filled from outside;
+    INSIDE is every cell no path from outside reaches without crossing a line (the lines too), CORNER the plane
+    position of cell (0, 0)."""
+    import cv2
+
+    seg = np.asarray(segments, dtype=np.float64).reshape(-1, 2, 2)
+    corner = seg.reshape(-1, 2).min(axis=0) - 2 * pixel
+    cells = np.round((seg - corner) / pixel).astype(np.int32)
+    canvas = np.zeros((int(cells[..., 1].max()) + 3, int(cells[..., 0].max()) + 3), np.uint8)
+    cv2.polylines(canvas, cells.reshape(-1, 2, 1, 2), False, 1)       # 8-connected lines ...
+    seen = np.zeros((canvas.shape[0] + 2, canvas.shape[1] + 2), np.uint8)
+    cv2.floodFill(canvas, seen, (0, 0), 2, flags=4)                    # ... that a 4-connected fill cannot cross
+    return canvas != 2, corner
+
+
+def mask_pieces(inside: np.ndarray, least: float = PIECE_SHARE, solid: float = SOLID_SHARE) -> dict:
+    """A filled section's pieces, slivers under LEAST of the largest dropped: {"labels" (0 outside or not a piece,
+    piece k is k + 1), "areas", "centres" (in cells), "hollow" (per piece)}.
+
+    Armour leaves two kinds of shell a fill from outside misreads (the Waechter's gauntlet build, AssetFurnace
+    Support D241). A cuff's lip hanging round the wrist, open on one side, is a thin piece whose outline wraps
+    another piece: it is not a piece of its own and adds nothing. A knuckle plate built as a shell open toward a
+    hollow palm fills less than SOLID of its outline's hull: it is hollow and counts as the hull it encloses, or
+    the open shell reads as a wrist a tenth as wide as the hand."""
+    import cv2
+
+    n, labels, stats, centres = cv2.connectedComponentsWithStats(inside.astype(np.uint8), connectivity=4)
+    areas = stats[1:, cv2.CC_STAT_AREA].astype(np.float64)
+    big = np.flatnonzero(areas >= least * areas.max(initial=0.0))
+    hulls, hull_areas = {}, {}
+    for k in big:
+        x, y, w, h = stats[k + 1, :4]
+        ys, xs = np.nonzero(labels[y:y + h, x:x + w] == k + 1)
+        hulls[k] = cv2.convexHull(np.stack([xs + x, ys + y], 1).astype(np.int32))
+        hull_areas[k] = max(float(cv2.contourArea(hulls[k])), areas[k])
+    wraps = {k for k in big for j in big if j != k and hull_areas[k] > hull_areas[j]
+             and cv2.pointPolygonTest(hulls[k], (float(centres[j + 1, 0]), float(centres[j + 1, 1])), False) >= 0}
+    kept = [k for k in big if k not in wraps]
+    keep = np.zeros(n, dtype=np.int64)
+    keep[1:][kept] = np.arange(1, len(kept) + 1)
+    hollow = np.array([areas[k] < solid * hull_areas[k] for k in kept], dtype=bool)
+    sized = np.array([hull_areas[k] if h else areas[k] for k, h in zip(kept, hollow)])
+    return {"labels": keep[labels], "areas": sized.reshape(-1), "centres": centres[1:][kept].reshape(-1, 2),
+            "hollow": hollow}
 
 
 def pieces(loops: list[np.ndarray], normal: np.ndarray, least: float = PIECE_SHARE) -> int:
     """How many separate pieces a section's outlines make: an outline inside another (a double-walled build's
     inner skin, a hollow sleeve's lining) is part of that one, and slivers do not count. A wrist is one piece,
     a row of fingers several."""
-    areas = [loop_area(loop, normal) for loop in loops]
-    big = [loop for loop, area in zip(loops, areas) if area >= least * max(areas, default=0.0)]
-    count = 0
-    for i, loop in enumerate(big):
-        if not any(j != i and contains(other, normal, loop[0]) for j, other in enumerate(big)):
-            count += 1
-    return count
+    loops = [np.asarray(loop, dtype=np.float64) for loop in loops if len(loop) >= 3]
+    if not loops:
+        return 0
+    basis = plane_basis(normal)
+    segments = np.concatenate([np.stack([loop, np.roll(loop, -1, axis=0)], 1) @ basis.T for loop in loops])
+    pixel = max(float(np.ptp(segments.reshape(-1, 2), axis=0).max()), 1e-12) / SECTION_PIXELS
+    return len(mask_pieces(filled(segments, pixel)[0], least)["areas"])
+
+
+def section_fill(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, normal: np.ndarray,
+                 select: np.ndarray | None = None, pixel: float | None = None) -> dict:
+    """A section through a welded mesh as the solid it outlines: {"area" (NaN where the plane misses), "pieces",
+    "centre" (of the piece holding ORIGIN, else the largest; None where it misses), "piece_area" (that piece's),
+    "hollow" (whether a piece is a shell round a hollow, `mask_pieces`)}.
+
+    Filled from outside, so its area is what the outer wall encloses. A Pixal3D build has an inner skin about a
+    millimetre in, and where the two walls touch, one walk ran round both and their areas cancelled; elsewhere the
+    inner skin's area was added. Measured as outlines, the Waechter's gauntlet build read 0.009 where it enclosed
+    about 0.05, and the wrist was taken there, on the knuckle plate (AssetFurnace Support D241)."""
+    normal = unit(normal)
+    crossing, seg = crossings(points, faces, origin, normal, select)
+    if not len(seg):
+        return {"area": float("nan"), "pieces": 0, "centre": None}
+    basis = plane_basis(normal)
+    flat = crossing @ basis.T
+    if pixel is None:
+        pixel = max(float(np.ptp(flat, axis=0).max()), 1e-12) / SECTION_PIXELS
+    inside, corner = filled(flat[seg], pixel)
+    found = mask_pieces(inside)
+    labels, areas, centres = found["labels"], found["areas"], found["centres"]
+    if not len(areas):
+        return {"area": float("nan"), "pieces": 0, "centre": None}
+    here = np.round((np.asarray(origin, dtype=np.float64) @ basis.T - corner) / pixel).astype(int)
+    holder = (labels[here[1], here[0]] if 0 <= here[1] < labels.shape[0] and 0 <= here[0] < labels.shape[1]
+              else 0)
+    piece = holder - 1 if holder > 0 else int(np.argmax(areas))
+    middle = corner + centres[piece] * pixel
+    centre = middle @ basis + (np.asarray(origin, dtype=np.float64) @ normal) * normal
+    return {"area": float(areas.sum()) * pixel ** 2, "pieces": len(areas), "centre": centre,
+            "piece_area": float(areas[piece]) * pixel ** 2, "hollow": bool(found["hollow"].any())}
+
+
+def section_pixel(points: np.ndarray, axis: np.ndarray, faces: np.ndarray | None = None,
+                  select: np.ndarray | None = None) -> float:
+    """One grid size for every section of a limb: its widest extent across AXIS over SECTION_PIXELS."""
+    p = np.asarray(points, dtype=np.float64)
+    if select is not None and faces is not None:
+        p = p[np.unique(np.asarray(faces)[np.asarray(select, dtype=bool)])]
+    flat = p @ plane_basis(axis).T
+    return max(float(np.ptp(flat, axis=0).max()) if len(flat) else 0.0, 1e-12) / SECTION_PIXELS
+
+
+def sections_along(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np.ndarray, ts: np.ndarray,
+                   select: np.ndarray | None = None) -> list[dict]:
+    """The limb's sections at START + t AXIS for every t (`section_fill`), on one grid."""
+    axis = unit(axis)
+    pixel = section_pixel(points, axis, faces, select)
+    return [section_fill(points, faces, np.asarray(start, dtype=np.float64) + t * axis, axis, select, pixel)
+            for t in ts]
 
 
 def profile(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np.ndarray, ts: np.ndarray,
             select: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-    """(area, pieces) of the limb's sections at START + t AXIS for every t: the area of all its outlines together
-    (past the knuckles the fingers are five), NaN where the plane misses it, and how many separate pieces they
-    make (`pieces`).
+    """(area, pieces) of the limb's sections at START + t AXIS for every t: the solid all its outlines enclose
+    together (past the knuckles the fingers are five; `section_fill`), NaN where the plane misses it, and how
+    many separate pieces they make.
 
     All outlines, not the one round the axis: between the fingers the axis holds none, the nearest finger
     stood in for the hand, and the walk took a knuckle for the wrist."""
-    axis = unit(axis)
-    areas, counts = np.full(len(ts), np.nan), np.zeros(len(ts), dtype=np.int64)
-    for i, t in enumerate(ts):
-        loops = section_loops(points, faces, np.asarray(start, dtype=np.float64) + t * axis, axis, select)
-        if loops:
-            areas[i] = sum(loop_area(loop, axis) for loop in loops)
-            counts[i] = pieces(loops, axis)
-    return areas, counts
+    sections = sections_along(points, faces, start, axis, ts, select)
+    return (np.array([s["area"] for s in sections], dtype=np.float64),
+            np.array([s["pieces"] for s in sections], dtype=np.int64))
 
 
 def running_median(values: np.ndarray, width: int = 3) -> np.ndarray:
@@ -344,7 +449,9 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
     {"cut": the plane's point on the axis, "centre": the section's middle there, "found": False when no wrist
     shows in the profile (the cut then sits halfway and the caller should say so), "areas", "ts"}."""
     ts = np.linspace(0.0, length, steps)
-    areas, counts = profile(points, faces, start, axis, ts, select)
+    sections = sections_along(points, faces, start, axis, ts, select)
+    areas = np.array([s["area"] for s in sections], dtype=np.float64)
+    counts = np.array([s["pieces"] for s in sections], dtype=np.int64)
     low = seam_index(areas, counts)
     found = low is not None
     t_low = ts[low] if found else 0.5 * length
@@ -352,9 +459,10 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
     t_tip = ts[valid[-1]] if len(valid) else length
     t_cut = t_low + shift * max(t_tip - t_low, 0.0)
     here = np.asarray(start, dtype=np.float64) + t_cut * unit(axis)
-    loop = limb_loop(section_loops(points, faces, here, axis, select), axis, here)
-    return {"cut": here, "centre": loop.mean(axis=0) if loop is not None else here, "found": found,
-            "area": loop_area(loop, axis) if loop is not None else float("nan"), "areas": areas, "ts": ts}
+    section = section_fill(points, faces, here, axis, select, section_pixel(points, axis, faces, select))
+    found_piece = section["centre"] is not None
+    return {"cut": here, "centre": section["centre"] if found_piece else here, "found": found,
+            "area": section["piece_area"] if found_piece else float("nan"), "areas": areas, "ts": ts}
 
 
 def reach_of(points: np.ndarray, centre: np.ndarray) -> float:

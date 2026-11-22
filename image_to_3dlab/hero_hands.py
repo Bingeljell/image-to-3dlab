@@ -674,6 +674,34 @@ def cut_part(part: dict, origin: np.ndarray, normal: np.ndarray, cuttable: np.nd
     return out, rim[(rim >= 0).all(axis=1)]
 
 
+def loose_inner_skins(part: dict, rim: np.ndarray, plan: dict) -> np.ndarray:
+    """Which faces of a body cut at PLAN's wrist belong to an inner skin the cut cut loose: a piece that owns part of
+    the cut's rim but none of its outermost edges (`rim_fill`), all of it within the seam's reach.
+
+    Finish's remesh leaves an inner skin a few millimetres inside the outer one; on the Waechter's shape model it
+    hung on the outer skin only through the hand, and cut at the wrist the forearm's part of it came loose (about
+    1,000 faces an arm), its open edge just inside the stitch, and the game figure showed bits of it on the forearm
+    above each new hand. A piece that wraps the arm from outside (a bracelet) owns outer edges and stays."""
+    faces = np.asarray(part["faces"])
+    drop = np.zeros(len(faces), dtype=bool)
+    if not len(rim):
+        return drop
+    group = weld_groups(part["positions"])
+    label = components(faces, group)
+    rank, _ = rim_fill(part["positions"], rim, plan["axis"])
+    owner = np.full(group.max() + 1, -1, dtype=np.int64)      # each place's piece (pieces join at welded places)
+    owner[group[faces].reshape(-1)] = np.repeat(label, 3)
+    edge_owner = owner[group[np.asarray(rim)[:, 0]]]
+    outer = set(edge_owner[rank <= rank.min() + 2].tolist())
+    middle = np.asarray(part["positions"])[faces].mean(axis=1)
+    near = np.linalg.norm(middle - plan["centre"], axis=1) < plan["reach"]
+    for piece in set(edge_owner.tolist()) - outer - {-1}:
+        mine = label == piece
+        if near[mine].all():
+            drop |= mine
+    return drop
+
+
 def keep_faces(part: dict, keep: np.ndarray, rim: np.ndarray | None = None):
     """PART with only the KEEP faces (and the vertices they use); RIM renumbered along."""
     present = [k for k in ATTRIBUTES if part.get(k) is not None]
@@ -953,6 +981,9 @@ def graft_model(body: dict, bone: np.ndarray, plans: dict[str, dict], hands: dic
         cuttable = (work["marks"][faces, index] > 0).any(axis=1) & (
             np.linalg.norm(middle - plan["centre"], axis=1) < plan["reach"])
         work, body_rim = cut_part(work, plan["cut"], plan["axis"], cuttable)
+        loose = loose_inner_skins(work, body_rim, plan)
+        if loose.any():
+            work, body_rim = keep_faces(work, ~loose, body_rim)
         pieces = rim_pieces(work["positions"], body_rim)
         areas = sorted((loop_area(work["positions"][ids], plan["axis"]) for ids in pieces), reverse=True)
         placed, hand_rim = hand_onto(hands[side]["part"], hands[side]["tf"], plan, gap_share * plan["length"])
@@ -961,7 +992,7 @@ def graft_model(body: dict, bone: np.ndarray, plans: dict[str, dict], hands: dic
         placed, stitched = stitch(work, body_rim, placed, hand_rim, plan)
         placed_parts.append(placed)
         side_of_face.append(np.full(len(placed["faces"]), index))
-        report[side] = {**stitched, "rim_pieces": len(pieces),
+        report[side] = {**stitched, "rim_pieces": len(pieces), "inner_dropped": int(loose.sum()),
                         "rim_rest_share": round(float(sum(areas[1:]) / max(sum(areas), 1e-18)), 4)}
     body_out = {k: v for k, v in work.items() if k != "marks"}
     hands_out = merge_parts(placed_parts)

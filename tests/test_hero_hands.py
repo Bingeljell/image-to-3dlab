@@ -526,6 +526,32 @@ def test_a_mirrored_hand_on_the_left_arm_also_closes_and_faces_out():
     assert closed_edges(v, f) == (0, 0) and not report["left"]["rims_turn_alike"]
 
 
+def test_the_arms_inner_skin_cut_at_the_wrist_is_dropped():
+    # the Waechter's shape model has an inner skin a few millimetres inside its outer one (Finish's remesh); cut at the
+    # wrist, the forearm's part of it came loose as a piece of its own, its open edge just inside the stitch, and the
+    # game figure showed bits of it on the forearm above each new hand
+    arm = figure_arm()
+    v, f = turned([(y, 0.85 * r) for y, r in ARM])                # the inner skin, facing inward, open at the
+    f = f[(f != 0).all(axis=1)]                                    # top: it meets the outer skin at the tip alone
+    v[v[:, 1] < 0.12, 0] *= 0.6
+    v[:, 0] += -0.2
+    inner = {"positions": v, "faces": f[:, ::-1], "uvs": v[:, :2].copy(),
+             "dense": np.eye(3)[np.where(v[:, 1] < 0.12, 2, 1)]}
+    body = {k: np.concatenate([arm[k], inner[k] if k != "faces" else inner[k] + len(arm["positions"])])
+            for k in ("positions", "faces", "uvs", "dense")}
+    bone = body["dense"].argmax(1)
+    plan = hh.figure_wrist(arm["positions"], arm["faces"], arm["dense"].argmax(1), 1, [2],
+                           np.array([-0.2, 0.30, 0]), np.array([-0.2, 0.12, 0]), "right")
+    hand = built_hand(double=False)
+    own = hh.hand_wrist(hand["positions"], hand["faces"])
+    tf = hh.placement(own["centre"], own["fingers"], own["back"], own["length"],
+                      plan["centre"], plan["fingers"], plan["back"], plan["length"])
+    out, _, report = hh.graft_model(body, bone, {"right": plan}, {"right": {"part": hand, "tf": tf}})
+    labels = hh.components(out["faces"], hh.weld_groups(out["positions"]))
+    assert labels.max() == 0                                       # the outer arm alone, the inner skin gone
+    assert report["right"]["inner_dropped"] > 0
+
+
 def test_graft_model_cuts_only_the_arm_it_was_told():
     arm = figure_arm()
     coat = figure_arm(x=0.2)                                  # another limb beside it, same heights, bone 0

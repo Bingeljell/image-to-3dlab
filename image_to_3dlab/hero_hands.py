@@ -44,10 +44,10 @@ SCALE_LIMITS = (0.7, 1.4)   # a new wrist this much narrower or wider than the o
 TURN_LIMIT_DEG = 45.0       # the figure's own palm (the old hand's thinnest direction) this far from the placed one
                             # says the pose is not the usual A-pose with the palms to the thighs
 THUMB_HINT = 0.03           # the thumb's cleft reaches at least this share of the hand's length nearer the wrist than
-                            # the clefts between the fingers ...
-THUMB_CLEFT = 0.07          # ... and a cleft this deep at the row's other end is a second thumb, not a splayed little
-                            # finger (both measured on 32 drawings: thumbs 0.045-0.12, little fingers up to 0.06,
-                            # the drawn second thumbs 0.08-0.14; AssetFurnace Support D248)
+                            # the deepest cleft between the fingers ...
+THUMB_CLEFT = 0.035         # ... and a cleft this deep at the row's other end is a second thumb, not a splayed little
+                            # finger: on 32 drawings checked by a second reviewer, thumbs lay 0.04-0.12 deeper, little
+                            # fingers at most 0.02, second thumbs and doubtful digits 0.04-0.14 (AssetFurnace Support D248)
 
 
 # --- Mesh pieces ----------------------------------------------------------------------------------------------

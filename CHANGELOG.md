@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hand) and built on its own, so it fills Pixal3D's whole box; drawings and builds are kept only when their outline
   counts five digits and one thumb. The thumb is told by its cleft, which runs deeper toward the wrist than the gaps
   between the fingers, and must sit on the side the picture editor was told; its length says nothing (on 32 drawings
-  the length rule kept 5, the cleft 16, and still turns away six fingers and two thumbs). The wrists are found from the rig (no hand-drawn box), each arm is cut straight
+  the length rule kept 5, the cleft 13, twelve of them good to a second look and one unclear, and it still turns
+  away six fingers and two
+  thumbs). The wrists are found from the rig (no hand-drawn box), each arm is cut straight
   through below its cuff, and the new hand is put on at the old hand's place, length and turn and stitched to the arm as
   one surface: no overlapping skins at the seam (the Hero face's fault in #229). The figure keeps its skeleton and every
   body weight; the new hand moves as the old one did. The finer models a game-ready step bakes paint and bumps from get

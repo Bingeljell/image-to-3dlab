@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned
   folder now clears the read-only flag first, as `addon remove` already did.
+- **"Turn off" on the first-start usage card turns the counts off.** It only marked the card as seen, which is what
+  lets the daily count go, and left the counts on until you unticked the box on About. "See exactly what's sent" no
+  longer counts as a yes either: it opens About, and the card is back at the next start until you choose.
 
 ## [0.6.0] - 2026-11-18
 

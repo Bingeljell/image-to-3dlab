@@ -1943,6 +1943,45 @@ def test_the_first_start_card_says_the_same_when():
     assert out == {"statement": True, "see": True, "off": True}
 
 
+def _press_on_the_first_start_card(selector: str):
+    """Show the real first-start card to a new user, press one button, and say what happened, in order:
+    each choice the studio was asked to save (saving takes a moment, as it does on a real server),
+    and the About page opening."""
+    return _run("pages.js", """
+      const log = [];
+      const buttons = {};
+      const card = { className: '', setAttribute() {}, remove() {}, set innerHTML(html) {},
+        querySelector(selector) { return buttons[selector] ??= { addEventListener(type, fn) { this.press = fn; } }; } };
+      globalThis.document = { createElement: () => card, body: { append() {} } };
+      globalThis.fetch = async (url, init) => {
+        if (init?.method !== 'POST') return { ok: true, json: async () => ({ noticed: false, policy: 'https://assetfurnace.com/privacy' }) };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        log.push('saved ' + init.body);
+        return { ok: true, json: async () => ({}) };
+      };
+      await m.usageNotice(() => log.push('about'));
+      await buttons[SELECTOR].press();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      console.log(JSON.stringify(log));""".replace("SELECTOR", json.dumps(selector)))
+
+
+@needs_node
+def test_turn_off_on_the_first_start_card_turns_the_counts_off():
+    # It saved {noticed: true}, the flag that lets the daily message go, and left the counts on.
+    # About opens after the choice is saved, so its box shows what was chosen.
+    assert _press_on_the_first_start_card("[data-about]") == ['saved {"share":false}', "about"]
+
+
+@needs_node
+def test_looking_at_what_is_sent_does_not_let_sending_start():
+    assert _press_on_the_first_start_card("[data-see]") == ["about"]
+
+
+@needs_node
+def test_got_it_on_the_first_start_card_is_the_yes():
+    assert _press_on_the_first_start_card("[data-ok]") == ['saved {"noticed":true}']
+
+
 def test_readme_and_both_installers_say_the_same_sentence():
     """A promise worded four ways is four promises. This one is the same string everywhere."""
     plain = " ".join(STATEMENT.split())

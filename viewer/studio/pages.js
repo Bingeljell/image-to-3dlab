@@ -266,13 +266,13 @@ export async function usageNotice(openAboutPage) {
   card.className = 'usage-notice';
   card.setAttribute('role', 'status');
   card.innerHTML = usageNoticeHtml(state.policy);
-  const done = () => {
-    card.remove();
-    fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ noticed: true }) }).catch(() => {});
-  };
-  card.querySelector('[data-ok]').addEventListener('click', done);
-  card.querySelector('[data-about]').addEventListener('click', () => { done(); openAboutPage(); });
-  card.querySelector('[data-see]').addEventListener('click', () => { done(); openAboutPage(); });
+  const save = (choice) => fetch('/api/usage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(choice) }).catch(() => {});
+  // "Got it" is the yes: the card stays away and the daily count may go.
+  card.querySelector('[data-ok]').addEventListener('click', () => { card.remove(); save({ noticed: true }); });
+  // "Turn off" turns the counts off itself, then shows About, whose box now says so.
+  card.querySelector('[data-about]').addEventListener('click', async () => { card.remove(); await save({ share: false }); openAboutPage(); });
+  // Looking is not a yes: nothing is saved, so nothing is sent, and the card is back at the next start.
+  card.querySelector('[data-see]').addEventListener('click', () => { card.remove(); openAboutPage(); });
   document.body.append(card);
 }
 

@@ -8,6 +8,7 @@ the viewer server, running its tests, or serving Compare never imports torch.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -1278,7 +1279,10 @@ class Job:
 
     def append_log(self, line: str) -> None:
         self.log_lines.append(line)
-        with self.directory.joinpath("run.log").open("a", encoding="utf-8") as handle:
+        # A full disk or a locked run.log must not cost the run: the last lines stay in
+        # memory for the error report, and whoever called this (the output reader, the
+        # runner) carries on.
+        with contextlib.suppress(OSError), self.directory.joinpath("run.log").open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
 
@@ -1430,6 +1434,20 @@ def _read_process(job: Job) -> None:
     assert job.process is not None and job.process.stdout is not None
     spec = backend_spec(job.backend_id)
     assert spec is not None, "_run_job resolves the backend before it starts this reader"
+    said = False
+
+    def take(line: str) -> None:
+        # Whatever the parser makes of a line, keep reading: a reader that stops leaves the
+        # pipe full, the generator stuck at its next print, and the job "running" for good.
+        nonlocal said
+        job.append_log(line)
+        try:
+            spec.parse_line(job, line)
+        except Exception as exc:
+            if not said:
+                said = True
+                job.append_log(f"[could not read progress from the line above; the run goes on: {exc!r}]")
+
     buffer = ""
     while True:
         chunk = job.process.stdout.read(4096)
@@ -1444,11 +1462,9 @@ def _read_process(job: Job) -> None:
             line, buffer = buffer[:cut], buffer[cut + 1:]
             if not line:
                 continue
-            job.append_log(line)
-            spec.parse_line(job, line)
+            take(line)
     if buffer:
-        job.append_log(buffer)
-        spec.parse_line(job, buffer)
+        take(buffer)
 
 
 def _trellis_parse_line(job: Job, line: str) -> None:

@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -2195,6 +2196,61 @@ def test_a_job_whose_engine_is_unknown_fails_instead_of_running_forever(tmp_path
     assert job.status == "error"
     assert job.events[-1]["phase"] == "error"
     assert "no-such-engine" in job.events[-1]["message"]
+    assert jobs.active is None
+
+
+# More output than a pipe holds (about 64 KB): a generator nobody is reading stops at a print.
+CHATTY_GENERATOR = ("import sys\n"
+                    "for _ in range(4000): print('x' * 80, flush=True)\n"
+                    "open(sys.argv[1], 'wb').write(b'glb')\n")
+
+
+def _chatty_job(tmp_path, monkeypatch, parse_line):
+    writer = tmp_path / "writer.py"
+    writer.write_text(CHATTY_GENERATOR, encoding="utf-8")
+    fake = dataclasses.replace(api.BACKENDS["hunyuan-mlx-xiong"], interpreter=Path(sys.executable),
+                               wrapper=writer, build_args=lambda job: [str(job.output_path)],
+                               parse_line=parse_line, finalize=None)
+    monkeypatch.setitem(api.BACKENDS, "hunyuan-mlx-xiong", fake)
+    return _job_for("hunyuan_xiong", tmp_path, monkeypatch)
+
+
+def _run_job_or_fail(job, seconds=30):
+    """The real runner, on a thread: a job that never ends fails this test instead of hanging the suite."""
+    runner = threading.Thread(target=api._run_job, args=(job,), daemon=True)
+    runner.start()
+    runner.join(seconds)
+    if runner.is_alive():
+        if job.process is not None:
+            job.process.kill()      # the generator is stuck at a print; do not leave it behind
+        runner.join(10)
+        pytest.fail("the job never ended: nobody was reading the generator's output")
+
+
+def test_a_progress_parser_that_fails_does_not_hang_the_generation(tmp_path, monkeypatch):
+    # The reader thread died on the first line, the pipe filled, the generator stopped at its
+    # next print and the job stayed "running" for good, with Cancel the only way out.
+    def broken(job, line):
+        raise ValueError("a line this parser did not expect")
+    job, jobs = _chatty_job(tmp_path, monkeypatch, broken)
+    job.debug = True        # a debug run keeps run.log, where the reader says what went wrong
+
+    _run_job_or_fail(job)
+
+    assert job.status == "done", list(job.log_lines)
+    assert jobs.active is None
+    log = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert log.count("a line this parser did not expect") == 1     # said once, not 4000 times
+
+
+def test_a_log_that_cannot_be_written_does_not_cost_the_generation(tmp_path, monkeypatch):
+    # A full disk, or a locked run.log: the model is still made, so the run still ends as done.
+    (tmp_path / "run.log").mkdir()      # opening it to append now fails, as a full disk would
+    job, jobs = _chatty_job(tmp_path, monkeypatch, lambda job, line: None)
+
+    _run_job_or_fail(job)
+
+    assert job.status == "done", list(job.log_lines)
     assert jobs.active is None
 
 

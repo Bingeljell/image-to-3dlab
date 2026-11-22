@@ -766,6 +766,14 @@ def wrist_density(positions: np.ndarray, faces: np.ndarray, bone: np.ndarray, pl
     return count / area if area > 0 else 0.0
 
 
+def spread_area(below_faces: int, below_area: float, total_faces: int) -> float:
+    """The area a clean-up of a whole hand build spreads its faces over, as the hand below the cut takes them: the
+    area below the cut, grown by how many of a clean-up's faces land elsewhere (measured on one clean-up). A
+    decimation spends more faces on curved fingers than on a flat cuff, so by the whole build's area the
+    Waechter's first sized hands came out twice as fine as the figure round them."""
+    return float(below_area) * total_faces / max(below_faces, 1)
+
+
 def hand_faces(density: float, area: float, detail: float = 1.0) -> int:
     """How many faces a clean-up of a hand build covering AREA (in the figure's units) needs to be DETAIL times as
     fine as a figure of DENSITY: rounded up to FACES_STEP, never under LEAST_HAND_FACES."""

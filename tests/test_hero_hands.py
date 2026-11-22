@@ -544,6 +544,14 @@ def test_wrist_density_is_the_arms_faces_per_area_round_its_seam():
     assert hh.wrist_density(points, np.array(finer), bone4, {"right": plan}) == pytest.approx(4 * expected, rel=0.1)
 
 
+def test_spread_area_sizes_a_clean_up_by_where_its_faces_land():
+    # the Waechter's first sized hands came out twice as fine as the figure: a clean-up of the whole build spends
+    # more of its faces on the curved fingers than on the flat cuff the cut takes away
+    area = hh.spread_area(below_faces=6000, below_area=0.02, total_faces=18000)
+    assert area == pytest.approx(0.06)                               # a third of the faces below the cut
+    assert hh.hand_faces(35000, area) * 6000 / 18000 == pytest.approx(35000 * 0.02, rel=0.25)
+
+
 def test_hand_faces_make_the_hand_as_fine_as_the_figure_round_it():
     # the Waechter's shape model (35,000 triangles a unit of area) took a raw hand at 10 million: game_ready's thinning
     # stopped at 37,887 triangles instead of 14,000

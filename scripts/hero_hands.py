@@ -239,10 +239,23 @@ def hand_size(run: Run, hand: dict, faces: int | None, rigged: bool) -> Path:
     return clean_hand(run, hand["raw"], faces)
 
 
+def clean_sizes(density: float, hands: dict, detail: float) -> dict:
+    """Each side's clean-up size for a model of DENSITY (`hand_faces` over the area its clean-ups spread their faces
+    on), one size for every side built from one build: a left hand mirrored from the right asked for 33k faces where
+    the right asked for 32k, and the build was cleaned up twice. None for each side with DETAIL 0."""
+    from image_to_3dlab import hero_hands as hh
+
+    if detail <= 0:
+        return dict.fromkeys(hands)
+    wanted = {side: hh.hand_faces(density, hand["area"], detail) for side, hand in hands.items()}
+    return {side: max(wanted[other] for other, h in hands.items() if h["raw"] == hand["raw"])
+            for side, hand in hands.items()}
+
+
 def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, detail: float, rigged: bool,
               loaded: dict):
     """MODEL with both hands grafted on, written to OUT, each hand as fine as the model round its wrists times
-    DETAIL (`wrist_density`, `hand_faces`): (the report per side, both hands as one part, the body part, how the
+    DETAIL (`wrist_density`, `clean_sizes`): (the report per side, both hands as one part, the body part, how the
     hands were sized). LOADED keeps each hand build read once."""
     from image_to_3dlab import hero_hands as hh
 
@@ -250,10 +263,10 @@ def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, 
     _, _, part = hh.read_part(data)
     model_bone = bone(part)
     density = hh.wrist_density(part["positions"], part["faces"], model_bone, plans)
+    sizes = clean_sizes(density, hands, detail)
     put, used = {}, {}
     for side, hand in hands.items():
-        faces = hh.hand_faces(density, hand["area"], detail) if detail > 0 else None
-        path = hand_size(run, hand, faces, rigged)
+        path = hand_size(run, hand, sizes[side], rigged)
         if (path, hand["mirrored"]) not in loaded:
             loaded[path, hand["mirrored"]] = hand_of(path, mirrored=hand["mirrored"])
         put[side] = {"part": loaded[path, hand["mirrored"]], "tf": hand["tf"]}
@@ -393,10 +406,12 @@ def main(argv: list[str] | None = None) -> int:
         tf = hh.placement(own["centre"], own["fingers"], own["back"], own["length"], plan["centre"],
                           plan["fingers"], plan["back"], plan["length"])
         scale = float(np.cbrt(np.linalg.det(tf[:3, :3])))
-        # the build's whole area in the figure's units sizes each model's clean-up (`hand_faces`)
+        # each model's clean-up is sized by where this one's faces land: the hand below the cut, put in place
+        below, _ = hh.hand_onto(clean, tf, plan, hh.GAP_SHARE * plan["length"])
+        area = hh.spread_area(len(below["faces"]), hh.surface_area(below["positions"], below["faces"]),
+                              len(clean["faces"]))
         hands[side] = {"tf": tf, "scale": scale, "down": hh.unit(tf[:3, :3] @ hh.DRAWN_DOWN),
-                       "reference": built[source], "raw": raws[source], "mirrored": source != side,
-                       "area": hh.surface_area(clean["positions"], clean["faces"]) * scale ** 2}
+                       "reference": built[source], "raw": raws[source], "mirrored": source != side, "area": area}
         if not own["found"]:
             run.flag(f"the built {source} hand showed no wrist below its cuff; it is cut halfway")
     result = out / f"{args.model.stem}_hands.glb"

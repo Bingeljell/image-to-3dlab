@@ -79,6 +79,19 @@ def test_each_model_takes_the_hand_at_the_size_its_density_asks(monkeypatch, tmp
     assert hero_hands.hand_size(None, hand, None, rigged=False) == raw
 
 
+def test_both_hands_of_one_build_share_one_clean_up(tmp_path):
+    # a left hand mirrored from the right asked for 33k faces where the right asked for 32k: two clean-ups of one build
+    one, other = tmp_path / "right_draw_s6_b42.glb", tmp_path / "left_draw_s2_b7.glb"
+    hands = {"right": {"raw": one, "area": 0.08}, "left": {"raw": one, "area": 0.085}}
+    sizes = hero_hands.clean_sizes(35000, hands, 1.0)
+    assert sizes["right"] == sizes["left"] == 3000
+    hands["left"]["raw"] = other                                              # --left own: a build of its own
+    assert hero_hands.clean_sizes(35000, hands, 1.0) == {"right": 3000, "left": 3000}
+    hands["left"]["area"] = 0.2
+    assert hero_hands.clean_sizes(35000, hands, 1.0) == {"right": 3000, "left": 7000}
+    assert hero_hands.clean_sizes(35000, hands, 0.0) == {"right": None, "left": None}
+
+
 def test_a_step_that_always_runs_forgets_its_old_notes(tmp_path):
     run = hero_hands.Run(tmp_path)
     run.current = "check"

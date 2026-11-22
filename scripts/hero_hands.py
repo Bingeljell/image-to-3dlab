@@ -17,8 +17,9 @@ hangs beside the thigh, seen from the thumb's side with the fingers stacked, and
               back, fingers down and apart; --tries drawings, kept only when their outline counts five digits
               and one thumb, up to --keep of them.
   4. build    Pixal3D on each kept drawing, --seeds each, kept only when the built hand's outline, seen from
-              twelve sides, counts five digits and one thumb and its palm is solid (an armoured hand can come
-              out as a plate round an empty inside); the first one that does is the hand.
+              twelve sides, counts five digits and one thumb, its palm is solid (an armoured hand can come
+              out as a plate round an empty inside) and its wrist closes where the figure's cut falls (not open
+              plates); the first one that does is the hand.
   5. clean    Pixal3D's own clean-up of that build at --hand-faces: the hand's wrist and size are measured on it.
   6. graft    each arm cut straight through below the cuff, the hand (the left one mirrored from the right, or
               built on its own with --left own) put on at the old hand's place, length and turn, its outer skin

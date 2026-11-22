@@ -325,6 +325,22 @@ def hand_with_palm(hollow):
     return np.asarray(hand.vertices), np.asarray(hand.faces)
 
 
+def test_a_lip_beside_the_cut_or_a_fingertip_cap_is_not_a_hollow_palm():
+    # the Waechter's second gauntlet build (drawing 3, seed 7) was turned away at 10 %: its open shells were a thin
+    # strip of the cuff's lip beside the solid hand at the cut, and a fingertip's cap; its palm is solid
+    import trimesh
+
+    v, f = hand_with_palm(False)
+    lip_v, lip_f = c_shell(0.16, 0.10, 0.20, gap_deg=300)                     # a 60 degree strip beside the palm
+    cap_v, cap_f = c_shell(-0.39, -0.41, 0.03, thickness=0.004)               # a fingertip's open cap
+    cap_v[:, 0] += 0.12
+    hand = trimesh.util.concatenate([trimesh.Trimesh(v, f, process=False),
+                                     trimesh.Trimesh(lip_v, lip_f, process=False),
+                                     trimesh.Trimesh(cap_v, cap_f, process=False)])
+    own = hh.hand_wrist(np.asarray(hand.vertices), np.asarray(hand.faces))
+    assert own["hollow"] <= hh.HOLLOW_LIMIT, own["hollow"]
+
+
 def test_hand_wrist_tells_a_palm_built_hollow():
     # Pixal3D built the Waechter's gauntlet palm as a plate round an empty inside, and the hole showed on the
     # figure's palm; such a build has open shells in its sections below the wrist, a good one none

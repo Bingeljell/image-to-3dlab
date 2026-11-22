@@ -276,8 +276,11 @@ SECTION_PIXELS = 200  # a limb's sections are filled on a grid this many pixels 
 SOLID_SHARE = 0.5     # a section's piece filling less of its outline's hull is a shell round a hollow: solid sections
                       # of the Revolverheld's, the Zauberer's and the Waechter's builds fill 0.97-1.0 of it, the
                       # Waechter's knuckle plate (open toward the palm) and cuff lip 0.12-0.18
-HOLLOW_LIMIT = 0.05   # a built hand with more of its sections below the wrist hollow has a hole for a palm: the
-                      # Waechter's first gauntlet 7 of 38, six good gloved and bare builds none
+HOLLOW_LIMIT = 0.15   # a built hand with more of its sections below the wrist hollow has a hole for a palm: three of
+                      # the Waechter's gauntlet builds 0.29-0.40, a solid one with a lip just below its cut 0.05, six
+                      # good gloved and bare builds 0
+HOLLOW_SIZE = 0.25    # only sections at least this share of the largest below the wrist are judged: a fingertip's
+                      # open cap is no hole for a palm
 
 
 def filled(segments: np.ndarray, pixel: float) -> tuple[np.ndarray, np.ndarray]:
@@ -344,7 +347,7 @@ def section_fill(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, norm
                  select: np.ndarray | None = None, pixel: float | None = None) -> dict:
     """A section through a welded mesh as the solid it outlines: {"area" (NaN where the plane misses), "pieces",
     "centre" (of the piece holding ORIGIN, else the largest; None where it misses), "piece_area" (that piece's),
-    "hollow" (whether a piece is a shell round a hollow, `mask_pieces`)}.
+    "hollow" (the share of its area in shells round a hollow, `mask_pieces`)}.
 
     Filled from outside, so its area is what the outer wall encloses. A Pixal3D build has an inner skin about a
     millimetre in, and where the two walls touch, one walk ran round both and their areas cancelled; elsewhere the
@@ -370,7 +373,8 @@ def section_fill(points: np.ndarray, faces: np.ndarray, origin: np.ndarray, norm
     middle = corner + centres[piece] * pixel
     centre = middle @ basis + (np.asarray(origin, dtype=np.float64) @ normal) * normal
     return {"area": float(areas.sum()) * pixel ** 2, "pieces": len(areas), "centre": centre,
-            "piece_area": float(areas[piece]) * pixel ** 2, "hollow": bool(found["hollow"].any())}
+            "piece_area": float(areas[piece]) * pixel ** 2,
+            "hollow": float(areas[found["hollow"]].sum() / max(areas.sum(), 1e-18))}
 
 
 def section_pixel(points: np.ndarray, axis: np.ndarray, faces: np.ndarray | None = None,
@@ -450,7 +454,8 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
     """Where to cut a limb whose sections run from START (up the arm) along AXIS for LENGTH (past the fingertips):
     {"cut": the plane's point on the axis, "centre": the section's middle there, "found": False when no wrist
     shows in the profile (the cut then sits halfway and the caller should say so), "areas", "ts", "hollow": the
-    share of the sections past the cut that hold a shell round a hollow (`mask_pieces`)}."""
+    share of the sections past the cut, of those at least HOLLOW_SIZE of the largest there, whose area lies mostly
+    in shells round a hollow (`mask_pieces`): a thin lip beside the hand or a fingertip's cap is no hole}."""
     ts = np.linspace(0.0, length, steps)
     sections = sections_along(points, faces, start, axis, ts, select)
     areas = np.array([s["area"] for s in sections], dtype=np.float64)
@@ -465,9 +470,10 @@ def limb_seam(points: np.ndarray, faces: np.ndarray, start: np.ndarray, axis: np
     section = section_fill(points, faces, here, axis, select, section_pixel(points, axis, faces, select))
     found_piece = section["centre"] is not None
     past = [s for t, s in zip(ts, sections) if t > t_cut and s["pieces"]]
+    judged = [s for s in past if s["area"] >= HOLLOW_SIZE * max(p["area"] for p in past)] if past else []
     return {"cut": here, "centre": section["centre"] if found_piece else here, "found": found,
             "area": section["piece_area"] if found_piece else float("nan"), "areas": areas, "ts": ts,
-            "hollow": sum(s["hollow"] for s in past) / max(len(past), 1)}
+            "hollow": sum(s["hollow"] > 0.5 for s in judged) / max(len(judged), 1)}
 
 
 def reach_of(points: np.ndarray, centre: np.ndarray) -> float:

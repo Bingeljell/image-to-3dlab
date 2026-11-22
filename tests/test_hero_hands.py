@@ -294,6 +294,11 @@ def test_graft_model_leaves_one_closed_surface_with_no_gap_and_no_overlap():
     side = report["right"]
     assert side["rim_pieces"] == 1 and not side["rims_turn_alike"]
     assert 0.7 < side["wrist_ratio"] < 1.4
+    # each stitch triangle is painted from one point of the hand: never blended across the texture's islands
+    band = hands["faces"][-side["stitch_faces"]:]
+    uv = hands["uvs"][band]
+    assert np.allclose(uv[:, 0], uv[:, 1]) and np.allclose(uv[:, 0], uv[:, 2])
+    assert np.isin(uv[:, 0], hands["uvs"][:-3 * side["stitch_faces"]]).all()
     # the new hand reaches as far as the old one did, and moves with the hand bone
     tip = ((hands["positions"] - plan["cut"]) @ plan["axis"]).max()
     assert tip == pytest.approx(((arm["positions"] - plan["cut"]) @ plan["axis"]).max(), rel=0.1)

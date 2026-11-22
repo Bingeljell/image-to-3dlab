@@ -636,9 +636,11 @@ def stitch(body: dict, body_rim: np.ndarray, hand: dict, hand_rim: np.ndarray, p
            blend: float = BLEND_SHARE) -> tuple[dict, dict]:
     """The placed HAND eased into the BODY's cut wrist and stitched to it; the stitch belongs to the hand's part.
 
-    Returns (hand part with the band added, report). The band's body-side corners are copies of the body's rim
-    (an engine or Blender welds them on import) carrying the hand's UVs from the nearest hand rim point and the
-    body's skin weights."""
+    Returns (hand part with the band added, report). Every band triangle has corners of its own, at the rim points
+    it joins (an engine or Blender welds them on import), with the body's or the hand's skin weights as the corner
+    lies, and all three painted from one point of the hand's rim: neighbouring rim points can lie in different
+    islands of the hand's texture, and a colour blended between two islands striped the first Revolverheld's
+    stitch with the fingers' skin."""
     axis = plan["axis"]
     body_ids, body_loop = rim_loop(body["positions"], body_rim, axis, plan["centre"])
     hand_ids, hand_loop = rim_loop(hand["positions"], hand_rim, axis, plan["centre"])
@@ -651,25 +653,25 @@ def stitch(body: dict, body_rim: np.ndarray, hand: dict, hand_rim: np.ndarray, p
     hand_loop = hand["positions"][hand_ids]
     alike = turn_of(body_loop, axis) == turn_of(hand_loop, axis)
     triangles = bridge(body_loop, hand_loop, axis)
-    from scipy.spatial import cKDTree
-
-    base = len(hand["positions"])
     on_body = triangles[:, :, 0] == 0
-    copies = np.unique(triangles[:, :, 1][on_body])
-    slot = np.full(len(body_ids), -1, dtype=np.int64)
-    slot[copies] = base + np.arange(len(copies))
-    faces = np.zeros(on_body.shape, dtype=np.int64)
-    faces[on_body] = slot[triangles[:, :, 1][on_body]]
-    faces[~on_body] = hand_ids[triangles[:, :, 1][~on_body]]
-    added = {"positions": body["positions"][body_ids[copies]]}
+    index = triangles[:, :, 1]
+    from_body = body_ids[np.where(on_body, index, 0)]
+    from_hand = hand_ids[np.where(on_body, 0, index)]
+    anchor = from_hand[np.arange(len(triangles)), np.argmax(~on_body, axis=1)]   # each has a hand corner
+
+    def corners(key):
+        values = np.where(on_body[..., None], body[key][from_body], hand[key][from_hand])
+        return values.reshape(-1, values.shape[-1])
+
+    added = {"positions": corners("positions")}
     if hand.get("uvs") is not None:
-        _, nearest = cKDTree(hand_loop).query(added["positions"])
-        added["uvs"] = hand["uvs"][hand_ids[nearest]]
+        added["uvs"] = np.repeat(hand["uvs"][anchor], 3, axis=0)
     if hand.get("normals") is not None:
-        added["normals"] = (body["normals"][body_ids[copies]] if body.get("normals") is not None
-                            else np.zeros((len(copies), 3)))
+        added["normals"] = (corners("normals") if body.get("normals") is not None
+                            else np.repeat(hand["normals"][anchor], 3, axis=0))
     if hand.get("dense") is not None:
-        added["dense"] = body["dense"][body_ids[copies]]
+        added["dense"] = corners("dense")
+    faces = len(hand["positions"]) + np.arange(3 * len(triangles)).reshape(-1, 3)
     out = dict(hand)
     for key, values in added.items():
         out[key] = np.concatenate([hand[key], values])

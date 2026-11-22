@@ -1486,3 +1486,30 @@ def test_a_move_is_played_on_a_rigged_model_and_saved_beside_it(studio, workshop
 def test_a_move_refuses_a_request_it_cannot_play(studio, workshop, request_body, error):
     assert _send(studio, "/api/animate/play", request_body) == (422, {"error": error})
     assert workshop.animations.jobs == {}
+
+
+# --- The other routes that read JSON: a body that is not an object --------------------------
+#
+# Not starts, but the same handler and the same slip as the two picture routes above: each read
+# a field from whatever JSON it was sent, and a list or a number ended the connection unanswered.
+
+OTHER_JSON_ROUTES = [
+    "/api/assets/{asset}/name", "/api/assets/{asset}/hidden", "/api/assets/{asset}/delete",
+    "/api/assets/{asset}/main", "/api/image/versions/use", "/api/image/versions/delete",
+    "/api/bug-report", "/api/usage", "/api/reveal",
+]
+
+
+@pytest.mark.parametrize("request_body", NOT_OBJECTS, ids=repr)
+@pytest.mark.parametrize("path", OTHER_JSON_ROUTES)
+def test_every_other_json_route_answers_a_body_that_is_not_an_object(
+        studio, workshop, monkeypatch, path, request_body):
+    done = []       # nothing may be renamed, deleted, switched or opened on the way to the answer
+    monkeypatch.setattr(api.model_info_api, "reveal", lambda *_: done.append("a folder was opened"))
+    monkeypatch.setattr(api.usage_api, "set_noticed", lambda: done.append("the notice was marked seen"))
+    monkeypatch.setattr(api.usage_api, "set_sharing", lambda _share: done.append("the usage box was changed"))
+    library = api.list_assets(studio.output)
+
+    assert _send(studio, path.format(asset=workshop.paladin["id"]), request_body) == (
+        422, {"error": "expected a JSON object"})
+    assert done == [] and api.list_assets(studio.output) == library

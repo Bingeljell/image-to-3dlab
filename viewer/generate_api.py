@@ -1232,6 +1232,14 @@ def _safe_id(value: str) -> bool:
     return bool(JOB_RE.fullmatch(value))
 
 
+def _json_object(body: Any) -> dict[str, Any]:
+    """A request body, once it is known to have fields. A list, a number, a string or null is
+    JSON too: reading a field from one raised, and the connection closed with no answer."""
+    if not isinstance(body, dict):
+        raise ValueError("expected a JSON object")
+    return body
+
+
 def parse_multipart(content_type: str, body: bytes) -> dict[str, dict[str, Any]]:
     """Parse the two small multipart fields without the removed Python 3.13 ``cgi`` module."""
     raw = (f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("ascii") + body)
@@ -3030,7 +3038,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "name":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 2048 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 2048 else {})
                 name = set_asset_name(OUTPUT_ROOT, parts[2], str(body.get("name", "")))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(422, {"error": str(exc)})
@@ -3040,7 +3048,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "hidden":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {})
                 set_asset_hidden(OUTPUT_ROOT, parts[2], bool(body.get("hidden", True)))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(422, {"error": str(exc)})
@@ -3051,7 +3059,7 @@ class Handler(SimpleHTTPRequestHandler):
             # a deletion cannot be undone, so the page must say so: a bare POST does nothing
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {})
                 if body.get("confirm") is not True:
                     raise ValueError("confirm the deletion first")
                 plan = delete_asset_version(OUTPUT_ROOT, parts[2])
@@ -3063,7 +3071,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "main":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {})
                 set_asset_main(OUTPUT_ROOT, parts[2], bool(body.get("main", True)))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(422, {"error": str(exc)})
@@ -3214,7 +3222,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": "a picture is being made; wait for it to finish"})
             return
         try:
-            payload = change_back_version(action, body)
+            payload = change_back_version(action, _json_object(body))
         except (ValueError, OSError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -4451,7 +4459,7 @@ class Handler(SimpleHTTPRequestHandler):
         """The three ways to send a report the person has read and edited: `{message, details}`."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length)) if 0 < length <= 64_000 else {}
+            body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 64_000 else {})
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -4469,7 +4477,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {}
+            body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {})
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -4602,7 +4610,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {})
             path = model_info_api.reveal(OUTPUT_ROOT, str(body.get("file", "")))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})

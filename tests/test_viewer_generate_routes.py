@@ -1,9 +1,10 @@
-"""The studio's three upload routes, asked the way the page asks them.
+"""The studio's start routes, asked the way the page asks them.
 
-Generate, Finish and Prop sheets each take a real multipart upload over HTTP here, against the
-real request handler. Only the job runners are replaced: a run costs minutes and needs a model.
-Before this file nothing ran `_create_job`, `_create_finish_job` or `_create_props_job`, so a
-wrong status code, a size limit that stopped working or a missing wait would have shipped.
+Every big job (a generation, a Finish run, a prop sheet, setup and engine downloads, and then
+pictures, skins, rig rebinds and animations) is started here over HTTP, against the real
+request handler. Only the job runners are replaced: a run costs minutes and needs a model.
+Before this file nothing ran these handlers, so a wrong status code, a size limit that stopped
+working or a missing wait would have shipped.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import http.client
 import http.server
 import json
 import threading
+import time
 import types
 import urllib.error
 import urllib.request
@@ -63,9 +65,7 @@ def engine(monkeypatch):
     return spec
 
 
-def _post(studio, path, fields=None, files=None):
-    """POST a form the way the page's FormData does; returns (status, the JSON answer)."""
-    body, content_type = activity_api.multipart(fields or {}, files or {})
+def _ask(studio, path, body, content_type):
     request = urllib.request.Request(
         f"http://127.0.0.1:{studio.port}{path}", data=body,
         headers={"Content-Type": content_type, "X-AssetFurnace-Request": "studio"})
@@ -74,6 +74,16 @@ def _post(studio, path, fields=None, files=None):
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as error:
         return error.code, json.loads(error.read())
+
+
+def _post(studio, path, fields=None, files=None):
+    """POST a form the way the page's FormData does; returns (status, the JSON answer)."""
+    return _ask(studio, path, *activity_api.multipart(fields or {}, files or {}))
+
+
+def _send(studio, path, body):
+    """POST JSON the way the page's fetch does; returns (status, the JSON answer)."""
+    return _ask(studio, path, body if isinstance(body, bytes) else json.dumps(body).encode(), "application/json")
 
 
 def _announce(studio, path, length):
@@ -599,17 +609,19 @@ def _plain_picture() -> bytes:
     return picture.getvalue()
 
 
-def _hold(monkeypatch, name, answer):
-    """Make `api.<name>` stop where it is called until `let_go` is set, then answer.
+def _hold(monkeypatch, name, answer=None, on=api):
+    """Make `on.<name>` stop where it is called until `let_go` is set, then answer (as it
+    did before, unless `answer` says otherwise).
     Returns (reached, let_go): `reached` is set once a request is waiting inside it."""
     reached, let_go = threading.Event(), threading.Event()
+    answer = answer or getattr(on, name)
 
-    def held(*args):
+    def held(*args, **more):
         reached.set()
         assert let_go.wait(20), "the test never let this start go on"
-        return answer(*args)
+        return answer(*args, **more)
 
-    monkeypatch.setattr(api, name, held)
+    monkeypatch.setattr(on, name, held)
     return reached, let_go
 
 
@@ -672,3 +684,747 @@ def test_a_slot_stays_held_until_every_start_of_that_kind_has_let_go(studio):
     finally:
         api.release_start("generate")
     assert api.busy_reason("finish") is None
+
+
+# --- Pictures, skins, rig rebinds and animations --------------------------------------------
+#
+# The other four kinds of big job. What would draw, repaint, rebind or rig is replaced, and
+# `studio.started` collects what each was handed, as it does for the three kinds above.
+
+BLEND = b"BLENDER-v405" + b"\x00" * 16             # never opened here: the rebind runner is a stub
+KNIGHT = "images/knight/knight.png"                # a cut-out picture with no back yet
+PALADIN = "a-paladin__20261019-133432"             # a picture run,
+MODEL = f"{PALADIN}__pixal3d__20261019-145"        # the Pixal3D model made from it,
+FINISHED = f"{MODEL}__finish__20261019-145515"     # and that model finished: what a skin starts from
+RIGGED = "animate/knight__rig__20261005-120000/knight_rigged.glb"
+NO_ENGINE = "no picture engine 'dall-e'; choose "      # ...and then the engines there are
+
+
+def _picture(mode="RGB", fill="white", middle=None) -> bytes:
+    """A real 64-pixel picture; `middle` paints a square in its centre."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    picture = Image.new(mode, (64, 64), fill)
+    if middle is not None:
+        ImageDraw.Draw(picture).rectangle((16, 16, 47, 47), fill=middle)
+    out = io.BytesIO()
+    picture.save(out, "PNG")
+    return out.getvalue()
+
+
+def _soon(check, seconds=5.0):
+    """Whether `check()` comes true within a few seconds. A runner is handed its job on a
+    thread of its own, a moment after the answer is sent."""
+    deadline = time.monotonic() + seconds
+    while not check():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.002)
+    return True
+
+
+def _finish_starts(studio):
+    """Whether another kind of big job is let through: nothing else holds a place."""
+    return _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)})[0] == 202
+
+
+@pytest.fixture
+def workshop(studio, monkeypatch, tmp_path):
+    """Pictures, skins, rebinds and the auto-rig, each counted as installed and running nothing.
+
+    On disk: a cut-out knight with no back yet; a paladin with a front, a back, a Pixal3D
+    model and its finished version (what a skin starts from), with one skin still at its
+    pictures and one with both approved; and a rigged knight.
+    """
+    out, started = studio.output, studio.started
+
+    def keep(relative, data):
+        path = out / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data if isinstance(data, bytes) else json.dumps(data).encode())
+        return relative
+
+    keep(KNIGHT, _picture("RGBA", (0, 0, 0, 0), (200, 40, 40, 255)))
+    front = keep(f"images/{PALADIN}/{PALADIN}.png", _picture("RGBA", (0, 0, 0, 0), (40, 40, 200, 255)))
+    back = keep(f"images/{PALADIN}/{PALADIN}__back.png", _picture("RGB", "grey", "navy"))
+    keep(f"{MODEL}/{MODEL}.glb", GLB)
+    keep(f"{MODEL}/{MODEL}.shape.bin", b"SHAPE")
+    keep(f"{MODEL}/{MODEL}.json", {"backend": "pixal3d",
+                                    "parameters": {"seed": 15629060, "steps": 8, "views": "front + back"}})
+    finished = keep(f"finish/{FINISHED}/paladin_20k.glb", GLB + b"finished")
+    keep(f"finish/{FINISHED}/input/source.glb", GLB)
+    keep(f"finish/{FINISHED}/input/settings.json",
+         {"faces": 20000, "texture_size": 2048, "skip_paint": True, "skip_photo": False})
+    keep(RIGGED, GLB + b"rigged")
+
+    # the picture engine: never this machine's own build or its downloaded files
+    binary = tmp_path / "sd-cli"
+    binary.write_bytes(b"")
+    pictures = api.image_api.ImageJobManager(out / "images")
+    monkeypatch.setattr(api.image_api, "MANAGER", pictures)
+    monkeypatch.setattr(api.image_api, "BINARY", binary)
+    monkeypatch.setattr(api.image_api, "resolve_weights", lambda engine=None: {})
+    monkeypatch.setattr(api.image_api, "resolve_vision", lambda engine=None: binary)
+    monkeypatch.setattr(api.image_api, "run_job", lambda job, manager: started.append(("picture", job)))
+
+    def no_cut_out(_picture):       # the remover is a model: a front here is already cut out
+        raise AssertionError("a route test must never load the background remover")
+    monkeypatch.setattr(api.image_api.matte, "cut_out", no_cut_out)
+
+    rigs = api.RIG_JOBS.__class__(out / "rig")
+    monkeypatch.setattr(api, "RIG_JOBS", rigs)
+    monkeypatch.setattr(api, "run_rig_job", lambda job: started.append(("rebind", job)))
+
+    motions = tmp_path / "motions"
+    motions.mkdir()
+    (motions / "walk.npz").write_bytes(b"x")
+    (motions / "presets.json").write_text(json.dumps({"presets": [{"id": "walk", "label": "Walk", "seconds": 4}]}))
+    animations = api.ANIMATE_JOBS.__class__(out / "animate", motions)
+    monkeypatch.setattr(api, "ANIMATE_JOBS", animations)
+    monkeypatch.setattr(api, "run_animate_job", lambda job: started.append(("animate", job)))
+    monkeypatch.setattr(api, "autorig_installed", lambda: True)
+
+    skins = api.skins_api.SkinStore(out)
+    builds = api.skins_api.SkinBuilds(skins)
+    monkeypatch.setattr(builds, "run", lambda job, skin, runner, box: started.append(("skin", job)))
+    monkeypatch.setattr(api.skins_api, "STORE", skins)
+    monkeypatch.setattr(api.skins_api, "BUILDS", builds)
+    paladin = next(asset for asset in api.list_assets(out) if asset.get("finished"))
+    draft = skins.create(paladin, "red boots")
+    approved = skins.create(paladin, "gold skirt")
+    for side in ("front", "back"):
+        _, drawn, _, _ = skins.picture_try(approved, side)
+        drawn.write_bytes(PICTURE)
+        skins.approve(approved, side)
+
+    return types.SimpleNamespace(
+        pictures=pictures, rigs=rigs, animations=animations, skins=skins, builds=builds,
+        paladin=paladin, front=front, back=back, finished=finished, draft=draft, approved=approved)
+
+
+def _on_the_books(shop):
+    return [*shop.pictures.jobs.values(), *shop.builds.jobs.values(),
+            *shop.rigs.jobs.values(), *shop.animations.jobs.values()]
+
+
+def _stroke(painted=True) -> bytes:
+    """What the brush sends: black, white where the person painted."""
+    return _picture("L", "black", "white" if painted else None)
+
+
+def _rig_sidecar(asset: bytes, scene: bytes) -> bytes:
+    """The smallest rig record a rebind takes: one joint, moved, bound to one Blender bone."""
+    import hashlib
+
+    return json.dumps({
+        "schemaVersion": 1, "rigProfile": "test",
+        "assetFingerprint": "sha256:" + hashlib.sha256(asset).hexdigest(),
+        "coordinateSpace": "armature-local", "mirror": {"axis": "X", "origin": 0},
+        "joints": {"joint": {"label": "Joint", "position": [0, 0, 0], "sourceBone": "DEF-joint",
+                             "parent": None, "mirrorOf": None}},
+        "corrections": {"joint": {"sourcePosition": [0, 0, 0], "targetPosition": [0, 1, 0],
+                                  "delta": [0, 1, 0], "mirrored": False}},
+        "binding": {"adapter": "test", "sceneFingerprint": "sha256:" + hashlib.sha256(scene).hexdigest(),
+                    "metarigObjectId": "object",
+                    "joints": {"joint": {"targets": [{"boneId": "bone", "boneName": "bone", "endpoint": "head"}]}}},
+    }).encode()
+
+
+def _rebind_bundle(**changes):
+    return {"asset": ("knight.glb", GLB), "scene": ("knight.blend", BLEND),
+            "sidecar": ("knight.rig.json", _rig_sidecar(GLB, BLEND)), **changes}
+
+
+# Every start of these four kinds, asked for in a way that is let through.
+
+def _draw(studio, shop):
+    return _send(studio, "/api/image", {"prompt": "a rune knight", "engine": "qwen"})
+
+
+def _draw_a_back(studio, shop):
+    return _send(studio, "/api/image/back", {"picture": KNIGHT, "engine": "flux"})
+
+
+def _brush(studio, shop, **changes):
+    fields = {"picture": shop.back, "instruction": "a red cape", "engine": "flux", **changes}
+    return _post(studio, "/api/image/brush", fields, {"mask": ("mask.png", _stroke())})
+
+
+def _new_skin(studio, shop):
+    return _send(studio, "/api/skins", {"asset": shop.paladin["id"], "instruction": "make the skirt gold"})
+
+
+def _try_a_skin_again(studio, shop):
+    return _send(studio, f"/api/skins/{shop.draft.id}/try", {"side": "front", "instruction": "matte red boots"})
+
+
+def _build_a_skin(studio, shop):
+    return _send(studio, f"/api/skins/{shop.approved.id}/build", {})
+
+
+def _rebind(studio, shop):
+    return _post(studio, "/api/rig/rebind", files=_rebind_bundle())
+
+
+def _rig(studio, shop):
+    return _post(studio, "/api/animate/rig", files={"asset": ("knight.glb", GLB)})
+
+
+def _play(studio, shop):
+    return _send(studio, "/api/animate/play", {"model": RIGGED, "preset": "walk"})
+
+
+# name: (how it is asked for, a step between its waiting check and its job's entry on the
+# books, what it makes the other kinds answer)
+STARTS = {
+    "a picture": (_draw, lambda shop: (api.image_api, "resolve_weights"), "a picture is being made"),
+    "a back": (_draw_a_back, lambda shop: (api.image_api, "check_ready"), "a picture is being made"),
+    "a brush": (_brush, lambda shop: (api.image_api, "check_ready"), "a picture is being made"),
+    "a new skin": (_new_skin, lambda shop: (api.image_api, "resolve_weights"), "a picture is being made"),
+    "a skin try": (_try_a_skin_again, lambda shop: (api.image_api, "resolve_weights"), "a picture is being made"),
+    "a skin build": (_build_a_skin, lambda shop: (shop.builds, "start"), "a skin is being made"),
+    "a rebind": (_rebind, lambda shop: (shop.rigs, "create"), "a rig rebind is running"),
+    "an auto-rig": (_rig, lambda shop: (api, "autorig_installed"), "an auto-rig or animation is running"),
+    "a move": (_play, lambda shop: (api, "autorig_installed"), "an auto-rig or animation is running"),
+}
+each_start = pytest.mark.parametrize("ask, held_at, words", STARTS.values(), ids=STARTS)
+
+
+@each_start
+def test_each_of_these_starts_is_let_through_when_nothing_else_runs(studio, workshop, ask, held_at, words):
+    status, _ = ask(studio, workshop)
+
+    assert status == 202
+    [job] = _on_the_books(workshop)
+    assert _soon(lambda: [handed for _, handed in studio.started] == [job])
+    assert api.busy_reason("finish") == f"{words}; wait for it to finish"
+
+
+@each_start
+def test_each_of_these_starts_waits_for_another_big_job(studio, workshop, monkeypatch, tmp_path, ask, held_at, words):
+    _an_add_on_tool_is_running(monkeypatch, tmp_path)
+
+    status, answer = ask(studio, workshop)
+
+    assert (status, answer["error"]) == (409, "an add-on is running; wait for it to finish")
+    assert _on_the_books(workshop) == [] and studio.started == []
+
+
+@each_start
+def test_each_of_these_starts_holds_its_place_before_its_job_is_on_the_books(
+        studio, workshop, monkeypatch, ask, held_at, words):
+    # The same gap generate and Finish had: told it may go, a start loads or checks something
+    # before its manager knows of it, and another kind asking in between saw nothing running.
+    on, step = held_at(workshop)
+    reached, let_go = _hold(monkeypatch, step, on=on)
+    starting, answers = _in_the_background(lambda: ask(studio, workshop))
+    assert reached.wait(20)
+    try:
+        assert _on_the_books(workshop) == []      # so only the place it holds can say so
+        assert _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)}) == (
+            409, {"error": f"{words}; wait for it to finish"})
+    finally:
+        let_go.set()
+        starting.join(20)
+
+    assert answers[0][0] == 202 and len(_on_the_books(workshop)) == 1
+
+
+# --- Pictures: POST /api/image --------------------------------------------------------------
+
+def test_a_picture_starts_with_its_prompt_trimmed_and_its_settings_made_safe(studio, workshop):
+    status, answer = _send(studio, "/api/image", {
+        "prompt": "  a rune knight  ", "engine": "qwen", "settings": {"width": 700, "seed": "7", "steps": 9999}})
+
+    assert status == 202
+    [job] = workshop.pictures.jobs.values()
+    assert answer == {"job_id": job.id, "settings": job.settings,
+                      "events_url": f"/api/image/{job.id}/events", "status_url": f"/api/image/{job.id}/status"}
+    assert (job.prompt, job.engine.id) == ("a rune knight", "qwen")
+    assert (job.settings["width"], job.settings["seed"], job.settings["steps"]) == (704, 7, 50)
+    assert job.directory.parent == studio.output / "images"
+    assert _soon(lambda: studio.started == [("picture", job)])
+
+
+def test_a_picture_that_is_the_end_product_gets_its_engines_extra_steps(studio, workshop):
+    flux = api.image_api.FLUX
+    assert flux.picture_only_steps != flux.defaults["steps"]
+
+    _send(studio, "/api/image", {"prompt": "a rune knight", "engine": "flux", "picture_only": True})
+
+    [job] = workshop.pictures.jobs.values()
+    assert job.settings["steps"] == flux.picture_only_steps
+
+
+@pytest.mark.parametrize("request_body, error", [
+    ({"prompt": "   "}, "a prompt is required"),
+    ({"prompt": "x" * 2001}, "prompt is longer than 2000 characters"),
+    ({"prompt": "a rune knight", "engine": "dall-e"}, NO_ENGINE),
+])
+def test_a_picture_refuses_a_request_it_cannot_draw(studio, workshop, request_body, error):
+    status, answer = _send(studio, "/api/image", request_body)
+
+    assert status == 422 and answer["error"].startswith(error)
+    assert workshop.pictures.jobs == {}
+
+
+@pytest.mark.parametrize("length", [0, 64 * 1024 + 1])
+def test_a_picture_refuses_a_missing_or_oversized_request_before_reading_it(studio, workshop, length):
+    assert _announce(studio, "/api/image", length) == (400, {"error": "expected a small JSON body"})
+
+
+def test_a_picture_refuses_a_request_that_is_not_json(studio, workshop):
+    status, answer = _send(studio, "/api/image", b"{not json")
+
+    assert status == 400 and answer["error"].startswith("could not read the request: ")
+    assert workshop.pictures.jobs == {}
+
+
+def test_a_picture_says_when_the_picture_engine_is_not_installed(studio, workshop, monkeypatch, tmp_path):
+    monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
+
+    assert _send(studio, "/api/image", {"prompt": "a rune knight"}) == (
+        503, {"error": "stable-diffusion.cpp is not installed (vendor/sdcpp/sd-cli).", "needs_setup": True})
+    assert workshop.pictures.jobs == {}
+
+
+def _nothing_downloaded(monkeypatch):
+    def missing(engine=None):
+        raise api.image_api.MissingWeights(["weights.gguf"], engine)
+    monkeypatch.setattr(api.image_api, "resolve_weights", missing)
+
+
+def test_a_picture_names_the_files_its_engine_still_needs_and_gives_its_place_back(
+        studio, workshop, blender, monkeypatch):
+    _nothing_downloaded(monkeypatch)
+
+    status, answer = _send(studio, "/api/image", {"prompt": "a rune knight", "engine": "qwen"})
+
+    assert status == 503 and answer["needs_setup"] is True and answer["missing"] == ["weights.gguf"]
+    assert answer["error"].startswith("Qwen-Image 2.1 is not set up yet. Missing: weights.gguf.")
+    assert workshop.pictures.jobs == {}
+    assert _finish_starts(studio)       # refused after its waiting check: it had the place
+
+
+def test_a_second_picture_is_refused_while_the_first_is_being_made(studio, workshop):
+    first, _ = _draw(studio, workshop)
+    second, answer = _draw(studio, workshop)
+
+    assert (first, second) == (202, 409) and answer == {"error": "an image is already being generated"}
+    assert len(workshop.pictures.jobs) == 1
+
+
+# --- A back: POST /api/image/back -----------------------------------------------------------
+
+def test_a_back_is_drawn_from_the_front_laid_on_grey(studio, workshop):
+    status, answer = _send(studio, "/api/image/back", {
+        "picture": KNIGHT, "engine": "flux", "seed": 11, "instruction": "  a red   cape "})
+
+    assert status == 202
+    [job] = workshop.pictures.jobs.values()
+    front = (studio.output / KNIGHT).resolve()
+    assert answer == {"job_id": job.id, "settings": job.settings,
+                      "events_url": f"/api/image/{job.id}/events", "status_url": f"/api/image/{job.id}/status"}
+    assert job.output_path == front.with_name("knight__back.png") and job.replaces is None
+    assert job.reference == front.with_name("knight__back_reference.png") and job.reference.is_file()
+    assert (job.engine.id, job.settings["seed"], job.instruction) == ("flux", 11, "a red cape")
+    assert _soon(lambda: studio.started == [("picture", job)])
+
+
+def test_a_new_back_is_drawn_beside_the_one_already_there(studio, workshop):
+    back = (studio.output / workshop.back).resolve()
+    as_it_was = back.read_bytes()
+
+    status, _ = _send(studio, "/api/image/back", {"picture": workshop.front, "engine": "flux"})
+
+    [job] = workshop.pictures.jobs.values()
+    assert status == 202
+    assert job.output_path == back.with_name(f"{PALADIN}__back_new.png") and job.replaces == back
+    assert back.read_bytes() == as_it_was       # swapped in only once the new one is done
+
+
+@pytest.mark.parametrize("request_body, error", [
+    ({"picture": "../secret.png"}, "not a picture in output/: ../secret.png"),
+    ({"picture": "images/knight/nothing.png"}, "not a picture in output/: images/knight/nothing.png"),
+    ({}, "not a picture in output/: "),
+    ({"picture": KNIGHT, "engine": "dall-e"}, NO_ENGINE),
+])
+def test_a_back_refuses_a_request_it_cannot_draw(studio, workshop, request_body, error):
+    status, answer = _send(studio, "/api/image/back", request_body)
+
+    assert status == 422 and answer["error"].startswith(error)
+    assert workshop.pictures.jobs == {}
+
+
+def test_a_back_says_when_the_picture_engine_is_not_installed(studio, workshop, monkeypatch, tmp_path):
+    monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
+
+    assert _draw_a_back(studio, workshop) == (
+        503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
+
+
+def test_a_back_names_the_files_its_engine_still_needs_and_gives_its_place_back(
+        studio, workshop, blender, monkeypatch):
+    _nothing_downloaded(monkeypatch)
+
+    status, answer = _draw_a_back(studio, workshop)
+
+    assert status == 503 and answer["needs_setup"] is True and answer["missing"] == ["weights.gguf"]
+    assert workshop.pictures.jobs == {}
+    assert _finish_starts(studio)
+
+
+def test_a_front_that_cannot_be_read_is_refused_and_leaves_pictures_free(studio, workshop):
+    (studio.output / "images/knight/torn.png").write_bytes(b"not a picture at all")
+
+    status, _ = _send(studio, "/api/image/back", {"picture": "images/knight/torn.png", "engine": "flux"})
+
+    assert status == 422
+    assert not (studio.output / "images/knight/torn__back_reference.png").exists()
+    assert _draw(studio, workshop)[0] == 202        # the refused back does not count as running
+
+
+# --- The brush: POST /api/image/brush -------------------------------------------------------
+
+def test_a_brush_repaints_the_painted_part_of_a_back_and_keeps_the_old_one(studio, workshop):
+    status, answer = _brush(studio, workshop, seed="5")
+
+    assert status == 202
+    [job] = workshop.pictures.jobs.values()
+    back = (studio.output / workshop.back).resolve()
+    assert answer["job_id"] == job.id and answer["status_url"] == f"/api/image/{job.id}/status"
+    assert job.replaces == back and job.output_path == back.with_name(f"{PALADIN}__back_new.png")
+    assert job.mask.is_file() and job.paste_mask.is_file() and job.keep_old is True
+    assert (job.engine.id, job.settings["seed"], job.instruction) == ("flux", 5, "a red cape")
+    assert _soon(lambda: studio.started == [("picture", job)])
+
+
+def test_a_front_no_model_was_made_from_can_be_brushed_and_is_simply_replaced(studio, workshop):
+    status, _ = _brush(studio, workshop, picture=KNIGHT)
+
+    [job] = workshop.pictures.jobs.values()
+    assert status == 202 and job.replaces == (studio.output / KNIGHT).resolve() and job.keep_old is False
+
+
+@pytest.mark.parametrize("changes, error", [
+    ({"instruction": "  "}, "say what goes in the painted area"),
+    ({"picture": "../secret.png"}, "not a picture in output/: ../secret.png"),
+    ({"picture": f"images/{PALADIN}/{PALADIN}.png"},
+     "a 3D model was already made from this picture; fix its back, or draw another picture"),
+])
+def test_a_brush_refuses_a_request_it_cannot_paint(studio, workshop, changes, error):
+    assert _brush(studio, workshop, **changes) == (422, {"error": error})
+    assert workshop.pictures.jobs == {}
+
+
+@pytest.mark.parametrize("mask, error", [
+    (None, "paint over the part to change first"),
+    (b"not a picture at all", "the painted area could not be read ("),
+])
+def test_a_brush_needs_a_painted_area_it_can_read(studio, workshop, mask, error):
+    fields = {"picture": workshop.back, "instruction": "a red cape", "engine": "flux"}
+
+    status, answer = _post(studio, "/api/image/brush", fields, {"mask": ("mask.png", mask)} if mask else {})
+
+    assert status == 422 and answer["error"].startswith(error)
+    assert workshop.pictures.jobs == {}
+
+
+def test_a_brush_with_nothing_painted_is_refused_and_gives_its_place_back(studio, workshop, blender):
+    fields = {"picture": workshop.back, "instruction": "a red cape", "engine": "flux"}
+
+    assert _post(studio, "/api/image/brush", fields, {"mask": ("mask.png", _stroke(painted=False))}) == (
+        422, {"error": "paint over the part to change first"})
+    assert workshop.pictures.jobs == {}
+    assert _finish_starts(studio)
+
+
+@pytest.mark.parametrize("length", [0, 8 * MIB + 1])
+def test_a_brush_refuses_a_missing_or_oversized_request_before_reading_it(studio, workshop, length):
+    assert _announce(studio, "/api/image/brush", length) == (
+        422, {"error": "expected a picture path, a painted mask and what to change"})
+
+
+def test_a_brush_says_when_the_picture_engine_is_not_installed(studio, workshop, monkeypatch, tmp_path):
+    monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
+
+    assert _brush(studio, workshop) == (
+        503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
+
+
+def test_a_brush_names_the_files_its_engine_still_needs(studio, workshop, monkeypatch):
+    _nothing_downloaded(monkeypatch)
+
+    status, answer = _brush(studio, workshop)
+
+    assert status == 503 and answer["needs_setup"] is True and answer["missing"] == ["weights.gguf"]
+    assert workshop.pictures.jobs == {}
+
+
+def test_a_brush_refuses_an_engine_it_does_not_know(studio, workshop):
+    status, answer = _brush(studio, workshop, engine="dall-e")
+
+    assert status == 422 and answer["error"].startswith(NO_ENGINE)
+    assert workshop.pictures.jobs == {}
+
+
+# --- Skins: POST /api/skins, /api/skins/<id>/try and /build ---------------------------------
+
+def test_a_new_skin_starts_drawing_its_front_from_the_models_own_picture(studio, workshop):
+    status, answer = _new_skin(studio, workshop)
+
+    assert status == 202
+    [job] = workshop.pictures.jobs.values()
+    skin = workshop.skins.get(answer["skin"]["id"])
+    assert answer["picture_job"] == {"job_id": job.id, "status_url": f"/api/image/{job.id}/status",
+                                     "events_url": f"/api/image/{job.id}/events"}
+    assert job.reference.resolve() == (studio.output / workshop.front).resolve()
+    assert job.output_path.resolve() == (studio.output / "skins" / skin.id / "front-1.png").resolve()
+    assert "make the skirt gold" in job.prompt
+    assert [drawn["job_id"] for drawn in skin.tries["front"]] == [job.id]
+    assert _soon(lambda: studio.started == [("picture", job)])
+
+
+def _tries(shop):
+    return shop.skins.get(shop.draft.id).tries["front"]
+
+
+def test_a_skin_try_says_when_the_picture_engine_is_not_installed_and_records_no_try(
+        studio, workshop, blender, monkeypatch, tmp_path):
+    monkeypatch.setattr(api.image_api, "BINARY", tmp_path / "nothing-here")
+
+    assert _try_a_skin_again(studio, workshop) == (
+        503, {"error": "The picture engine is not installed.", "needs_setup": True})
+    assert _tries(workshop) == [] and workshop.pictures.jobs == {}
+    assert _finish_starts(studio)
+
+
+def test_a_skin_try_needs_the_part_of_the_engine_that_reads_a_picture(studio, workshop, monkeypatch):
+    monkeypatch.setattr(api.image_api, "resolve_vision", lambda engine=None: None)
+
+    status, answer = _try_a_skin_again(studio, workshop)
+
+    assert status == 503 and answer["needs_setup"] is True
+    assert answer["missing"] == [api.image_api.VISION_FILE[1]]
+    assert _tries(workshop) == [] and workshop.pictures.jobs == {}
+
+
+def test_a_skin_try_that_has_to_wait_says_so_with_the_skin_and_records_no_try(
+        studio, workshop, monkeypatch, tmp_path):
+    _an_add_on_tool_is_running(monkeypatch, tmp_path)
+
+    status, answer = _try_a_skin_again(studio, workshop)
+
+    assert status == 409 and answer["skin"]["id"] == workshop.draft.id
+    assert _tries(workshop) == []       # a try with no picture could never be approved or redrawn
+
+
+def test_a_skin_try_waits_while_a_skin_is_being_made(studio, workshop):
+    _build_a_skin(studio, workshop)
+
+    status, answer = _try_a_skin_again(studio, workshop)
+
+    assert (status, answer["error"]) == (409, "a skin is being made; wait for it to finish")
+    assert _tries(workshop) == [] and workshop.pictures.jobs == {}
+
+
+def test_a_skin_with_both_pictures_approved_starts_its_repaint(studio, workshop):
+    status, answer = _build_a_skin(studio, workshop)
+
+    assert status == 202
+    [job] = workshop.builds.jobs.values()
+    assert (answer["job_id"], answer["status_url"]) == (job.id, f"/api/skins/build/{job.id}/status")
+    assert answer["skin"]["status"] == "building"
+    assert workshop.skins.get(workshop.approved.id).status == "building"
+    assert _soon(lambda: studio.started == [("skin", job)])
+
+
+def test_a_skin_whose_pictures_are_not_approved_is_not_built_and_gives_its_place_back(
+        studio, workshop, blender):
+    assert _send(studio, f"/api/skins/{workshop.draft.id}/build", {}) == (
+        422, {"error": "Approve the front picture first."})
+    assert workshop.builds.jobs == {}
+    assert _finish_starts(studio)
+
+
+def test_a_second_skin_build_is_refused_while_the_first_is_being_made(studio, workshop):
+    first, _ = _build_a_skin(studio, workshop)
+    second, answer = _build_a_skin(studio, workshop)
+
+    assert (first, second) == (202, 409)
+    assert answer == {"error": "a skin is already being made; wait for it to finish"}
+    assert len(workshop.builds.jobs) == 1
+
+
+# --- A rig rebind: POST /api/rig/rebind -----------------------------------------------------
+
+def _rebind_folders(studio):
+    folder = studio.output / "rig"
+    return sorted(path.name for path in folder.iterdir()) if folder.is_dir() else []
+
+
+def test_a_rebind_saves_its_three_files_and_starts_the_run(studio, workshop):
+    status, answer = _post(studio, "/api/rig/rebind", files=_rebind_bundle(asset=("Rune Knight.GLB", GLB)))
+
+    assert status == 202
+    [job] = workshop.rigs.jobs.values()
+    assert answer == {"job_id": job.id, "events_url": f"/api/rig/rebind/{job.id}/events",
+                      "status_url": f"/api/rig/rebind/{job.id}/status"}
+    assert job.directory.parent == studio.output / "rig"
+    assert job.directory.name.startswith("Rune-Knight__rebind__")
+    assert (job.asset_path.read_bytes(), job.scene_path.read_bytes()) == (GLB, BLEND)
+    assert job.sidecar_path.read_bytes() == _rig_sidecar(GLB, BLEND)
+    assert _soon(lambda: studio.started == [("rebind", job)])
+
+
+@pytest.mark.parametrize("field, wrong, error", [
+    ("asset", ("knight.obj", GLB), "multipart field 'asset' must be a .glb file"),
+    ("scene", ("knight.blend1", BLEND), "multipart field 'scene' must be a .blend file"),
+    ("sidecar", ("knight.json", b"{}"), "multipart field 'sidecar' must be a .rig.json file"),
+])
+def test_a_rebind_refuses_a_file_of_the_wrong_kind_and_keeps_nothing(studio, workshop, field, wrong, error):
+    assert _post(studio, "/api/rig/rebind", files=_rebind_bundle(**{field: wrong})) == (422, {"error": error})
+    assert workshop.rigs.jobs == {} and _rebind_folders(studio) == []
+
+
+def test_a_rebind_needs_all_three_files(studio, workshop):
+    bundle = _rebind_bundle()
+    del bundle["scene"]
+
+    assert _post(studio, "/api/rig/rebind", files=bundle) == (
+        422, {"error": "multipart field 'scene' must be a .blend file"})
+    assert workshop.rigs.jobs == {} and _rebind_folders(studio) == []
+
+
+def test_a_rebind_refuses_a_rig_record_made_for_another_model_and_gives_its_place_back(
+        studio, workshop, blender):
+    other = ("knight.rig.json", _rig_sidecar(GLB + b"another model", BLEND))
+
+    status, answer = _post(studio, "/api/rig/rebind", files=_rebind_bundle(sidecar=other))
+
+    assert status == 422 and answer["error"].startswith("asset fingerprint mismatch: ")
+    assert workshop.rigs.jobs == {} and _rebind_folders(studio) == []
+    assert _finish_starts(studio)
+
+
+@pytest.mark.parametrize("length", [0, 768 * MIB + 1])
+def test_a_rebind_refuses_a_missing_or_oversized_upload_before_reading_it(studio, workshop, length):
+    assert _announce(studio, "/api/rig/rebind", length) == (
+        400, {"error": "rebind bundle is missing or larger than 768 MiB"})
+
+
+def test_a_second_rebind_is_refused_while_the_first_runs(studio, workshop):
+    first, _ = _rebind(studio, workshop)
+    second, answer = _rebind(studio, workshop)
+
+    assert (first, second) == (202, 409) and answer == {"error": "a rig rebind is already running"}
+    assert len(workshop.rigs.jobs) == 1 and len(_rebind_folders(studio)) == 1
+
+
+# --- Animate: POST /api/animate/rig and /api/animate/play -----------------------------------
+
+def _rig_runs(studio):
+    return sorted(path.name for path in (studio.output / "animate").iterdir())
+
+
+def test_an_uploaded_model_is_rigged_from_a_copy_in_a_run_folder_of_its_own(studio, workshop):
+    status, answer = _post(studio, "/api/animate/rig", files={"asset": ("Rune Knight.GLB", GLB)})
+
+    assert status == 202
+    [job] = workshop.animations.jobs.values()
+    assert answer == {"job_id": job.id, "kind": "rig", "events_url": f"/api/animate/{job.id}/events",
+                      "status_url": f"/api/animate/{job.id}/status"}
+    assert job.directory.parent == studio.output / "animate"
+    assert job.directory.name.startswith("Rune-Knight__rig__")
+    assert (job.directory / "input" / "source.glb").read_bytes() == GLB
+    assert job.record["input"]["source"] == "uploaded" and job.record["license"] is None
+    assert job.bone_names is None
+    assert _soon(lambda: studio.started == [("animate", job)])
+
+
+def test_a_model_the_studio_made_is_rigged_by_name_and_keeps_its_licence(studio, workshop):
+    # The rigged model is a new file: the licence of the model it came from must travel with it.
+    record = {"license": {"name": "Pixal3D licence"}, "output": {"classification": "research-only"}}
+    (studio.output / workshop.finished).with_suffix(".provenance.json").write_text(json.dumps(record))
+
+    status, _ = _post(studio, "/api/animate/rig", {"model": workshop.finished, "bone_names": "numbered"})
+
+    assert status == 202
+    [job] = workshop.animations.jobs.values()
+    assert (job.directory / "input" / "source.glb").read_bytes() == GLB + b"finished"
+    assert job.record["input"]["source"] == "generated"
+    assert job.record["license"] == {"name": "Pixal3D licence"}
+    assert job.record["classification"] == "research-only" and job.record["source_record"] == record
+
+
+@pytest.mark.parametrize("fields, files, error", [
+    ({}, {}, "send a .glb in 'asset' or a listed 'model'"),
+    ({}, {"asset": ("knight.fbx", GLB)}, "send a .glb in 'asset' or a listed 'model'"),
+    ({"model": "props/sheet/sheet.glb"}, {}, "not a model this tab offers: 'props/sheet/sheet.glb'"),
+    ({"model": "../secret.glb"}, {}, "not a model this tab offers: '../secret.glb'"),
+    ({"bone_names": "klingon"}, {"asset": ("knight.glb", GLB)}, "bone names is one of: numbered, "),
+])
+def test_an_auto_rig_refuses_a_request_it_cannot_use_and_keeps_nothing(studio, workshop, fields, files, error):
+    before = _rig_runs(studio)
+
+    status, answer = _post(studio, "/api/animate/rig", {"note": "x", **fields}, files)
+
+    assert status == 422 and answer["error"].startswith(error)
+    assert workshop.animations.jobs == {} and _rig_runs(studio) == before
+
+
+@pytest.mark.parametrize("length", [0, 512 * MIB + 1])
+def test_an_auto_rig_refuses_a_missing_or_oversized_upload_before_reading_it(studio, workshop, length):
+    assert _announce(studio, "/api/animate/rig", length) == (
+        400, {"error": "request is missing or larger than 512 MiB"})
+
+
+@pytest.mark.parametrize("ask", [_rig, _play])
+def test_animate_says_when_the_auto_rig_is_not_installed_and_gives_its_place_back(
+        studio, workshop, blender, monkeypatch, ask):
+    monkeypatch.setattr(api, "autorig_installed", lambda: False)
+
+    assert ask(studio, workshop) == (
+        409, {"error": "Auto-rig is not installed. Set it up on the Setup & Status page."})
+    assert workshop.animations.jobs == {}
+    assert _finish_starts(studio)
+
+
+@pytest.mark.parametrize("first, second", [(_rig, _play), (_play, _rig)])
+def test_one_animate_job_at_a_time_whether_a_rig_or_a_move(studio, workshop, first, second):
+    assert first(studio, workshop)[0] == 202
+
+    assert second(studio, workshop) == (409, {"error": "an Animate job is already running"})
+    assert len(workshop.animations.jobs) == 1
+
+
+def test_a_move_is_played_on_a_rigged_model_and_saved_beside_it(studio, workshop):
+    status, answer = _send(studio, "/api/animate/play", {
+        "model": RIGGED, "preset": "walk", "arm_spread": 20, "speed": 1.5, "in_place": True})
+
+    assert status == 202
+    [job] = workshop.animations.jobs.values()
+    assert answer == {"job_id": job.id, "kind": "animate", "events_url": f"/api/animate/{job.id}/events",
+                      "status_url": f"/api/animate/{job.id}/status"}
+    assert job.result == (studio.output / RIGGED).with_name("knight_walk.glb")
+    motion = job.record["motion"]
+    assert (motion["preset"], motion["arm_spread_degrees"], motion["speed"], motion["in_place"]) == (
+        "walk", 20.0, 1.5, True)
+    assert _soon(lambda: studio.started == [("animate", job)])
+
+
+@pytest.mark.parametrize("request_body, error", [
+    ([1, 2], "expected a JSON object"),
+    (b"{not json", "expected a JSON object"),
+    ({"model": RIGGED, "preset": "moonwalk"}, "no such preset: 'moonwalk'. The moves are: walk"),
+    ({"model": f"finish/{FINISHED}/paladin_20k.glb", "preset": "walk"}, "pick a rigged model first"),
+    ({"model": "../secret.glb", "preset": "walk"}, "not a model this tab offers: '../secret.glb'"),
+    ({"model": RIGGED, "preset": "walk", "arm_spread": 90}, "arm_spread must be between 0 and 30 degrees"),
+    ({"model": RIGGED, "preset": "walk", "speed": 9}, "speed must be between 0.5 and 2"),
+    ({"model": RIGGED, "preset": "walk", "in_place": "yes"}, "in place is true or false"),
+])
+def test_a_move_refuses_a_request_it_cannot_play(studio, workshop, request_body, error):
+    assert _send(studio, "/api/animate/play", request_body) == (422, {"error": error})
+    assert workshop.animations.jobs == {}

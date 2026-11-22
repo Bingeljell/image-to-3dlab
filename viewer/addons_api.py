@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -190,6 +191,7 @@ class AddonJob:
         self.events: list[dict[str, Any]] = []
         self.result_path: str | None = None
         self.error_message: str | None = None
+        self.process: subprocess.Popen | None = None    # the tool, once it runs: a server stop ends it
         self.started = time.monotonic()
         self.condition = threading.Condition()
         self.cancel_event = threading.Event()
@@ -284,6 +286,7 @@ def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
             repo_dir=REPO,
             logger=job.append_log,
             cancel_event=job.cancel_event,
+            on_start=lambda process: setattr(job, "process", process),
         )
         if job.cancel_event.is_set():
             job.status = "cancelled"

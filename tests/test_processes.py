@@ -29,6 +29,14 @@ def test_popen_kwargs_start_a_new_group_on_each_platform():
     }
 
 
+def test_a_stoppable_child_leads_a_group_but_does_not_leave_the_servers_job():
+    assert processes.stoppable_popen_kwargs(windows=False) == {"start_new_session": True}
+    # Windows stops a tree by pid. A child that left the server's job object would outlive a
+    # server killed from Task Manager, and nothing tracks an add-on run to clean it up later.
+    flags = processes.stoppable_popen_kwargs(windows=True).get("creationflags", 0)
+    assert not flags & processes.CREATE_BREAKAWAY_FROM_JOB
+
+
 @pytest.mark.skipif(not POSIX, reason="real process groups on POSIX")
 def test_a_live_group_is_alive_and_terminating_it_ends_it():
     child = subprocess.Popen(

@@ -48,6 +48,17 @@ def group_popen_kwargs(windows: bool = _IS_WINDOWS) -> dict:
     return {"start_new_session": True}
 
 
+def stoppable_popen_kwargs(windows: bool = _IS_WINDOWS) -> dict:
+    """Popen keyword arguments for a child `terminate_group` must be able to stop together
+    with everything it started, but that no pid file tracks (an add-on's tool).
+
+    POSIX: its own session, so the whole group can be signalled. Windows: nothing, because
+    `taskkill /T` follows the tree by pid, and the child stays in the server's job object, so
+    it still ends with the server (see kill_children_with_this_process); `group_popen_kwargs`
+    would take it out of that job, with nothing to clean it up at the next start."""
+    return {} if windows else {"start_new_session": True}
+
+
 # The job object this process put itself in, kept open for its whole life: the kernel
 # closes the last handle when the process ends, however it ends.
 _JOB = None

@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no `.provenance.json`, and what Finish or Fix a spot made from it was marked "Unverified — source licence
   unavailable". It now writes the same record as the NVIDIA and AMD routes (the TRELLIS.2 and DINOv3 licences, our
   background remover, BRIA not loaded), also when a run is resumed from saved latents or a decode bundle.
+- **Add-on tools take their turn, and Cancel stops all of them.** A tool run from the studio could start beside a
+  generation, a picture or Finish and fight it for memory; it now waits like every other big job ("a generation is
+  running; wait for it to finish"), and they wait for it. Cancel stopped the tool but not what the tool had started
+  (Blender's helpers), so the run stayed "cancelling" until those ended by themselves; the whole group is stopped
+  now, and stopping the studio stops a running tool too.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

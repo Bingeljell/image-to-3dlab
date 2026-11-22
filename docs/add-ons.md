@@ -214,6 +214,9 @@ The index file is a JSON list of listing objects. Each listing needs `id`, `name
   `run-stem` is the run name AssetFurnace chooses.
 - Keep the manifest honest: `models`, `licence` and `needs` are shown to the user before
   they say yes.
+- In the studio a tool is a big job like any other: it waits while a model, picture or other big
+  job is being made, and they wait for it. Cancel, or stopping the studio, stops the tool and
+  everything it started, so do not leave work running in the background.
 
 ## Getting listed
 

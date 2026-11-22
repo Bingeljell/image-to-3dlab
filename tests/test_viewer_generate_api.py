@@ -2145,6 +2145,72 @@ def test_a_running_rebind_is_seen_by_the_shared_check(tmp_path, monkeypatch):
     assert api.busy_reason("animate") is None
 
 
+# --- Add-on runs are heavy jobs too: they wait, are waited for, and end with the server ------
+def _addon_run_in_progress(monkeypatch, process=None):
+    """An add-on tool the studio is running right now."""
+    manager = api.addons_api.AddonJobManager()
+    job = api.addons_api.AddonJob("d" * 32, "vehicle-kit", "build", {}, "run")
+    job.status = "running"
+    job.process = process
+    manager.jobs[job.id] = job
+    manager.active = job.id
+    monkeypatch.setattr(api.addons_api, "ADDON_JOBS", manager)
+    return job
+
+
+def test_every_other_heavy_job_waits_for_a_running_add_on(monkeypatch):
+    # An add-on's Blender run was not on the list every other start checks, so it ran beside a
+    # generation and the two fought over memory.
+    job = _addon_run_in_progress(monkeypatch)
+    assert api.busy_reason("generate") == "an add-on is running; wait for it to finish"
+    job.status = "done"
+    assert api.busy_reason("generate") is None
+
+
+def test_an_add_on_run_waits_for_the_other_heavy_jobs(monkeypatch, tmp_path):
+    import http.server
+    import urllib.error
+    import urllib.request
+
+    monkeypatch.setattr(api.addons_api, "ADDONS_DIR", tmp_path / "addons")      # nothing is installed here
+    monkeypatch.setattr(api.addons_api, "ADDON_JOBS", api.addons_api.AddonJobManager())
+    generating = {"now": True}
+    monkeypatch.setattr(api, "HEAVY_JOBS", {**{kind: (lambda: False) for kind in api.HEAVY_JOBS},
+                                            "generate": lambda: generating["now"]})
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def run_tool():
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/addons/vehicle-kit/run/build",
+            data=json.dumps({"inputs": {}}).encode(),
+            headers={"Content-Type": "application/json", "X-AssetFurnace-Request": "studio"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    try:
+        assert run_tool() == (409, {"error": "a generation is running; wait for it to finish"})
+        generating["now"] = False
+        # Nothing is in the way now, so the request reaches the add-on itself: not installed here.
+        assert run_tool() == (422, {"error": "vehicle-kit is not installed"})
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_terminate_active_job_also_stops_a_running_add_on(monkeypatch):
+    _addon_run_in_progress(monkeypatch, process=_FakeProcess(7373))
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == [7373]
+
+
 def test_a_backend_is_found_by_its_catalogue_id_too():
     # Issue #151: the studio sends the catalogue's id ("hunyuan_xiong"); the generator's own key
     # is "hunyuan-mlx-xiong", so generating answered "unknown backend 'hunyuan_xiong'".

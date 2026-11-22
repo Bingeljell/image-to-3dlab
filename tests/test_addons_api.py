@@ -6,6 +6,8 @@ Uses a fake runner and a local index file; no network, no real git in unit tests
 from __future__ import annotations
 
 import json
+import os
+import signal
 import time
 from pathlib import Path
 
@@ -161,6 +163,67 @@ def test_run_payload_refuses_second_run(tmp_path, monkeypatch):
     job = viewer.ADDON_JOBS.get(first["job_id"])
     assert job is not None
     viewer.ADDON_JOBS.cancel(first["job_id"])
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _wait_until(condition, seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while not condition() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return bool(condition())
+
+
+def _start_tool(tmp_path, monkeypatch, script: str):
+    """Install the test add-on with `script` as its tool, start it, and wait until it says "started"."""
+    _set_paths(tmp_path, monkeypatch)
+    monkeypatch.setattr(viewer, "ADDON_JOBS", viewer.AddonJobManager())
+    addon_dir = make_installed_addon(tmp_path, manifest())
+    (addon_dir / "shape_guide.py").write_text(script, encoding="utf-8")
+    job = viewer.ADDON_JOBS.get(viewer.run_payload("vehicle-kit", "build", {"preset": "bus_12m"})["job_id"])
+    assert _wait_until(lambda: "started" in job.log_lines), job.log_lines
+    return addon_dir, job
+
+
+@pytest.mark.posix
+def test_cancel_stops_the_tool_and_everything_it_started(tmp_path, monkeypatch):
+    # Cancel stopped the tool alone. What the tool had started (Blender's helpers) ran on and
+    # kept its output open, so the run stayed "cancelling" until that ended by itself.
+    addon_dir, job = _start_tool(tmp_path, monkeypatch, (
+        "import pathlib, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'])\n"
+        "pathlib.Path('child.pid').write_text(str(child.pid), encoding='utf-8')\n"
+        "print('started', flush=True)\n"
+        "time.sleep(20)\n"))
+    child = int((addon_dir / "child.pid").read_text(encoding="utf-8"))
+    try:
+        viewer.ADDON_JOBS.cancel(job.id)
+
+        assert _wait_until(lambda: job.status == "cancelled", seconds=8), job.status
+        assert _wait_until(lambda: not _alive(child)), "what the tool started outlived Cancel"
+    finally:
+        if _alive(child):
+            os.kill(child, signal.SIGKILL)
+
+
+@pytest.mark.posix
+def test_a_running_tool_is_known_to_its_job_and_leads_its_own_group(tmp_path, monkeypatch):
+    # A server stop ends each job by its process group. The job did not know its process, so a
+    # stop never reached a running add-on tool.
+    _, job = _start_tool(tmp_path, monkeypatch, "import time\nprint('started', flush=True)\ntime.sleep(20)\n")
+    try:
+        process = getattr(job, "process", None)
+        assert process is not None, "the job does not know the process it started"
+        assert os.getpgid(process.pid) == process.pid != os.getpgid(0)
+    finally:
+        viewer.ADDON_JOBS.cancel(job.id)
+        assert _wait_until(lambda: job.status == "cancelled", seconds=8), job.status
 
 
 def test_addons_page_sends_the_studio_request_header():

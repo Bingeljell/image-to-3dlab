@@ -1559,6 +1559,10 @@ def _terminate_active_job() -> None:
     skin_job = skins_api.BUILDS.jobs.get(skins_api.BUILDS.active) if skins_api.BUILDS.active else None
     if skin_job is not None and skin_job.process is not None and skin_job.process.poll() is None:
         _killpg_if_alive(skin_job.process.pid)
+    addon_jobs = addons_api.ADDON_JOBS
+    addon_job = addon_jobs.jobs.get(addon_jobs.active) if addon_jobs.active else None
+    if addon_job is not None and addon_job.process is not None and addon_job.process.poll() is None:
+        _killpg_if_alive(addon_job.process.pid)
     for download in DOWNLOADS.values():
         if download.process is not None and download.process.poll() is None:
             _killpg_if_alive(download.process.pid)
@@ -1593,6 +1597,8 @@ HEAVY_JOBS: dict[str, Callable[[], bool]] = {
     "rebind": lambda: _running(RIG_JOBS),
     "animate": lambda: _animate_running(),
     "skin": lambda: skins_api.BUILDS.running(),
+    # someone else's tool, usually Blender: nobody knows how much memory it takes, so it counts
+    "addon": lambda: addons_api.ADDON_JOBS.busy(),
 }
 BUSY_WORDS = {
     "setup": "setup is running", "generate": "a generation is running",
@@ -1600,6 +1606,7 @@ BUSY_WORDS = {
     "props": "a prop sheet is baking", "rebind": "a rig rebind is running",
     "animate": "an auto-rig or animation is running",
     "skin": "a skin is being made",
+    "addon": "an add-on is running",
 }
 
 
@@ -4479,6 +4486,10 @@ class Handler(SimpleHTTPRequestHandler):
         inputs = body.get("inputs") or {}
         if not isinstance(inputs, dict):
             self._send_json(422, {"error": "inputs must be an object"})
+            return
+        waiting = busy_reason("addon")
+        if waiting:
+            self._send_json(409, {"error": waiting})
             return
         try:
             payload = addons_api.run_payload(addon_id, tool_id, inputs)

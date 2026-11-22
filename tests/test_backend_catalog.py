@@ -939,3 +939,16 @@ def test_readiness_keeps_components_with_the_same_source(monkeypatch):
 def test_catalogue_readiness_preserves_every_component():
     for backend in bc.BY_ID.values():
         assert len(bc.readiness(backend.id)["weights"]) == len(backend.weights), backend.id
+
+
+def test_the_stable_fast_3d_card_names_its_licence_and_leaves_the_terms_to_the_record():
+    """The card said "(non-commercial under $1M revenue)" while the record written beside every
+    model calls the same licence commercial with conditions, and agents were told the card's
+    version. A card names the licence and links to it (the note at the top of the catalogue);
+    the conditions are stated once, in the reviewed record."""
+    from image_to_3dlab.provenance import LICENSES
+
+    card = bc.BY_ID["sf3d"]
+    assert card.license_name == LICENSES["sf3d"].license_name
+    assert card.describe()["license"]["name"] == "Stability AI Community License"
+

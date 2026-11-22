@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a word, so a script or an agent could not tell what was wrong. Making a picture or a back view, renaming,
   hiding, deleting or picking a main version in the Library, using or deleting a kept back, the bug report, the
   usage choice and Show in folder now all answer "expected a JSON object".
+- **Stable Fast 3D's licence is described one way.** The Setup card said "non-commercial under $1M revenue", the
+  setup script "free under $1M annual revenue", and the record written beside each model "Commercial registration
+  required". The card now names the licence and links to it, like every other card, and agents are told the same.
+  The setup script keeps its $1M line and adds the record's two conditions word for word. The record is unchanged.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

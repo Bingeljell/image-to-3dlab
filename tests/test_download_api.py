@@ -106,13 +106,12 @@ def test_a_repo_named_tokens_is_not_mistaken_for_a_login_problem():
 def test_a_setup_that_only_announces_a_gated_model_is_not_a_login_problem():
     """SF3D's own announcement says the model "is gated". A Mac without libomp stopped right
     after it, and the setup blamed Hugging Face sign-in instead of naming libomp."""
-    log = ["About to install:", "backend: Stable Fast 3D (Stability AI)",
-           "stabilityai/stable-fast-3d is gated (see licence below)",
-           "licence: Stability AI Community License: free under $1M annual revenue, otherwise a",
-           "commercial licence from Stability. Gated: accept it at",
-           "https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`.",
-           "SF3D's Metal baker needs libomp: brew install libomp"]
-    message = dl._explain(1, log)
+    import bootstrap_sf3d
+
+    # the announcement as the setup prints it today, not a copy of it kept here
+    announced = [line.strip() for line in bootstrap_sf3d.announcement().splitlines() if line.strip()]
+    assert any("is gated" in line for line in announced) and any("hf auth login" in line for line in announced)
+    message = dl._explain(1, [*announced, "SF3D's Metal baker needs libomp: brew install libomp"])
     assert "Hugging Face" not in message
     assert "brew install libomp" in message
 

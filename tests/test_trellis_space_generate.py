@@ -7,11 +7,17 @@ path is exercised manually via ``--check`` then a real run.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
+import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
+
+from image_to_3dlab.provenance import read_model_record
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "trellis_space_generate.py"
 SPEC = importlib.util.spec_from_file_location("trellis_space_generate", SCRIPT)
@@ -284,7 +290,8 @@ def test_generate_checkpoints_latents_before_decode_failure(monkeypatch, tmp_pat
     assert checkpoint.is_file(), "failed non-debug runs must retain their recovery checkpoint"
 
 
-def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_path):
+def _finished_run(monkeypatch, tmp_path, *, matted_with=None):
+    """The real `generate`, picture to files, with the model, the decode and the bake stubbed."""
     from types import SimpleNamespace
 
     import torch
@@ -342,7 +349,7 @@ def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_pa
         tmp_path,
         seed=19,
         sparse_attn_backend="sdpa",
-        matted_with=None,
+        matted_with=matted_with,
         save_latents=False,
         save_decode=False,
         pre_cap=4_000_000,
@@ -350,10 +357,148 @@ def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_pa
         decimation_target=300_000,
         texture_size=1024,
     )
+    return image_path, output_path, manifest
+
+
+def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_path):
+    _, output_path, manifest = _finished_run(monkeypatch, tmp_path)
 
     assert output_path.is_file()
     assert not (tmp_path / "model_latents.pt").exists()
     assert "latents" not in manifest["artifacts"]
+
+
+# --- the licence record every way out of the script leaves beside the model ---
+
+def _sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _licence_parts(record):
+    return {part["component"]: part for part in record["components"]}
+
+
+def _stub_the_bake(monkeypatch, output_path):
+    def finish_bake(*_args, **_kwargs):
+        output_path.write_bytes(b"glTF")
+        return {"bake": 0.2}, {"glb": gen._artifact(output_path)}
+
+    monkeypatch.setattr(gen, "_bake_export", finish_bake)
+
+
+def test_a_finished_run_leaves_its_licence_record_beside_the_model(monkeypatch, tmp_path):
+    # Every other route wrote <name>.provenance.json. This one wrote only its run file, so a Mac
+    # TRELLIS.2 model reached the Library with no licence, and Finish called it unverified.
+    image_path, output_path, _ = _finished_run(monkeypatch, tmp_path, matted_with="birefnet-general-lite")
+
+    record = read_model_record(output_path)     # what Finish and Fix a spot read
+    assert record is not None, "no licence record beside the model"
+    assert json.loads((tmp_path / "model.provenance.json").read_text(encoding="utf-8")) == record
+    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["model"]["backend"] == "trellis2" and record["model"]["route"] == "apple-mps"
+    assert record["model"]["parameters"]["resolution"] == "512"
+    assert record["input"] == {"path": str(image_path), "sha256": _sha256(image_path),
+                               "source": "user-provided"}
+    assert record["output"]["sha256"] == _sha256(output_path)
+    parts = _licence_parts(record)
+    assert parts["rembg/birefnet-general-lite"]["purpose"] == "background removal"
+    assert parts["facebook/dinov3-vitl16-pretrain-lvd1689m"]["license"] == "DINOv3 License"
+    assert parts["BRIA RMBG-2.0"]["loaded"] is False
+    assert "scripts/patch_trellis_space_core.py" in parts["BRIA RMBG-2.0"]["note"]
+
+
+def test_a_run_resumed_from_a_decode_bundle_leaves_its_licence_record_too(monkeypatch, tmp_path):
+    import torch
+
+    decode_path, output_path = tmp_path / "model_decode.pt", tmp_path / "model.glb"
+    # The picture this bundle came from is no longer on disk, so the bundle is the input on record.
+    torch.save({"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None,
+                "res": 512, "seed": 7, "images": [str(tmp_path / "gone.png")]}, decode_path)
+    monkeypatch.setattr(gen, "configure_environment", lambda *_args: None)
+    _stub_the_bake(monkeypatch, output_path)
+
+    gen.generate_from_decode(decode_path, output_path, tmp_path,
+                             decimation_target=300_000, texture_size=1024, pre_cap=4_000_000)
+
+    record = read_model_record(output_path)
+    assert record is not None, "no licence record beside the model"
+    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["input"]["path"] == str(decode_path)
+    assert record["input"]["sha256"] == _sha256(decode_path)
+    assert record["output"]["sha256"] == _sha256(output_path)
+    assert _licence_parts(record)["BRIA RMBG-2.0"]["loaded"] is False
+
+
+def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, tmp_path):
+    import torch
+
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"png")
+    latents_path, output_path = tmp_path / "model_latents.pt", tmp_path / "model.glb"
+    latents_path.write_bytes(b"latents")
+
+    class OnDevice:     # stands in for a tensor: it is only moved to the device, never read
+        def to(self, _device):
+            return self
+
+    class SparseTensor:
+        def __init__(self, feats, coords):
+            pass
+
+        def replace(self, _feats):
+            return self
+
+    sparse = types.ModuleType("trellis2.modules.sparse")
+    sparse.SparseTensor = SparseTensor
+    for name, module in (("trellis2", types.ModuleType("trellis2")),
+                         ("trellis2.modules", types.ModuleType("trellis2.modules")),
+                         ("trellis2.modules.sparse", sparse)):
+        monkeypatch.setitem(sys.modules, name, module)
+    bundle = {"shape_slat_feats": OnDevice(), "coords": OnDevice(), "tex_slat_feats": OnDevice(),
+              "res": 512, "seed": 7, "images": [str(picture)]}
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: bundle)
+    monkeypatch.setattr(gen, "load_pipeline", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(gen, "_decode_and_cache", lambda *_args, **_kwargs: (
+        {"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None, "res": 512}, 0.1))
+    monkeypatch.setattr(gen, "_release_mps_memory", lambda: None)
+    _stub_the_bake(monkeypatch, output_path)
+
+    gen.generate_from_latents(latents_path, output_path, tmp_path, sparse_attn_backend="sdpa",
+                              save_decode=False, pre_cap=4_000_000)
+
+    record = read_model_record(output_path)
+    assert record is not None, "no licence record beside the model"
+    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["input"]["path"] == str(picture)      # still on disk, so it is the input on record
+    assert record["input"]["sha256"] == _sha256(picture)
+    assert record["output"]["sha256"] == _sha256(output_path)
+
+
+def _git(folder, *args):
+    return subprocess.run(
+        ["git", "-C", str(folder), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+         "-c", "commit.gpgsign=false", *args],
+        check=True, capture_output=True, text=True).stdout.strip()
+
+
+def test_backend_revision_is_the_commit_of_the_trellis_checkout(tmp_path):
+    checkout = tmp_path / "TRELLIS.2"
+    checkout.mkdir()
+    _git(checkout, "init", "-q")
+    _git(checkout, "commit", "-q", "--allow-empty", "-m", "pin")
+
+    assert gen.backend_revision(tmp_path) == _git(checkout, "rev-parse", "HEAD")
+
+
+def test_backend_revision_is_nothing_when_the_checkout_is_not_a_clone(tmp_path):
+    # vendor/ sits inside this repository: asking git about a plain folder there would answer
+    # with this repository's commit, and the record would name the wrong code.
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "the repository around it")
+    (tmp_path / "TRELLIS.2").mkdir()
+
+    assert gen.backend_revision(tmp_path) is None
+    assert gen.backend_revision(tmp_path / "nowhere") is None
 
 
 # --- environment configuration ---

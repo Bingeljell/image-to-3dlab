@@ -26,8 +26,9 @@ Verify the environment first -- seconds, no model load, no sampling -- before th
 
 Saved alongside the GLB: ``<out>_latents.pt`` (schema-compatible with ``trellis_stage3.py`` /
 ``trellis_rebake.py`` so Stage-3 resamples and rebakes need no re-sampling), ``<out>_decode.pt``
-(the decoded mesh, so ``--from-decode`` re-bakes without re-decoding or reloading the model) and
-a ``<out>.json`` manifest with the exact params and per-stage timings.
+(the decoded mesh, so ``--from-decode`` re-bakes without re-decoding or reloading the model),
+a ``<out>.json`` manifest with the exact params and per-stage timings, and
+``<out>.provenance.json``, the licence record that travels with the model.
 
 MPS bake path: app.py pre-simplifies the decoded mesh to nvdiffrast's 2**24 index cap before
 ``to_glb``, and the demo never meets the ~20M-face raw decode. cumesh's Metal simplify is not
@@ -49,6 +50,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -62,6 +64,13 @@ if str(REPO / "scripts") not in sys.path:
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-space-mac"
 
 import patch_trellis_space_core as space_patch
+
+# At import, not at the end of a run: a 25-minute generation must not find out on its last
+# statement that the licence record cannot be written.
+from image_to_3dlab.provenance import trellis2_record, write_provenance
+
+#: This route's name in the licence record, beside "nvidia-cuda" and "amd-rocm".
+PROVENANCE_ROUTE = "apple-mps"
 
 # --- The upstream Gradio demo defaults, verbatim (app.py gr.Slider ``value=``). ---
 # resolution "1024" -> pipeline_type "1024_cascade"; seed 0; extract at 300k faces / 2048 texture.
@@ -334,6 +343,45 @@ def sha256(path: Path) -> str:
 
 def _artifact(path: Path) -> dict[str, Any]:
     return {"path": str(path), "sha256": sha256(path), "bytes": path.stat().st_size}
+
+
+def backend_revision(vendor_root: Path) -> str | None:
+    """The commit of the TRELLIS.2 checkout a run used, or None when that cannot be read.
+
+    Only a real clone is asked: `vendor/` sits inside this repository, so for a plain folder
+    there git would answer with this repository's own commit.
+    """
+    checkout = vendor_root / "TRELLIS.2"
+    if not (checkout / ".git").exists():
+        return None
+    try:
+        return subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], check=True,
+                              capture_output=True, text=True).stdout.strip() or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _write_records(manifest: dict[str, Any], *, image: Path, output_path: Path,
+                   vendor_root: Path) -> None:
+    """Write the run file and the licence record beside the model.
+
+    Every way out of this script ends here. `<out>.provenance.json` is the record that
+    travels with the file (AGENTS.md); `<out>.json` keeps the timings and artifacts. `image`
+    is the input on record: the picture, or the bundle a resumed run started from when the
+    picture is no longer on disk.
+    """
+    manifest_path = output_path.with_suffix(".json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    record = trellis2_record(
+        image=image, output=output_path, parameters=manifest["params"],
+        matted_with=manifest["matte_model"], route=PROVENANCE_ROUTE,
+        bria_patch="scripts/patch_trellis_space_core.py",
+        backend_revision=backend_revision(vendor_root),
+    )
+    sidecar = write_provenance(output_path.with_suffix(".provenance.json"), record)
+    print(f"Manifest: {manifest_path}", flush=True)
+    print(f"Provenance: {sidecar}", flush=True)
 
 
 # ----------------------------------------------------------------------------------------------
@@ -752,10 +800,8 @@ def generate_from_latents(
         ),
     )
     manifest["resumed_from_latents"] = str(latents_path)
-    manifest_path = output_path.with_suffix(".json")
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    print(f"Manifest: {manifest_path}", flush=True)
+    _write_records(manifest, image=image_path if image_path.is_file() else latents_path,
+                   output_path=output_path, vendor_root=vendor_root)
     print(f"Total (decode+bake, no resample): {timings['total']:.1f}s", flush=True)
     return manifest
 
@@ -923,9 +969,7 @@ def generate(
         ),
         matte_model=matted_with,
     )
-    manifest_path = output_path.with_suffix(".json")
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    print(f"Manifest: {manifest_path}", flush=True)
+    _write_records(manifest, image=image_path, output_path=output_path, vendor_root=vendor_root)
     print(f"Total: {timings['total']:.1f}s", flush=True)
     return manifest
 
@@ -972,10 +1016,9 @@ def generate_from_decode(
         sparse_attn_backend="sdpa",
     )
     manifest["resumed_from_decode"] = str(decode_path)
-    manifest_path = output_path.with_suffix(".json")
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    print(f"Manifest: {manifest_path}", flush=True)
+    source = Path(str(bundle.get("images", ["<from decode>"])[0]))
+    _write_records(manifest, image=source if source.is_file() else decode_path,
+                   output_path=output_path, vendor_root=vendor_root)
     print(f"Total (pre-cap + bake, no decode): {timings['total']:.1f}s", flush=True)
     return manifest
 

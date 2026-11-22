@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   progress reader did not expect, or a full disk under `run.log`, stopped the studio reading the generator's output;
   the generator then waited at its next print and the job showed "Working…" for good. The reader now carries on, and a
   debug run's log says once what it could not read.
+- **TRELLIS.2 models made on a Mac carry their licence record.** That route wrote only its run file, so the model had
+  no `.provenance.json`, and what Finish or Fix a spot made from it was marked "Unverified — source licence
+  unavailable". It now writes the same record as the NVIDIA and AMD routes (the TRELLIS.2 and DINOv3 licences, our
+  background remover, BRIA not loaded), also when a run is resumed from saved latents or a decode bundle.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as

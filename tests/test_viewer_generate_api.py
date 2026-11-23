@@ -2714,3 +2714,20 @@ def test_a_generator_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_r
         assert job.process.poll() is not None
     finally:
         kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_generation_whose_generator_cannot_be_stopped_says_so_in_its_log(tmp_path, monkeypatch):
+    # Before: the warning that stopping the generator failed was thrown away, so the log said
+    # nothing while a generator could still be holding the GPU. Every other runner logs it.
+    from deaf_worker import kill_and_reap
+
+    job, _jobs = _deaf_job(tmp_path, monkeypatch)
+    monkeypatch.setattr(api.processes, "stop_and_reap", lambda proc, **_more: "the generator would not stop")
+    try:
+        api._run_job(job)
+
+        assert job.status == "error"
+        assert "cleanup warning: the generator would not stop" in list(job.log_lines)
+    finally:
+        kill_and_reap(job.process)

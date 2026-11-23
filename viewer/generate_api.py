@@ -1944,7 +1944,9 @@ def _stop_started_process(job: Job) -> None:
     proc = job.process
     if proc is None or proc.poll() is not None:
         return
-    processes.stop_and_reap(proc, grace=5)
+    warning = processes.stop_and_reap(proc, grace=5)
+    if warning:
+        job.append_log(f"cleanup warning: {warning}")
 
 
 # --- TRELLIS backend spec (wraps the pre-existing, unchanged behavior above) -----------

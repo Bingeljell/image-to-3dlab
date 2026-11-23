@@ -59,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but left that worker running, with nothing reading it and nothing to find it later. It is now stopped first. A
   worker that ignores being asked to stop is forced: Finish runs, prop bakes, rig rebinds, auto-rigs and moves used to
   free their place while it ran on beside the next job. A failed job also no longer reads as finished while its
-  worker is still being stopped, so the next big job no longer starts beside it during those seconds.
+  worker is still being stopped, so the next big job no longer starts beside it during those seconds. A generator
+  that cannot be stopped now says so in its log, as every other job's worker does.
 - **A pid note that cannot be removed no longer holds a job's place.** Each running job leaves a pid note so a later
   studio start can find it. The note is now removed only once the worker has stopped, and a note that cannot be
   removed no longer leaves the worker running, the job's place taken, or a finished download looking unfinished.

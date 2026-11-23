@@ -330,7 +330,9 @@ LOCK = threading.Lock()
 
 
 def active() -> DownloadRun | None:
-    return next((r for r in DOWNLOADS.values() if r.status not in TERMINAL), None)
+    # A copy of the list: every start asks this, each on its own thread, and a dict that
+    # another request adds a download to must not be the one being read.
+    return next((r for r in list(DOWNLOADS.values()) if r.status not in TERMINAL), None)
 
 
 def running_payload() -> dict[str, Any] | None:

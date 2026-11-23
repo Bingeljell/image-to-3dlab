@@ -817,3 +817,25 @@ def test_external_models_environment_choice_wins_over_saved_folder(tmp_path, mon
     with pytest.raises(RuntimeError, match="refusing to delete"):
         dl.remove(backend.id)
     assert own.is_dir()
+
+
+def test_asking_what_is_downloading_survives_a_download_starting_at_that_moment(monkeypatch):
+    """Every start in the studio asks this now (the shared waiting rule), each on its own thread.
+    The list was read while another request could be adding an engine's first download to it,
+    and Python stops reading a dict that grows meanwhile: the request asking would have failed."""
+    import types
+
+    downloads = {}
+    monkeypatch.setattr(dl, "DOWNLOADS", downloads)
+
+    class Finished:
+        @property
+        def status(self):       # read by the scan; another request starts a download right then
+            downloads.setdefault("another-engine", types.SimpleNamespace(status="running"))
+            return "done"
+
+    downloads["pixal3d"], downloads["trellis"] = Finished(), types.SimpleNamespace(status="done")
+
+    assert dl.active() is None                      # the list as it was when asked
+    assert dl.active().status == "running"          # and the new download is seen by the next ask
+

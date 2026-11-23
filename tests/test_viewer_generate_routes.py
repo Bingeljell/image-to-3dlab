@@ -1412,6 +1412,23 @@ def test_two_tries_of_one_skin_at_once_keep_the_try_that_won_the_start(studio, w
     assert after[-1]["instruction"] == winner and after[-1]["job_id"] == answer["picture_job"]["job_id"]
 
 
+def test_a_skin_try_whose_picture_fails_to_start_for_any_reason_leaves_the_skin_as_it_was(
+        studio, workshop, monkeypatch):
+    # Only a lost start put the skin back. Any other failure to start the picture (its folder
+    # could not be made, say) left a try with no picture and both approvals cleared for it.
+    def no_room(*_args, **_more):
+        raise OSError("No space left on device")
+    monkeypatch.setattr(api.image_api, "start_edit", no_room)
+    before = workshop.skins.get(workshop.approved.id).to_dict()
+
+    try:
+        _send(studio, f"/api/skins/{workshop.approved.id}/try", {"side": "front", "instruction": "matte"})
+    except OSError:
+        pass                        # how the route answers a disk error is not this test's subject
+
+    assert workshop.skins.get(workshop.approved.id).to_dict() == before
+
+
 def test_an_approval_made_while_a_try_of_the_skin_is_starting_keeps_both(studio, workshop, monkeypatch):
     # Approving read the skin and wrote it back whole, outside the store's lock that tries
     # take: the try starting meanwhile wrote over the approval, or the approval over the try.

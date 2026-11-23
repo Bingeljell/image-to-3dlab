@@ -3392,8 +3392,9 @@ class Handler(SimpleHTTPRequestHandler):
         """Record one picture try and start drawing it. Ask `_skin_try_refusal` first.
 
         Two picture starts at the same moment are both let through, and the picture manager
-        then takes one. The one it refuses (RuntimeError) puts the skin back as it was: a try
-        with no picture could never be approved, and recording it had unapproved the others.
+        then takes one. The one it refuses (RuntimeError), or a start that fails any other way,
+        puts the skin back as it was: a try with no picture could never be approved, and
+        recording it had unapproved the others.
         Tries take their turn on the store's lock and read the skin afresh there, so one put
         back never writes over another recorded since `skin` was read.
         """
@@ -3403,7 +3404,7 @@ class Handler(SimpleHTTPRequestHandler):
             reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
             try:
                 job = image_api.start_edit(reference, target, prompt, seed)
-            except RuntimeError:
+            except Exception:       # a lost start, or any other reason it did not start
                 skins_api.STORE.save(as_it_was)
                 raise
             skin.tries[side][-1].update(job_id=job.id, started=time.time())

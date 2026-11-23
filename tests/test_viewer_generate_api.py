@@ -1179,6 +1179,25 @@ def test_reconcile_discards_an_unparseable_pid_file(tmp_path):
     assert not (job_dir / "pid").exists()
 
 
+@pytest.mark.parametrize("note", ["0", "-5", "4242 0"])
+def test_reconcile_discards_a_note_naming_no_possible_process_and_stops_nothing(tmp_path, monkeypatch, note):
+    # Before, a note of 0 passed the group check (killpg(0, 0) is the caller's own group) and
+    # the studio sent SIGTERM to itself at startup; an owner of 0 left the job running.
+    job_dir = tmp_path / "corrupt-note-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text(note)
+    stopped = []
+    monkeypatch.setattr(api, "_process_alive", lambda pid: True)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api, "_killpg_if_alive", stopped.append)
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == []
+    assert stopped == []
+    assert not (job_dir / "pid").exists()
+
+
 def test_reconcile_leaves_a_folder_named_pid_alone(tmp_path):
     """A prop, or anything else, called `pid` is a folder; unlinking it raised
     PermissionError and the viewer would not start until someone deleted it by hand."""

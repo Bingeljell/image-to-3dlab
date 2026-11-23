@@ -179,6 +179,19 @@ def test_a_malformed_pid_record_is_rejected(text):
         processes.parse_pid_record(text)
 
 
+@pytest.mark.parametrize("text", ["0", "1", "-5", "4242 0", "4242 -1"])
+def test_a_pid_record_naming_no_possible_process_is_rejected(text):
+    # Before, any integer parsed: a note of 0 made killpg(0, ...) reach the studio's own
+    # group, and an owner of 0 made the job look looked after.
+    with pytest.raises(ValueError):
+        processes.parse_pid_record(text)
+
+
+def test_a_pid_record_whose_owner_is_process_one_still_parses():
+    # A studio can be PID 1 in a container, so an owner of 1 must stay valid.
+    assert processes.parse_pid_record("4242 1") == (4242, 1, None, None)
+
+
 # --- a job's number can be given to another process once the job has ended ----------------
 #
 # A pid note named the job by its number alone. When the job had ended and the number had

@@ -285,11 +285,15 @@ def parse_pid_record(text: str) -> PidNote:
     """A `pid` file, read back. Older ones hold only the job's number, then also its owner's,
     then also the job's start.
 
-    Raises ValueError for anything else."""
+    Raises ValueError for anything else, including a job number below 2 (no job is process 0
+    or 1) and an owner number below 1 (an owner of 1 stays valid: a studio can be PID 1 in a
+    container)."""
     fields = text.split()
     if not 1 <= len(fields) <= 4:
         raise ValueError(f"not a pid record: {text!r}")
     numbers = [int(field) for field in fields[:2]]
+    if numbers[0] < 2 or (len(numbers) == 2 and numbers[1] < 1):
+        raise ValueError(f"not a pid record: {text!r}")
     starts = [None if field == _UNKNOWN else field for field in fields[2:]]
     return PidNote(numbers[0], numbers[1] if len(numbers) == 2 else None,
                    *(starts + [None, None])[:2])

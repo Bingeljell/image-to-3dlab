@@ -1755,3 +1755,136 @@ def test_a_plan_that_names_an_engine_nobody_knows_is_refused_at_once(studio, pla
 
     assert status == 400 and answer["error"].startswith(error)
     assert plans == []
+
+
+# --- The starts not asked mid-way above, the slot after a crash, and every kind as the one in the way ---
+
+def _generation_waits(studio, words):
+    """Whether a generation asked for now is told to wait, in these words."""
+    return _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)}) == (
+        409, {"error": f"{words}; wait for it to finish"})
+
+
+# name: (how it is asked for, a step between its waiting check and its job's entry on the books,
+#        what it makes a generation answer, what that step answers here if not what it really would)
+MORE_STARTS = {
+    "a prop sheet": (lambda studio: _post(studio, "/api/props", {"settings": "{}"}, {"asset": ("sheet.glb", GLB)}),
+                     lambda: (api.PROPS_JOBS, "create"), "a prop sheet is baking", None),
+    "a prop turned": (lambda studio: _send(studio, "/api/props/runs/tavern/turn", {"prop": "barrel"}),
+                      lambda: (api.PROPS_JOBS, "turn"), "a prop sheet is baking", None),
+    "a Finish run resumed": (lambda studio: _post(studio, "/api/finish/runs/knight__finish__1/resume"),
+                             lambda: (api, "find_blender"), "a model is being finished", None),
+    "an add-on tool": (lambda studio: _send(studio, "/api/addons/vehicle-kit/run/build", {"inputs": {}}),
+                       lambda: (api.addons_api, "run_payload"), "an add-on is running",
+                       lambda *_asked: {"job_id": "0" * 32, "status": "running"}),
+    # a setup is on the books (SETUP_ACTIVE) before its run is started, so each is held one step earlier
+    **{f"setup by {route}": (lambda studio, route=route: _post(studio, route),
+                             lambda step=step: (api, step), "setup is running", None)
+       for route, step in zip(SETUP_ROUTES, ["clean_port_build_present", "blender_install_refusal",
+                                             "gltfpack_install_refusal"], strict=True)},
+    **{f"an engine's {action}": (lambda studio, action=action: _post(studio, f"/api/setup/pixal3d/{action}"),
+                                 lambda action=action: (api, "remove_weights" if action == "remove" else "start_download"),
+                                 "setup is running", None)
+       for action in ENGINE_ACTIONS},
+}
+
+
+@pytest.mark.parametrize("ask, held_at, words, answer", MORE_STARTS.values(), ids=MORE_STARTS)
+def test_every_other_start_holds_its_place_before_its_job_is_on_the_books(
+        studio, engine, blender, installers, engines, monkeypatch, ask, held_at, words, answer):
+    on, step = held_at()
+    reached, let_go = _hold(monkeypatch, step, answer, on=on)
+    starting, answers = _in_the_background(lambda: ask(studio))
+    assert reached.wait(20)
+    try:
+        assert _generation_waits(studio, words)
+    finally:
+        let_go.set()
+
+    _answered(starting, answers)        # whatever it answers; the studio fixture checks the place came back
+    assert "_run_job" not in [runner for runner, _ in studio.started]
+
+
+def _nobody_planned_for_this(*_args, **_more):
+    raise KeyError("something nobody planned for")
+
+
+def test_a_start_that_breaks_in_a_way_nobody_planned_for_still_gives_its_place_back(
+        studio, workshop, blender, monkeypatch):
+    monkeypatch.setattr(workshop.animations, "create_rig", _nobody_planned_for_this)
+
+    status, _ = _rig(studio, workshop)
+
+    assert status == 500
+    assert _finish_starts(studio)
+
+
+def test_a_start_that_dies_without_answering_still_gives_its_place_back(studio, workshop, blender, monkeypatch):
+    # The picture route catches only the errors it expects: anything else ends the request
+    # with no answer. Its place must not go with it, or nothing else starts until a restart.
+    monkeypatch.setattr(api.image_api, "start", _nobody_planned_for_this)
+
+    try:
+        _draw(studio, workshop)
+    except OSError:
+        pass                # the connection was dropped; how it answers is not this test's subject
+
+    assert _finish_starts(studio)
+
+
+def _on_its_books(manager):
+    manager.jobs["b" * 32], manager.active = types.SimpleNamespace(status="running"), "b" * 32
+
+
+IN_THE_WAY = {
+    "a Finish run": (lambda patch: _on_its_books(api.FINISH_JOBS), "a model is being finished"),
+    "a prop bake": (lambda patch: _on_its_books(api.PROPS_JOBS), "a prop sheet is baking"),
+    "a rig rebind": (lambda patch: _on_its_books(api.RIG_JOBS), "a rig rebind is running"),
+    "an auto-rig": (lambda patch: _on_its_books(api.ANIMATE_JOBS), "an auto-rig or animation is running"),
+    "a skin build": (lambda patch: _on_its_books(api.skins_api.BUILDS), "a skin is being made"),
+    "a setup": (lambda patch: patch.setattr(api, "SETUP_ACTIVE", "a" * 32), "setup is running"),
+    "an engine download": (lambda patch: patch.setattr(api, "download_active", lambda: object()), "setup is running"),
+}
+
+
+@pytest.mark.parametrize("arrange, words", IN_THE_WAY.values(), ids=IN_THE_WAY)
+def test_a_generation_waits_for_each_other_kind_of_job_on_its_real_books(studio, engine, monkeypatch, arrange, words):
+    # The rule is tested kind by kind elsewhere with the checks replaced; here each kind's own
+    # manager says it is running, the way it does in the studio.
+    arrange(monkeypatch)
+
+    assert _generation_waits(studio, words)
+    assert studio.started == []
+
+
+# --- A plan: the cases the first tests left out ---------------------------------------------
+
+def test_a_plan_that_names_no_3d_engine_is_asked_for_the_one_a_generation_would_take(studio, plans, engine, monkeypatch):
+    _no_3d_engine(monkeypatch)
+
+    status, answer = _plan(studio, ["model"])
+
+    assert status == 409 and plans == []
+    assert answer["error"] == f"Before this can start, set up: {engine.label} (for 3D model). {ALL_SET_UP}"
+
+
+def test_a_back_asked_of_one_picture_engine_needs_that_engine_to_be_able_to_draw_it(studio, plans, monkeypatch):
+    monkeypatch.setattr(api.image_api, "resolve_vision", lambda engine=None: None)      # Qwen cannot read a picture here
+
+    def ask(engine_id):
+        return _plan(studio, ["back"], made=json.dumps({"picture": KNIGHT}), back_settings=json.dumps({"engine": engine_id}))
+
+    assert ask("qwen") == (409, {"needs_setup": True, "error": (
+        f"Before this can start, set up: a picture engine that can draw a back view (for Back picture). {ALL_SET_UP}")})
+    assert ask("flux")[0] == 202        # Flux reads the picture by itself
+    assert len(plans) == 1
+
+
+def test_a_plan_that_is_refused_keeps_nothing_of_what_was_uploaded_with_it(studio, plans, monkeypatch):
+    _no_auto_rig(monkeypatch)
+    before = sorted(path.relative_to(studio.output) for path in studio.output.rglob("*"))
+
+    status, _ = _plan(studio, ["finished", "rigged"], files={"file": ("my knight.glb", GLB)})
+
+    assert status == 409 and plans == []
+    assert sorted(path.relative_to(studio.output) for path in studio.output.rglob("*")) == before

@@ -222,7 +222,12 @@ class AddonJobManager:
         return active is not None and active.status not in TERMINAL
 
     def create(self, addon_id: str, tool_id: str, inputs: dict[str, str]) -> AddonJob:
-        """Validate the request and create a job without starting it."""
+        """Validate the request and put the job on the books as the one that runs.
+
+        One tool at a time, and "is one running?" is asked in the same step as the entry.
+        They were two steps with the checks below between them: two requests at the same
+        moment both started a tool, and the manager then knew only the later one.
+        """
         addon_dir = _addon_dir(addon_id)
         if not addon_dir.is_dir():
             raise ValueError(f"{addon_id} is not installed")
@@ -233,16 +238,13 @@ class AddonJobManager:
         run_stem = ai._default_run_stem()
         job = AddonJob(uuid.uuid4().hex, addon_id, tool_id, dict(inputs), run_stem)
         with self.lock:
+            if self.busy():
+                raise RuntimeError("another add-on run is already in progress")
             self.jobs[job.id] = job
-        return job
-
-    def _claim(self, job: AddonJob) -> AddonJob:
-        with self.lock:
             self.active = job.id
         return job
 
     def run(self, job: AddonJob) -> None:
-        self._claim(job)
         threading.Thread(
             target=_run_addon_job,
             args=(job, self),

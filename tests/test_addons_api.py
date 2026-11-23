@@ -144,6 +144,45 @@ def test_run_payload_starts_job(tmp_path, monkeypatch):
     assert job.result_path is not None
 
 
+def test_two_runs_asked_for_at_the_same_moment_do_not_both_start(tmp_path, monkeypatch):
+    """Asking "is one running?" and putting the job on the books were two steps, with the
+    request's own checks between them. A second request arriving in between started a second
+    tool, and the manager then knew only the later one: stopping the studio left the first running."""
+    import threading
+
+    _set_paths(tmp_path, monkeypatch)
+    make_installed_addon(tmp_path, manifest())
+    manager = viewer.AddonJobManager()
+    monkeypatch.setattr(viewer, "ADDON_JOBS", manager)
+    monkeypatch.setattr(viewer, "_run_addon_job", lambda job, _manager: None)     # no tool is run here
+    reached, let_go = threading.Event(), threading.Event()
+    check_inputs = viewer.ai.parse_inputs
+
+    def held_on_the_way(*args, **more):      # the first request stops here, past "is one running?"
+        if not reached.is_set():
+            reached.set()
+            assert let_go.wait(20)
+        return check_inputs(*args, **more)
+    monkeypatch.setattr(viewer.ai, "parse_inputs", held_on_the_way)
+    answers = []
+
+    def first():
+        try:
+            answers.append(viewer.run_payload("vehicle-kit", "build", {"preset": "bus_12m"}))
+        except RuntimeError as refused:
+            answers.append(refused)
+    asking = threading.Thread(target=first, daemon=True)
+    asking.start()
+    assert reached.wait(20)
+    second = viewer.run_payload("vehicle-kit", "build", {"preset": "bus_12m"})    # all the way through
+    let_go.set()
+    asking.join(20)
+
+    assert not asking.is_alive()
+    assert isinstance(answers[0], RuntimeError) and "already in progress" in str(answers[0])
+    assert list(manager.jobs) == [second["job_id"]] and manager.active == second["job_id"]
+
+
 def test_run_payload_refuses_second_run(tmp_path, monkeypatch):
     _set_paths(tmp_path, monkeypatch)
     addon_dir = make_installed_addon(tmp_path, manifest())

@@ -44,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   later (once its upload was read, or its picture cut out) was the job on the books. A different job that asked in
   between saw nothing running and started too. Asking now takes the slot in the same step and keeps it until the
   job is on the books, for every kind of job.
+- **Two add-on tools can no longer start at the same moment.** Two requests arriving together both started a tool,
+  and stopping the studio then stopped only the later one. The check and the start are one step now.
 - **A new skin that cannot start leaves nothing behind.** Asking for a skin while something else was running, or
   before the picture engine was set up, answered "wait" or "not installed" but still kept an empty skin on the
   model; asking twice kept two. The skin is now kept only once its first picture has started.

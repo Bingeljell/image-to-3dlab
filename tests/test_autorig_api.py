@@ -7,7 +7,13 @@ import sys
 from pathlib import Path
 
 import pytest
-from deaf_worker import failing_pid_note, kill_and_reap, use_deaf_popen, watch_slot
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 from glb_fixtures import valid_glb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
@@ -729,6 +735,32 @@ def test_an_animate_worker_that_ignores_the_polite_stop_is_stopped_before_the_sl
     seen = watch_slot(manager, job)
     use_deaf_popen(aa, monkeypatch, tmp_path)
     failing_pid_note(monkeypatch)
+    try:
+        aa.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_an_animate_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next animate or auto-rig was blocked.
+    result = tmp_path / "out.glb"
+    job = aa.AnimateJob("2" * 32, "animate", tmp_path, result, [(["worker"], tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    use_deaf_popen(aa, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
     try:
         aa.run_job(job, manager)
 

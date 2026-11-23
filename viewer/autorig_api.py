@@ -716,7 +716,6 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         usage_api.count_failed("rig" if job.kind == "rig" else "animation", exc)
     finally:
         stop.set()
-        job.directory.joinpath("pid").unlink(missing_ok=True)
         if job.process is not None and job.process.poll() is None:
             try:
                 processes.terminate_group(job.process.pid)
@@ -727,6 +726,10 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
                     job.process.wait(timeout=5)
             except Exception as cleanup_exc:
                 job.append_log(f"cleanup warning: {cleanup_exc}")
+        try:
+            job.directory.joinpath("pid").unlink(missing_ok=True)
+        except Exception as cleanup_exc:
+            job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

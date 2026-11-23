@@ -13,7 +13,13 @@ import json
 from pathlib import Path
 
 import pytest
-from deaf_worker import failing_pid_note, kill_and_reap, use_deaf_popen, watch_slot
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 from glb_fixtures import valid_glb
 
 MODULE = Path(__file__).resolve().parents[1] / "viewer" / "finish_api.py"
@@ -1010,6 +1016,33 @@ def test_a_finish_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot
     monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
     use_deaf_popen(finish_api, monkeypatch, tmp_path)
     failing_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_finish_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next Finish was blocked.
+    import finish_api
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
     try:
         finish_api.run_job(job, manager)
 

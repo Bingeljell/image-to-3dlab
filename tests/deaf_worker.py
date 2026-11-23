@@ -80,3 +80,15 @@ def watch_slot(manager, job):
 
     manager.finish = finish
     return seen
+
+
+def unremovable_pid_note(monkeypatch):
+    """Make removing a job's pid note fail with something other than "not found"."""
+    original = Path.unlink
+
+    def unlink(self, *args, **kwargs):
+        if self.name == "pid":
+            raise PermissionError(13, "Operation not permitted", str(self))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink)

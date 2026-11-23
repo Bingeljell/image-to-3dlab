@@ -173,7 +173,13 @@ class ChainRunner:
             for old in self.recent(limit=len(self.chains))[KEEP_CHAINS:]:
                 del self.chains[old.id]   # finished runs pile up otherwise; nothing running is ever dropped
         if background:
-            threading.Thread(target=self.run, args=(chain,), daemon=True, name=f"chain-{chain.id[:8]}").start()
+            try:
+                threading.Thread(target=self.run, args=(chain,), daemon=True, name=f"chain-{chain.id[:8]}").start()
+            except RuntimeError as exc:   # no thread could start: the chain ends here and frees the slot
+                with self.lock:
+                    chain.status, chain.error = "error", str(exc)
+                chain.upload = chain.back_upload = None
+                raise
         else:
             self.run(chain)
         return chain

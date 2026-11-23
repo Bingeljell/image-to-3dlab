@@ -674,3 +674,24 @@ def test_the_plan_form_carries_only_known_rig_settings():
             "made": {"value": '{"finished": "finish/k/k_8k.glb"}'},
             "rig_settings": {"value": '{"bone_names": "unity", "colour": "red"}'}}
     assert aa.chain_from_form(form).rig_settings == {"bone_names": "unity"}
+
+
+def test_a_run_whose_thread_cannot_start_does_not_hold_the_slot(tmp_path, monkeypatch):
+    # Before: a Chain is "running" from birth, so one whose thread failed to start was
+    # reported by running() for ever and every later plan was refused as already being made.
+    import threading
+    import types
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    runner, _ = _runner(tmp_path)
+    monkeypatch.setattr(aa, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    chain = aa.Chain(title="x", steps=["picture"], prompt="x")
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        runner.submit(chain)
+
+    assert chain.status == "error" and "can't start new thread" in chain.error
+    assert runner.running() is None
+    runner.submit(aa.Chain(title="next", steps=["picture"], prompt="next"), background=False)

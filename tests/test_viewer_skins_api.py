@@ -736,3 +736,30 @@ def test_skin_finish_preserves_the_models_height(output, monkeypatch):
     assert worker.main() == 0
     result = trimesh.load(io.BytesIO(Path(command[5]).read_bytes()), file_type='glb', force='scene')
     assert result.bounds[:, 1] == pytest.approx([0, 1.8])
+
+
+def test_a_skin_build_whose_thread_cannot_start_does_not_hold_the_slot(output, monkeypatch):
+    # Before: the build was the active one and the skin saved as "building" when its thread
+    # failed to start, so running() stayed true and the skin could never be built again.
+    import threading
+    import types
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    monkeypatch.setattr(sk, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        builds.start(skin, runner=lambda c, **k: _FakeProcess(["x"]), box=_same_box)
+
+    [job] = builds.jobs.values()
+    assert job.status == "error" and "can't start new thread" in job.error
+    assert not builds.running()
+    saved = store.get(skin.id)
+    assert saved.status == "error" and "can't start new thread" in saved.error
+
+    again = builds.start(saved, background=False, runner=lambda c, **k: _FakeProcess(["boom"], code=1),
+                         box=_same_box)
+    assert again.status == "error" and "repaint" in again.error  # accepted and ran (failing on purpose)

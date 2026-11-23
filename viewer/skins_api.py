@@ -471,8 +471,18 @@ class SkinBuilds:
         # A skin is the feature; its Finish choices are its model's, counted once there.
         usage_api.count_features(skin=True)
         if background:
-            threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
-                             name=f"skin-{skin.id}").start()
+            try:
+                threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
+                                 name=f"skin-{skin.id}").start()
+            except RuntimeError as exc:   # no thread could start: the build ends here and frees its slot
+                skin.status, skin.error = "error", str(exc)
+                job.status, job.error = "error", str(exc)
+                job.emit({"phase": "error", "message": str(exc)})
+                self.store.save(skin)
+                with self.lock:
+                    if self.active == job.id:
+                        self.active = None
+                raise
         else:
             self.run(job, skin, runner, box)
         return job

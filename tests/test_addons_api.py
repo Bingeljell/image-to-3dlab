@@ -252,6 +252,26 @@ def test_cancel_stops_the_tool_and_everything_it_started(tmp_path, monkeypatch):
 
 
 @pytest.mark.posix
+def test_a_running_tool_leaves_a_note_of_itself_that_the_next_studio_start_can_find(tmp_path, monkeypatch):
+    # A tool leads a process group of its own, so it outlives a studio that is killed. Every
+    # other job leaves `pid` in its run folder for the next start to find and stop what was
+    # left; an add-on run left nothing, and its tool ran on with nobody knowing.
+    _, job = _start_tool(tmp_path, monkeypatch, "import time\nprint('started', flush=True)\ntime.sleep(20)\n")
+    try:
+        [note] = (tmp_path / "output").rglob("pid")
+        assert note.read_text(encoding="utf-8").split() == [str(job.process.pid), str(os.getpid())]
+        assert job.run_stem in note.parent.name
+
+        viewer.ADDON_JOBS.cancel(job.id)
+
+        assert _wait_until(lambda: job.status == "cancelled", seconds=8), job.status
+        assert _wait_until(lambda: not note.exists()), "the note outlived the run"
+    finally:
+        if job.process is not None and job.process.poll() is None:
+            os.kill(job.process.pid, signal.SIGKILL)
+
+
+@pytest.mark.posix
 def test_cancel_stops_a_tool_that_ignores_being_asked(tmp_path, monkeypatch):
     # Cancel only asked. A tool that ignored it stayed "cancelling" until it ended by itself,
     # and all that time it held the add-on's place, which every other big job waits for.

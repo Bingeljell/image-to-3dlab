@@ -6,6 +6,7 @@ shown and the UI can say the list is unreachable.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -20,7 +21,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import addon_install as ai
-from image_to_3dlab.addons import Listing, read_manifest, tier_from_install
+from image_to_3dlab import processes
+from image_to_3dlab.addons import Listing, output_dir, read_manifest, tier_from_install
 
 ADDONS_DIR = Path(os.environ.get("ADDONS_DIR", REPO / "addons"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", REPO / "output"))
@@ -276,6 +278,16 @@ ADDON_JOBS = AddonJobManager()
 
 
 def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
+    # `pid` in the run's own folder while the tool runs, as every other job leaves one. The
+    # tool leads a process group of its own and so outlives a studio that is killed; the
+    # next start reads these (generate_api._reconcile_orphaned_jobs) and stops what was left.
+    note = OUTPUT_DIR / output_dir(job.addon_id, job.run_stem) / "pid"
+
+    def started(process: subprocess.Popen) -> None:
+        job.process = process
+        with contextlib.suppress(OSError):
+            note.write_text(processes.pid_record(process.pid), encoding="utf-8")
+
     try:
         job.status = "running"
         result = ai.run_addon(
@@ -288,7 +300,7 @@ def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
             repo_dir=REPO,
             logger=job.append_log,
             cancel_event=job.cancel_event,
-            on_start=lambda process: setattr(job, "process", process),
+            on_start=started,
         )
         if job.cancel_event.is_set():
             job.status = "cancelled"
@@ -306,6 +318,8 @@ def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
         job.error_message = str(exc)
         job.emit({"phase": "error", "message": str(exc)})
     finally:
+        with contextlib.suppress(OSError):
+            note.unlink(missing_ok=True)
         manager.finish(job)
 
 

@@ -420,14 +420,16 @@ def test_a_run_resumed_from_a_decode_bundle_leaves_its_licence_record_too(monkey
     assert _licence_parts(record)["BRIA RMBG-2.0"]["loaded"] is False
 
 
-def _resume_from_latents(monkeypatch, tmp_path, kept):
+def _resume_from_latents(monkeypatch, tmp_path, kept, beside=None):
     """The real `generate_from_latents` over a bundle that kept `kept` beside the latents, with the
-    model, the decode and the bake stubbed. Returns (the latents file, the model, the decode
-    bundle the run would save)."""
+    model, the decode and the bake stubbed. `beside(latents_path)` runs once the bundle is on
+    disk. Returns (the latents file, the model, the decode bundle the run would save)."""
     import torch
 
     latents_path, output_path = tmp_path / "model_latents.pt", tmp_path / "model.glb"
     latents_path.write_bytes(b"latents")
+    if beside:
+        beside(latents_path)
 
     class OnDevice:     # stands in for a tensor: it is only moved to the device, never read
         def to(self, _device):
@@ -464,12 +466,14 @@ def _resume_from_latents(monkeypatch, tmp_path, kept):
     return latents_path, output_path, handed_on
 
 
-def _resume_from_decode(monkeypatch, tmp_path, kept):
+def _resume_from_decode(monkeypatch, tmp_path, kept, beside=None):
     import torch
 
     decode_path, output_path = tmp_path / "model_decode.pt", tmp_path / "model.glb"
     torch.save({"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None,
                 "res": 512, "seed": 7, **kept}, decode_path)
+    if beside:
+        beside(decode_path)
     monkeypatch.setattr(gen, "configure_environment", lambda *_args: None)
     _stub_the_bake(monkeypatch, output_path)
 
@@ -563,14 +567,51 @@ def test_a_picture_that_cannot_be_told_from_another_file_is_not_recorded_as_the_
         "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}
 
 
-def test_an_older_bundle_takes_the_remover_from_the_first_runs_own_file(monkeypatch, tmp_path):
+def _first_runs_file(bundle_hash):
+    """`<name>.json` as a finished run leaves it, naming `bundle_hash` as its latents and its
+    decode bundle."""
+    def write(bundle_path):
+        made = {"path": str(bundle_path), "sha256": bundle_hash(bundle_path), "bytes": 1}
+        bundle_path.with_name("model.json").write_text(json.dumps(
+            {"matte_model": "u2net", "artifacts": {"latents": made, "decode": made}}), encoding="utf-8")
+    return write
+
+
+@pytest.mark.parametrize("resume", ["latents", "decode"])
+def test_an_older_bundle_takes_the_remover_from_the_first_runs_own_file(monkeypatch, tmp_path, resume):
     # Before the bundle kept it, the remover's name was only in <name>.json, which a finished
     # debug run leaves beside <name>_latents.pt and <name>_decode.pt.
-    (tmp_path / "model.json").write_text(json.dumps({"matte_model": "u2net"}), encoding="utf-8")
+    older = {"images": [str(tmp_path / "gone.png")]}
+    the_first_runs = _first_runs_file(_sha256)
 
-    _, output_path = _resume_from_decode(monkeypatch, tmp_path, {"images": [str(tmp_path / "gone.png")]})
+    if resume == "latents":
+        _, output_path, _ = _resume_from_latents(monkeypatch, tmp_path, older, beside=the_first_runs)
+    else:
+        _, output_path = _resume_from_decode(monkeypatch, tmp_path, older, beside=the_first_runs)
 
     assert "rembg/u2net" in _licence_parts(read_model_record(output_path))
+
+
+@pytest.mark.parametrize("resume", ["latents", "decode"])
+@pytest.mark.parametrize("left_there", ["by another run", "without the bundles it made"])
+def test_an_older_bundle_does_not_take_the_remover_from_a_file_another_run_left(
+        monkeypatch, tmp_path, resume, left_there):
+    # <name>.json is only a name: a later run of the same name writes over it, and a bundle
+    # copied into another folder can land beside anyone's. It speaks for this bundle only when
+    # it names this bundle's hash among what that run made.
+    older = {"images": [str(tmp_path / "gone.png")]}
+    if left_there == "by another run":
+        not_this_one = _first_runs_file(lambda _bundle: "0" * 64)
+    else:
+        def not_this_one(bundle_path):
+            bundle_path.with_name("model.json").write_text(json.dumps({"matte_model": "u2net"}), encoding="utf-8")
+
+    if resume == "latents":
+        _, output_path, _ = _resume_from_latents(monkeypatch, tmp_path, older, beside=not_this_one)
+    else:
+        _, output_path = _resume_from_decode(monkeypatch, tmp_path, older, beside=not_this_one)
+
+    assert "rembg/u2net" not in _licence_parts(read_model_record(output_path))
 
 
 def _git(folder, *args):

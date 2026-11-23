@@ -24,8 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no `.provenance.json`, and what Finish or Fix a spot made from it was marked "Unverified — source licence
   unavailable". It now writes the same record as the NVIDIA and AMD routes (the TRELLIS.2 and DINOv3 licences, our
   background remover, BRIA not loaded), also when a run is resumed from saved latents or a decode bundle. A
-  resumed run's record says it was resumed and still names the remover, and it takes the picture as its input only
-  when that file is still the one the model was made from; otherwise the bundle is the input on record.
+  resumed run's record says it was resumed and still names the remover (for an older bundle, only when the first
+  run's own file names that bundle), and it takes the picture as its input only when its hash proves it is the one
+  the model was made from; otherwise the bundle is the input on record.
 - **Add-on tools take their turn, and Cancel stops all of them.** A tool run from the studio could start beside a
   generation, a picture or Finish and fight it for memory; it now waits like every other big job ("a generation is
   running; wait for it to finish"), and they wait for it. Cancel stopped the tool but not what the tool had started

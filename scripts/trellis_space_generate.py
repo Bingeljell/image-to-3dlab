@@ -358,8 +358,9 @@ def origin_of(bundle: dict[str, Any], bundle_path: Path, kind: str) -> dict[str,
     """`bundle_origin`, read back from a bundle (`kind`: "latents" or "decode").
 
     An older bundle kept only the picture's path. Its remover is then taken from the first
-    run's own file, `<name>.json` beside `<name>_latents.pt` or `<name>_decode.pt`, when a
-    finished run left one there.
+    run's own file, `<name>.json` beside `<name>_latents.pt` or `<name>_decode.pt`, but only
+    when that file names this bundle's hash among what its run made: the name alone could be
+    another run's.
     """
     matte = bundle.get("matte_model")
     if "matte_model" not in bundle:
@@ -368,7 +369,10 @@ def origin_of(bundle: dict[str, Any], bundle_path: Path, kind: str) -> dict[str,
             first_run = json.loads(bundle_path.with_name(stem + ".json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             first_run = None
-        matte = first_run.get("matte_model") if isinstance(first_run, dict) else None
+        made = first_run.get("artifacts") if isinstance(first_run, dict) else None
+        made = made.get(kind) if isinstance(made, dict) else None
+        ours = isinstance(made, dict) and made.get("sha256") == sha256(bundle_path)
+        matte = first_run.get("matte_model") if ours else None
     return {"images": [str(image) for image in bundle.get("images") or []] or [f"<from {kind}>"],
             "image_sha256": bundle.get("image_sha256"),
             "matte_model": matte if isinstance(matte, str) else None}

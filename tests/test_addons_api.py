@@ -278,8 +278,18 @@ def test_cancel_stops_the_tool_and_everything_it_started(tmp_path, monkeypatch):
         assert _wait_until(lambda: job.status == "cancelled", seconds=8), job.status
         assert _wait_until(lambda: not _alive(child)), "what the tool started outlived Cancel"
     finally:
+        # `child` is a grandchild of the test process, so the session guard refuses to signal it
+        # directly. The tool, our own child, leads the group it sits in: kill the group through
+        # the tool while the tool is alive. Never let cleanup mask a failure from the body.
         if _alive(child):
-            os.kill(child, signal.SIGKILL)
+            for target in (lambda: os.killpg(job.process.pid, signal.SIGKILL),
+                           lambda: os.kill(child, signal.SIGKILL)):
+                try:
+                    target()
+                except (ProcessLookupError, AttributeError):
+                    continue
+                if _wait_until(lambda: not _alive(child), seconds=2):
+                    break
 
 
 @pytest.mark.posix

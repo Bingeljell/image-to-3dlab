@@ -35,6 +35,12 @@ def _deaf_popen(tmp_path):
             deadline = time.monotonic() + 10
             while not ready.exists() and time.monotonic() < deadline:
                 time.sleep(0.01)
+            if not ready.exists():
+                # Carrying on would let a SIGTERM land before the child ignores it: it would die
+                # at once and a test of the forced-stop path would pass without exercising it.
+                self.kill()
+                self.wait()
+                raise AssertionError("the deaf worker never got ready (still not ignoring SIGTERM after 10 s)")
 
         def wait(self, timeout=None):
             return super().wait(timeout=None if timeout is None else min(timeout, 1))

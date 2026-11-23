@@ -49,8 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   damaged file) is set aside: it made the studio stop its own process group as it started.
 - **A job that cannot start no longer blocks every later one.** When the studio could not start the worker for a job
   (the system had no threads left), the job stayed on the books as running and every later one was refused until the
-  studio restarted. It now ends as an error and frees its place. This covers pictures (a back view, a brush, a skin
-  try), engine downloads, skin builds and plans.
+  studio restarted; for a setup the installer also ran on with nothing reading it. It now ends as an error, says why,
+  and frees its place. This covers generations, Finish runs and resumes, prop bakes, rig rebinds, auto-rigs and moves,
+  setups and the Blender and gltfpack installs, pictures (a back view, a brush, a skin try), engine downloads, skin
+  builds and plans.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

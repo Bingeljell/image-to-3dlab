@@ -14,6 +14,7 @@ import dataclasses
 import http.client
 import http.server
 import json
+import subprocess
 import threading
 import time
 import types
@@ -25,6 +26,7 @@ import activity_api
 import generate_api as api
 import pytest
 
+REAL_START_SETUP_RUN = api._start_setup_run     # the `installers` fixture swaps it for a stand-in
 GLB = b"glTF\x02\x00\x00\x00" + b"\x00" * 16       # never parsed here: the runners are stubs
 PICTURE = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16      # nor is this, unless a test asks for a cut-out
 MIB = 1024 * 1024
@@ -2103,3 +2105,110 @@ def test_a_plan_that_is_refused_keeps_nothing_of_what_was_uploaded_with_it(studi
 
     assert status == 409 and plans == []
     assert sorted(path.relative_to(studio.output) for path in studio.output.rglob("*")) == before
+
+
+# --- A worker thread that cannot start: the job must not stay on the books as the active one ---
+
+def _no_threads_left(monkeypatch):
+    """From here on every thread `viewer.generate_api` starts fails to start, as on a machine
+    that is out of them. Only that module's namespace: the test server uses its own threading.
+    Returns the real `threading`, to put back."""
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    real = api.threading
+    monkeypatch.setattr(api, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    return real
+
+
+def _asked_and_answered(ask):
+    """What `ask()` answered, failing the test if the connection was dropped instead."""
+    try:
+        return ask()
+    except (OSError, http.client.HTTPException, ValueError) as dropped:
+        pytest.fail(f"the request ended with no answer ({type(dropped).__name__}: {dropped})")
+
+
+def _resume_a_finish_run(studio, shop):
+    """A recorded run folder, the smallest one a resume takes: its model and its settings."""
+    run = studio.output / "finish" / "knight__finish__20261019-145515"
+    (run / "input").mkdir(parents=True, exist_ok=True)      # asked twice: the same folder is resumed again
+    (run / "input" / "source.glb").write_bytes(GLB)
+    (run / "input" / "settings.json").write_text(json.dumps({"skip_photo": True, "skip_paint": True}))
+    return _post(studio, f"/api/finish/runs/{run.name}/resume")
+
+
+# name: (how it is asked for, the jobs on its manager's books)
+THREAD_STARTS = {
+    "a generation": (lambda studio, shop: _post(studio, "/api/generate", {"settings": "{}"},
+                                                {"image": ("knight.png", PICTURE)}),
+                     lambda shop: api.JOBS.jobs.values()),
+    "a rebind": (_rebind, lambda shop: shop.rigs.jobs.values()),
+    "an auto-rig": (_rig, lambda shop: shop.animations.jobs.values()),
+    "a move": (_play, lambda shop: shop.animations.jobs.values()),
+    "a Finish run": (lambda studio, shop: _post(studio, "/api/finish", {"settings": "{}"},
+                                                {"asset": ("knight.glb", GLB)}),
+                     lambda shop: api.FINISH_JOBS.jobs.values()),
+    "a Finish run resumed": (_resume_a_finish_run, lambda shop: api.FINISH_JOBS.jobs.values()),
+    "a prop sheet": (lambda studio, shop: _post(studio, "/api/props", {"settings": "{}"},
+                                                {"asset": ("sheet.glb", GLB)}),
+                     lambda shop: api.PROPS_JOBS.jobs.values()),
+}
+
+
+@pytest.mark.parametrize("ask, books", THREAD_STARTS.values(), ids=THREAD_STARTS)
+def test_a_big_job_whose_thread_cannot_start_is_answered_and_does_not_hold_the_studio(
+        studio, workshop, engine, blender, monkeypatch, ask, books):
+    # Before: the job was on its manager's books as the active one and nothing finished it, so
+    # the request ended with an exception (a resume, with no answer at all) and every later job
+    # of any kind was told to wait until the studio restarted.
+    real_threading = _no_threads_left(monkeypatch)
+
+    status, answer = _asked_and_answered(lambda: ask(studio, workshop))
+
+    assert status >= 400 and "can't start new thread" in answer["error"]
+    jobs = list(books(workshop))
+    assert jobs and all(job.status == "error" for job in jobs)
+    monkeypatch.setattr(api, "threading", real_threading)
+    assert _soon(lambda: not api._STARTING)
+    assert ask(studio, workshop)[0] == 202      # not "already running", not "wait for it to finish"
+
+
+@pytest.mark.parametrize("route", SETUP_ROUTES)
+def test_a_setup_whose_reader_thread_cannot_start_is_answered_and_does_not_hold_the_studio(
+        studio, installers, monkeypatch, route):
+    # Before: SETUP_ACTIVE was set and the installer launched, then the reader thread failed to
+    # start: the request ended with an exception, and every big job, and every later setup,
+    # was told to wait for a setup that nothing was watching, until the studio restarted.
+    class Installer:
+        """What `subprocess.Popen` returns for a setup: it prints nothing and succeeds."""
+        stdout = ()
+
+        def __init__(self, *_command, **_more):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        kill = terminate
+
+    monkeypatch.setattr(api, "_start_setup_run", REAL_START_SETUP_RUN)
+    monkeypatch.setattr(api, "subprocess", types.SimpleNamespace(**{**vars(subprocess), "Popen": Installer}))
+    real_threading = _no_threads_left(monkeypatch)
+
+    status, answer = _asked_and_answered(lambda: _post(studio, route))
+
+    assert status >= 400 and "can't start new thread" in answer["error"]
+    assert all(run.status == "error" for run in api.SETUP_RUNS.values())
+    assert api.SETUP_ACTIVE is None
+    monkeypatch.setattr(api, "threading", real_threading)
+    assert _soon(lambda: not api._STARTING)
+    assert _post(studio, route)[0] == 202
+    assert _soon(lambda: api.SETUP_ACTIVE is None)      # the stand-in installer is done at once

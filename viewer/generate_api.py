@@ -1037,7 +1037,24 @@ def _start_setup_run(run_id: str, command: list[str] | None = None) -> SetupRun:
         with SETUP_LOCK:
             SETUP_ACTIVE = None
 
-    threading.Thread(target=reader, daemon=True, name=f"setup-{run_id[:8]}").start()
+    try:
+        threading.Thread(target=reader, daemon=True, name=f"setup-{run_id[:8]}").start()
+    except RuntimeError as exc:
+        # Nothing will read the installer: stop it and reap it, and end the run as an error.
+        # The caller holds SETUP_LOCK and clears SETUP_ACTIVE.
+        with contextlib.suppress(Exception):
+            processes.terminate_group(proc.pid)
+        with contextlib.suppress(Exception):
+            proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                proc.wait(timeout=5)
+        run.status = "error"
+        run.emit({"phase": "setup_done", "status": "error", "message": str(exc)})
+        raise
     return run
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -1403,6 +1420,18 @@ class JobManager:
 
 
 JOBS = JobManager()
+
+
+def _start_worker(manager, job, target: Callable[..., Any], *, name: str | None = None) -> None:
+    """Start `target(job)` on a thread; if none can start, the job ends in its manager's
+    error state and frees its slot, then the error is raised for the route to answer."""
+    try:
+        threading.Thread(target=target, args=(job,), daemon=True, name=name).start()
+    except RuntimeError as exc:
+        job.status = "error"
+        job.emit({"phase": "error", "message": str(exc)})
+        manager.finish(job)
+        raise
 
 
 def _phase_for_tqdm(job: Job, label: str, step: int) -> str:
@@ -4042,7 +4071,7 @@ class Handler(SimpleHTTPRequestHandler):
             if warning:
                 job.append_log(warning)
             usage_api.count_features(front_and_back=bool(settings.get("back_name")))
-            threading.Thread(target=_run_job, args=(job,), daemon=True).start()
+            _start_worker(JOBS, job, _run_job)
             self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
                                   "output_dir": str(job.directory.relative_to(REPO)),
                                   "warning": warning})
@@ -4079,9 +4108,7 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, RuntimeError) as exc:
                 self._send_json(422 if isinstance(exc, ValueError) else 409, {"error": str(exc)})
                 return
-            threading.Thread(
-                target=run_rig_job, args=(job,), daemon=True, name=f"rig-{job.id[:8]}"
-            ).start()
+            _start_worker(RIG_JOBS, job, run_rig_job, name=f"rig-{job.id[:8]}")
             self._send_json(202, {
                 "job_id": job.id,
                 "events_url": f"/api/rig/rebind/{job.id}/events",
@@ -4101,8 +4128,7 @@ class Handler(SimpleHTTPRequestHandler):
         return None
 
     def _start_animate(self, job) -> None:
-        threading.Thread(target=run_animate_job, args=(job,), daemon=True,
-                         name=f"animate-{job.id[:8]}").start()
+        _start_worker(ANIMATE_JOBS, job, run_animate_job, name=f"animate-{job.id[:8]}")
         self._send_json(202, {"job_id": job.id, "kind": job.kind,
                               "events_url": f"/api/animate/{job.id}/events",
                               "status_url": f"/api/animate/{job.id}/status"})
@@ -4235,9 +4261,7 @@ class Handler(SimpleHTTPRequestHandler):
             except RuntimeError as exc:
                 self._send_json(409, {"error": str(exc)})
                 return
-            threading.Thread(
-                target=run_finish_job, args=(job,), daemon=True, name=f"finish-{job.id[:8]}"
-            ).start()
+            _start_worker(FINISH_JOBS, job, run_finish_job, name=f"finish-{job.id[:8]}")
             self._send_json(202, {
                 "job_id": job.id,
                 "settings": job.settings,
@@ -4296,12 +4320,10 @@ class Handler(SimpleHTTPRequestHandler):
             if find_blender() is None:
                 raise RuntimeError(blender_missing_help())
             job = FINISH_JOBS.adopt(name)
+            _start_worker(FINISH_JOBS, job, run_finish_job, name=f"finish-{job.id[:8]}")
         except (RuntimeError, ValueError) as exc:
             self._send_json(409, {"error": str(exc)})
             return
-        threading.Thread(
-            target=run_finish_job, args=(job,), daemon=True, name=f"finish-{job.id[:8]}"
-        ).start()
         self._send_json(202, {
             "job_id": job.id,
             "directory": job.directory.name,
@@ -4323,9 +4345,11 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json(202, {"job_id": job.id, "status": job.status})
 
     def _start_props_job(self, job) -> None:
-        threading.Thread(
-            target=run_props_job, args=(job,), daemon=True, name=f"props-{job.id[:8]}"
-        ).start()
+        try:
+            _start_worker(PROPS_JOBS, job, run_props_job, name=f"props-{job.id[:8]}")
+        except RuntimeError as exc:
+            self._send_json(500, {"error": str(exc)})
+            return
         self._send_json(202, {
             "job_id": job.id,
             "directory": job.directory.name,
@@ -4800,7 +4824,11 @@ class Handler(SimpleHTTPRequestHandler):
             else:
                 setup_id = uuid.uuid4().hex
                 SETUP_ACTIVE = setup_id
-                SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+                try:
+                    SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+                except RuntimeError as exc:
+                    SETUP_ACTIVE = None
+                    answer = 500, {"error": str(exc)}
         if answer:   # sent once the lock is free: a client slow to read must not hold it
             self._send_json(*answer)
             return
@@ -4820,7 +4848,11 @@ class Handler(SimpleHTTPRequestHandler):
             else:
                 setup_id = uuid.uuid4().hex
                 SETUP_ACTIVE = setup_id
-                SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
+                try:
+                    SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
+                except RuntimeError as exc:
+                    SETUP_ACTIVE = None
+                    answer = 500, {"error": str(exc)}
         if answer:   # sent once the lock is free: a client slow to read must not hold it
             self._send_json(*answer)
             return
@@ -4847,7 +4879,11 @@ class Handler(SimpleHTTPRequestHandler):
                 else:
                     setup_id = uuid.uuid4().hex
                     SETUP_ACTIVE = setup_id
-                    SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+                    try:
+                        SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+                    except RuntimeError as exc:
+                        SETUP_ACTIVE = None
+                        answer = 500, {"error": str(exc)}
         if answer:
             self._send_json(*answer)
             return

@@ -323,8 +323,6 @@ def _run_subprocess(
         text=True,
         **processes.stoppable_popen_kwargs(),
     )
-    if on_start is not None:
-        on_start(proc)
     assert proc.stdout is not None
     done = threading.Event()
 
@@ -341,13 +339,23 @@ def _run_subprocess(
                     processes.kill_group(proc.pid)
                 return
 
-    if cancel_event is not None:
-        threading.Thread(target=watch_for_cancel, daemon=True).start()
-    for line in proc.stdout:
-        if logger is not None:
-            logger(line.rstrip("\n"))
-    code = proc.wait()
-    done.set()
+    try:
+        if on_start is not None:
+            on_start(proc)
+        if cancel_event is not None:
+            threading.Thread(target=watch_for_cancel, daemon=True).start()
+        for line in proc.stdout:
+            if logger is not None:
+                logger(line.rstrip("\n"))
+        code = proc.wait()
+    except BaseException:
+        # A line that could not be logged or read: nobody reads the output now, so the tool
+        # would block on it or run on unwatched. It goes with the run.
+        processes.kill_group(proc.pid)
+        proc.wait()
+        raise
+    finally:
+        done.set()      # after the wait: a tool that closes its output and carries on is still watched
     return subprocess.CompletedProcess(argv, returncode=code)
 
 

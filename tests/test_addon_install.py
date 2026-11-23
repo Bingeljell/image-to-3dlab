@@ -237,6 +237,37 @@ def test_cancel_stops_a_run_that_prints_nothing():
     assert result.returncode != 0
 
 
+@pytest.mark.parametrize("fails", ["writing its log", "reading its output"])
+def test_a_run_that_fails_on_the_way_stops_its_tool_and_its_cancel_watcher(fails):
+    # A line that could not be logged (a full disk) or read (output that is not text) ended the
+    # run with an error. The tool ran on with nobody reading its output, and the thread that
+    # watches for Cancel kept watching for good: nothing was left that could stop either.
+    import sys
+    import time
+
+    said = "print('started', flush=True)" if fails == "writing its log" else "sys.stdout.buffer.write(b'\\xff\\n')"
+    started, before = [], set(threading.enumerate())
+
+    def log(_line):
+        raise OSError("No space left on device")
+
+    with pytest.raises((OSError, UnicodeDecodeError)):
+        ai._run_subprocess(
+            [sys.executable, "-c", f"import sys, time; {said}; sys.stdout.flush(); time.sleep(30)"],
+            Path.cwd(), {**os.environ, "PYTHONIOENCODING": "utf-8"}, log,
+            cancel_event=threading.Event(), on_start=started.append)
+    [tool] = started
+    try:
+        deadline = time.monotonic() + 5
+        while (tool.poll() is None or set(threading.enumerate()) - before) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert tool.poll() is not None, "the tool ran on"
+        assert not set(threading.enumerate()) - before, "the Cancel watcher ran on"
+    finally:
+        if tool.poll() is None:
+            tool.kill()
+
+
 def _model_tool_addon(tmp_path):
     data = manifest(tools=[{
         "id": "tweak", "label": "Tweak", "hint": "Changes a model.",

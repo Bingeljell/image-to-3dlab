@@ -33,7 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Blender's helpers), so the run stayed "cancelling" until those ended by themselves; the whole group is stopped
   now, and stopping the studio stops a running tool too. A tool that ignores Cancel is stopped for certain after
   ten seconds, and one left running by a studio that was killed is stopped when the studio next starts. A run that
-  could not start at all no longer blocks every later one with "already in progress" until the studio restarts.
+  could not start at all no longer blocks every later one with "already in progress" until the studio restarts,
+  and one that fails on the way (a log line that cannot be written, output that is not text) stops its tool.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

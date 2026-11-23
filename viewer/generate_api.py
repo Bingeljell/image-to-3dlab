@@ -2940,7 +2940,7 @@ class Handler(SimpleHTTPRequestHandler):
         self._status_code = int(code)   # what note_request counts a POST by
         super().send_response(code, message)
 
-    def _refuse(self, status: int, message: str) -> None:
+    def _skip_small_body(self) -> None:
         # read a small body first: closing on unread bytes resets the connection, and the
         # caller would see a network error instead of the reason
         try:
@@ -2951,6 +2951,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.rfile.read(length)
         else:
             self.close_connection = True
+
+    def _refuse(self, status: int, message: str) -> None:
+        self._skip_small_body()
         self._send_json(status, {"error": message})
 
     def _allowed(self, *, mutation: bool) -> bool:

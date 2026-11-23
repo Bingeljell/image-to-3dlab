@@ -4842,7 +4842,7 @@ class Handler(SimpleHTTPRequestHandler):
                 SETUP_ACTIVE = setup_id
                 try:
                     SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
-                except RuntimeError as exc:
+                except Exception as exc:
                     SETUP_ACTIVE = None
                     answer = 500, {"error": str(exc)}
         if answer:   # sent once the lock is free: a client slow to read must not hold it
@@ -4866,7 +4866,7 @@ class Handler(SimpleHTTPRequestHandler):
                 SETUP_ACTIVE = setup_id
                 try:
                     SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
-                except RuntimeError as exc:
+                except Exception as exc:
                     SETUP_ACTIVE = None
                     answer = 500, {"error": str(exc)}
         if answer:   # sent once the lock is free: a client slow to read must not hold it
@@ -4897,7 +4897,7 @@ class Handler(SimpleHTTPRequestHandler):
                     SETUP_ACTIVE = setup_id
                     try:
                         SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
-                    except RuntimeError as exc:
+                    except Exception as exc:
                         SETUP_ACTIVE = None
                         answer = 500, {"error": str(exc)}
         if answer:

@@ -2175,6 +2175,39 @@ def test_a_big_job_whose_thread_cannot_start_is_answered_and_does_not_hold_the_s
     assert ask(studio, workshop)[0] == 202      # not "already running", not "wait for it to finish"
 
 
+def _swap_popen(monkeypatch, popen):
+    """`subprocess.Popen` as `viewer.generate_api` sees it, and only there."""
+    monkeypatch.setattr(api, "subprocess", types.SimpleNamespace(**{**vars(subprocess), "Popen": popen}))
+
+
+@pytest.mark.parametrize("route", SETUP_ROUTES)
+def test_a_setup_whose_installer_cannot_be_launched_is_answered_and_does_not_hold_the_studio(
+        studio, installers, monkeypatch, route):
+    # Before: only RuntimeError was caught around the launch, so an OSError (a missing
+    # interpreter or script) left SETUP_ACTIVE set and the request without an answer, and every
+    # later setup was refused until the studio restarted.
+    launches = []
+
+    def cannot_launch(*_command, **_more):
+        raise FileNotFoundError("no such interpreter: /nowhere/python")
+
+    def launch_and_finish(*_command, **_more):
+        launches.append(1)
+        return types.SimpleNamespace(stdout=(), wait=lambda timeout=None: 0, poll=lambda: None)
+
+    monkeypatch.setattr(api, "_start_setup_run", REAL_START_SETUP_RUN)
+    _swap_popen(monkeypatch, cannot_launch)
+
+    status, answer = _asked_and_answered(lambda: _post(studio, route))
+
+    assert status >= 400 and "no such interpreter" in answer["error"]
+    assert api.SETUP_ACTIVE is None
+    _swap_popen(monkeypatch, launch_and_finish)
+    assert _post(studio, route)[0] == 202
+    assert launches == [1]
+    assert _soon(lambda: api.SETUP_ACTIVE is None)
+
+
 @pytest.mark.parametrize("route", SETUP_ROUTES)
 def test_a_setup_whose_reader_thread_cannot_start_is_answered_and_does_not_hold_the_studio(
         studio, installers, monkeypatch, route):

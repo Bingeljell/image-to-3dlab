@@ -4715,8 +4715,11 @@ class Handler(SimpleHTTPRequestHandler):
         second download while one is in flight.
 
         A download or a build is a setup like any other, so the shared rule decides: it
-        waits for every big job, and they wait for it. Removing waits too, because the
-        job that is running may be using those weights. Cancel is never refused.
+        waits for every big job, and they wait for it. Removing waits too: for a job that
+        may be using those weights, for another setup, and for another engine's download,
+        because engines share some weights (the two Hunyuan routes' paint model). Removing
+        the engine that is itself downloading is answered by the remover: cancel it first.
+        Cancel is never refused.
         """
         try:
             if action == "cancel":
@@ -4725,16 +4728,20 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             with SETUP_LOCK:
                 waiting = self._claim("setup")
-                if waiting is None and action != "remove" and SETUP_ACTIVE is not None:
+                if waiting is None and SETUP_ACTIVE is not None:
                     waiting = "another setup is running; wait for it to finish"
+                if waiting is None and action == "remove":
+                    fetching = download_active()
+                    if fetching is not None and fetching.backend.id != backend_id:
+                        waiting = "another engine is being set up; wait for it to finish"
                 if waiting:
                     self._send_json(409, {"error": waiting})
                     return
-                if action != "remove":
-                    start_download(backend_id, rebuild=action == "rebuild")
-            if action == "remove":
-                self._send_json(200, remove_weights(backend_id))
-                return
+                if action == "remove":
+                    # under the lock: no download can start while the files are going
+                    self._send_json(200, remove_weights(backend_id))
+                    return
+                start_download(backend_id, rebuild=action == "rebuild")
         except KeyError as exc:
             self._send_json(404, {"error": str(exc)})
             return

@@ -574,13 +574,38 @@ def test_nothing_else_starts_while_an_engine_is_being_set_up(studio, engines, en
     assert studio.started == []
 
 
-@pytest.mark.parametrize("action", ["download", "rebuild"])
-def test_an_engine_setup_waits_for_another_setup(studio, engines, monkeypatch, action):
+@pytest.mark.parametrize("action", ENGINE_ACTIONS)
+def test_an_engine_is_not_set_up_rebuilt_or_removed_during_another_setup(studio, engines, monkeypatch, action):
     monkeypatch.setattr(api, "SETUP_ACTIVE", "a" * 32)       # Blender is being installed, say
 
     assert _post(studio, f"/api/setup/pixal3d/{action}") == (
         409, {"error": "another setup is running; wait for it to finish"})
     assert engines == []
+
+
+def _being_set_up(engine_id):
+    """What the download list answers while that engine's weights are coming down."""
+    return lambda: types.SimpleNamespace(backend=types.SimpleNamespace(id=engine_id))
+
+
+def test_an_engine_is_not_removed_while_another_engine_is_being_set_up(studio, engines, monkeypatch):
+    # Engines share some weights (the two Hunyuan routes' paint model): removing one could delete
+    # what the other's download is writing. Remove only refused a download of the same engine.
+    monkeypatch.setattr(api, "download_active", _being_set_up("hunyuan_xiong"))
+
+    assert _post(studio, "/api/setup/pixal3d/remove") == (
+        409, {"error": "another engine is being set up; wait for it to finish"})
+    assert engines == []
+
+
+def test_removing_the_engine_that_is_itself_downloading_still_says_to_cancel_it_first(studio, engines, monkeypatch):
+    def downloading(_backend_id):       # what the real remover answers for its own engine
+        raise RuntimeError("that backend is downloading right now; cancel it first")
+    monkeypatch.setattr(api, "download_active", _being_set_up("pixal3d"))
+    monkeypatch.setattr(api, "remove_weights", downloading)
+
+    assert _post(studio, "/api/setup/pixal3d/remove") == (
+        409, {"error": "that backend is downloading right now; cancel it first"})
 
 
 def test_the_mac_setup_waits_for_an_engine_being_set_up(studio, installers, monkeypatch):

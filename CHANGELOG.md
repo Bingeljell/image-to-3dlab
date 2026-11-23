@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Download, Rebuild and Remove now wait for every big job, and every big job waits for a download or a build
   ("setup is running; wait for it to finish"). **This means nothing else can be made during a download**, however
   long it takes; Cancel still works at any time.
+- **An engine is not removed during another setup or another engine's download.** Engines share some weights, so
+  removing one could delete files another's download was writing. Remove now waits for both.
 - **Two big jobs can no longer start at the same moment.** A start asked whether it had to wait, and only seconds
   later (once its upload was read, or its picture cut out) was the job on the books. A different job that asked in
   between saw nothing running and started too. Asking now takes the slot in the same step and keeps it until the

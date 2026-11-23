@@ -1349,6 +1349,48 @@ def test_a_skin_try_whose_picture_fails_to_start_leaves_the_skin_as_it_was(studi
     assert workshop.skins.get(workshop.approved.id).to_dict() == before
 
 
+@pytest.mark.parametrize("first_to_start", ["loses", "wins"])
+def test_two_tries_of_one_skin_at_once_keep_the_try_that_won_the_start(studio, workshop, monkeypatch, first_to_start):
+    # Two tries of one skin at the same moment are both let through, and the picture manager
+    # takes one. The one it refused put back the skin as that request had first read it, so
+    # the try that won, recorded since, was gone while its picture was being drawn.
+    real_start, starts = api.image_api.start_edit, []
+    reached, let_go = threading.Event(), threading.Event()
+
+    def taken(*_args, **_more):
+        raise RuntimeError("an image is already being generated")
+
+    def start_edit(*args, **more):
+        starts.append(args)
+        first = len(starts) == 1
+        if first:                       # held until the other try has asked
+            reached.set()
+            assert let_go.wait(20), "the test never let this start go on"
+        wins = first == (first_to_start == "wins")
+        return (real_start if wins else taken)(*args, **more)
+    monkeypatch.setattr(api.image_api, "start_edit", start_edit)
+    skin_id = workshop.approved.id
+    before = workshop.skins.get(skin_id).tries["front"]
+
+    held, held_answer = _in_the_background(
+        lambda: _send(studio, f"/api/skins/{skin_id}/try", {"side": "front", "instruction": "matte"}))
+    assert reached.wait(20)
+    other, other_answer = _in_the_background(
+        lambda: _send(studio, f"/api/skins/{skin_id}/try", {"side": "front", "instruction": "gold"}))
+    other.join(1.0)                     # done, or waiting its turn behind the one held
+    let_go.set()
+
+    answers = {"matte": _answered(held, held_answer), "gold": _answered(other, other_answer)}
+    winner = "matte" if first_to_start == "wins" else "gold"
+    loser = "gold" if winner == "matte" else "matte"
+    assert answers[loser] == (409, {"error": "an image is already being generated"})
+    status, answer = answers[winner]
+    assert status == 202, answer
+    after = workshop.skins.get(skin_id).tries["front"]
+    assert after[:-1] == before
+    assert after[-1]["instruction"] == winner and after[-1]["job_id"] == answer["picture_job"]["job_id"]
+
+
 def test_a_new_skin_whose_picture_did_start_is_kept_even_if_noting_it_fails(studio, workshop, monkeypatch):
     # Removing the skin is right when its picture never started. It was removed on any error,
     # also one after the start: the picture was then being drawn into a folder that was gone.

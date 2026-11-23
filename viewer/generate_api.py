@@ -3390,16 +3390,20 @@ class Handler(SimpleHTTPRequestHandler):
         Two picture starts at the same moment are both let through, and the picture manager
         then takes one. The one it refuses (RuntimeError) puts the skin back as it was: a try
         with no picture could never be approved, and recording it had unapproved the others.
+        Tries take their turn on the store's lock and read the skin afresh there, so one put
+        back never writes over another recorded since `skin` was read.
         """
-        as_it_was = copy.deepcopy(skin)
-        reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
-        try:
-            job = image_api.start_edit(reference, target, prompt, seed)
-        except RuntimeError:
-            skins_api.STORE.save(as_it_was)
-            raise
-        skin.tries[side][-1].update(job_id=job.id, started=time.time())
-        skins_api.STORE.save(skin)
+        with skins_api.STORE.lock:
+            vars(skin).update(vars(skins_api.STORE.get(skin.id)))
+            as_it_was = copy.deepcopy(skin)
+            reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
+            try:
+                job = image_api.start_edit(reference, target, prompt, seed)
+            except RuntimeError:
+                skins_api.STORE.save(as_it_was)
+                raise
+            skin.tries[side][-1].update(job_id=job.id, started=time.time())
+            skins_api.STORE.save(skin)
         return {"job_id": job.id, "status_url": f"/api/image/{job.id}/status",
                 "events_url": f"/api/image/{job.id}/events"}
 

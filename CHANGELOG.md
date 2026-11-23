@@ -52,16 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   studio restarted; for a setup the installer also ran on with nothing reading it. It now ends as an error, says why,
   and frees its place. This covers generations, Finish runs and resumes, prop bakes, rig rebinds, auto-rigs and moves,
   setups and the Blender and gltfpack installs, pictures (a back view, a brush, a skin try), engine downloads, skin
-  builds and plans. A generation that fails after its generator has started (a helper thread that cannot start, say)
-  now stops that generator, which used to run on with nothing reading it and nothing to find it later. A worker that
-  ignores being asked to stop is now forced to stop before its place is freed, where it used to run on beside the next
-  job: Finish runs, prop bakes, rig rebinds, auto-rigs and moves. Their pid note is removed only once the worker
-  has stopped, and a note that cannot be removed no longer leaves the worker running and its place taken. Nor does
-  it after a generation, a picture, a skin build or an engine download, where it also left a finished download
-  looking unfinished. A picture, a skin build or an engine download that fails after its worker started now stops
-  that worker (sd-cli, the repaint, the downloader), forcing it if it ignores being asked, before its place is freed.
-  Cancel on a skin build now forces a repaint that ignores it after ten seconds, also when Cancel lands just as a
-  step starts; it used to leave the build running and holding its place.
+  builds and plans.
+- **A job that fails partway no longer leaves its worker running.** A generation, a picture, a skin build or an engine
+  download that failed after its worker started (the generator, sd-cli, the repaint, the downloader) ended as an error
+  but left that worker running, with nothing reading it and nothing to find it later. It is now stopped first. A
+  worker that ignores being asked to stop is forced: Finish runs, prop bakes, rig rebinds, auto-rigs and moves used to
+  free their place while it ran on beside the next job.
+- **A pid note that cannot be removed no longer holds a job's place.** Each running job leaves a pid note so a later
+  studio start can find it. The note is now removed only once the worker has stopped, and a note that cannot be
+  removed no longer leaves the worker running, the job's place taken, or a finished download looking unfinished.
+- **Cancel on a skin build stops a repaint that ignores it.** Cancel asked once; a repaint that ignored it kept the
+  build running and holding its place. It is now forced after ten seconds, also when Cancel lands just as a step
+  starts.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

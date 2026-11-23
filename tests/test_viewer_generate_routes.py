@@ -29,6 +29,17 @@ PICTURE = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16      # nor is this, unless a test 
 MIB = 1024 * 1024
 
 
+def _soon(check, seconds=5.0):
+    """Whether `check()` comes true within a few seconds. A runner is handed its job on a
+    thread of its own, a moment after the answer is sent."""
+    deadline = time.monotonic() + seconds
+    while not check():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.002)
+    return True
+
+
 @pytest.fixture
 def studio(tmp_path, monkeypatch):
     """A real studio server on a free port. It writes into a temp folder and starts no job:
@@ -37,10 +48,20 @@ def studio(tmp_path, monkeypatch):
     output.mkdir()
     monkeypatch.setattr(api, "REPO", tmp_path)
     monkeypatch.setattr(api, "OUTPUT_ROOT", output)
+    # Every book the waiting rule reads is this test's own and empty: a job another test left
+    # in the real ones, or a place one failed test never gave back, would make this one wait.
+    monkeypatch.setattr(api, "_STARTING", {})
     monkeypatch.setattr(api, "SETUP_ACTIVE", None)
+    monkeypatch.setattr(api, "download_active", lambda: None)
     monkeypatch.setattr(api, "JOBS", api.JobManager())
     monkeypatch.setattr(api, "FINISH_JOBS", api.FINISH_JOBS.__class__(output / "finish", output))
     monkeypatch.setattr(api, "PROPS_JOBS", api.PROPS_JOBS.__class__(output / "props"))
+    monkeypatch.setattr(api, "RIG_JOBS", api.RIG_JOBS.__class__(output / "rig"))
+    monkeypatch.setattr(api, "ANIMATE_JOBS", api.ANIMATE_JOBS.__class__(output / "animate"))
+    monkeypatch.setattr(api.image_api, "MANAGER", api.image_api.ImageJobManager(output / "images"))
+    monkeypatch.setattr(api.skins_api, "STORE", api.skins_api.SkinStore(output))
+    monkeypatch.setattr(api.skins_api, "BUILDS", api.skins_api.SkinBuilds(api.skins_api.STORE))
+    monkeypatch.setattr(api.addons_api, "ADDON_JOBS", api.addons_api.AddonJobManager())
     started = []
     for runner in ("_run_job", "run_finish_job", "run_props_job"):
         monkeypatch.setattr(api, runner, lambda job, runner=runner: started.append((runner, job)))
@@ -53,8 +74,9 @@ def studio(tmp_path, monkeypatch):
         server.shutdown()
         server.server_close()
     # Every request hands back the slot it claimed, whatever it answered: one that did not
-    # would make every other kind of job wait until the studio is restarted.
-    assert api._STARTING == {}
+    # would make every other kind of job wait until the studio is restarted. It is handed back
+    # a moment after the answer is sent, on the request's own thread, so allow it that moment.
+    assert _soon(lambda: api._STARTING == {}, seconds=2.0), f"a place was never given back: {api._STARTING}"
 
 
 @pytest.fixture
@@ -697,7 +719,7 @@ def test_a_start_that_is_refused_gives_the_slot_back(studio, engine, blender):
     refused, _ = _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.gif", PICTURE)})
 
     assert refused == 422       # after its waiting check: it had the slot
-    assert _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)})[0] == 202
+    assert _finish_starts(studio)
 
 
 def test_a_slot_stays_held_until_every_start_of_that_kind_has_let_go(studio):
@@ -740,19 +762,10 @@ def _picture(mode="RGB", fill="white", middle=None) -> bytes:
     return out.getvalue()
 
 
-def _soon(check, seconds=5.0):
-    """Whether `check()` comes true within a few seconds. A runner is handed its job on a
-    thread of its own, a moment after the answer is sent."""
-    deadline = time.monotonic() + seconds
-    while not check():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(0.002)
-    return True
-
-
 def _finish_starts(studio):
-    """Whether another kind of big job is let through: nothing else holds a place."""
+    """Whether another kind of big job is let through: nothing else holds a place. A place is
+    handed back a moment after its answer is sent, so it is given that moment first."""
+    _soon(lambda: not api._STARTING)
     return _post(studio, "/api/finish", {"settings": "{}"}, {"asset": ("knight.glb", GLB)})[0] == 202
 
 
@@ -925,6 +938,7 @@ def test_each_of_these_starts_is_let_through_when_nothing_else_runs(studio, work
     assert status == 202
     [job] = _on_the_books(workshop)
     assert _soon(lambda: [handed for _, handed in studio.started] == [job])
+    assert _soon(lambda: not api._STARTING)     # the place is back: only the job on the books says so now
     assert api.busy_reason("finish") == f"{words}; wait for it to finish"
 
 

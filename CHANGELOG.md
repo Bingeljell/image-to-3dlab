@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **"Turn off" on the first-start usage card turns the counts off.** It only marked the card as seen, which is what
   lets the daily count go, and left the counts on until you unticked the box on About. "See exactly what's sent" no
   longer counts as a yes either: it opens About, and the card is back at the next start until you choose.
+  If "Turn off" cannot be saved, the card stays and says so.
 - **A generation no longer hangs when its progress cannot be read or its log cannot be written.** One output line the
   progress reader did not expect, or a full disk under `run.log`, stopped the studio reading the generator's output;
   the generator then waited at its next print and the job showed "Working…" for good. The reader now carries on, and a

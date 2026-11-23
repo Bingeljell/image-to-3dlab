@@ -1031,15 +1031,9 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         # it, before the job is finished and the slot freed.
         proc = job.process
         if proc is not None and proc.poll() is None:
-            try:
-                processes.terminate_group(proc.pid)
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    processes.kill_group(proc.pid)
-                    proc.wait(timeout=5)
-            except Exception as cleanup_exc:
-                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
+            warning = processes.stop_and_reap(proc, grace=5)
+            if warning:
+                job.log_lines.append(f"cleanup warning: {warning}")
         for scratch in [*job.scratch, job.directory.joinpath("pid")]:
             try:
                 scratch.unlink(missing_ok=True)

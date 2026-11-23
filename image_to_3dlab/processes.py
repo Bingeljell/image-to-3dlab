@@ -321,3 +321,21 @@ def kill_group(pid: int, windows: bool = _IS_WINDOWS) -> None:
         os.killpg(pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def stop_and_reap(process, grace: float, force_grace: float = 5.0) -> str | None:
+    """Stop a worker's group and reap it: ask (SIGTERM), wait `grace`, then force (SIGKILL) and wait
+    `force_grace`. Nothing to do for a process that has already exited. Returns a warning to log
+    when the stop itself failed (it still could not be reaped, or a signal raised), else None."""
+    if process.poll() is not None:
+        return None
+    try:
+        terminate_group(process.pid)
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            kill_group(process.pid)
+            process.wait(timeout=force_grace)
+    except Exception as exc:
+        return str(exc)
+    return None

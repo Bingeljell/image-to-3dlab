@@ -7,8 +7,10 @@ start. Windows paths are tested with fakes here; the POSIX paths run for real.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -336,3 +338,134 @@ def test_elsewhere_nothing_is_set_up():
 def test_outside_the_servers_job_a_group_job_starts_as_before():
     # the suite, the command line and the MCP server never make the job: no breakaway flag
     assert processes.group_popen_kwargs(windows=True) == {"creationflags": processes.CREATE_NEW_PROCESS_GROUP}
+
+
+# --- stop_and_reap: the one stop sequence every runner shares --------------------------------
+
+_DEAF = ("import pathlib, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+         "pathlib.Path(sys.argv[1]).write_text('ready'); time.sleep(60)")
+
+
+def _spawn(code: str, *args: str) -> subprocess.Popen:
+    return subprocess.Popen([sys.executable, "-c", code, *args], **processes.stoppable_popen_kwargs())
+
+
+def _wait_for(path: Path, what: str, timeout: float = 15.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        if time.monotonic() > deadline:
+            pytest.fail(f"{what} never appeared: the child did not get as far as it should have")
+        time.sleep(0.02)
+
+
+def _reap(child: subprocess.Popen) -> None:
+    """Whatever the test did, leave neither the child nor its group behind."""
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(child.pid, signal.SIGKILL)
+    if child.poll() is None:
+        child.kill()
+    child.wait(timeout=10)
+
+
+def _process_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+@pytest.mark.posix
+def test_a_worker_that_honours_the_request_to_stop_is_stopped_within_the_grace():
+    child = _spawn("import time; time.sleep(60)")
+    try:
+        started = time.monotonic()
+        warning = processes.stop_and_reap(child, grace=10)
+
+        assert warning is None
+        assert child.poll() is not None
+        assert time.monotonic() - started < 5      # it did not sit out the whole grace
+    finally:
+        _reap(child)
+
+
+@pytest.mark.posix
+def test_a_worker_that_ignores_the_request_to_stop_is_forced_and_reaped(tmp_path):
+    ready = tmp_path / "ready"
+    child = _spawn(_DEAF, str(ready))
+    try:
+        _wait_for(ready, "the readiness file")      # SIGTERM is being ignored by now
+
+        warning = processes.stop_and_reap(child, grace=0.3)
+
+        assert warning is None
+        assert child.poll() is not None
+        assert child.returncode == -signal.SIGKILL
+    finally:
+        _reap(child)
+
+
+@pytest.mark.posix
+def test_a_worker_that_has_already_exited_is_left_alone(monkeypatch):
+    child = _spawn("pass")
+    try:
+        child.wait(timeout=10)
+        sent = []
+        monkeypatch.setattr(processes, "terminate_group", lambda *a, **k: sent.append(("term", a)))
+        monkeypatch.setattr(processes, "kill_group", lambda *a, **k: sent.append(("kill", a)))
+
+        warning = processes.stop_and_reap(child, grace=0.3)
+
+        assert warning is None
+        assert sent == []
+    finally:
+        _reap(child)
+
+
+@pytest.mark.posix
+def test_a_stop_that_fails_is_reported_as_a_warning_and_does_not_raise(monkeypatch, tmp_path):
+    ready = tmp_path / "ready"
+    child = _spawn(_DEAF, str(ready))
+
+    def refuse(pid, *args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    try:
+        _wait_for(ready, "the readiness file")
+        monkeypatch.setattr(processes, "kill_group", refuse)
+
+        warning = processes.stop_and_reap(child, grace=0.3, force_grace=0.3)
+
+        assert isinstance(warning, str)
+        assert "not permitted" in warning.lower() or "PermissionError" in warning
+    finally:
+        monkeypatch.undo()
+        _reap(child)
+
+
+@pytest.mark.posix
+def test_a_workers_grandchild_in_the_same_group_is_stopped_with_it(tmp_path):
+    grandchild_pid = tmp_path / "grandchild.pid"
+    worker = (
+        "import pathlib, subprocess, sys, time\n"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "pathlib.Path(sys.argv[1]).write_text(str(g.pid))\n"
+        "time.sleep(60)\n"
+    )
+    child = _spawn(worker, str(grandchild_pid))
+    pid = None
+    try:
+        _wait_for(grandchild_pid, "the grandchild's pid file")
+        pid = int(grandchild_pid.read_text())
+        assert _process_exists(pid)
+
+        warning = processes.stop_and_reap(child, grace=5)
+
+        assert warning is None
+        assert child.poll() is not None
+        deadline = time.monotonic() + 10
+        while _process_exists(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not _process_exists(pid)
+    finally:
+        _reap(child)

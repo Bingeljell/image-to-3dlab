@@ -591,15 +591,9 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
         if job.only:
             shutil.rmtree(job.staging, ignore_errors=True)
         if job.process is not None and job.process.poll() is None:
-            try:
-                processes.terminate_group(job.process.pid)
-                try:
-                    job.process.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    processes.kill_group(job.process.pid)
-                    job.process.wait(timeout=5)
-            except Exception as cleanup_exc:
-                job.append_log(f"cleanup warning: {cleanup_exc}")
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
         try:
             job.directory.joinpath("pid").unlink(missing_ok=True)
         except Exception as cleanup_exc:

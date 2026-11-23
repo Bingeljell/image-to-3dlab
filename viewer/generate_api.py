@@ -1940,15 +1940,7 @@ def _stop_started_process(job: Job) -> None:
     proc = job.process
     if proc is None or proc.poll() is not None:
         return
-    try:
-        processes.terminate_group(proc.pid)
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            processes.kill_group(proc.pid)
-            proc.wait(timeout=5)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    processes.stop_and_reap(proc, grace=5)
 
 
 # --- TRELLIS backend spec (wraps the pre-existing, unchanged behavior above) -----------

@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builds and plans. A generation that fails after its generator has started (a helper thread that cannot start, say)
   now stops that generator, which used to run on with nothing reading it and nothing to find it later. A worker that
   ignores being asked to stop is now forced to stop before its place is freed, where it used to run on beside the next
-  job: Finish runs and prop bakes.
+  job: Finish runs, prop bakes and rig rebinds.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

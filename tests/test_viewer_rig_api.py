@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from deaf_worker import failing_pid_note, kill_and_reap, use_deaf_popen, watch_slot
 
 from viewer import rig_api
 
@@ -165,3 +166,26 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
     assert job.status == "error"
     assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
     assert manager.active is None
+
+
+@pytest.mark.posix
+def test_a_rebind_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked Blender to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next rebind started beside it.
+    manager = rig_api.RigJobManager(tmp_path)
+    job = manager.create("Creature.glb", b"glb", b"blend", valid_sidecar(b"glb", b"blend"))
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(rig_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        rig_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

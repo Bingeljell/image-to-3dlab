@@ -52,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   studio restarted; for a setup the installer also ran on with nothing reading it. It now ends as an error, says why,
   and frees its place. This covers generations, Finish runs and resumes, prop bakes, rig rebinds, auto-rigs and moves,
   setups and the Blender and gltfpack installs, pictures (a back view, a brush, a skin try), engine downloads, skin
-  builds and plans.
+  builds and plans. A setup whose installer cannot be launched at all (a missing program) is answered with the
+  reason and no longer leaves every later setup refused.
 - **A job that fails partway no longer leaves its worker running.** A generation, a picture, a skin build or an engine
   download that failed after its worker started (the generator, sd-cli, the repaint, the downloader) ended as an error
   but left that worker running, with nothing reading it and nothing to find it later. It is now stopped first. A

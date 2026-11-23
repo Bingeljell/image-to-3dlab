@@ -148,6 +148,7 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
         usage_api.count_failed("rig", "Blender is not installed")
         manager.finish(job)
         return
+    stopped = False
     try:
         job.status = "running"
         job.emit({"phase": "validate", "overall_pct": 5, "message": "Inputs verified"})
@@ -195,11 +196,17 @@ def run_job(job: RigJob, manager: RigJobManager = RIG_JOBS) -> None:
             job.emit({"phase": "error", "message": "Blender exited without all required artifacts"})
             usage_api.count_failed("rig", "Blender exited without all required artifacts")
     except Exception as exc:
+        # Stop and reap the worker before the status turns terminal: the start gate reads it.
+        stopped = True
+        if job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         usage_api.count_failed("rig", exc)
     finally:
-        if job.process is not None and job.process.poll() is None:
+        if not stopped and job.process is not None and job.process.poll() is None:
             warning = processes.stop_and_reap(job.process, grace=30)
             if warning:
                 job.append_log(f"cleanup warning: {warning}")

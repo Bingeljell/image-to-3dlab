@@ -571,6 +571,12 @@ class SkinBuilds:
             skin.status, job.status = "pictures", "cancelled"
             job.emit({"phase": "cancelled", "message": "Cancelled. The approved pictures are kept."})
         except Exception as exc:
+            # Stop and reap the repaint before the status turns terminal: the start gate reads it.
+            proc = job.process
+            if proc is not None and proc.poll() is None:
+                warning = processes.stop_and_reap(proc, grace=5)
+                if warning:
+                    job.log_lines.append(f"cleanup warning: {warning}")
             skin.status, skin.error = "error", str(exc)
             job.status, job.error = "error", str(exc)
             job.emit({"phase": "error", "message": str(exc)})

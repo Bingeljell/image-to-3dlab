@@ -515,6 +515,11 @@ def _run(run: DownloadRun) -> None:
         code = run.process.wait()
     except Exception as exc:
         stop.set()
+        proc = run.process     # stop and reap the downloader before the status turns terminal
+        if proc is not None and proc.poll() is None:
+            warning = processes.stop_and_reap(proc, grace=5)
+            if warning:
+                run.log.append(f"cleanup warning: {warning}")
         run.status = "error"
         run.emit({"phase": "error", "detail": str(exc)})
         return

@@ -905,6 +905,29 @@ def test_a_downloader_that_ignores_the_polite_stop_is_stopped_when_the_run_fails
 
 
 @pytest.mark.posix
+def test_a_failed_download_is_not_over_until_its_downloader_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its downloader (up to 5 s), so
+    # active() let another download start beside a downloader still running.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    run = _deaf_run(tmp_path, monkeypatch)
+    seen = watch_status_at_stop(dl, monkeypatch, lambda: run.status)
+    try:
+        dl._run(run)
+
+        assert_still_running_when_stop_began(seen)
+        assert run.status == "error"
+        assert dl.active() is None
+        assert run.process.poll() is not None
+    finally:
+        kill_and_reap(run.process)
+
+
+@pytest.mark.posix
 def test_a_run_ends_and_its_downloader_is_stopped_when_its_pid_note_cannot_be_removed(
         tmp_path, monkeypatch):
     # A pid note that could not be removed raised out of the finally: the error escaped the

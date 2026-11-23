@@ -877,6 +877,30 @@ def test_a_props_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_
 
 
 @pytest.mark.posix
+def test_a_failed_props_run_is_not_over_until_its_worker_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its worker (up to 35 s), so the
+    # gate was open and a new props job could start beside a worker still holding the GPU.
+    from deaf_worker import assert_still_running_when_stop_began, watch_status_at_stop
+
+    job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {"names": "barrel"})
+    manager = props.PropsJobManager(tmp_path)
+    manager.active = job.id
+    seen = watch_status_at_stop(props, monkeypatch, lambda: job.status)
+    monkeypatch.setattr(props, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(props, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        props.run_job(job, manager)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
 def test_a_props_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
         tmp_path, monkeypatch):
     # A pid note that could not be removed (PermissionError, not "not found") skipped the rest

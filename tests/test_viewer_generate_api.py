@@ -2672,6 +2672,29 @@ def _deaf_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.posix
+def test_a_failed_generation_is_not_over_until_its_generator_has_been_stopped(tmp_path, monkeypatch):
+    # The job was marked "error" first and only then stopped its generator (up to 5 s), so the
+    # heavy-job gate was open and a new generation could start beside a generator still holding the GPU.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    job, jobs = _deaf_job(tmp_path, monkeypatch)
+    seen = watch_status_at_stop(api, monkeypatch, lambda: job.status)
+    try:
+        api._run_job(job)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert jobs.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
 def test_a_generator_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
         tmp_path, monkeypatch):
     # A pid note that could not be removed (PermissionError, not "not found") raised out of the

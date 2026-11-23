@@ -920,6 +920,14 @@ def _launch(job: ImageJob) -> None:
         raise
 
 
+def _stop_failed_process(job: ImageJob) -> None:
+    proc = job.process
+    if proc is not None and proc.poll() is None:
+        warning = processes.stop_and_reap(proc, grace=5)
+        if warning:
+            job.log_lines.append(f"cleanup warning: {warning}")
+
+
 def run_job(job: ImageJob, manager: ImageJobManager,
             weights: dict[str, Path] | None = None) -> None:
     """Drive one sd-cli run to completion, emitting progress as it goes."""
@@ -1019,10 +1027,14 @@ def run_job(job: ImageJob, manager: ImageJobManager,
                            elapsed_seconds=round(elapsed, 1))
             usage_api.count_done("picture")
     except MissingWeights as exc:
+        # Stop and reap sd-cli before the status turns terminal: the start gate reads it.
+        _stop_failed_process(job)
         job.error = str(exc)
         job.set_status("error", error=job.error, needs_setup=True)
         usage_api.count_failed("picture", exc)
     except Exception as exc:
+        # Stop and reap sd-cli before the status turns terminal: the start gate reads it.
+        _stop_failed_process(job)
         job.error = f"{type(exc).__name__}: {exc}"
         job.set_status("error", error=job.error)
         usage_api.count_failed("picture", exc)

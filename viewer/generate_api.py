@@ -1925,10 +1925,10 @@ def _run_job(job: Job) -> None:
                       "log_tail": tail})
             usage_api.count_failed("model", return_code)
     except Exception as exc:  # process launch errors must reach the browser, not kill the server
+        _stop_started_process(job)   # the generator is gone before the status frees the gate
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         usage_api.count_failed("model", exc)
-        _stop_started_process(job)
     finally:
         _remove_pid_file(job.directory, job)
         JOBS.finish(job)

@@ -974,6 +974,29 @@ def test_an_sd_cli_that_ignores_the_polite_stop_is_stopped_when_the_run_fails(tm
 
 
 @pytest.mark.posix
+def test_a_failed_picture_run_is_not_over_until_sd_cli_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped sd-cli (up to 5 s), so the gate was
+    # open and a new picture could start beside an sd-cli still holding the GPU.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    manager, job = _deaf_picture_job(tmp_path, monkeypatch)
+    seen = watch_status_at_stop(api, monkeypatch, lambda: job.status)
+    try:
+        api.run_job(job, manager, weights=WEIGHTS)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
 def test_a_picture_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
         tmp_path, monkeypatch):
     # A pid note that could not be removed raised out of the finally before the slot was

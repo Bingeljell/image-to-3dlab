@@ -103,3 +103,28 @@ def unremovable_pid_note(monkeypatch):
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", unlink)
+
+
+def watch_status_at_stop(module, monkeypatch, read_status):
+    """Record what `read_status()` says at the moment the module's runner begins stopping its
+    worker, then stop it for real. A failed run's status must not be terminal yet then: a
+    terminal status opens the gate for the next big job while the old worker still holds the GPU."""
+    seen = {}
+    real = module.processes.stop_and_reap
+
+    def stop_and_reap(*args, **kwargs):
+        seen["status_when_stop_began"] = read_status()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module.processes, "stop_and_reap", stop_and_reap)
+    return seen
+
+
+TERMINAL_STATUSES = {"done", "error", "cancelled"}
+
+
+def assert_still_running_when_stop_began(seen):
+    assert "status_when_stop_began" in seen, "the worker was never stopped"
+    assert seen["status_when_stop_began"] not in TERMINAL_STATUSES, (
+        f"the status was already {seen['status_when_stop_began']!r} when the stop began, "
+        "so a new job could start beside the old worker")

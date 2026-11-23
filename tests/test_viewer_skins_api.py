@@ -806,6 +806,31 @@ def test_a_repaint_that_ignores_the_polite_stop_is_stopped_when_the_build_fails(
 
 
 @pytest.mark.posix
+def test_a_failed_skin_build_is_not_over_until_its_repaint_has_been_stopped(
+        output, tmp_path, monkeypatch):
+    # The build was marked "error" first and only then stopped its repaint (up to 5 s), so
+    # running() let a new build start beside a repaint still holding the GPU.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    builds, skin, runner, _ = _deaf_build(output, tmp_path, monkeypatch)
+    seen = watch_status_at_stop(sk, monkeypatch, lambda: next(iter(builds.jobs.values())).status)
+    job = None
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=_same_box)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert not builds.running()
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(next(iter(builds.jobs.values())).process)
+
+
+@pytest.mark.posix
 def test_a_build_is_stopped_and_its_slot_freed_when_its_pid_note_cannot_be_removed(
         output, tmp_path, monkeypatch):
     # A pid note that could not be removed raised out of the finally before the skin was saved,

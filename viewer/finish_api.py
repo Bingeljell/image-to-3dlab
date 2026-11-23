@@ -816,7 +816,11 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         if job.process is not None and job.process.poll() is None:
             try:
                 processes.terminate_group(job.process.pid)
-                job.process.wait(timeout=30)
+                try:
+                    job.process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    processes.kill_group(job.process.pid)
+                    job.process.wait(timeout=5)
             except Exception as cleanup_exc:
                 job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)

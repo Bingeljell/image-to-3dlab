@@ -293,6 +293,10 @@ def remove_addon(addon_id: str, addons_dir: Path | None = None) -> None:
     _remove_tree(dest)
 
 
+# How long a cancelled tool gets to stop by itself before it is stopped for certain.
+CANCEL_GRACE_SECONDS = 10.0
+
+
 def _run_subprocess(
     argv: list[str],
     cwd: Path,
@@ -331,6 +335,10 @@ def _run_subprocess(
                 # The group, not the tool alone: what it started (Blender's helpers) would run
                 # on, and keep the output open so the loop below never ends.
                 processes.terminate_group(proc.pid)
+                # Asked first, so a tool can tidy up. One that carries on would stay
+                # "cancelling" for good, holding the place every other big job waits for.
+                if not done.wait(timeout=CANCEL_GRACE_SECONDS):
+                    processes.kill_group(proc.pid)
                 return
 
     if cancel_event is not None:

@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generation, a picture or Finish and fight it for memory; it now waits like every other big job ("a generation is
   running; wait for it to finish"), and they wait for it. Cancel stopped the tool but not what the tool had started
   (Blender's helpers), so the run stayed "cancelling" until those ended by themselves; the whole group is stopped
-  now, and stopping the studio stops a running tool too.
+  now, and stopping the studio stops a running tool too. A tool that ignores Cancel is stopped for certain after
+  ten seconds.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

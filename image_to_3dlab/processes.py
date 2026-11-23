@@ -216,3 +216,15 @@ def terminate_group(pid: int, windows: bool = _IS_WINDOWS) -> None:
         os.killpg(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def kill_group(pid: int, windows: bool = _IS_WINDOWS) -> None:
+    """Stop the group led by `pid` for certain: for one that was asked (`terminate_group`) and
+    carried on. Windows has no gentler ask to follow up on: its `terminate_group` already forces."""
+    if windows:
+        terminate_group(pid, windows=True)
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass

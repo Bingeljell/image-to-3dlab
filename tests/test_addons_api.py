@@ -252,6 +252,26 @@ def test_cancel_stops_the_tool_and_everything_it_started(tmp_path, monkeypatch):
 
 
 @pytest.mark.posix
+def test_cancel_stops_a_tool_that_ignores_being_asked(tmp_path, monkeypatch):
+    # Cancel only asked. A tool that ignored it stayed "cancelling" until it ended by itself,
+    # and all that time it held the add-on's place, which every other big job waits for.
+    monkeypatch.setattr(viewer.ai, "CANCEL_GRACE_SECONDS", 0.5)
+    _, job = _start_tool(tmp_path, monkeypatch, (
+        "import signal, time\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "print('started', flush=True)\n"
+        "time.sleep(30)\n"))
+    try:
+        viewer.ADDON_JOBS.cancel(job.id)
+
+        assert _wait_until(lambda: job.status == "cancelled", seconds=8), job.status
+        assert not viewer.ADDON_JOBS.busy()
+    finally:
+        if job.process is not None and job.process.poll() is None:
+            os.kill(job.process.pid, signal.SIGKILL)
+
+
+@pytest.mark.posix
 def test_a_running_tool_is_known_to_its_job_and_leads_its_own_group(tmp_path, monkeypatch):
     # A server stop ends each job by its process group. The job did not know its process, so a
     # stop never reached a running add-on tool.

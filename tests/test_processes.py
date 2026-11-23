@@ -54,6 +54,36 @@ def test_a_live_group_is_alive_and_terminating_it_ends_it():
             child.kill()
 
 
+@pytest.mark.posix
+def test_a_group_that_ignores_being_asked_to_stop_can_still_be_stopped():
+    deaf = ("import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            "print('ready', flush=True); time.sleep(30)")
+    child = subprocess.Popen([sys.executable, "-c", deaf], stdout=subprocess.PIPE,
+                             **processes.group_popen_kwargs())
+    try:
+        assert child.stdout.readline().strip() == b"ready"      # the signal is being ignored by now
+        processes.terminate_group(child.pid)
+        with pytest.raises(subprocess.TimeoutExpired):
+            child.wait(timeout=0.5)                             # asked, and it carried on
+
+        processes.kill_group(child.pid)
+
+        assert child.wait(timeout=10) != 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.stdout.close()
+
+
+def test_stopping_a_group_for_certain_is_the_same_forced_stop_on_windows(monkeypatch):
+    calls = []
+    monkeypatch.setattr(processes.subprocess, "run", lambda argv, **_more: calls.append(argv))
+
+    processes.kill_group(1234, windows=True)
+
+    assert calls == [["taskkill", "/PID", "1234", "/T", "/F"]]
+
+
 def test_terminating_a_group_that_is_gone_is_not_an_error():
     child = subprocess.Popen([sys.executable, "-c", "pass"], **processes.group_popen_kwargs())
     child.wait(timeout=10)

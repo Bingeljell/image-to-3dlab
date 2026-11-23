@@ -301,7 +301,6 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-# The in-repo MLX port is MIT. The weights it loads are not.
 def trellis2_record(*, image: Path, output: Path, parameters: dict[str, Any],
                     matted_with: str | None, route: str, bria_patch: str,
                     backend_revision: str | None, input_source: str = "user-provided",
@@ -358,6 +357,7 @@ def trellis2_record(*, image: Path, output: Path, parameters: dict[str, Any],
     }
 
 
+# The in-repo MLX port is MIT. The weights it loads are not.
 HUNYUAN_MLX_CODE_COMPONENT = {
     "component": "ZimengXiong/hunyuan3d-mlx (in-repo shape+paint port)",
     "purpose": "MLX generation code tracked in this repository",

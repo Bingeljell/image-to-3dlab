@@ -9,6 +9,7 @@ the viewer server, running its tests, or serving Compare never imports torch.
 from __future__ import annotations
 
 import contextlib
+import copy
 import io
 import json
 import os
@@ -3384,9 +3385,19 @@ class Handler(SimpleHTTPRequestHandler):
         return None
 
     def _draw_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any]:
-        """Record one picture try and start drawing it. Ask `_skin_try_refusal` first."""
+        """Record one picture try and start drawing it. Ask `_skin_try_refusal` first.
+
+        Two picture starts at the same moment are both let through, and the picture manager
+        then takes one. The one it refuses (RuntimeError) puts the skin back as it was: a try
+        with no picture could never be approved, and recording it had unapproved the others.
+        """
+        as_it_was = copy.deepcopy(skin)
         reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
-        job = image_api.start_edit(reference, target, prompt, seed)
+        try:
+            job = image_api.start_edit(reference, target, prompt, seed)
+        except RuntimeError:
+            skins_api.STORE.save(as_it_was)
+            raise
         skin.tries[side][-1].update(job_id=job.id, started=time.time())
         skins_api.STORE.save(skin)
         return {"job_id": job.id, "status_url": f"/api/image/{job.id}/status",
@@ -3466,7 +3477,7 @@ class Handler(SimpleHTTPRequestHandler):
                 skins_api.STORE.save(skin)
                 try:
                     started = self._draw_skin_try(skin, "front", None)
-                except Exception:       # the picture manager took another start first
+                except RuntimeError:    # its picture never started; after a start the skin stays
                     skins_api.STORE.discard(skin)
                     raise
                 self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})

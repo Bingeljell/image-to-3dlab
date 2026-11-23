@@ -1319,6 +1319,49 @@ def test_a_skin_try_that_has_to_wait_says_so_with_the_skin_and_records_no_try(
     assert _tries(workshop) == []       # a try with no picture could never be approved or redrawn
 
 
+def _the_picture_manager_takes_another_start_first(monkeypatch):
+    # Two picture starts asked for at the same moment are both let through (they are the same
+    # kind of job), and the picture manager then takes only one.
+    def taken(*_args, **_more):
+        raise RuntimeError("an image is already being generated")
+    monkeypatch.setattr(api.image_api, "start_edit", taken)
+
+
+def test_a_skin_try_whose_picture_fails_to_start_leaves_the_skin_as_it_was(studio, workshop, monkeypatch):
+    # The try was recorded before the picture was started. When the start lost, a try with no
+    # picture stayed, and both approved pictures had been unapproved for it.
+    _the_picture_manager_takes_another_start_first(monkeypatch)
+    before = workshop.skins.get(workshop.approved.id).to_dict()
+    assert before["approved"]["front"] and before["approved"]["back"]
+
+    assert _send(studio, f"/api/skins/{workshop.approved.id}/try", {"side": "front", "instruction": "matte"}) == (
+        409, {"error": "an image is already being generated"})
+    assert workshop.skins.get(workshop.approved.id).to_dict() == before
+
+
+def test_a_new_skin_whose_picture_did_start_is_kept_even_if_noting_it_fails(studio, workshop, monkeypatch):
+    # Removing the skin is right when its picture never started. It was removed on any error,
+    # also one after the start: the picture was then being drawn into a folder that was gone.
+    kept = {skin.id for skin in workshop.skins.all()}
+    save, saves = workshop.skins.save, []
+
+    def full_disk_on_the_last_save(skin):
+        saves.append(skin.id)
+        if len(saves) == 3:         # the draft, the try, then the try's job: that one fails
+            raise OSError("No space left on device")
+        save(skin)
+    monkeypatch.setattr(workshop.skins, "save", full_disk_on_the_last_save)
+
+    try:
+        _new_skin(studio, workshop)
+    except OSError:
+        pass                        # how the route answers a disk error is not this test's subject
+
+    [made] = [skin for skin in workshop.skins.all() if skin.id not in kept]
+    [job] = workshop.pictures.jobs.values()
+    assert job.output_path.parent.name == made.id and len(made.tries["front"]) == 1
+
+
 def test_a_skin_try_waits_while_a_skin_is_being_made(studio, workshop):
     _build_a_skin(studio, workshop)
 

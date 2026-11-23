@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from deaf_worker import failing_pid_note, kill_and_reap, use_deaf_popen, watch_slot
 from glb_fixtures import read_glb, valid_glb
 
 from image_to_3dlab import __version__
@@ -843,3 +844,27 @@ def test_the_server_can_load_the_gltfpack_bootstrap_in_a_fresh_process():
                             text=True, check=False)
     assert result.returncode == 0, result.stderr[-2000:]
     assert result.stdout.strip().endswith("True")
+
+
+@pytest.mark.posix
+def test_a_props_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked the worker to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next props job started beside it.
+    job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {"names": "barrel"})
+    manager = props.PropsJobManager(tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(props, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(props, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        props.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

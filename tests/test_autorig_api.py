@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from deaf_worker import failing_pid_note, kill_and_reap, use_deaf_popen, watch_slot
 from glb_fixtures import valid_glb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
@@ -712,3 +713,28 @@ def test_the_rig_form_s_bone_names_field_is_read_and_checked():
     assert aa.bone_names_choice({"bone_names": {"value": "numbered"}}) is None
     with pytest.raises(ValueError, match="unity"):
         aa.bone_names_choice({"bone_names": {"value": "maya"}})
+
+
+@pytest.mark.posix
+def test_an_animate_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked the worker to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next animate or auto-rig started beside it.
+    result = tmp_path / "out.glb"
+    job = aa.AnimateJob("2" * 32, "animate", tmp_path, result, [(["worker"], tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    use_deaf_popen(aa, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        aa.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

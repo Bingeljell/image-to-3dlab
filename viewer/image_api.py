@@ -1027,9 +1027,11 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         job.set_status("error", error=job.error)
         usage_api.count_failed("picture", exc)
     finally:
-        for scratch in job.scratch:
-            scratch.unlink(missing_ok=True)
-        job.directory.joinpath("pid").unlink(missing_ok=True)
+        for scratch in [*job.scratch, job.directory.joinpath("pid")]:
+            try:
+                scratch.unlink(missing_ok=True)
+            except Exception as cleanup_exc:
+                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

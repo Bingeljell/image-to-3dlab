@@ -56,7 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now stops that generator, which used to run on with nothing reading it and nothing to find it later. A worker that
   ignores being asked to stop is now forced to stop before its place is freed, where it used to run on beside the next
   job: Finish runs, prop bakes, rig rebinds, auto-rigs and moves. Their pid note is removed only once the worker
-  has stopped, and a note that cannot be removed no longer leaves the worker running and its place taken.
+  has stopped, and a note that cannot be removed no longer leaves the worker running and its place taken. Nor does
+  it after a generation, a picture, a skin build or an engine download, where it also left a finished download
+  looking unfinished.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

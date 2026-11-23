@@ -520,7 +520,10 @@ def _run(run: DownloadRun) -> None:
         return
     finally:
         stop.set()
-        run.directory.joinpath("pid").unlink(missing_ok=True)
+        try:
+            run.directory.joinpath("pid").unlink(missing_ok=True)
+        except Exception as cleanup_exc:
+            run.log.append(f"cleanup warning: {cleanup_exc}")
 
     present = run.bytes_present()
     if run.cancelled:

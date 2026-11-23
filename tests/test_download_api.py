@@ -870,3 +870,34 @@ def test_a_download_whose_thread_cannot_start_does_not_hold_the_slot(monkeypatch
 
     monkeypatch.setattr(dl, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NothingRuns}))
     assert dl.start("pixal3d").status != "error"
+
+
+def _deaf_run(tmp_path, monkeypatch):
+    """A setup run whose downloader is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import failing_pid_note, use_deaf_popen
+
+    run = dl.DownloadRun(dl.BY_ID["pixal3d"])
+    run.command = [sys.executable, "downloader.py"]
+    run.directory = tmp_path / "setup"
+    monkeypatch.setattr(dl, "DOWNLOADS", {"pixal3d": run})
+    use_deaf_popen(dl, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    return run
+
+
+def test_a_finished_download_is_not_left_running_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A download that finished fine still raised out of the finally when its pid note could not
+    # be removed, before its result was read: it stayed "running" for good.
+    from deaf_worker import unremovable_pid_note
+
+    run = dl.DownloadRun(dl.BY_ID["pixal3d"])
+    run.command = [sys.executable, "-c", "pass"]
+    run.directory = tmp_path / "setup"
+    monkeypatch.setattr(dl, "DOWNLOADS", {"pixal3d": run})
+    unremovable_pid_note(monkeypatch)
+
+    dl._run(run)
+
+    assert run.status == "done"
+    assert dl.active() is None

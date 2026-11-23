@@ -1617,8 +1617,14 @@ def _write_pid_file(directory: Path, pid: int) -> None:
     _pid_file_path(directory).write_text(processes.pid_record(pid), encoding="utf-8")
 
 
-def _remove_pid_file(directory: Path) -> None:
-    _pid_file_path(directory).unlink(missing_ok=True)
+def _remove_pid_file(directory: Path, job: Job | None = None) -> None:
+    """Remove the pid note. A removal that fails for any reason but "not found" is logged on the
+    job (when there is one) and swallowed: it must not skip the rest of the runner's cleanup."""
+    try:
+        _pid_file_path(directory).unlink(missing_ok=True)
+    except Exception as exc:
+        if job is not None:
+            job.log_lines.append(f"cleanup warning: {exc}")
 
 
 def _killpg_if_alive(pid: int) -> None:
@@ -1924,7 +1930,7 @@ def _run_job(job: Job) -> None:
         usage_api.count_failed("model", exc)
         _stop_started_process(job)
     finally:
-        _remove_pid_file(job.directory)
+        _remove_pid_file(job.directory, job)
         JOBS.finish(job)
 
 

@@ -557,7 +557,10 @@ class SkinBuilds:
             job.emit({"phase": "error", "message": str(exc)})
             usage_api.count_failed("skin", exc)
         finally:
-            folder.joinpath("pid").unlink(missing_ok=True)
+            try:
+                folder.joinpath("pid").unlink(missing_ok=True)
+            except Exception as cleanup_exc:
+                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
             self.store.save(skin)
             self._history(job, skin)
             with self.lock:

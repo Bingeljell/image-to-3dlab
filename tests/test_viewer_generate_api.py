@@ -2655,3 +2655,39 @@ def test_the_rig_upload_reads_the_bone_names_choice_and_refuses_an_unknown_one()
     rig = source[source.index("def _create_animate_rig"):source.index("def _create_animate_play")]
     assert "bone_names_choice(form)" in rig and "bone_names=" in rig
     assert "except ValueError" in rig
+
+
+def _deaf_job(tmp_path, monkeypatch):
+    """A job whose generator is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import failing_pid_note, use_deaf_popen
+
+    fake = dataclasses.replace(api.BACKENDS["hunyuan-mlx-xiong"], interpreter=Path(sys.executable),
+                               wrapper=tmp_path / "unused.py", build_args=lambda job: [],
+                               parse_line=lambda job, line: None, finalize=None)
+    monkeypatch.setitem(api.BACKENDS, "hunyuan-mlx-xiong", fake)
+    job, jobs = _job_for("hunyuan-mlx-xiong", tmp_path, monkeypatch)
+    use_deaf_popen(api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    return job, jobs
+
+
+@pytest.mark.posix
+def test_a_generator_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") raised out of the
+    # finally before the slot was freed: the error escaped the runner's thread, the job stayed
+    # the active one, and the next generation was refused for good.
+    from deaf_worker import kill_and_reap, unremovable_pid_note, watch_slot
+
+    job, jobs = _deaf_job(tmp_path, monkeypatch)
+    seen = watch_slot(jobs, job)
+    unremovable_pid_note(monkeypatch)
+    try:
+        api._run_job(job)
+
+        assert job.status == "error"
+        assert jobs.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the generator still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

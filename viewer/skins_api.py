@@ -414,6 +414,7 @@ class SkinBuild:
     error: str | None = None
     process: subprocess.Popen | None = None
     cancel_requested: bool = False
+    step_done: threading.Event | None = None      # set once the current step's process has been waited on
     started: float = field(default_factory=time.monotonic)
     events: list[dict[str, Any]] = field(default_factory=list)
     log_lines: deque = field(default_factory=lambda: deque(maxlen=400))
@@ -493,18 +494,20 @@ class SkinBuilds:
         if job is None or job.status in TERMINAL:
             return False
         job.cancel_requested = True
-        if job.process and job.process.poll() is None:
-            process = job.process
+        process, done = job.process, job.step_done
+        if process is not None and done is not None and not done.is_set():
             self.stop(process.pid)
-            self._force_after_grace(process)
+            self._force_after_grace(process, done)
         return True
 
     @staticmethod
-    def _force_after_grace(process) -> None:
+    def _force_after_grace(process, done: threading.Event) -> None:
         """A worker that ignores the polite stop keeps its pipe open, so the build thread never
-        returns: force its group after a grace, off the request thread."""
+        returns: force its group after a grace, off the request thread. Keyed on the step having
+        ended (waited on), not on its leader having exited: a leader that quit while its child holds
+        the pipe open leaves the build blocked. No poll() here: it would reap the leader."""
         def force() -> None:
-            if process.poll() is None:
+            if not done.is_set():
                 processes.kill_group(process.pid)
 
         timer = threading.Timer(CANCEL_GRACE_SECONDS, force)
@@ -534,6 +537,7 @@ class SkinBuilds:
                 command = make(output, skin)
                 job.emit({"phase": stage, "message": "Repainting the model" if stage == "repaint"
                           else "Finishing, with the model's own settings", "overall_pct": 0 if stage == "repaint" else 80})
+                done = job.step_done = threading.Event()
                 job.process = runner(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      bufsize=1, cwd=str(REPO), env=processes.child_env(), **processes.TEXT_PIPE,
                                      **processes.group_popen_kwargs())
@@ -542,7 +546,7 @@ class SkinBuilds:
                     folder.joinpath("pid").write_text(processes.pid_record(pid), encoding="utf-8")
                 if job.cancel_requested:            # Cancel landed while it started: it found no process to stop
                     self.stop(job.process.pid)
-                    self._force_after_grace(job.process)
+                    self._force_after_grace(job.process, done)
                 for raw in job.process.stdout:
                     line = raw.rstrip()
                     if not line:
@@ -552,6 +556,7 @@ class SkinBuilds:
                     if percent is not None:
                         job.emit({"phase": stage, "message": line[:160], "overall_pct": percent})
                 code = job.process.wait()
+                done.set()
                 if job.cancel_requested:
                     raise InterruptedError
                 if code != 0:
@@ -589,6 +594,8 @@ class SkinBuilds:
                 warning = processes.stop_and_reap(proc, grace=5)
                 if warning:
                     job.log_lines.append(f"cleanup warning: {warning}")
+            if job.step_done is not None:       # reaped: a pending forced stop must not signal a reused pid
+                job.step_done.set()
             try:
                 folder.joinpath("pid").unlink(missing_ok=True)
             except Exception as cleanup_exc:

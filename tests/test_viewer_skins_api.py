@@ -944,3 +944,88 @@ def test_a_cancel_that_lands_as_the_repaint_starts_still_stops_one_that_ignores_
         for process in launched:
             kill_and_reap(process)
         thread.join(timeout=10)
+
+
+_LEADER_WITH_DEAF_CHILD = (
+    "import pathlib, subprocess, sys, time\n"
+    "folder = pathlib.Path(sys.argv[1])\n"
+    "child = ('import os, pathlib, signal, sys, time\\n'\n"
+    "         'signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n'\n"
+    "         'folder = pathlib.Path(sys.argv[1])\\n'\n"
+    "         '(folder / \"child.pid\").write_text(str(os.getpid()))\\n'\n"
+    "         'deadline = time.monotonic() + 30\\n'\n"
+    "         'while not (folder / \"release\").exists() and time.monotonic() < deadline:\\n'\n"
+    "         '    time.sleep(0.05)\\n')\n"
+    "subprocess.Popen([sys.executable, '-c', child, str(folder)])\n"   # same group, same stdout pipe
+    "while not (folder / 'child.pid').exists():\n"
+    "    time.sleep(0.01)\n"
+    "(folder / 'leader.ready').touch()\n"
+    "time.sleep(60)\n"                                                 # dies on the polite SIGTERM
+)
+
+
+@pytest.mark.posix
+def test_cancel_stops_a_child_that_keeps_the_output_open_after_the_repaint_itself_has_exited(
+        output, tmp_path, monkeypatch):
+    # The forced stop only ran while the repaint's own process was alive. A repaint that quit on
+    # the polite stop while its child ignored it and held the output open looked finished to the
+    # timer, so nothing was forced: the child ran on, the build thread stayed blocked reading,
+    # and the skin stayed "building" with its slot held.
+    import os
+    import subprocess
+    import threading
+    import time
+
+    monkeypatch.setattr(sk, "CANCEL_GRACE_SECONDS", 0.5)
+    folder = tmp_path / "worker"
+    folder.mkdir()
+
+    class LeaderWithDeafChild(subprocess.Popen):
+        def __init__(self, command, *args, **kwargs):
+            super().__init__([sys.executable, "-c", _LEADER_WITH_DEAF_CHILD, str(folder)], *args, **kwargs)
+            deadline = time.monotonic() + 10
+            while not (folder / "leader.ready").exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert (folder / "leader.ready").exists(), "the worker never started its child"
+
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    thread = threading.Thread(
+        target=lambda: builds.start(store.get(skin.id), background=False, runner=LeaderWithDeafChild,
+                                    box=_same_box),
+        daemon=True)
+    job = None
+    child_pid = None
+    try:
+        thread.start()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not (builds.jobs and next(iter(builds.jobs.values())).process):
+            time.sleep(0.01)
+        job = next(iter(builds.jobs.values()))
+        assert job.process is not None, "the build never launched its repaint"
+        child_pid = int((folder / "child.pid").read_text())
+
+        assert builds.cancel(job.id) is True
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and (alive(child_pid) or job.status not in sk.TERMINAL):
+            time.sleep(0.05)
+
+        assert not alive(child_pid), "Cancel left the repaint's child running"
+        assert job.status == "cancelled"
+        assert not builds.running()
+        assert store.get(skin.id).status == "pictures"
+    finally:
+        # The guard allows signals only to our children; the grandchild is not one, so it is told
+        # to leave through its release file (it also gives up by itself after 30 s).
+        (folder / "release").touch()
+        thread.join(timeout=10)
+        if job is not None and job.process is not None:
+            job.process.wait(timeout=10)

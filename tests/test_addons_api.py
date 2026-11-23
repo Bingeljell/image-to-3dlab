@@ -303,6 +303,21 @@ def test_a_running_tool_leaves_a_note_of_itself_that_the_next_studio_start_can_f
 
 
 @pytest.mark.posix
+def test_a_tool_whose_note_cannot_be_left_says_so_in_its_log(tmp_path, monkeypatch):
+    # When the note could not be written (a full disk, say) nothing said so: a studio killed
+    # later left the tool running, and nobody had been told to look for it.
+    monkeypatch.setattr(viewer, "output_dir", lambda *_args: Path("blocked"))
+    (tmp_path / "output" / "blocked" / "pid").mkdir(parents=True)     # nothing can be written there
+    _, job = _start_tool(tmp_path, monkeypatch, "import time\nprint('started', flush=True)\ntime.sleep(20)\n")
+    try:
+        assert job.log_lines[0].startswith("Could not leave a note of this tool's process"), job.log_lines
+        assert "stop it by hand" in job.log_lines[0]
+    finally:
+        viewer.ADDON_JOBS.cancel(job.id)
+        assert _wait_until(lambda: job.status == "cancelled", seconds=8), job.status
+
+
+@pytest.mark.posix
 def test_cancel_stops_a_tool_that_ignores_being_asked(tmp_path, monkeypatch):
     # Cancel only asked. A tool that ignored it stayed "cancelling" until it ended by itself,
     # and all that time it held the add-on's place, which every other big job waits for.

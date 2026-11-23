@@ -291,8 +291,11 @@ def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
 
     def started(process: subprocess.Popen) -> None:
         job.process = process
-        with contextlib.suppress(OSError):
+        try:
             note.write_text(processes.pid_record(process.pid), encoding="utf-8")
+        except OSError as exc:      # the tool still runs; only a studio killed meanwhile cannot find it
+            job.append_log(f"Could not leave a note of this tool's process ({exc}). If the studio is "
+                           f"killed while it runs, stop it by hand: process {process.pid}.")
 
     try:
         job.status = "running"

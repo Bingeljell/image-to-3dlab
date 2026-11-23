@@ -268,6 +268,47 @@ def test_a_run_that_fails_on_the_way_stops_its_tool_and_its_cancel_watcher(fails
             tool.kill()
 
 
+@pytest.mark.posix
+def test_a_failed_run_whose_tool_cannot_be_stopped_still_raises_its_error_with_the_output_closed(monkeypatch):
+    # When the group could not be stopped (kill_group swallows that), the run waited for the
+    # tool for good: the error never surfaced, the add-on's slot stayed taken, and the
+    # tool's output pipe stayed open. It now waits only the grace period, then raises.
+    import sys
+
+    monkeypatch.setattr(ai.processes, "kill_group", lambda pid: None)
+    monkeypatch.setattr(ai, "CANCEL_GRACE_SECONDS", 0.5)
+    started, raised = [], []
+
+    def log(_line):
+        raise OSError("No space left on device")
+
+    def run():
+        try:
+            ai._run_subprocess(
+                [sys.executable, "-c", "import time; print('started', flush=True); time.sleep(30)"],
+                Path.cwd(), {**os.environ, "PYTHONIOENCODING": "utf-8"}, log,
+                cancel_event=threading.Event(), on_start=started.append)
+        except BaseException as error:
+            raised.append(error)
+
+    runner = threading.Thread(target=run, daemon=True)
+    runner.start()
+    try:
+        runner.join(timeout=5)
+        assert not runner.is_alive(), "the run waited on a tool that could not be stopped"
+        [error] = raised
+        assert isinstance(error, OSError)
+        [tool] = started
+        assert tool.stdout.closed, "the tool's output stayed open"
+    finally:
+        for tool in started:
+            if tool.poll() is None:
+                tool.kill()
+            tool.wait()
+            if tool.stdout is not None:
+                tool.stdout.close()
+
+
 def _model_tool_addon(tmp_path):
     data = manifest(tools=[{
         "id": "tweak", "label": "Tweak", "hint": "Changes a model.",

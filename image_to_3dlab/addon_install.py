@@ -352,7 +352,12 @@ def _run_subprocess(
         # A line that could not be logged or read: nobody reads the output now, so the tool
         # would block on it or run on unwatched. It goes with the run.
         processes.kill_group(proc.pid)
-        proc.wait()
+        # A group that cannot be stopped must not hold the error back: wait the grace, then go on.
+        try:
+            proc.wait(timeout=CANCEL_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        proc.stdout.close()
         raise
     finally:
         done.set()      # after the wait: a tool that closes its output and carries on is still watched

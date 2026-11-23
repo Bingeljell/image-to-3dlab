@@ -36,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ten seconds, and one left running by a studio that was killed is stopped when the studio next starts (when the
   note that makes this possible cannot be written, the run's log says so and names the process). A run that
   could not start at all no longer blocks every later one with "already in progress" until the studio restarts,
-  and one that fails on the way (a log line that cannot be written, output that is not text) stops its tool.
+  and one that fails on the way (a log line that cannot be written, output that is not text) stops its tool, and
+  still reports its error after ten seconds even when the tool cannot be stopped.
 - **Starting the studio no longer stops a program that only shares a finished job's number.** At start the studio
   stops any job a killed studio left running, found by the process number it noted. When that job had ended long
   ago and the number had gone to another program since (a terminal's shell, say), that program and everything it

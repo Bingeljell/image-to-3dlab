@@ -15,6 +15,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path, PureWindowsPath
+from typing import NamedTuple
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
@@ -253,29 +254,45 @@ def still_the_process(pid: int, started: str | None) -> bool:
     return now is None or now == started
 
 
-def pid_record(pid: int, owner: int | None = None, started: str | None = None) -> str:
+_UNKNOWN = "-"     # a start that could not be read, in a note
+
+
+class PidNote(NamedTuple):
+    """A job's `pid` file, read back. A start is None where the note has none."""
+
+    pid: int
+    owner: int | None
+    started: str | None
+    owner_started: str | None
+
+
+def pid_record(pid: int, owner: int | None = None, started: str | None = None,
+               owner_started: str | None = None) -> str:
     """What a job's `pid` file holds: the job's pid, the pid of the process tracking it, and
-    when the job started (`started`, read now when not given; left out when it cannot be).
+    when each of them started (read now when not given; "-" when that cannot be read).
 
     The owner is what lets a starting server tell a dead server's orphan from a job that
     something else alive is still running (a second viewer, a script driving the Finish
-    code). Without it, starting the viewer killed a live Finish run (2026-09-29). The start
-    tells the job from a process given its number after it ended (see `still_the_process`)."""
+    code). Without it, starting the viewer killed a live Finish run (2026-09-29). The starts
+    tell each of them from a process given its number after it ended (see `still_the_process`)."""
+    owner = os.getpid() if owner is None else owner
     started = process_started(pid) if started is None else started
-    record = f"{pid} {os.getpid() if owner is None else owner}"
-    return f"{record} {started}" if started else record
+    owner_started = process_started(owner) if owner_started is None else owner_started
+    return f"{pid} {owner} {started or _UNKNOWN} {owner_started or _UNKNOWN}"
 
 
-def parse_pid_record(text: str) -> tuple[int, int | None, str | None]:
-    """(job pid, owner pid, when the job started). Files from before the owner was recorded
-    hold one number, and files from before the start was kept two.
+def parse_pid_record(text: str) -> PidNote:
+    """A `pid` file, read back. Older ones hold only the job's number, then also its owner's,
+    then also the job's start.
 
     Raises ValueError for anything else."""
     fields = text.split()
-    if len(fields) not in (1, 2, 3):
+    if not 1 <= len(fields) <= 4:
         raise ValueError(f"not a pid record: {text!r}")
     numbers = [int(field) for field in fields[:2]]
-    return numbers[0], numbers[1] if len(numbers) == 2 else None, fields[2] if len(fields) == 3 else None
+    starts = [None if field == _UNKNOWN else field for field in fields[2:]]
+    return PidNote(numbers[0], numbers[1] if len(numbers) == 2 else None,
+                   *(starts + [None, None])[:2])
 
 
 def terminate_group(pid: int, windows: bool = _IS_WINDOWS) -> None:

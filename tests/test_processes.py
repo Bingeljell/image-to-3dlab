@@ -155,19 +155,25 @@ def test_no_viewer_module_uses_posix_only_process_calls():
     assert offenders == []
 
 
-def test_a_pid_record_names_the_job_and_its_owner():
-    assert processes.pid_record(4242, owner=5151, started="then") == "4242 5151 then"
-    assert processes.pid_record(4242, started="then") == f"4242 {os.getpid()} then"
+def test_a_pid_record_names_the_job_and_its_owner_and_when_each_started():
+    assert processes.pid_record(4242, owner=5151, started="then", owner_started="before") == "4242 5151 then before"
+    assert processes.pid_record(4242, started="then", owner_started="before") == f"4242 {os.getpid()} then before"
+
+
+def test_a_pid_record_marks_a_start_it_cannot_read():
+    job, owner = _a_process_that_has_ended(), _a_process_that_has_ended()
+    assert processes.pid_record(job, owner=owner) == f"{job} {owner} - -"
 
 
 def test_pid_records_old_and_new_all_parse():
-    assert processes.parse_pid_record("4242 5151 Mon-Nov-23-10:00:00-2026\n") == (
-        4242, 5151, "Mon-Nov-23-10:00:00-2026")
-    assert processes.parse_pid_record("4242 5151\n") == (4242, 5151, None)
-    assert processes.parse_pid_record("4242") == (4242, None, None)
+    assert processes.parse_pid_record("4242 5151 then before\n") == (4242, 5151, "then", "before")
+    assert processes.parse_pid_record("4242 5151 - before") == (4242, 5151, None, "before")
+    assert processes.parse_pid_record("4242 5151 then") == (4242, 5151, "then", None)
+    assert processes.parse_pid_record("4242 5151\n") == (4242, 5151, None, None)
+    assert processes.parse_pid_record("4242") == (4242, None, None, None)
 
 
-@pytest.mark.parametrize("text", ["", "abc", "1 2 3 4", "12 x", "x 2 3"])
+@pytest.mark.parametrize("text", ["", "abc", "1 2 3 4 5", "12 x", "x 2 3"])
 def test_a_malformed_pid_record_is_rejected(text):
     with pytest.raises(ValueError):
         processes.parse_pid_record(text)
@@ -189,10 +195,11 @@ def _a_process_that_has_ended():
 def test_a_pid_record_keeps_when_its_job_started():
     with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as job:
         try:
-            pid, owner, started = processes.parse_pid_record(processes.pid_record(job.pid))
-            assert (pid, owner) == (job.pid, os.getpid())
-            assert started is not None and " " not in started
-            assert started == processes.process_started(job.pid), "the start reads differently a moment later"
+            note = processes.parse_pid_record(processes.pid_record(job.pid))
+            assert (note.pid, note.owner) == (job.pid, os.getpid())
+            assert note.started is not None and " " not in note.started
+            assert note.started == processes.process_started(job.pid), "the start reads differently a moment later"
+            assert note.owner_started == processes.process_started(os.getpid()) is not None
         finally:
             job.kill()
 

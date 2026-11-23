@@ -116,8 +116,9 @@ def test_a_rebind_notes_its_owner_and_when_it_started(tmp_path, monkeypatch):
     rig_api.run_job(job, manager)
 
     [said] = [line.removeprefix("note ") for line in job.log_lines if line.startswith("note ")]
-    pid, owner, started = processes.parse_pid_record(said)
+    pid, owner, started, owner_started = processes.parse_pid_record(said)
     assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
+    assert owner_started == processes.process_started(os.getpid())
 
 
 def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):

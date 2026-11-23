@@ -393,8 +393,9 @@ def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
     aa.run_job(job, manager)
 
     assert job.status == "done", job.log_lines
-    pid, owner, started = processes.parse_pid_record(job.log_lines[0])
+    pid, owner, started, owner_started = processes.parse_pid_record(job.log_lines[0])
     assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
+    assert owner_started == processes.process_started(os.getpid())
     assert not (directory / "pid").exists()
 
 

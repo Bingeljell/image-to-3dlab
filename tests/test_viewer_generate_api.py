@@ -911,7 +911,8 @@ def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):
 
 def test_pid_file_write_and_remove_roundtrip(tmp_path):
     api._write_pid_file(tmp_path, 4242)
-    assert api._pid_file_path(tmp_path).read_text() == f"4242 {os.getpid()}"
+    note = api.processes.parse_pid_record(api._pid_file_path(tmp_path).read_text())
+    assert (note.pid, note.owner, note.owner_started) == (4242, os.getpid(), api.processes.process_started(os.getpid()))
     api._remove_pid_file(tmp_path)
     assert not api._pid_file_path(tmp_path).exists()
 
@@ -1529,6 +1530,54 @@ def test_reconcile_leaves_a_process_that_was_given_the_jobs_number_since(tmp_pat
     assert killed == []
     assert "died mid-run" in (job_dir / "run.log").read_text()
     assert not (job_dir / "pid").exists()
+
+
+@pytest.mark.parametrize("owner_now, left_alone", [("owner-then", True), ("owner-now", False)],
+                         ids=["the studio that started it", "another process given its number"])
+def test_reconcile_leaves_a_job_only_to_the_studio_that_started_it(tmp_path, monkeypatch, owner_now, left_alone):
+    """The studio that started the job had died and its number had gone to another program,
+    which counted as that studio still running the job: the job was left running for good."""
+    job_dir = tmp_path / "someone-elses-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242 5151 job-then owner-then")
+    killed = []
+    monkeypatch.setattr(api, "_process_alive", lambda pid: pid == 5151)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api.processes, "process_started",
+                        lambda pid, windows=False: {4242: "job-then", 5151: owner_now}[pid])
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    assert api._reconcile_orphaned_jobs(tmp_path) == ([] if left_alone else ["someone-elses-job"])
+    assert killed == ([] if left_alone else [4242])
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("owner_noted", ["as it started", "as starting at another time"])
+def test_reconcile_with_real_processes_leaves_a_job_only_to_its_living_studio(tmp_path, owner_noted):
+    import subprocess
+
+    from image_to_3dlab import processes
+
+    owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    job = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    try:
+        job_dir = tmp_path / "tracked-or-not"
+        job_dir.mkdir()
+        (job_dir / "pid").write_text(processes.pid_record(job.pid, owner=owner.pid) if owner_noted == "as it started"
+                                     else processes.pid_record(job.pid, owner=owner.pid, owner_started="1.000001"))
+
+        touched = api._reconcile_orphaned_jobs(tmp_path)
+
+        try:
+            job.wait(5 if owner_noted != "as it started" else 0.5)
+            stopped = True
+        except subprocess.TimeoutExpired:
+            stopped = False
+        assert (touched, stopped) == (([], False) if owner_noted == "as it started" else (["tracked-or-not"], True))
+    finally:
+        for process in (owner, job):
+            process.kill()
+            process.wait()
 
 
 def _an_ended_process():

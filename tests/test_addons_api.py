@@ -290,8 +290,9 @@ def test_a_running_tool_leaves_a_note_of_itself_that_the_next_studio_start_can_f
     _, job = _start_tool(tmp_path, monkeypatch, "import time\nprint('started', flush=True)\ntime.sleep(20)\n")
     try:
         [note] = (tmp_path / "output").rglob("pid")
+        started = viewer.processes.process_started
         assert note.read_text(encoding="utf-8").split() == [
-            str(job.process.pid), str(os.getpid()), viewer.processes.process_started(job.process.pid)]
+            str(job.process.pid), str(os.getpid()), started(job.process.pid), started(os.getpid())]
         assert job.run_stem in note.parent.name
 
         viewer.ADDON_JOBS.cancel(job.id)

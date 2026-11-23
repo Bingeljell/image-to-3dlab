@@ -1748,11 +1748,13 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
             continue    # a folder that happens to be called pid (a prop, say), not a job's
         directory = pid_file.parent
         try:
-            pid, owner, started = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
+            pid, owner, started, owner_started = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pid_file.unlink(missing_ok=True)
             continue
-        if owner is not None and owner != os.getpid() and _process_alive(owner):
+        # Its studio is still running it, unless that number went to another program since.
+        if (owner is not None and owner != os.getpid() and _process_alive(owner)
+                and processes.still_the_process(owner, owner_started)):
             continue
         # A process that started at another time was given the number after the job ended.
         alive = _process_group_alive(pid) and processes.still_the_process(pid, started)

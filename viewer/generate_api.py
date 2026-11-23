@@ -4744,6 +4744,7 @@ class Handler(SimpleHTTPRequestHandler):
                 cancel_download(backend_id)
                 self._send_json(202, {"backend": backend_id, "status": "cancelling"})
                 return
+            answer = None   # sent once the lock is free: a client slow to read must not hold it
             with SETUP_LOCK:
                 waiting = self._claim("setup")
                 if waiting is None and SETUP_ACTIVE is not None:
@@ -4753,13 +4754,15 @@ class Handler(SimpleHTTPRequestHandler):
                     if fetching is not None and fetching.backend.id != backend_id:
                         waiting = "another engine is being set up; wait for it to finish"
                 if waiting:
-                    self._send_json(409, {"error": waiting})
-                    return
-                if action == "remove":
+                    answer = 409, {"error": waiting}
+                elif action == "remove":
                     # under the lock: no download can start while the files are going
-                    self._send_json(200, remove_weights(backend_id))
-                    return
-                start_download(backend_id, rebuild=action == "rebuild")
+                    answer = 200, remove_weights(backend_id)
+                else:
+                    start_download(backend_id, rebuild=action == "rebuild")
+            if answer:
+                self._send_json(*answer)
+                return
         except KeyError as exc:
             self._send_json(404, {"error": str(exc)})
             return

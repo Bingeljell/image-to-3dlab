@@ -611,6 +611,27 @@ def test_an_engine_is_not_set_up_rebuilt_or_removed_during_another_setup(studio,
     assert engines == []
 
 
+@pytest.mark.parametrize("action, another_setup", [("remove", False), ("remove", True), ("download", True)],
+                         ids=["removed", "remove refused", "download refused"])
+def test_an_engine_action_is_answered_once_the_setup_lock_is_free(
+        studio, engines, monkeypatch, action, another_setup):
+    # The answer was written while the lock every setup start waits on was still held: a client
+    # slow to read it held up every other setup start. Only the deleting needs the lock.
+    if another_setup:
+        monkeypatch.setattr(api, "SETUP_ACTIVE", "a" * 32)
+    send, held = api.Handler._send_json, []
+
+    def noting_the_lock(handler, *args, **more):
+        held.append(api.SETUP_LOCK.locked())
+        return send(handler, *args, **more)
+    monkeypatch.setattr(api.Handler, "_send_json", noting_the_lock)
+
+    status, _ = _post(studio, f"/api/setup/pixal3d/{action}")
+
+    assert status == (409 if another_setup else 200)
+    assert held == [False]
+
+
 def _being_set_up(engine_id):
     """What the download list answers while that engine's weights are coming down."""
     return lambda: types.SimpleNamespace(backend=types.SimpleNamespace(id=engine_id))

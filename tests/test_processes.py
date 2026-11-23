@@ -221,7 +221,13 @@ def test_a_pid_record_keeps_when_its_job_started():
 def test_two_processes_do_not_share_a_start():
     with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as job:
         try:
-            assert processes.process_started(job.pid) != processes.process_started(os.getppid())
+            # This test process always exists and started well before the child; the parent may
+            # be 0 or invisible in a container.
+            child = processes.process_started(job.pid)
+            mine = processes.process_started(os.getpid())
+            assert child is not None
+            assert mine is not None
+            assert child != mine
         finally:
             job.kill()
 

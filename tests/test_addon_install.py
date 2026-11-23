@@ -237,7 +237,12 @@ def test_cancel_stops_a_run_that_prints_nothing():
     assert result.returncode != 0
 
 
-@pytest.mark.parametrize("fails", ["writing its log", "reading its output"])
+# "reading its output" needs the runner to fail decoding the byte \xff. Text mode uses the locale
+# encoding: on Windows that is cp1252, where \xff decodes fine, so nothing raises there.
+@pytest.mark.parametrize("fails", [
+    "writing its log",
+    pytest.param("reading its output", marks=pytest.mark.posix),
+])
 def test_a_run_that_fails_on_the_way_stops_its_tool_and_its_cancel_watcher(fails):
     # A line that could not be logged (a full disk) or read (output that is not text) ended the
     # run with an error. The tool ran on with nobody reading its output, and the thread that

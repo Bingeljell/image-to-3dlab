@@ -3481,8 +3481,11 @@ class Handler(SimpleHTTPRequestHandler):
                 skins_api.STORE.save(skin)
                 try:
                     started = self._draw_skin_try(skin, "front", None)
-                except RuntimeError:    # its picture never started; after a start the skin stays
-                    skins_api.STORE.discard(skin)
+                except Exception:
+                    # Whatever stopped it: a skin whose picture never started is not kept. One
+                    # that started (its try has a job) stays, or the picture loses its folder.
+                    if not any(t.get("job_id") for t in skin.tries["front"]):
+                        skins_api.STORE.discard(skin)
                     raise
                 self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
                 return

@@ -1414,6 +1414,35 @@ def test_a_new_skin_whose_picture_did_start_is_kept_even_if_noting_it_fails(stud
     assert job.output_path.parent.name == made.id and len(made.tries["front"]) == 1
 
 
+@pytest.mark.parametrize("stopped", ["the try is refused", "the try cannot be noted"])
+def test_a_new_skin_whose_first_try_stops_before_its_picture_starts_is_not_kept(
+        studio, workshop, monkeypatch, stopped):
+    # Only a lost start removed the new skin. Anything else that stopped its first try before
+    # the picture started, a refusal or a full disk, left a skin with nothing ever drawn.
+    kept = {skin.id for skin in workshop.skins.all()}
+    if stopped == "the try is refused":
+        def picture_try(*_args, **_more):
+            raise api.skins_api.SkinError("This model has no back picture.")
+        monkeypatch.setattr(workshop.skins, "picture_try", picture_try)
+    else:
+        save, saves = workshop.skins.save, []
+
+        def full_disk_on_the_try(skin):
+            saves.append(skin.id)
+            if len(saves) == 2:     # the draft, then the try: that one fails
+                raise OSError("No space left on device")
+            save(skin)
+        monkeypatch.setattr(workshop.skins, "save", full_disk_on_the_try)
+
+    try:
+        _new_skin(studio, workshop)
+    except OSError:
+        pass                        # how the route answers a disk error is not this test's subject
+
+    assert {skin.id for skin in workshop.skins.all()} == kept
+    assert not workshop.pictures.jobs
+
+
 def test_a_skin_try_waits_while_a_skin_is_being_made(studio, workshop):
     _build_a_skin(studio, workshop)
 

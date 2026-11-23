@@ -1054,7 +1054,7 @@ def _start_setup_run(run_id: str, command: list[str] | None = None) -> SetupRun:
                 proc.wait(timeout=5)
         run.status = "error"
         run.emit({"phase": "setup_done", "status": "error", "message": str(exc)})
-        raise
+        raise WorkerStartError(str(exc)) from exc
     return run
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -1422,6 +1422,10 @@ class JobManager:
 JOBS = JobManager()
 
 
+class WorkerStartError(RuntimeError):
+    """A worker thread could not start; routes answer it 409 with the reason as it came."""
+
+
 def _start_worker(manager, job, target: Callable[..., Any], *, name: str | None = None) -> None:
     """Start `target(job)` on a thread; if none can start, the job ends in its manager's
     error state and frees its slot, then the error is raised for the route to answer."""
@@ -1431,7 +1435,7 @@ def _start_worker(manager, job, target: Callable[..., Any], *, name: str | None 
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         manager.finish(job)
-        raise
+        raise WorkerStartError(str(exc)) from exc
 
 
 def _phase_for_tqdm(job: Job, label: str, step: int) -> str:
@@ -4091,6 +4095,8 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
                                   "output_dir": str(job.directory.relative_to(REPO)),
                                   "warning": warning})
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -4130,6 +4136,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "events_url": f"/api/rig/rebind/{job.id}/events",
                 "status_url": f"/api/rig/rebind/{job.id}/status",
             })
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -4144,7 +4152,11 @@ class Handler(SimpleHTTPRequestHandler):
         return None
 
     def _start_animate(self, job) -> None:
-        _start_worker(ANIMATE_JOBS, job, run_animate_job, name=f"animate-{job.id[:8]}")
+        try:
+            _start_worker(ANIMATE_JOBS, job, run_animate_job, name=f"animate-{job.id[:8]}")
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
         self._send_json(202, {"job_id": job.id, "kind": job.kind,
                               "events_url": f"/api/animate/{job.id}/events",
                               "status_url": f"/api/animate/{job.id}/status"})
@@ -4284,6 +4296,8 @@ class Handler(SimpleHTTPRequestHandler):
                 "events_url": f"/api/finish/{job.id}/events",
                 "status_url": f"/api/finish/{job.id}/status",
             })
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -4363,8 +4377,8 @@ class Handler(SimpleHTTPRequestHandler):
     def _start_props_job(self, job) -> None:
         try:
             _start_worker(PROPS_JOBS, job, run_props_job, name=f"props-{job.id[:8]}")
-        except RuntimeError as exc:
-            self._send_json(500, {"error": str(exc)})
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
             return
         self._send_json(202, {
             "job_id": job.id,
@@ -4844,7 +4858,7 @@ class Handler(SimpleHTTPRequestHandler):
                     SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
                 except Exception as exc:
                     SETUP_ACTIVE = None
-                    answer = 500, {"error": str(exc)}
+                    answer = (409 if isinstance(exc, WorkerStartError) else 500), {"error": str(exc)}
         if answer:   # sent once the lock is free: a client slow to read must not hold it
             self._send_json(*answer)
             return
@@ -4868,7 +4882,7 @@ class Handler(SimpleHTTPRequestHandler):
                     SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
                 except Exception as exc:
                     SETUP_ACTIVE = None
-                    answer = 500, {"error": str(exc)}
+                    answer = (409 if isinstance(exc, WorkerStartError) else 500), {"error": str(exc)}
         if answer:   # sent once the lock is free: a client slow to read must not hold it
             self._send_json(*answer)
             return
@@ -4899,7 +4913,7 @@ class Handler(SimpleHTTPRequestHandler):
                         SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
                     except Exception as exc:
                         SETUP_ACTIVE = None
-                        answer = 500, {"error": str(exc)}
+                        answer = (409 if isinstance(exc, WorkerStartError) else 500), {"error": str(exc)}
         if answer:
             self._send_json(*answer)
             return

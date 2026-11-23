@@ -2167,7 +2167,8 @@ def test_a_big_job_whose_thread_cannot_start_is_answered_and_does_not_hold_the_s
 
     status, answer = _asked_and_answered(lambda: ask(studio, workshop))
 
-    assert status >= 400 and "can't start new thread" in answer["error"]
+    # Every thread-start failure is a 409 with the reason as it came, whichever route it was.
+    assert (status, answer) == (409, {"error": "can't start new thread"})
     jobs = list(books(workshop))
     assert jobs and all(job.status == "error" for job in jobs)
     monkeypatch.setattr(api, "threading", real_threading)
@@ -2214,32 +2215,43 @@ def test_a_setup_whose_reader_thread_cannot_start_is_answered_and_does_not_hold_
     # Before: SETUP_ACTIVE was set and the installer launched, then the reader thread failed to
     # start: the request ended with an exception, and every big job, and every later setup,
     # was told to wait for a setup that nothing was watching, until the studio restarted.
+    # The test's own check that the installer was stopped passed on an empty run list, and its
+    # stand-in had no pid, so the stop failed unseen; now the stop is recorded and asserted.
+    stops = []
+
     class Installer:
         """What `subprocess.Popen` returns for a setup: it prints nothing and succeeds."""
         stdout = ()
+        pid = 424242        # never signalled: the group stops below are recorded, not sent
 
         def __init__(self, *_command, **_more):
             pass
 
         def wait(self, timeout=None):
+            stops.append("wait")
             return 0
 
         def poll(self):
             return None
 
         def terminate(self):
-            pass
+            stops.append("terminate")
 
-        kill = terminate
+        def kill(self):
+            stops.append("kill")
 
+    monkeypatch.setattr(api.processes, "terminate_group", lambda pid, *_more: stops.append(("terminate_group", pid)))
+    monkeypatch.setattr(api.processes, "kill_group", lambda pid, *_more: stops.append(("kill_group", pid)))
     monkeypatch.setattr(api, "_start_setup_run", REAL_START_SETUP_RUN)
-    monkeypatch.setattr(api, "subprocess", types.SimpleNamespace(**{**vars(subprocess), "Popen": Installer}))
+    _swap_popen(monkeypatch, Installer)
     real_threading = _no_threads_left(monkeypatch)
 
     status, answer = _asked_and_answered(lambda: _post(studio, route))
 
-    assert status >= 400 and "can't start new thread" in answer["error"]
-    assert all(run.status == "error" for run in api.SETUP_RUNS.values())
+    assert (status, answer) == (409, {"error": "can't start new thread"})
+    assert ("terminate_group", 424242) in stops or "terminate" in stops     # the installer was told to stop
+    assert "wait" in stops                                                  # and was reaped
+    assert not api.SETUP_RUNS       # no run is kept for the failed start
     assert api.SETUP_ACTIVE is None
     monkeypatch.setattr(api, "threading", real_threading)
     assert _soon(lambda: not api._STARTING)

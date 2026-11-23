@@ -1922,9 +1922,27 @@ def _run_job(job: Job) -> None:
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         usage_api.count_failed("model", exc)
+        _stop_started_process(job)
     finally:
         _remove_pid_file(job.directory)
         JOBS.finish(job)
+
+
+def _stop_started_process(job: Job) -> None:
+    """A job that failed after its generator launched must not leave it running, unread and
+    untracked: ask its group to stop, wait a bounded time, then force it and reap."""
+    proc = job.process
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        processes.terminate_group(proc.pid)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            processes.kill_group(proc.pid)
+            proc.wait(timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 # --- TRELLIS backend spec (wraps the pre-existing, unchanged behavior above) -----------

@@ -52,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   studio restarted; for a setup the installer also ran on with nothing reading it. It now ends as an error, says why,
   and frees its place. This covers generations, Finish runs and resumes, prop bakes, rig rebinds, auto-rigs and moves,
   setups and the Blender and gltfpack installs, pictures (a back view, a brush, a skin try), engine downloads, skin
-  builds and plans.
+  builds and plans. A generation that fails after its generator has started (a helper thread that cannot start,
+  say) now stops that generator, which used to run on with nothing reading it and nothing to find it later.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

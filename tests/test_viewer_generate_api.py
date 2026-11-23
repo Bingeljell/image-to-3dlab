@@ -7,6 +7,7 @@ import dataclasses
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 import threading
 import types
@@ -2444,6 +2445,51 @@ def test_a_log_that_cannot_be_written_does_not_cost_the_generation(tmp_path, mon
 
     assert job.status == "done", list(job.log_lines)
     assert jobs.active is None
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("failing_start", [1, 2], ids=["reader", "memory monitor"])
+def test_a_generation_that_fails_after_its_process_started_stops_that_process(
+        tmp_path, monkeypatch, failing_start):
+    # A thread that could not start ended the job as an error and freed its place, but the
+    # generator it had already launched kept running: unread, with its pid note gone, so
+    # nothing would ever find it and the next generation fought it for GPU memory.
+    starts = []
+
+    class FailsOnStart(threading.Thread):
+        def start(self):
+            starts.append(self.name)
+            if len(starts) == failing_start:
+                raise RuntimeError("can't start new thread")
+            super().start()
+
+    monkeypatch.setattr(api, "threading", types.SimpleNamespace(
+        **{**vars(threading), "Thread": FailsOnStart}))
+    sleeper = dataclasses.replace(
+        api.BACKENDS["hunyuan-mlx-xiong"], interpreter=Path(sys.executable), wrapper="-c",
+        build_args=lambda job: ["import time; time.sleep(30)"],
+        parse_line=lambda job, line: None, finalize=None)
+    monkeypatch.setitem(api.BACKENDS, "hunyuan-mlx-xiong", sleeper)
+    job, jobs = _job_for("hunyuan_xiong", tmp_path, monkeypatch)
+    try:
+        api._run_job(job)
+
+        assert job.status == "error"
+        assert jobs.active is None
+        assert not api._pid_file_path(tmp_path).exists()
+        try:
+            job.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        assert job.process.poll() is not None, "the generator is still running"
+    finally:
+        if job.process is not None:
+            if job.process.poll() is None:
+                try:
+                    os.killpg(job.process.pid, 9)
+                except OSError:
+                    job.process.kill()
+            job.process.wait(timeout=10)
 
 
 

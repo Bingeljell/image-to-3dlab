@@ -826,3 +826,48 @@ def test_a_build_is_stopped_and_its_slot_freed_when_its_pid_note_cannot_be_remov
         assert job.process.poll() is not None
     finally:
         kill_and_reap(next(iter(builds.jobs.values())).process)
+
+
+@pytest.mark.posix
+def test_cancel_stops_a_repaint_that_ignores_the_polite_stop_and_frees_the_slot(
+        output, tmp_path, monkeypatch):
+    # Cancel asked the repaint's group to stop with SIGTERM once. A repaint that ignores it ran
+    # on: the build thread stayed blocked reading its output, the build stayed "running" and
+    # held the slot, and the approved pictures were never put back.
+    import threading
+    import time
+
+    from deaf_worker import deaf_popen_class, kill_and_reap
+
+    monkeypatch.setattr(sk, "CANCEL_GRACE_SECONDS", 0.5)
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    runner = deaf_popen_class(tmp_path)
+    thread = None
+    job = None
+    try:
+        thread = threading.Thread(
+            target=lambda: builds.start(store.get(skin.id), background=False, runner=runner, box=_same_box),
+            daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not (builds.jobs and next(iter(builds.jobs.values())).process):
+            time.sleep(0.01)
+        job = next(iter(builds.jobs.values()))
+        assert job.process is not None, "the build never launched its repaint"
+
+        assert builds.cancel(job.id) is True
+
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and (job.status not in sk.TERMINAL or job.process.poll() is None):
+            time.sleep(0.05)
+
+        assert job.process.poll() is not None, "Cancel left the repaint running"
+        assert job.status == "cancelled"
+        assert not builds.running()
+        assert store.get(skin.id).status == "pictures", "the approved pictures were not kept"
+    finally:
+        if job is not None:
+            kill_and_reap(job.process)
+        if thread is not None:
+            thread.join(timeout=10)

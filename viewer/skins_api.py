@@ -43,6 +43,7 @@ SIDES = ("front", "back")
 MAX_INSTRUCTION = 600
 GENERATOR = REPO / "scripts" / "pixal3d_generate.py"
 TERMINAL = {"done", "error", "cancelled"}
+CANCEL_GRACE_SECONDS = 10.0     # how long a worker gets to honour the polite stop before its group is forced
 # Each try gets its own seed, so asking again draws a different picture. The back's are
 # offset so a front try and a back try never share one by accident.
 FRONT_SEED, BACK_SEED = 42, 142
@@ -493,8 +494,25 @@ class SkinBuilds:
             return False
         job.cancel_requested = True
         if job.process and job.process.poll() is None:
-            self.stop(job.process.pid)
+            process = job.process
+            self.stop(process.pid)
+            self._force_after_grace(process)
         return True
+
+    @staticmethod
+    def _force_after_grace(process) -> None:
+        """A worker that ignores the polite stop keeps its pipe open, so the build thread never
+        returns: force its group after a grace, off the request thread."""
+        def force() -> None:
+            if process.poll() is None:
+                processes.kill_group(process.pid)
+
+        timer = threading.Timer(CANCEL_GRACE_SECONDS, force)
+        timer.daemon = True
+        try:
+            timer.start()
+        except RuntimeError:                # no thread to wait on: force now rather than leave it running
+            force()
 
     def run(self, job: SkinBuild, skin: Skin, runner=subprocess.Popen, box=cut_out_box) -> None:
         output = self.store.output

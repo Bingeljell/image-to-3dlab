@@ -60,8 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it after a generation, a picture, a skin build or an engine download, where it also left a finished download
   looking unfinished. A picture, a skin build or an engine download that fails after its worker started now stops
   that worker (sd-cli, the repaint, the downloader), forcing it if it ignores being asked, before its place is freed.
-  Cancel on a skin build now forces a repaint that ignores it after ten seconds; it used to leave the build running
-  and holding its place.
+  Cancel on a skin build now forces a repaint that ignores it after ten seconds, also when Cancel lands just as a
+  step starts; it used to leave the build running and holding its place.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

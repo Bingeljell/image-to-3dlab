@@ -542,6 +542,7 @@ class SkinBuilds:
                     folder.joinpath("pid").write_text(processes.pid_record(pid), encoding="utf-8")
                 if job.cancel_requested:            # Cancel landed while it started: it found no process to stop
                     self.stop(job.process.pid)
+                    self._force_after_grace(job.process)
                 for raw in job.process.stdout:
                     line = raw.rstrip()
                     if not line:

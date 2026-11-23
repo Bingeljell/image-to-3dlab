@@ -871,3 +871,51 @@ def test_cancel_stops_a_repaint_that_ignores_the_polite_stop_and_frees_the_slot(
             kill_and_reap(job.process)
         if thread is not None:
             thread.join(timeout=10)
+
+
+@pytest.mark.posix
+def test_a_cancel_that_lands_as_the_repaint_starts_still_stops_one_that_ignores_the_polite_stop(
+        output, tmp_path, monkeypatch):
+    # A Cancel that landed while the repaint was starting asked it to stop with SIGTERM once and
+    # never forced it: a repaint that ignores it kept the build blocked reading its output, the
+    # build never ended, the slot stayed held and the worker ran on.
+    import threading
+    import time
+
+    from deaf_worker import deaf_popen_class, kill_and_reap
+
+    monkeypatch.setattr(sk, "CANCEL_GRACE_SECONDS", 0.5)
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    deaf = deaf_popen_class(tmp_path)
+    launched = []
+
+    def cancelled_as_it_starts(*args, **kwargs):
+        process = deaf(*args, **kwargs)
+        launched.append(process)
+        next(iter(builds.jobs.values())).cancel_requested = True   # Cancel lands right after launch
+        return process
+
+    thread = threading.Thread(
+        target=lambda: builds.start(store.get(skin.id), background=False, runner=cancelled_as_it_starts,
+                                    box=_same_box),
+        daemon=True)
+    try:
+        thread.start()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not launched:
+            time.sleep(0.01)
+        assert launched, "the build never launched its repaint"
+        job = next(iter(builds.jobs.values()))
+
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and (job.status not in sk.TERMINAL or launched[0].poll() is None):
+            time.sleep(0.05)
+
+        assert launched[0].poll() is not None, "the repaint was left running"
+        assert job.status == "cancelled"
+        assert not builds.running()
+    finally:
+        for process in launched:
+            kill_and_reap(process)
+        thread.join(timeout=10)

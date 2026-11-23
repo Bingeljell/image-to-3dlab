@@ -164,7 +164,7 @@ def test_a_pid_record_names_the_job_and_its_owner_and_when_each_started():
 
 def test_a_pid_record_marks_a_start_it_cannot_read():
     job, owner = _a_process_that_has_ended(), _a_process_that_has_ended()
-    assert processes.pid_record(job, owner=owner) == f"{job} {owner} - -"
+    assert processes.pid_record(job.pid, owner=owner.pid) == f"{job.pid} {owner.pid} - -"
 
 
 def test_pid_records_old_and_new_all_parse():
@@ -202,9 +202,12 @@ def test_a_pid_record_whose_owner_is_process_one_still_parses():
 # the job started, which a later process given the same number cannot share.
 
 def _a_process_that_has_ended():
+    """A process that has ended. Hand back the Popen, not the number: on Windows an ended
+    process still exists while a handle to it is open, and the Popen holds one. Callers keep
+    it alive across the check so it does not depend on when the garbage collector runs."""
     ended = subprocess.Popen([sys.executable, "-c", "pass"])
     ended.wait()
-    return ended.pid
+    return ended
 
 
 def test_a_pid_record_keeps_when_its_job_started():
@@ -235,7 +238,8 @@ def test_two_processes_do_not_share_a_start():
 
 
 def test_a_process_that_has_ended_has_no_start():
-    assert processes.process_started(_a_process_that_has_ended()) is None
+    ended = _a_process_that_has_ended()     # kept alive: its handle is still open below
+    assert processes.process_started(ended.pid) is None
 
 
 def test_linux_reads_the_start_from_field_22_of_the_process_stat_whatever_its_name(monkeypatch):
@@ -263,6 +267,29 @@ def test_windows_reads_when_a_process_started_from_its_times():
     assert processes.windows_process_started(7, kernel) == "133000000000000000"
     assert kernel.closed == [42]
     assert processes.windows_process_started(7, _FakeKernel32(exists=False)) is None
+
+
+def test_windows_process_that_exited_but_is_still_open_has_no_start():
+    # An ended process still exists while any handle to it is open, and still has times.
+    kernel = _FakeKernel32(exit_code=0)
+    assert processes.windows_process_started(7, kernel) is None
+    assert kernel.closed == [42]
+
+
+def test_windows_process_still_running_has_its_start():
+    kernel = _FakeKernel32(exit_code=259)      # STILL_ACTIVE
+    assert processes.windows_process_started(7, kernel) == "133000000000000000"
+    assert kernel.closed == [42]
+
+
+def test_windows_process_whose_exit_code_cannot_be_read_has_no_start():
+    class Unreadable(_FakeKernel32):
+        def GetExitCodeProcess(self, handle, code_ref):
+            return 0
+
+    kernel = Unreadable()
+    assert processes.windows_process_started(7, kernel) is None
+    assert kernel.closed == [42]
 
 
 @pytest.mark.parametrize("now, recorded, same", [

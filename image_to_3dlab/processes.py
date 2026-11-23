@@ -190,7 +190,8 @@ def process_alive(pid: int, windows: bool = _IS_WINDOWS) -> bool:
 
 
 def windows_process_started(pid: int, kernel32) -> str | None:
-    """When `pid` started, from its creation time; None when Windows has no such process."""
+    """When `pid` started, from its creation time; None when Windows has no such process, or
+    it has exited (an ended process stays openable while any handle to it is open)."""
     handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return None
@@ -198,6 +199,9 @@ def windows_process_started(pid: int, kernel32) -> str | None:
         created, ended, in_kernel, in_user = (ctypes.c_uint64() for _ in range(4))
         if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended),
                                         ctypes.byref(in_kernel), ctypes.byref(in_user)):
+            return None
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != _STILL_ACTIVE:
             return None
         return str(created.value)
     finally:

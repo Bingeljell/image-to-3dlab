@@ -45,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is stopped. The same goes for the studio that started the job: when that studio was gone and its number had gone
   to another program, the job counted as still looked after and was left running for good. A rig rebind's note
   also names the studio running it, as every other job's does, so a second studio starting up leaves it alone.
-  Notes written before this change are handled as before. A note naming no possible process (0, say, in a
+  On Windows, a job that had ended but that another program still held open counted as running; it now counts
+  as ended. Notes written before this change are handled as before. A note naming no possible process (0, say, in a
   damaged file) is set aside: it made the studio stop its own process group as it started.
 - **A job that cannot start no longer blocks every later one.** When the studio could not start the worker for a job
   (the system had no threads left), the job stayed on the books as running and every later one was refused until the

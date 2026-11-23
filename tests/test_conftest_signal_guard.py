@@ -129,3 +129,62 @@ def test_an_exited_unreaped_child_keeps_its_exit_code():
         os.kill(child.pid, signal.SIGCONT)
         time.sleep(0.02)
     assert child.wait(timeout=10) == 7
+
+
+# Windows half: runs on any platform, with the real subprocess.run faked.
+
+
+def _fake_run():
+    calls = []
+
+    def run(*args, **kwargs):
+        calls.append(args[0] if args else kwargs.get("args"))
+        return subprocess.CompletedProcess(args, 0)
+
+    return run, calls
+
+
+def test_taskkill_pid_is_read_from_the_command_line():
+    import conftest
+
+    assert conftest._taskkill_pid(["taskkill", "/PID", "4242", "/T", "/F"]) == 4242
+    assert conftest._taskkill_pid([r"C:\Windows\System32\TASKKILL.exe", "/pid", "7"]) == 7
+    assert conftest._taskkill_pid(["tasklist", "/PID", "7"]) is None
+    assert conftest._taskkill_pid(["taskkill", "/IM", "x.exe"]) is None
+    assert conftest._taskkill_pid("taskkill /PID 7") is None
+
+
+def test_windows_guard_refuses_taskkill_of_an_unstarted_pid():
+    import conftest
+
+    run, calls = _fake_run()
+    guarded = conftest._guarded_run(run, started={100})
+    result = guarded(["taskkill", "/PID", "4242", "/T", "/F"], check=False)
+    assert calls == []
+    assert result.returncode == 128
+
+
+def test_windows_guard_lets_taskkill_of_a_started_pid_and_other_commands_through():
+    import conftest
+
+    run, calls = _fake_run()
+    guarded = conftest._guarded_run(run, started={100})
+    guarded(["taskkill", "/PID", "100", "/T", "/F"])
+    guarded(["echo", "hi"])
+    guarded(args=["taskkill", "/PID", "100"])
+    assert calls == [["taskkill", "/PID", "100", "/T", "/F"], ["echo", "hi"], ["taskkill", "/PID", "100"]]
+
+
+def test_windows_guard_tracks_the_pids_the_session_starts():
+    import conftest
+
+    class TrackedPopen(subprocess.Popen):
+        pass
+
+    started: set[int] = set()
+    conftest._track_started_pids(TrackedPopen, started)
+    child = TrackedPopen([sys.executable, "-c", "pass"])
+    try:
+        assert started == {child.pid}
+    finally:
+        child.wait(timeout=10)

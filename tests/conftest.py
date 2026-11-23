@@ -26,7 +26,7 @@ from __future__ import annotations
 import errno
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -77,6 +77,67 @@ def _is_our_child(pid: int) -> bool:
     return True
 
 
+def _taskkill_pid(argv) -> int | None:
+    """The pid in a `taskkill /PID <pid> ...` command line, or None if it is not one."""
+    if not isinstance(argv, (list, tuple)) or not argv:
+        return None
+    if PureWindowsPath(str(argv[0])).stem.lower() != "taskkill":
+        return None
+    lowered = [str(part).lower() for part in argv]
+    if "/pid" not in lowered or lowered.index("/pid") + 1 >= len(argv):
+        return None
+    try:
+        return int(argv[lowered.index("/pid") + 1])
+    except ValueError:
+        return None
+
+
+def _track_started_pids(popen_cls, started: set[int]) -> None:
+    """Record the pid of every process started through `popen_cls` (the session's children)."""
+    real_init = popen_cls.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        started.add(self.pid)
+
+    popen_cls.__init__ = tracking_init
+
+
+def _guarded_run(real_run, started: set[int]):
+    """`subprocess.run` that refuses `taskkill /PID <pid>` for a pid this session did not start.
+
+    Windows has no cheap, reliable "is this my child" check from Python (it needs a toolhelp
+    process snapshot), so the Windows guard tracks the pids the session itself started by
+    wrapping `Popen.__init__`, and lets `taskkill` through only for those. A refused call
+    does nothing and reports taskkill's "process not found" exit code, which
+    `terminate_group` ignores. It is applied at the `taskkill` call, so it covers
+    `terminate_group` and `kill_group` however they were imported.
+    """
+
+    def run(*args, **kwargs):
+        argv = args[0] if args else kwargs.get("args")
+        pid = _taskkill_pid(argv)
+        if pid is not None and pid not in started:
+            import subprocess
+
+            return subprocess.CompletedProcess(argv, 128, b"", b"")
+        return real_run(*args, **kwargs)
+
+    run._i3d_guard = True  # type: ignore[attr-defined]
+    return run
+
+
+def _install_windows_guard() -> None:
+    """Windows half of the guard (see `_install_signal_guard`): same reason, same lifetime."""
+    import subprocess
+
+    if getattr(subprocess.run, "_i3d_guard", False):
+        return
+    started: set[int] = set()
+    _track_started_pids(subprocess.Popen, started)
+    subprocess.run = _guarded_run(subprocess.run, started)
+
+
 def _install_signal_guard() -> None:
     """Make `os.kill` / `os.killpg` unable to signal a process this test run did not start.
 
@@ -97,6 +158,7 @@ def _install_signal_guard() -> None:
     Tests that monkeypatch `os.killpg` themselves still work: their patch sits on top.
     """
     if sys.platform == "win32":
+        _install_windows_guard()
         return
     if getattr(os.kill, "_i3d_guard", False):
         return

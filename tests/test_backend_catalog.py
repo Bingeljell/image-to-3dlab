@@ -950,5 +950,7 @@ def test_the_stable_fast_3d_card_names_its_licence_and_leaves_the_terms_to_the_r
 
     card = bc.BY_ID["sf3d"]
     assert card.license_name == LICENSES["sf3d"].license_name
-    assert card.describe()["license"]["name"] == "Stability AI Community License"
+    licence = card.describe()["license"]
+    assert licence["name"] == "Stability AI Community License"
+    assert licence["url"].startswith("https://huggingface.co/stabilityai/stable-fast-3d")
 

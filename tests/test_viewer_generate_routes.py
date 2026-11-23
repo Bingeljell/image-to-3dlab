@@ -19,6 +19,7 @@ import time
 import types
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import activity_api
 import generate_api as api
@@ -88,12 +89,16 @@ def engine(monkeypatch):
     return spec
 
 
+# Straight to the studio: a machine with http_proxy set would send these requests to the proxy.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _ask(studio, path, body, content_type):
     request = urllib.request.Request(
         f"http://127.0.0.1:{studio.port}{path}", data=body,
         headers={"Content-Type": content_type, "X-AssetFurnace-Request": "studio"})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _DIRECT.open(request, timeout=30) as response:
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as error:
         return error.code, json.loads(error.read())
@@ -150,7 +155,8 @@ def test_generate_saves_the_picture_and_starts_the_run_it_describes(studio, engi
     [(runner, job)] = studio.started
     assert runner == "_run_job"
     assert answer == {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
-                      "output_dir": "output/Rune-Knight", "warning": None}
+                      "output_dir": str(Path("output") / "Rune-Knight"),      # backslashes on Windows
+                      "warning": None}
     assert job.directory == studio.output / "Rune-Knight"
     assert job.output_path == job.directory / "Rune-Knight.glb"
     assert job.image_path == job.directory / "input.png" and job.image_path.read_bytes() == PICTURE
@@ -680,6 +686,13 @@ def _in_the_background(call):
     return thread, answers
 
 
+def _answered(thread, answers):
+    """The answer of a start made `_in_the_background`, once the test has let it go on."""
+    thread.join(20)
+    assert not thread.is_alive(), "the start that was held never answered"
+    return answers[0]
+
+
 def test_a_generation_that_is_still_starting_already_makes_finish_wait(studio, engine, blender, monkeypatch):
     # The waiting check and the job's entry on the books were two steps, seconds apart while
     # the picture is cut out. Finish asked in between, saw nothing running, and started too.
@@ -693,9 +706,8 @@ def test_a_generation_that_is_still_starting_already_makes_finish_wait(studio, e
             409, {"error": "a generation is running; wait for it to finish"})
     finally:
         let_go.set()
-        generating.join(20)
 
-    assert answers[0][0] == 202
+    assert _answered(generating, answers)[0] == 202
     assert [runner for runner, _ in studio.started] == ["_run_job"]
 
 
@@ -709,9 +721,8 @@ def test_a_finish_that_is_still_starting_already_makes_a_generation_wait(studio,
             409, {"error": "a model is being finished; wait for it to finish"})
     finally:
         let_go.set()
-        finishing.join(20)
 
-    assert answers[0][0] == 202
+    assert _answered(finishing, answers)[0] == 202
     assert [runner for runner, _ in studio.started] == ["run_finish_job"]
 
 
@@ -967,9 +978,8 @@ def test_each_of_these_starts_holds_its_place_before_its_job_is_on_the_books(
             409, {"error": f"{words}; wait for it to finish"})
     finally:
         let_go.set()
-        starting.join(20)
 
-    assert answers[0][0] == 202 and len(_on_the_books(workshop)) == 1
+    assert _answered(starting, answers)[0] == 202 and len(_on_the_books(workshop)) == 1
 
 
 # --- Pictures: POST /api/image --------------------------------------------------------------

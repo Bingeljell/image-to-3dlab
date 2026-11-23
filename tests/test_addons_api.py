@@ -205,11 +205,17 @@ def test_run_payload_refuses_second_run(tmp_path, monkeypatch):
 
 
 def _alive(pid: int) -> bool:
+    """Whether the process still runs. One that has ended and waits to be collected (a zombie)
+    has not outlived anything: where nothing collects orphans, as in a bare container, it
+    would otherwise count as alive for good."""
+    import subprocess
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def _wait_until(condition, seconds: float = 5.0) -> bool:
@@ -226,7 +232,7 @@ def _start_tool(tmp_path, monkeypatch, script: str):
     addon_dir = make_installed_addon(tmp_path, manifest())
     (addon_dir / "shape_guide.py").write_text(script, encoding="utf-8")
     job = viewer.ADDON_JOBS.get(viewer.run_payload("vehicle-kit", "build", {"preset": "bus_12m"})["job_id"])
-    assert _wait_until(lambda: "started" in job.log_lines), job.log_lines
+    assert _wait_until(lambda: "started" in job.log_lines, seconds=20), job.log_lines
     return addon_dir, job
 
 

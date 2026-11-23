@@ -1755,7 +1755,7 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
         if owner is not None and owner != os.getpid() and _process_alive(owner):
             continue
         # A process that started at another time was given the number after the job ended.
-        alive = _process_group_alive(pid) and processes.still_the_job(pid, started)
+        alive = _process_group_alive(pid) and processes.still_the_process(pid, started)
         if alive:
             _killpg_if_alive(pid)
             note = "orphaned generation from a previous server session, terminated on restart"

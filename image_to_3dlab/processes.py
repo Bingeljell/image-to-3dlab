@@ -241,10 +241,10 @@ def process_started(pid: int, windows: bool = _IS_WINDOWS) -> str | None:
     return None
 
 
-def still_the_job(pid: int, started: str | None) -> bool:
-    """Whether the process now at `pid` can be the job that started at `started`.
+def still_the_process(pid: int, started: str | None) -> bool:
+    """Whether the process now at `pid` can be the one that started at `started`.
 
-    Yes when the starts agree, and when no process has the number any more: on POSIX the
+    Yes when the starts agree, and when no process has the number any more: on POSIX a
     job's group may live on without its leader, and its number is not given out while it
     does. Yes too for a note from before starts were kept, which has nothing to go by."""
     if started is None:
@@ -260,7 +260,7 @@ def pid_record(pid: int, owner: int | None = None, started: str | None = None) -
     The owner is what lets a starting server tell a dead server's orphan from a job that
     something else alive is still running (a second viewer, a script driving the Finish
     code). Without it, starting the viewer killed a live Finish run (2026-09-29). The start
-    tells the job from a process given its number after it ended (see `still_the_job`)."""
+    tells the job from a process given its number after it ended (see `still_the_process`)."""
     started = process_started(pid) if started is None else started
     record = f"{pid} {os.getpid() if owner is None else owner}"
     return f"{record} {started}" if started else record

@@ -246,7 +246,7 @@ def test_windows_reads_when_a_process_started_from_its_times():
 def test_a_job_is_only_taken_for_the_process_now_at_its_number_when_their_starts_agree(
         monkeypatch, now, recorded, same):
     monkeypatch.setattr(processes, "process_started", lambda _pid, windows=False: now)
-    assert processes.still_the_job(4242, recorded) is same
+    assert processes.still_the_process(4242, recorded) is same
 
 
 @pytest.mark.posix

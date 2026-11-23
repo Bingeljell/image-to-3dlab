@@ -377,15 +377,14 @@ def origin_of(bundle: dict[str, Any], bundle_path: Path, kind: str) -> dict[str,
 def recorded_input(origin: dict[str, Any], bundle_path: Path) -> tuple[Path, str]:
     """The input a resumed run puts on record, and what kind of input it is.
 
-    The picture, when it is still the file the first run read: told by its hash, or for an
-    older bundle with no hash, only at an absolute path (a relative one would be looked up
-    from wherever this run happens to start). Otherwise the bundle itself, named as that.
+    The picture only when its kept hash proves it is still the file the first run read: a
+    path alone says nothing about what is at it today. Otherwise the bundle itself, named as
+    that.
     """
     picture = Path(origin["images"][0])
-    if picture.is_file():
-        known = origin.get("image_sha256")
-        if (sha256(picture) == known) if known else picture.is_absolute():
-            return picture, "user-provided"
+    known = origin.get("image_sha256")
+    if known and picture.is_file() and sha256(picture) == known:
+        return picture, "user-provided"
     return bundle_path, "resumed-bundle"
 
 

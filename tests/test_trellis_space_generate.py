@@ -482,12 +482,13 @@ def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, t
     picture = tmp_path / "cutout.png"
     picture.write_bytes(b"png")
 
-    _, output_path, _ = _resume_from_latents(monkeypatch, tmp_path, {"images": [str(picture)]})
+    _, output_path, _ = _resume_from_latents(
+        monkeypatch, tmp_path, {"images": [str(picture)], "image_sha256": _sha256(picture), "matte_model": None})
 
     record = read_model_record(output_path)
     assert record is not None, "no licence record beside the model"
     assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
-    assert record["input"]["path"] == str(picture)      # still on disk, so it is the input on record
+    assert record["input"]["path"] == str(picture)      # still on disk and still the same file
     assert record["input"]["sha256"] == _sha256(picture)
     assert record["output"]["sha256"] == _sha256(output_path)
 
@@ -542,15 +543,21 @@ def test_a_resumed_run_does_not_take_another_file_at_the_pictures_old_path_for_t
         "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}
 
 
-def test_an_older_bundle_with_a_relative_picture_path_is_not_looked_up_from_the_current_folder(monkeypatch, tmp_path):
-    # Bundles made before the hash was kept: a relative path is tried against wherever the
-    # resume happens to run, and a file of that name there need not be the picture.
+@pytest.mark.parametrize("kept_hash", [{}, {"image_sha256": None}], ids=["an older bundle", "no hash was taken"])
+@pytest.mark.parametrize("where", ["a relative path", "an absolute path"])
+def test_a_picture_that_cannot_be_told_from_another_file_is_not_recorded_as_the_input(
+        monkeypatch, tmp_path, where, kept_hash):
+    # Without the picture's hash nothing says the file at its old path is still that picture:
+    # not for a bundle made before the hash was kept, not for one whose picture was already
+    # gone when the hash would have been taken. A path alone was taken as proof, a relative one
+    # even from wherever the resume happened to run.
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (elsewhere / "cutout.png").write_bytes(b"not the picture")
+    (elsewhere / "cutout.png").write_bytes(b"whatever is at that path today")
     monkeypatch.chdir(elsewhere)
+    named = "cutout.png" if where == "a relative path" else str(elsewhere / "cutout.png")
 
-    decode_path, output_path = _resume_from_decode(monkeypatch, tmp_path, {"images": ["cutout.png"]})
+    decode_path, output_path = _resume_from_decode(monkeypatch, tmp_path, {"images": [named], **kept_hash})
 
     assert read_model_record(output_path)["input"] == {
         "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}

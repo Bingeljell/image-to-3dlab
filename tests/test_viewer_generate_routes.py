@@ -698,6 +698,90 @@ def test_a_setup_start_or_a_finish_resume_is_answered_once_the_setup_lock_is_fre
     assert held == [False]
 
 
+class _CountingReader:
+    """The handler's `rfile`, counting every byte that is read from it."""
+
+    def __init__(self, inner):
+        self._inner, self.count = inner, 0
+
+    def read(self, *args):
+        data = self._inner.read(*args)
+        self.count += len(data)
+        return data
+
+    def read1(self, *args):
+        data = self._inner.read1(*args)
+        self.count += len(data)
+        return data
+
+    def readline(self, *args):
+        data = self._inner.readline(*args)
+        self.count += len(data)
+        return data
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+@pytest.fixture
+def body_read_at_the_answer(monkeypatch):
+    """What each request's answer found of its body: a list of (bytes read, Content-Length),
+    taken when the first answer is written. The headers are not counted as body."""
+    seen = []
+    setup, parse, send = api.Handler.setup, api.Handler.parse_request, api.Handler._send_json
+
+    def counting_setup(handler):
+        setup(handler)
+        handler.rfile = _CountingReader(handler.rfile)
+
+    def parsed(handler):
+        ok = parse(handler)
+        handler._headers_end = handler.rfile.count
+        return ok
+
+    def noting_the_body(handler, *args, **more):
+        if not hasattr(handler, "_noted"):
+            handler._noted = True
+            seen.append((handler.rfile.count - handler._headers_end, int(handler.headers.get("Content-Length") or 0)))
+        return send(handler, *args, **more)
+
+    monkeypatch.setattr(api.Handler, "setup", counting_setup)
+    monkeypatch.setattr(api.Handler, "parse_request", parsed)
+    monkeypatch.setattr(api.Handler, "_send_json", noting_the_body)
+    return seen
+
+
+def _resume_without_blender(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "find_blender", lambda: None)
+
+
+def _resume_that_starts(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "find_blender", lambda: "/Applications/Blender.app/Contents/MacOS/Blender")
+
+
+@pytest.mark.parametrize("situation, status", [
+    (_a_picture_is_being_made, 409),        # refused by the claim
+    (_resume_without_blender, 409),         # refused inside the try block
+    (_resume_that_starts, 202),             # started
+], ids=["refused by the claim", "refused by the try block", "started"])
+def test_a_finish_resume_reads_the_request_body_before_it_answers(
+        studio, body_read_at_the_answer, monkeypatch, tmp_path, situation, status):
+    # The server closes the connection after it answers. Closing on unread bytes resets it, and
+    # on Windows the client then gets ConnectionAbortedError instead of the answer.
+    situation(monkeypatch, tmp_path)
+    run = studio.output / "finish" / "knight__finish__20261019-145515"
+    (run / "input").mkdir(parents=True)
+    (run / "input" / "source.glb").write_bytes(GLB)
+    (run / "input" / "settings.json").write_text(json.dumps({"skip_photo": True, "skip_paint": True}))
+
+    answered, _ = _post(studio, f"/api/finish/runs/{run.name}/resume", {"note": "x" * 4096})
+
+    assert answered == status
+    [(read, length)] = body_read_at_the_answer
+    assert length > 4096
+    assert read == length, f"the resume answered {answered} with {length - read} of {length} body bytes unread"
+
+
 def _being_set_up(engine_id):
     """What the download list answers while that engine's weights are coming down."""
     return lambda: types.SimpleNamespace(backend=types.SimpleNamespace(id=engine_id))

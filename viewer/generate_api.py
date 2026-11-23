@@ -4350,6 +4350,7 @@ class Handler(SimpleHTTPRequestHandler):
         resume faithful. A run that still needs its repaint costs six minutes; one that
         only lost its compression costs a second.
         """
+        self._skip_small_body()   # every answer below closes the connection
         with SETUP_LOCK:
             waiting = self._claim("finish")
         if waiting:   # sent once the lock is free: a client slow to read must not hold it

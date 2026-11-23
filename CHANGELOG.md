@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   setups and the Blender and gltfpack installs, pictures (a back view, a brush, a skin try), engine downloads, skin
   builds and plans. A setup whose installer cannot be launched at all (a missing program) is answered with the
   reason and no longer leaves every later setup refused.
+- **Resuming a Finish run answers on Windows.** A resume that sent a body (as agent tools can) got a dropped
+  connection on Windows instead of its answer, a refusal's reason most of all. The studio now reads the request
+  before it answers.
 - **A job that fails partway no longer leaves its worker running.** A generation, a picture, a skin build or an engine
   download that failed after its worker started (the generator, sd-cli, the repaint, the downloader) ended as an error
   but left that worker running, with nothing reading it and nothing to find it later. It is now stopped first. A

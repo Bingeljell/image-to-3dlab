@@ -1064,3 +1064,88 @@ def test_cancel_stops_a_child_that_keeps_the_output_open_after_the_repaint_itsel
         thread.join(timeout=10)
         if job is not None and job.process is not None:
             job.process.wait(timeout=10)
+
+
+# --- the skin is saved before the job reads as ended -----------------------------------------------
+#
+# A client that sees the job end reads the skin straight away. The build used to turn the job
+# terminal and emit its last event, and only later (in its `finally`) save the skin: the stored
+# skin still read "building", which the state reports as "interrupted (the studio restarted)".
+
+_TERMINAL_PHASES = {"done", "cancelled", "error"}
+_FINAL_SKIN_STATUS = {"done": "done", "cancelled": "pictures", "error": "error"}
+
+
+def _ending_runner(ending, folder, builds):
+    """A runner that makes the build end as `ending`, with the file's own fakes."""
+    if ending == "error":
+        return lambda c, **k: _FakeProcess(["boom"], code=1), _same_box
+    if ending == "cancelled":
+        def box(path):
+            builds.cancel(builds.active)
+            return _same_box(path)
+        return lambda c, **k: _FakeProcess([]), box
+
+    def runner(command, **kwargs):
+        return _FakeProcess(["I2L_STAGE::photo::Pixel Match"],
+                            on_wait=lambda: _write(folder / "gold-skirt_20k.glb", b"skin"))
+    return runner, _same_box
+
+
+def _watch_saves(store, builds, monkeypatch, fail_first_final_save=None):
+    """Record, at every save of a skin that is no longer 'building', what a reader of the job sees
+    at that instant: the job's status, its last event's phase and what the store holds."""
+    real_save, saves = store.save, []
+
+    def save(skin):
+        if skin.status == "building":                 # the save that starts the build
+            return real_save(skin)
+        job = next(iter(builds.jobs.values()))
+        last = job.events[-1].get("phase") if job.events else None
+        saves.append({"skin": skin.status, "job": job.status, "phase": last})
+        if fail_first_final_save is not None and len(saves) == 1:
+            raise fail_first_final_save
+        return real_save(skin)
+
+    monkeypatch.setattr(store, "save", save)
+    return saves
+
+
+@pytest.mark.parametrize("ending", ["done", "cancelled", "error"])
+def test_the_skin_is_saved_with_its_final_state_before_the_job_reads_as_ended(output, monkeypatch, ending):
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store, stop=lambda pid: None)
+    saves = _watch_saves(store, builds, monkeypatch)
+    runner, box = _ending_runner(ending, output / "skins" / skin.id, builds)
+
+    job = builds.start(skin, background=False, runner=runner, box=box)
+
+    assert job.status == ("error" if ending == "error" else ending)
+    final = [s for s in saves if s["skin"] == _FINAL_SKIN_STATUS[ending]]
+    assert final, f"the skin was never saved as {_FINAL_SKIN_STATUS[ending]!r}: {saves}"
+    first = final[0]
+    assert first["job"] not in sk.TERMINAL, (
+        f"the job already read {first['job']!r} when the skin was saved as {first['skin']!r}: "
+        "a client that saw the job end would read the stored skin as 'building'")
+    assert first["phase"] not in _TERMINAL_PHASES, (
+        f"the final event ({first['phase']!r}) was emitted before the skin was saved")
+    assert job.events[-1]["phase"] == ending        # and the final event still comes, after the save
+    assert store.get(skin.id).status == _FINAL_SKIN_STATUS[ending]
+
+
+@pytest.mark.parametrize("ending", ["done", "cancelled", "error"])
+def test_a_save_that_fails_still_ends_the_job_as_an_error_and_frees_the_slot(output, monkeypatch, ending):
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store, stop=lambda pid: None)
+    _watch_saves(store, builds, monkeypatch, fail_first_final_save=OSError("disk full while saving the skin"))
+    runner, box = _ending_runner(ending, output / "skins" / skin.id, builds)
+
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=box)
+    except OSError as exc:
+        pytest.fail(f"the failed save escaped the build instead of ending the job: {exc}")
+
+    assert job.status == "error", f"the job read {job.status!r} after its save failed"
+    assert "disk full while saving the skin" in (job.error or "")
+    assert not builds.running()
+    assert builds.active is None

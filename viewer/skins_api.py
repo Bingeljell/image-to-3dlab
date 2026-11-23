@@ -523,6 +523,9 @@ class SkinBuilds:
         output = self.store.output
         folder = self.store.folder(skin.id)
         job.status = "running"
+        failure: Exception | None = None
+        # What the job turns into once its skin is saved; a build cut short by something odd ends as an error.
+        outcome: tuple = ("error", "the build stopped unexpectedly", {"phase": "error", "message": "the build stopped unexpectedly"})
         try:
             job.emit({"phase": "check", "message": "Checking the new pictures line up with the originals", "overall_pct": 1})
             problem = framing_problem(output, skin, box)
@@ -571,42 +574,56 @@ class SkinBuilds:
                     leftover.unlink(missing_ok=True)
             shutil.rmtree(folder / "finish-steps", ignore_errors=True)
             skin.status, skin.result = "done", _rel(output, result)
-            job.status = "done"
-            usage_api.count_done("skin")
-            job.emit({"phase": "done", "message": "Skin ready", "overall_pct": 100, "path": skin.result})
+            outcome = ("done", None, {"phase": "done", "message": "Skin ready", "overall_pct": 100, "path": skin.result})
         except InterruptedError:
-            skin.status, job.status = "pictures", "cancelled"
-            job.emit({"phase": "cancelled", "message": "Cancelled. The approved pictures are kept."})
+            skin.status = "pictures"
+            outcome = ("cancelled", None, {"phase": "cancelled", "message": "Cancelled. The approved pictures are kept."})
         except Exception as exc:
-            # Stop and reap the repaint before the status turns terminal: the start gate reads it.
-            proc = job.process
-            if proc is not None and proc.poll() is None:
-                warning = processes.stop_and_reap(proc, grace=5)
-                if warning:
-                    job.log_lines.append(f"cleanup warning: {warning}")
             skin.status, skin.error = "error", str(exc)
-            job.status, job.error = "error", str(exc)
-            job.emit({"phase": "error", "message": str(exc)})
-            usage_api.count_failed("skin", exc)
+            failure = exc
+            outcome = ("error", str(exc), {"phase": "error", "message": str(exc)})
         finally:
-            # A build that failed after its repaint or finish launched must not leave it running:
-            # stop it, and reap it, before the skin is saved and the slot freed.
-            proc = job.process
-            if proc is not None and proc.poll() is None:
-                warning = processes.stop_and_reap(proc, grace=5)
-                if warning:
-                    job.log_lines.append(f"cleanup warning: {warning}")
+            # The job reads as ended only after the skin is saved: stop and reap the worker first
+            # (a failed build must not leave it running), then save, then turn the status terminal.
+            try:
+                proc = job.process
+                if proc is not None and proc.poll() is None:
+                    warning = processes.stop_and_reap(proc, grace=5)
+                    if warning:
+                        job.log_lines.append(f"cleanup warning: {warning}")
+            except Exception as cleanup_exc:
+                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
             if job.step_done is not None:       # reaped: a pending forced stop must not signal a reused pid
                 job.step_done.set()
             try:
                 folder.joinpath("pid").unlink(missing_ok=True)
             except Exception as cleanup_exc:
                 job.log_lines.append(f"cleanup warning: {cleanup_exc}")
-            self.store.save(skin)
-            self._history(job, skin)
-            with self.lock:
-                if self.active == job.id:
-                    self.active = None
+            try:
+                try:
+                    self.store.save(skin)
+                except Exception as save_exc:
+                    message = f"the skin could not be saved: {save_exc}"
+                    if outcome[1]:
+                        message = f"{outcome[1]}; {message}"
+                    outcome = ("error", message, {"phase": "error", "message": message})
+                    failure = failure or save_exc
+                    skin.status, skin.error = "error", message
+                    try:
+                        self.store.save(skin)
+                    except Exception as again:
+                        job.log_lines.append(f"cleanup warning: {again}")
+                job.status, job.error = outcome[0], outcome[1]
+                if outcome[0] == "done":
+                    usage_api.count_done("skin")
+                elif failure is not None:
+                    usage_api.count_failed("skin", failure)
+                job.emit(outcome[2])
+                self._history(job, skin)
+            finally:
+                with self.lock:
+                    if self.active == job.id:
+                        self.active = None
 
     def _history(self, job: SkinBuild, skin: Skin) -> None:
         """One line in output/.activity.jsonl, so Activity lists the build and Report a bug can

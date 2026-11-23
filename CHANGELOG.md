@@ -67,6 +67,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cancel on a skin build stops a repaint that ignores it.** Cancel asked once; a repaint that ignored it kept the
   build running and holding its place. It is now forced after ten seconds, also when Cancel lands just as a step
   starts, and when the repaint itself quits but a program it started carries on.
+- **A skin that has just finished no longer reads as interrupted.** For a moment after a skin build ended, done,
+  cancelled or failed, the skin could still read as building and show "The build was interrupted". The build now
+  saves the skin before it reads as ended. A skin that cannot be saved ends the build as an error and frees its place.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

@@ -4092,8 +4092,12 @@ class Handler(SimpleHTTPRequestHandler):
             warning = gpu_busy_warning(busy)
             if warning:
                 job.append_log(warning)
+            try:
+                _start_worker(JOBS, job, _run_job)
+            except WorkerStartError as exc:   # it never ran: a failure, not a use
+                usage_api.count_failed("model", exc)
+                raise
             usage_api.count_features(front_and_back=bool(settings.get("back_name")))
-            _start_worker(JOBS, job, _run_job)
             self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
                                   "output_dir": str(job.directory.relative_to(REPO)),
                                   "warning": warning})

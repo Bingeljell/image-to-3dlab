@@ -2176,6 +2176,41 @@ def test_a_big_job_whose_thread_cannot_start_is_answered_and_does_not_hold_the_s
     assert ask(studio, workshop)[0] == 202      # not "already running", not "wait for it to finish"
 
 
+def _usage_counts(monkeypatch):
+    """What `viewer.generate_api` is told about usage: the features counted and the failures."""
+    counted = types.SimpleNamespace(features=[], failures=[])
+    monkeypatch.setattr(api.usage_api, "count_features", lambda **used: counted.features.append(used))
+    monkeypatch.setattr(api.usage_api, "count_failed",
+                        lambda kind, reason: counted.failures.append((kind, str(reason))))
+    return counted
+
+
+def test_a_generation_whose_thread_cannot_start_is_counted_as_a_failure_not_a_use(
+        studio, engine, monkeypatch):
+    # Before: the feature was counted as used before the worker was started, so a generation
+    # that never ran still counted as one, and its failed start was not counted as a failure.
+    counted = _usage_counts(monkeypatch)
+    real_threading = _no_threads_left(monkeypatch)
+
+    status, answer = _asked_and_answered(
+        lambda: _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)}))
+
+    assert (status, answer) == (409, {"error": "can't start new thread"})
+    assert counted.features == []
+    assert counted.failures == [("model", "can't start new thread")]
+    monkeypatch.setattr(api, "threading", real_threading)
+
+
+def test_a_generation_that_starts_is_counted_once_as_a_use(studio, engine, monkeypatch):
+    counted = _usage_counts(monkeypatch)
+
+    status, _ = _post(studio, "/api/generate", {"settings": "{}"}, {"image": ("knight.png", PICTURE)})
+
+    assert status == 202
+    assert counted.features == [{"front_and_back": False}]
+    assert counted.failures == []
+
+
 def _swap_popen(monkeypatch, popen):
     """`subprocess.Popen` as `viewer.generate_api` sees it, and only there."""
     monkeypatch.setattr(api, "subprocess", types.SimpleNamespace(**{**vars(subprocess), "Popen": popen}))

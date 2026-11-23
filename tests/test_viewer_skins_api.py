@@ -765,6 +765,41 @@ def test_a_skin_build_whose_thread_cannot_start_does_not_hold_the_slot(output, m
     assert again.status == "error" and "repaint" in again.error  # accepted and ran (failing on purpose)
 
 
+def test_a_skin_is_counted_as_made_only_once_its_build_thread_has_started(output, monkeypatch):
+    # Before: the skin was counted before its thread started, so a start that failed still
+    # counted a skin as made although its build never ran (and no failure was counted).
+    import threading
+    import types
+
+    features, failures = [], []
+    monkeypatch.setattr(sk.usage_api, "count_features", lambda *a, **k: features.append(k))
+    monkeypatch.setattr(sk.usage_api, "count_failed", lambda step, reason, *a, **k: failures.append(step))
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    class ThreadThatStarts(threading.Thread):
+        def start(self):   # started; the build itself is not needed here
+            pass
+
+    def swap(thread_class):
+        monkeypatch.setattr(sk, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": thread_class}))
+
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    swap(NoThreadsLeft)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        builds.start(skin, runner=lambda c, **k: _FakeProcess(["x"]), box=_same_box)
+    assert features == []
+    assert failures == ["skin"]
+
+    swap(ThreadThatStarts)
+    builds.start(store.get(skin.id), runner=lambda c, **k: _FakeProcess(["x"]), box=_same_box)
+    assert features == [{"skin": True}]
+    assert failures == ["skin"]
+
+
 def _deaf_build(output, tmp_path, monkeypatch):
     """A build whose repaint is a real child that ignores SIGTERM, with its pid note failing."""
     from deaf_worker import deaf_popen_class, failing_pid_note

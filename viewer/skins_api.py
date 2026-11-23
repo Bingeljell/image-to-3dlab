@@ -470,8 +470,6 @@ class SkinBuilds:
             self.active = job.id
         skin.status, skin.error = "building", None
         self.store.save(skin)
-        # A skin is the feature; its Finish choices are its model's, counted once there.
-        usage_api.count_features(skin=True)
         if background:
             try:
                 threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
@@ -484,8 +482,12 @@ class SkinBuilds:
                 with self.lock:
                     if self.active == job.id:
                         self.active = None
+                usage_api.count_failed("skin", exc)
                 raise
+            # A skin is the feature; its Finish choices are its model's, counted once there.
+            usage_api.count_features(skin=True)
         else:
+            usage_api.count_features(skin=True)
             self.run(job, skin, runner, box)
         return job
 

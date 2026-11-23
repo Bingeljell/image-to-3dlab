@@ -361,8 +361,13 @@ def start(backend_id: str, rebuild: bool = False) -> DownloadRun:  # Come get so
             raise RuntimeError("a download is already running")
         run = DownloadRun(backend, rebuild)
         DOWNLOADS[backend_id] = run
-    threading.Thread(target=_run, args=(run,), daemon=True,
-                     name=f"download-{backend_id}").start()
+    try:
+        threading.Thread(target=_run, args=(run,), daemon=True,
+                         name=f"download-{backend_id}").start()
+    except RuntimeError as exc:   # no thread could start: end the run so it stops holding the slot
+        run.status = "error"
+        run.emit({"phase": "error", "overall_pct": 0, "detail": f"cannot start: {exc}"})
+        raise
     return run
 
 

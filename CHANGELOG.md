@@ -47,10 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   also names the studio running it, as every other job's does, so a second studio starting up leaves it alone.
   Notes written before this change are handled as before. A note naming no possible process (0, say, in a
   damaged file) is set aside: it made the studio stop its own process group as it started.
-- **A picture that cannot start no longer blocks every later one.** When the studio could not start the worker for a
-  picture, a back view, a brush or a skin try (the system had no threads left), the job stayed queued and every
-  later picture was refused as already being made until the studio restarted. It now ends as an error and frees
-  its place.
+- **A job that cannot start no longer blocks every later one.** When the studio could not start the worker for a job
+  (the system had no threads left), the job stayed on the books as running and every later one was refused until the
+  studio restarted. It now ends as an error and frees its place. This covers pictures (a back view, a brush, a skin
+  try) and engine downloads.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

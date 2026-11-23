@@ -839,3 +839,34 @@ def test_asking_what_is_downloading_survives_a_download_starting_at_that_moment(
     assert dl.active() is None                      # the list as it was when asked
     assert dl.active().status == "running"          # and the new download is seen by the next ask
 
+
+
+def test_a_download_whose_thread_cannot_start_does_not_hold_the_slot(monkeypatch):
+    # Before: the run was on DOWNLOADS as "queued" when its thread failed to start, so
+    # active() answered it for ever and every later setup was refused as "already running".
+    import threading
+    import types
+
+    monkeypatch.setattr(dl, "DOWNLOADS", {})
+    monkeypatch.setattr(dl, "command_for", lambda *a, **k: ["true"])
+    monkeypatch.setattr(type(dl.BY_ID["pixal3d"]), "runs_here", lambda self: True)
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    class NothingRuns(threading.Thread):
+        def start(self):
+            pass  # accepts the worker and runs nothing: no real download starts
+
+    monkeypatch.setattr(dl, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        dl.start("pixal3d")
+
+    [run] = dl.DOWNLOADS.values()
+    assert run.status == "error"
+    assert "can't start new thread" in run.events[-1]["detail"]
+    assert dl.active() is None
+
+    monkeypatch.setattr(dl, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NothingRuns}))
+    assert dl.start("pixal3d").status != "error"

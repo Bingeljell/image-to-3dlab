@@ -247,12 +247,18 @@ class AddonJobManager:
         return job
 
     def run(self, job: AddonJob) -> None:
-        threading.Thread(
-            target=_run_addon_job,
-            args=(job, self),
-            daemon=True,
-            name=f"addon-{job.id[:8]}",
-        ).start()
+        try:
+            threading.Thread(
+                target=_run_addon_job,
+                args=(job, self),
+                daemon=True,
+                name=f"addon-{job.id[:8]}",
+            ).start()
+        except RuntimeError as exc:     # no thread: the job ends here, and its slot is free
+            job.status, job.error_message = "error", str(exc)
+            job.emit({"phase": "error", "message": str(exc)})
+            self.finish(job)
+            raise
 
     def get(self, job_id: str) -> AddonJob | None:
         if not JOB_ID_RE.fullmatch(job_id):

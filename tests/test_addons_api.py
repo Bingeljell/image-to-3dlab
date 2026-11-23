@@ -183,6 +183,31 @@ def test_two_runs_asked_for_at_the_same_moment_do_not_both_start(tmp_path, monke
     assert list(manager.jobs) == [second["job_id"]] and manager.active == second["job_id"]
 
 
+def test_a_run_whose_thread_cannot_start_does_not_hold_the_slot(tmp_path, monkeypatch):
+    """The job is on the books as the one that runs before its thread starts. When the thread
+    could not start (no threads left), the job stayed "queued" as the active one, and every
+    later run was told one was already in progress until the studio restarted."""
+    import threading
+    import types
+
+    _set_paths(tmp_path, monkeypatch)
+    make_installed_addon(tmp_path, manifest())
+    manager = viewer.AddonJobManager()
+    monkeypatch.setattr(viewer, "ADDON_JOBS", manager)
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(viewer, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        viewer.run_payload("vehicle-kit", "build", {"preset": "bus_12m"})
+
+    [job] = manager.jobs.values()
+    assert job.status == "error" and "can't start new thread" in job.error_message
+    assert not manager.busy()
+
+
 def test_run_payload_refuses_second_run(tmp_path, monkeypatch):
     _set_paths(tmp_path, monkeypatch)
     addon_dir = make_installed_addon(tmp_path, manifest())

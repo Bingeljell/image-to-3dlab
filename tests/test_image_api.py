@@ -437,6 +437,8 @@ def test_a_plain_jobs_command_has_no_reference(tmp_path):
 
 
 def test_a_picture_run_records_its_pid_and_starts_its_own_group(tmp_path, monkeypatch):
+    import os
+
     from image_to_3dlab import processes
 
     manager = api.ImageJobManager(tmp_path)
@@ -461,7 +463,9 @@ def test_a_picture_run_records_its_pid_and_starts_its_own_group(tmp_path, monkey
 
     api.run_job(job, manager, weights=WEIGHTS)
 
-    assert processes.pid_record(job.process.pid) in job.log_lines
+    [note] = [line for line in job.log_lines if line.startswith(f"{job.process.pid} ")]
+    pid, owner, started = processes.parse_pid_record(note)
+    assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
     assert seen["group"] is True
     assert not (job.directory / "pid").exists()
 

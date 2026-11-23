@@ -688,7 +688,7 @@ def test_a_running_step_records_this_server_as_its_owner(tmp_path):
         seen.append(processes.parse_pid_record(job.directory.joinpath("pid").read_text()))
 
     assert props._run_step(job, "LODs", [sys.executable, "-c", "print('working')"], feed)
-    assert seen[0] == (job.process.pid, os.getpid())
+    assert seen[0][:2] == (job.process.pid, os.getpid()) and seen[0][2] is not None
 
 
 def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):

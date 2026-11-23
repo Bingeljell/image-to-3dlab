@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   note that makes this possible cannot be written, the run's log says so and names the process). A run that
   could not start at all no longer blocks every later one with "already in progress" until the studio restarts,
   and one that fails on the way (a log line that cannot be written, output that is not text) stops its tool.
+- **Starting the studio no longer stops a program that only shares a finished job's number.** At start the studio
+  stops any job a killed studio left running, found by the process number it noted. When that job had ended long
+  ago and the number had gone to another program since (a terminal's shell, say), that program and everything it
+  had started were stopped instead. Each job now also notes when it started, and only a process that started then
+  is stopped. A rig rebind's note also names the studio running it, as every other job's does, so a second studio
+  starting up leaves it alone. Notes written before this change are handled as before.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

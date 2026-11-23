@@ -1735,8 +1735,9 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
 
     For each leftover <job-dir>/pid: if the process that started the job is still alive
     (another viewer, or a script driving the Finish code), the job is not an orphan and is
-    left alone. Otherwise, if that process group is still running, it's an actual ghost
-    (nobody has been tracking it since the old server died) -- kill it. Either way,
+    left alone. Otherwise, if that process group is still running and the process at its
+    number is still the job (it started when the note says), it's an actual ghost (nobody
+    has been tracking it since the old server died) -- kill it. Either way,
     annotate that job's run.log so it stops trailing off silently, and remove the pid file
     since this server now owns (or has just closed out) that job's fate.
 
@@ -1747,13 +1748,14 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
             continue    # a folder that happens to be called pid (a prop, say), not a job's
         directory = pid_file.parent
         try:
-            pid, owner = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
+            pid, owner, started = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pid_file.unlink(missing_ok=True)
             continue
         if owner is not None and owner != os.getpid() and _process_alive(owner):
             continue
-        alive = _process_group_alive(pid)
+        # A process that started at another time was given the number after the job ended.
+        alive = _process_group_alive(pid) and processes.still_the_job(pid, started)
         if alive:
             _killpg_if_alive(pid)
             note = "orphaned generation from a previous server session, terminated on restart"

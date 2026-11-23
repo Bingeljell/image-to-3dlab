@@ -1512,6 +1512,62 @@ def test_reconcile_kills_a_live_job_whose_owner_died(tmp_path, monkeypatch):
     assert killed == [4242]
 
 
+def test_reconcile_leaves_a_process_that_was_given_the_jobs_number_since(tmp_path, monkeypatch):
+    """The job ended long ago and its number went to another process, which leads a group of
+    its own (a terminal's shell does). Starting the studio stopped that process and its group."""
+    job_dir = tmp_path / "ended-long-ago"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242 5151 Mon-Nov-23-10:00:00-2026")
+    (job_dir / "run.log").write_text("step 3/15\n")
+    killed = []
+    monkeypatch.setattr(api, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api.processes, "process_started", lambda _pid, windows=False: "Tue-Nov-24-09:00:00-2026")
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    assert api._reconcile_orphaned_jobs(tmp_path) == ["ended-long-ago"]
+    assert killed == []
+    assert "died mid-run" in (job_dir / "run.log").read_text()
+    assert not (job_dir / "pid").exists()
+
+
+def _an_ended_process():
+    import subprocess
+
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait()
+    return ended.pid
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("note", ["the job's own", "one naming another start"])
+def test_reconcile_stops_a_real_left_job_but_not_a_process_given_its_number(tmp_path, note):
+    import subprocess
+
+    from image_to_3dlab import processes
+
+    # A real process leading a group of its own, as a job does and as a terminal's shell does.
+    running = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    try:
+        job_dir = tmp_path / "left-by-a-killed-studio"
+        job_dir.mkdir()
+        owner = _an_ended_process()     # the studio that started it, gone
+        (job_dir / "pid").write_text(processes.pid_record(running.pid, owner=owner) if note == "the job's own"
+                                     else f"{running.pid} {owner} Mon-Nov-23-10:00:00-2020")
+
+        assert api._reconcile_orphaned_jobs(tmp_path) == ["left-by-a-killed-studio"]
+
+        try:
+            running.wait(5)
+            stopped = True
+        except subprocess.TimeoutExpired:
+            stopped = False
+        assert stopped is (note == "the job's own")
+    finally:
+        running.kill()
+        running.wait()
+
+
 def test_reconcile_notes_a_finish_run_in_its_steps_log(tmp_path, monkeypatch):
     job_dir = tmp_path / "fox__finish__20260929-101010"
     (job_dir / "steps").mkdir(parents=True)

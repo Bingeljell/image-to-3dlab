@@ -368,6 +368,8 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
 
 
 def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
+    import os
+
     from image_to_3dlab import processes
 
     directory = tmp_path / "clip"
@@ -391,7 +393,8 @@ def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
     aa.run_job(job, manager)
 
     assert job.status == "done", job.log_lines
-    assert job.log_lines[0] == processes.pid_record(job.process.pid)
+    pid, owner, started = processes.parse_pid_record(job.log_lines[0])
+    assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
     assert not (directory / "pid").exists()
 
 

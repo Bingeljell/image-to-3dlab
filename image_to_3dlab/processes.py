@@ -11,8 +11,10 @@ from __future__ import annotations
 import ctypes
 import os
 import signal
+import struct
 import subprocess
-from pathlib import PureWindowsPath
+import sys
+from pathlib import Path, PureWindowsPath
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
@@ -186,24 +188,94 @@ def process_alive(pid: int, windows: bool = _IS_WINDOWS) -> bool:
         return True
 
 
-def pid_record(pid: int, owner: int | None = None) -> str:
-    """What a job's `pid` file holds: the job's pid, then the pid of the process tracking it.
+def windows_process_started(pid: int, kernel32) -> str | None:
+    """When `pid` started, from its creation time; None when Windows has no such process."""
+    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        created, ended, in_kernel, in_user = (ctypes.c_uint64() for _ in range(4))
+        if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended),
+                                        ctypes.byref(in_kernel), ctypes.byref(in_user)):
+            return None
+        return str(created.value)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+# sysctl(CTL_KERN, KERN_PROC, KERN_PROC_PID, pid) answers a `struct kinfo_proc`, which opens
+# with the process's start as a timeval (seconds, then microseconds) on 64-bit macOS.
+_KERN_PROC_PID = (1, 14, 1)
+_KINFO_PROC_SIZE = 648
+
+
+def _darwin_started(pid: int) -> str | None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.sysctl.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p,
+                            ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t)
+    asked = (ctypes.c_int * 4)(*_KERN_PROC_PID, pid)
+    answer = ctypes.create_string_buffer(_KINFO_PROC_SIZE)
+    size = ctypes.c_size_t(_KINFO_PROC_SIZE)
+    if libc.sysctl(asked, 4, answer, ctypes.byref(size), None, 0) != 0 or size.value < 12:
+        return None     # no such process: the kernel answers nothing
+    seconds, microseconds = struct.unpack_from("=qi", answer.raw, 0)
+    return f"{seconds}.{microseconds:06d}"
+
+
+def process_started(pid: int, windows: bool = _IS_WINDOWS) -> str | None:
+    """When the process `pid` started, as a word with no spaces that tells it from a later
+    process given the same number. None when no process has that number, or where this
+    cannot be asked. Asked of the kernel, never by starting a program: Linux gives clock
+    ticks since boot, macOS microseconds, Windows its creation time."""
+    if windows:
+        return windows_process_started(pid, ctypes.windll.kernel32)
+    if sys.platform.startswith("linux"):
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        fields = stat.rpartition(")")[2].split()    # the name, in brackets, may hold spaces
+        return fields[19] if len(fields) > 19 else None     # field 22, the start
+    if sys.platform == "darwin":
+        return _darwin_started(pid)
+    return None
+
+
+def still_the_job(pid: int, started: str | None) -> bool:
+    """Whether the process now at `pid` can be the job that started at `started`.
+
+    Yes when the starts agree, and when no process has the number any more: on POSIX the
+    job's group may live on without its leader, and its number is not given out while it
+    does. Yes too for a note from before starts were kept, which has nothing to go by."""
+    if started is None:
+        return True
+    now = process_started(pid)
+    return now is None or now == started
+
+
+def pid_record(pid: int, owner: int | None = None, started: str | None = None) -> str:
+    """What a job's `pid` file holds: the job's pid, the pid of the process tracking it, and
+    when the job started (`started`, read now when not given; left out when it cannot be).
 
     The owner is what lets a starting server tell a dead server's orphan from a job that
     something else alive is still running (a second viewer, a script driving the Finish
-    code). Without it, starting the viewer killed a live Finish run (2026-09-29)."""
-    return f"{pid} {os.getpid() if owner is None else owner}"
+    code). Without it, starting the viewer killed a live Finish run (2026-09-29). The start
+    tells the job from a process given its number after it ended (see `still_the_job`)."""
+    started = process_started(pid) if started is None else started
+    record = f"{pid} {os.getpid() if owner is None else owner}"
+    return f"{record} {started}" if started else record
 
 
-def parse_pid_record(text: str) -> tuple[int, int | None]:
-    """(job pid, owner pid). Files from before the owner was recorded hold one number.
+def parse_pid_record(text: str) -> tuple[int, int | None, str | None]:
+    """(job pid, owner pid, when the job started). Files from before the owner was recorded
+    hold one number, and files from before the start was kept two.
 
-    Raises ValueError for anything that is not one or two whole numbers."""
+    Raises ValueError for anything else."""
     fields = text.split()
-    if len(fields) not in (1, 2):
+    if len(fields) not in (1, 2, 3):
         raise ValueError(f"not a pid record: {text!r}")
-    numbers = [int(field) for field in fields]
-    return numbers[0], numbers[1] if len(numbers) == 2 else None
+    numbers = [int(field) for field in fields[:2]]
+    return numbers[0], numbers[1] if len(numbers) == 2 else None, fields[2] if len(fields) == 3 else None
 
 
 def terminate_group(pid: int, windows: bool = _IS_WINDOWS) -> None:

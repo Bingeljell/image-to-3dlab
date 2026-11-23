@@ -91,6 +91,35 @@ def test_runner_records_a_pid_for_server_restart_reconciliation():
     assert 'joinpath("pid").unlink(missing_ok=True)' in source
 
 
+def test_a_rebind_notes_its_owner_and_when_it_started(tmp_path, monkeypatch):
+    # The rebind's note held its number alone: a second studio starting up took a rebind that
+    # another one was running for one a killed studio had left, and a rebind long ended could
+    # be taken for whatever process had its number since.
+    import os
+    import sys
+
+    from image_to_3dlab import processes
+
+    manager = rig_api.RigJobManager(tmp_path)
+    job = manager.create("Creature.glb", b"glb", b"blend", valid_sidecar(b"glb", b"blend"))
+    note = job.directory / "pid"
+    reads_its_note = (
+        "import pathlib, time\n"
+        f"note = pathlib.Path({str(note)!r})\n"
+        "while not (note.exists() and note.read_text().strip()):\n"
+        "    time.sleep(0.01)\n"
+        "print('note', note.read_text().strip(), flush=True)\n"
+    )
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path(sys.executable))
+    monkeypatch.setattr(rig_api, "build_command", lambda _job, _blender: [sys.executable, "-c", reads_its_note])
+
+    rig_api.run_job(job, manager)
+
+    [said] = [line.removeprefix("note ") for line in job.log_lines if line.startswith("note ")]
+    pid, owner, started = processes.parse_pid_record(said)
+    assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
+
+
 def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
     """If the pid-record write fails after Popen, the child must be stopped and reaped
     before the active slot is freed."""

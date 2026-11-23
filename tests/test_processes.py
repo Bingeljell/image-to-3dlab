@@ -116,6 +116,10 @@ class _FakeKernel32:
         buffer.value = self.image
         return 1
 
+    def GetProcessTimes(self, handle, created_ref, ended_ref, kernel_ref, user_ref):
+        created_ref._obj.value = 133_000_000_000_000_000      # a FILETIME: 100 ns steps since 1601
+        return 1
+
     def CloseHandle(self, handle):
         self.closed.append(handle)
         return 1
@@ -152,19 +156,97 @@ def test_no_viewer_module_uses_posix_only_process_calls():
 
 
 def test_a_pid_record_names_the_job_and_its_owner():
-    assert processes.pid_record(4242, owner=5151) == "4242 5151"
-    assert processes.pid_record(4242) == f"4242 {os.getpid()}"
+    assert processes.pid_record(4242, owner=5151, started="then") == "4242 5151 then"
+    assert processes.pid_record(4242, started="then") == f"4242 {os.getpid()} then"
 
 
-def test_pid_records_old_and_new_both_parse():
-    assert processes.parse_pid_record("4242 5151\n") == (4242, 5151)
-    assert processes.parse_pid_record("4242") == (4242, None)
+def test_pid_records_old_and_new_all_parse():
+    assert processes.parse_pid_record("4242 5151 Mon-Nov-23-10:00:00-2026\n") == (
+        4242, 5151, "Mon-Nov-23-10:00:00-2026")
+    assert processes.parse_pid_record("4242 5151\n") == (4242, 5151, None)
+    assert processes.parse_pid_record("4242") == (4242, None, None)
 
 
-@pytest.mark.parametrize("text", ["", "abc", "1 2 3", "12 x"])
+@pytest.mark.parametrize("text", ["", "abc", "1 2 3 4", "12 x", "x 2 3"])
 def test_a_malformed_pid_record_is_rejected(text):
     with pytest.raises(ValueError):
         processes.parse_pid_record(text)
+
+
+# --- a job's number can be given to another process once the job has ended ----------------
+#
+# A pid note named the job by its number alone. When the job had ended and the number had
+# gone to another process since (a terminal's shell leads a group of its own), the next
+# studio start stopped that process and everything in its group. A note now keeps when
+# the job started, which a later process given the same number cannot share.
+
+def _a_process_that_has_ended():
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait()
+    return ended.pid
+
+
+def test_a_pid_record_keeps_when_its_job_started():
+    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as job:
+        try:
+            pid, owner, started = processes.parse_pid_record(processes.pid_record(job.pid))
+            assert (pid, owner) == (job.pid, os.getpid())
+            assert started is not None and " " not in started
+            assert started == processes.process_started(job.pid), "the start reads differently a moment later"
+        finally:
+            job.kill()
+
+
+@pytest.mark.posix
+def test_two_processes_do_not_share_a_start():
+    with subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"]) as job:
+        try:
+            assert processes.process_started(job.pid) != processes.process_started(os.getppid())
+        finally:
+            job.kill()
+
+
+def test_a_process_that_has_ended_has_no_start():
+    assert processes.process_started(_a_process_that_has_ended()) is None
+
+
+def test_linux_reads_the_start_from_field_22_of_the_process_stat_whatever_its_name(monkeypatch):
+    # The name sits in brackets and may hold spaces and brackets of its own; the fields after
+    # it are counted from its last closing bracket. Field 22 is the start, in ticks since boot.
+    stat = ("4242 (a (strange) name) S 1 4242 4242 0 -1 4194560 1203 0 0 0 12 3 0 0 20 0 1 0 "
+            "987654 12345678 1000 18446744073709551615 1 1 0 0 0 0 0 0 0 0 0 0 17 3 0 0 0 0 0\n")
+    asked = []
+
+    class Proc:
+        def __init__(self, path):
+            asked.append(str(path))
+
+        def read_text(self, **_how):
+            return stat
+    monkeypatch.setattr(processes.sys, "platform", "linux")
+    monkeypatch.setattr(processes, "Path", Proc)
+
+    assert processes.process_started(4242, windows=False) == "987654"
+    assert asked == ["/proc/4242/stat"]
+
+
+def test_windows_reads_when_a_process_started_from_its_times():
+    kernel = _FakeKernel32()
+    assert processes.windows_process_started(7, kernel) == "133000000000000000"
+    assert kernel.closed == [42]
+    assert processes.windows_process_started(7, _FakeKernel32(exists=False)) is None
+
+
+@pytest.mark.parametrize("now, recorded, same", [
+    ("Mon-Nov-23-10:00:00-2026", "Mon-Nov-23-10:00:00-2026", True),
+    ("Tue-Nov-24-09:00:00-2026", "Mon-Nov-23-10:00:00-2026", False),     # the number went to another
+    (None, "Mon-Nov-23-10:00:00-2026", True),       # the leader is gone; its group, if any, is the job's
+    ("Tue-Nov-24-09:00:00-2026", None, True),       # an older note: nothing to tell them apart by
+], ids=["still the job", "another process", "the leader has ended", "an older note"])
+def test_a_job_is_only_taken_for_the_process_now_at_its_number_when_their_starts_agree(
+        monkeypatch, now, recorded, same):
+    monkeypatch.setattr(processes, "process_started", lambda _pid, windows=False: now)
+    assert processes.still_the_job(4242, recorded) is same
 
 
 @pytest.mark.posix

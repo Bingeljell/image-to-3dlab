@@ -862,7 +862,7 @@ def drop_kept(kept: Path) -> dict[str, Any] | None:
 def start_brush(picture: Path, stroke, instruction: str, seed: int = 42,
                 engine: PictureEngine = FLUX, keep_old: bool = True) -> ImageJob:
     job = create_brush_job(MANAGER, picture, stroke, instruction, seed, engine, keep_old)
-    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    _launch(job)
     return job
 
 
@@ -907,6 +907,17 @@ def back_source(output_root: Path, relative: str) -> Path:
     if root not in path.parents or not path.is_file() or path.suffix.lower() not in PICTURE_FILES:
         raise ValueError(f"not a picture in output/: {relative}")
     return path
+
+
+def _launch(job: ImageJob) -> None:
+    """Start the worker thread; if none can start, the job ends here and frees its slot."""
+    try:
+        threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    except RuntimeError as exc:
+        job.error = str(exc)
+        job.set_status("error", error=job.error)
+        MANAGER.finish(job)
+        raise
 
 
 def run_job(job: ImageJob, manager: ImageJobManager,
@@ -1028,7 +1039,7 @@ MANAGER = ImageJobManager()
 def start_back(front: Path, seed: int = 3, engine: PictureEngine = QWEN,
                instruction: str | None = None) -> ImageJob:
     job = create_back_job(MANAGER, front, seed, engine, instruction)
-    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    _launch(job)
     return job
 
 
@@ -1038,7 +1049,7 @@ def start_edit(reference: Path, output_path: Path, prompt: str, seed: int,
     Skins stay on Qwen until Flux's skin edits have been judged."""
     job = MANAGER.create(prompt, clean_settings({"seed": seed}), output_path=output_path,
                          reference=reference, mode=mode)
-    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    _launch(job)
     return job
 
 
@@ -1046,5 +1057,5 @@ def start(prompt: str, raw_settings: dict[str, Any], engine: PictureEngine = QWE
           picture_only: bool = False) -> ImageJob:
     settings = clean_settings(raw_settings, engine, picture_only)
     job = MANAGER.create(prompt, settings, engine=engine)
-    threading.Thread(target=run_job, args=(job, MANAGER), daemon=True).start()
+    _launch(job)
     return job

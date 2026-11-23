@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to another program, the job counted as still looked after and was left running for good. A rig rebind's note
   also names the studio running it, as every other job's does, so a second studio starting up leaves it alone.
   Notes written before this change are handled as before.
+- **A picture that cannot start no longer blocks every later one.** When the studio could not start the worker for a
+  picture, a back view, a brush or a skin try (the system had no threads left), the job stayed queued and every
+  later picture was refused as already being made until the studio restarted. It now ends as an error and frees
+  its place.
 - **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
   a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
   memory. It now follows the same rule as every other job, as resuming a Finish run already did.

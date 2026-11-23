@@ -11,7 +11,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -905,3 +907,36 @@ def test_two_swaps_in_one_second_keep_both_old_pictures(tmp_path):
     kept = sorted(p.read_bytes() for p in tmp_path.glob("orc__back_prev_*.png"))
     assert kept == [b"first", b"second"] and final.read_bytes() == b"third"
     assert len(api.back_versions(final)) == 2
+
+
+# --- A worker that cannot start must not hold the slot ------------------------------------------
+
+def _starts(tmp_path):
+    back = _back(tmp_path)
+    return {
+        "start": lambda: api.start("a fox", {}),
+        "start_edit": lambda: api.start_edit(back, tmp_path / "skin-try.png", "a red coat", 4),
+        "start_back": lambda: api.start_back(_front(tmp_path / "front")),
+        "start_brush": lambda: api.start_brush(back, _stroke(), "a red satchel"),
+    }
+
+
+@pytest.mark.parametrize("which", ["start", "start_edit", "start_back", "start_brush"])
+def test_a_picture_whose_thread_cannot_start_does_not_hold_the_slot(which, tmp_path, monkeypatch):
+    # Before: the job stayed queued as the active one and nothing finished it, so every later
+    # picture was refused as "already being generated" until the studio restarted.
+    manager = api.ImageJobManager(tmp_path)
+    monkeypatch.setattr(api, "MANAGER", manager)
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(api, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        _starts(tmp_path)[which]()
+
+    [job] = manager.jobs.values()
+    assert job.status == "error" and "can't start new thread" in job.error
+    assert manager.active is None
+    manager.create("the next one", api.clean_settings({}), output_path=tmp_path / "next" / "next.png")

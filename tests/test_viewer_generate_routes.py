@@ -632,6 +632,70 @@ def test_an_engine_action_is_answered_once_the_setup_lock_is_free(
     assert held == [False]
 
 
+def _another_setup_runs(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "SETUP_ACTIVE", "a" * 32)
+
+
+def _the_clean_port_build_is_installed(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "clean_port_build_present", lambda: True)
+
+
+def _this_machine_cannot_run_setup(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "setup_available", lambda: (False, "no setup on this machine"))
+
+
+def _blender_is_not_installable(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "finish_capabilities", dict)
+
+
+def _gltfpack_is_not_installable(monkeypatch, _tmp_path):
+    monkeypatch.setattr(api, "props_tools_payload", dict)
+
+
+def _nothing_in_the_way(_monkeypatch, _tmp_path):
+    pass
+
+
+LOCK_FREE_CASES = [
+    ("/api/setup/run", _nothing_in_the_way, 202),
+    ("/api/setup/run", _a_picture_is_being_made, 409),
+    ("/api/setup/run", _another_setup_runs, 409),
+    ("/api/setup/run", _the_clean_port_build_is_installed, 409),
+    ("/api/setup/run", _this_machine_cannot_run_setup, 503),
+    ("/api/blender/install", _nothing_in_the_way, 202),
+    ("/api/blender/install", _a_picture_is_being_made, 409),
+    ("/api/blender/install", _another_setup_runs, 409),
+    ("/api/blender/install", _blender_is_not_installable, 409),
+    ("/api/gltfpack/install", _nothing_in_the_way, 202),
+    ("/api/gltfpack/install", _a_picture_is_being_made, 409),
+    ("/api/gltfpack/install", _another_setup_runs, 409),
+    ("/api/gltfpack/install", _gltfpack_is_not_installable, 409),
+    ("/api/finish/runs/knight__finish__1/resume", _a_picture_is_being_made, 409),
+    ("/api/finish/runs/knight__finish__1/resume", _another_setup_runs, 409),
+]
+
+
+@pytest.mark.parametrize("route, situation, status", LOCK_FREE_CASES, ids=[
+    f"{route.removeprefix('/api/')} {situation.__name__.strip('_')}" for route, situation, _ in LOCK_FREE_CASES])
+def test_a_setup_start_or_a_finish_resume_is_answered_once_the_setup_lock_is_free(
+        studio, installers, monkeypatch, tmp_path, route, situation, status):
+    # Each of these wrote its answer, a refusal most of all, while the lock every setup start
+    # waits on was still held: a client slow to read it held up every other setup start.
+    # Only deciding and putting the setup on the books need the lock.
+    situation(monkeypatch, tmp_path)
+    send, held = api.Handler._send_json, []
+
+    def noting_the_lock(handler, *args, **more):
+        held.append(api.SETUP_LOCK.locked())
+        return send(handler, *args, **more)
+    monkeypatch.setattr(api.Handler, "_send_json", noting_the_lock)
+
+    answered, _ = _post(studio, route)
+
+    assert answered == status
+    assert held == [False]
+
+
 def _being_set_up(engine_id):
     """What the download list answers while that engine's weights are coming down."""
     return lambda: types.SimpleNamespace(backend=types.SimpleNamespace(id=engine_id))

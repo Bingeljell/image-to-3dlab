@@ -4289,9 +4289,9 @@ class Handler(SimpleHTTPRequestHandler):
         """
         with SETUP_LOCK:
             waiting = self._claim("finish")
-            if waiting:
-                self._send_json(409, {"error": waiting})
-                return
+        if waiting:   # sent once the lock is free: a client slow to read must not hold it
+            self._send_json(409, {"error": waiting})
+            return
         try:
             if find_blender() is None:
                 raise RuntimeError(blender_missing_help())
@@ -4789,58 +4789,68 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _start_blender_install(self) -> None:
         global SETUP_ACTIVE
+        answer = None
         with SETUP_LOCK:
             refusal = blender_install_refusal(
                 finish_capabilities(),
                 waiting=self._claim("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
-                self._send_json(refusal[0], {"error": refusal[1]})
-                return
-            setup_id = uuid.uuid4().hex
-            SETUP_ACTIVE = setup_id
-            SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+                answer = refusal[0], {"error": refusal[1]}
+            else:
+                setup_id = uuid.uuid4().hex
+                SETUP_ACTIVE = setup_id
+                SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+        if answer:   # sent once the lock is free: a client slow to read must not hold it
+            self._send_json(*answer)
+            return
         self._send_json(202, {"setup_run_id": setup_id,
                               "events_url": f"/api/setup/run/{setup_id}/events"})
 
     def _start_gltfpack_install(self) -> None:
         global SETUP_ACTIVE
+        answer = None
         with SETUP_LOCK:
             refusal = gltfpack_install_refusal(
                 props_tools_payload(),
                 waiting=self._claim("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
-                self._send_json(refusal[0], {"error": refusal[1]})
-                return
-            setup_id = uuid.uuid4().hex
-            SETUP_ACTIVE = setup_id
-            SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
+                answer = refusal[0], {"error": refusal[1]}
+            else:
+                setup_id = uuid.uuid4().hex
+                SETUP_ACTIVE = setup_id
+                SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
+        if answer:   # sent once the lock is free: a client slow to read must not hold it
+            self._send_json(*answer)
+            return
         self._send_json(202, {"setup_run_id": setup_id,
                               "events_url": f"/api/setup/run/{setup_id}/events"})
 
     def _start_setup(self) -> None:
         global SETUP_ACTIVE
+        answer = None   # sent once the lock is free: a client slow to read must not hold it
         with SETUP_LOCK:
             # The shared rule, not a list of its own: every big job waits for a setup, so a
             # setup waits for every big job.
             waiting = self._claim("setup")
             if waiting:
-                self._send_json(409, {"error": waiting})
-                return
-            if SETUP_ACTIVE is not None or download_active() is not None:
-                self._send_json(409, {"error": "setup is already running"})
-                return
-            if clean_port_build_present():
-                self._send_json(409, {"error": "the clean-port build is already installed — nothing to set up"})
-                return
-            ok, reason = setup_available()
-            if not ok:
-                self._send_json(503, {"error": reason})
-                return
-            setup_id = uuid.uuid4().hex
-            SETUP_ACTIVE = setup_id
-            SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+                answer = 409, {"error": waiting}
+            elif SETUP_ACTIVE is not None or download_active() is not None:
+                answer = 409, {"error": "setup is already running"}
+            elif clean_port_build_present():
+                answer = 409, {"error": "the clean-port build is already installed — nothing to set up"}
+            else:
+                ok, reason = setup_available()
+                if not ok:
+                    answer = 503, {"error": reason}
+                else:
+                    setup_id = uuid.uuid4().hex
+                    SETUP_ACTIVE = setup_id
+                    SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+        if answer:
+            self._send_json(*answer)
+            return
         self._send_json(202, {
             "setup_run_id": setup_id,
             "events_url": f"/api/setup/run/{setup_id}/events",

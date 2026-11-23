@@ -290,7 +290,7 @@ def test_generate_checkpoints_latents_before_decode_failure(monkeypatch, tmp_pat
     assert checkpoint.is_file(), "failed non-debug runs must retain their recovery checkpoint"
 
 
-def _finished_run(monkeypatch, tmp_path, *, matted_with=None):
+def _finished_run(monkeypatch, tmp_path, *, matted_with=None, save_latents=False, told_to_decode=None):
     """The real `generate`, picture to files, with the model, the decode and the bake stubbed."""
     from types import SimpleNamespace
 
@@ -320,21 +320,12 @@ def _finished_run(monkeypatch, tmp_path, *, matted_with=None):
         "sample_latents_without_decode",
         lambda *_args, **_kwargs: (shape, texture, 512),
     )
-    monkeypatch.setattr(
-        gen,
-        "_decode_and_cache",
-        lambda *_args, **_kwargs: (
-            {
-                "vertices": None,
-                "faces": None,
-                "attrs": None,
-                "coords": None,
-                "attr_layout": None,
-                "res": 512,
-            },
-            0.1,
-        ),
-    )
+    def decode(*_args, **told):
+        if told_to_decode is not None:
+            told_to_decode.update(told)
+        return {"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None, "res": 512}, 0.1
+
+    monkeypatch.setattr(gen, "_decode_and_cache", decode)
     monkeypatch.setattr(gen, "_release_mps_memory", lambda: None)
 
     def finish_bake(*_args, **_kwargs):
@@ -350,7 +341,7 @@ def _finished_run(monkeypatch, tmp_path, *, matted_with=None):
         seed=19,
         sparse_attn_backend="sdpa",
         matted_with=matted_with,
-        save_latents=False,
+        save_latents=save_latents,
         save_decode=False,
         pre_cap=4_000_000,
         resolution="512",
@@ -423,17 +414,18 @@ def test_a_run_resumed_from_a_decode_bundle_leaves_its_licence_record_too(monkey
     record = read_model_record(output_path)
     assert record is not None, "no licence record beside the model"
     assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
-    assert record["input"]["path"] == str(decode_path)
-    assert record["input"]["sha256"] == _sha256(decode_path)
+    assert record["input"] == {"path": str(decode_path), "sha256": _sha256(decode_path),
+                               "source": "resumed-bundle"}        # not a picture the user gave
     assert record["output"]["sha256"] == _sha256(output_path)
     assert _licence_parts(record)["BRIA RMBG-2.0"]["loaded"] is False
 
 
-def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, tmp_path):
+def _resume_from_latents(monkeypatch, tmp_path, kept):
+    """The real `generate_from_latents` over a bundle that kept `kept` beside the latents, with the
+    model, the decode and the bake stubbed. Returns (the latents file, the model, the decode
+    bundle the run would save)."""
     import torch
 
-    picture = tmp_path / "cutout.png"
-    picture.write_bytes(b"png")
     latents_path, output_path = tmp_path / "model_latents.pt", tmp_path / "model.glb"
     latents_path.write_bytes(b"latents")
 
@@ -455,16 +447,42 @@ def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, t
                          ("trellis2.modules.sparse", sparse)):
         monkeypatch.setitem(sys.modules, name, module)
     bundle = {"shape_slat_feats": OnDevice(), "coords": OnDevice(), "tex_slat_feats": OnDevice(),
-              "res": 512, "seed": 7, "images": [str(picture)]}
+              "res": 512, "seed": 7, **kept}
     monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: bundle)
     monkeypatch.setattr(gen, "load_pipeline", lambda *_args, **_kwargs: object())
-    monkeypatch.setattr(gen, "_decode_and_cache", lambda *_args, **_kwargs: (
-        {"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None, "res": 512}, 0.1))
+    handed_on = {}
+
+    def decode(*_args, **told):
+        handed_on.update(told)
+        return {"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None, "res": 512}, 0.1
+    monkeypatch.setattr(gen, "_decode_and_cache", decode)
     monkeypatch.setattr(gen, "_release_mps_memory", lambda: None)
     _stub_the_bake(monkeypatch, output_path)
 
     gen.generate_from_latents(latents_path, output_path, tmp_path, sparse_attn_backend="sdpa",
                               save_decode=False, pre_cap=4_000_000)
+    return latents_path, output_path, handed_on
+
+
+def _resume_from_decode(monkeypatch, tmp_path, kept):
+    import torch
+
+    decode_path, output_path = tmp_path / "model_decode.pt", tmp_path / "model.glb"
+    torch.save({"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None,
+                "res": 512, "seed": 7, **kept}, decode_path)
+    monkeypatch.setattr(gen, "configure_environment", lambda *_args: None)
+    _stub_the_bake(monkeypatch, output_path)
+
+    gen.generate_from_decode(decode_path, output_path, tmp_path,
+                             decimation_target=300_000, texture_size=1024, pre_cap=4_000_000)
+    return decode_path, output_path
+
+
+def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, tmp_path):
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"png")
+
+    _, output_path, _ = _resume_from_latents(monkeypatch, tmp_path, {"images": [str(picture)]})
 
     record = read_model_record(output_path)
     assert record is not None, "no licence record beside the model"
@@ -472,6 +490,80 @@ def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, t
     assert record["input"]["path"] == str(picture)      # still on disk, so it is the input on record
     assert record["input"]["sha256"] == _sha256(picture)
     assert record["output"]["sha256"] == _sha256(output_path)
+
+
+# --- a resumed run says what the first run knew ---------------------------------------------
+#
+# The remover that cut the picture out and the picture itself are known to the run that
+# samples. A run resumed from its latents or its decode bundle wrote a record without the
+# remover, and took whatever file sat at the picture's old path as the input.
+
+def test_a_fresh_run_keeps_the_remover_and_the_pictures_hash_in_its_checkpoint(monkeypatch, tmp_path):
+    import torch
+
+    kept_by_the_decode = {}
+    image_path, _, _ = _finished_run(monkeypatch, tmp_path, matted_with="birefnet-general-lite",
+                                     save_latents=True, told_to_decode=kept_by_the_decode)
+
+    latents = torch.load(tmp_path / "model_latents.pt", weights_only=False)
+    wanted = {"images": [str(image_path)], "image_sha256": _sha256(image_path), "matte_model": "birefnet-general-lite"}
+    assert {key: latents.get(key) for key in wanted} == wanted
+    assert kept_by_the_decode["origin"] == wanted       # the decode bundle is told the same
+
+
+@pytest.mark.parametrize("resume", ["latents", "decode"])
+def test_a_resumed_run_names_the_remover_and_says_it_was_resumed(monkeypatch, tmp_path, resume):
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"png")
+    kept = {"images": [str(picture)], "image_sha256": _sha256(picture), "matte_model": "birefnet-general-lite"}
+
+    if resume == "latents":
+        _, output_path, handed_on = _resume_from_latents(monkeypatch, tmp_path, kept)
+        assert handed_on["origin"] == kept      # so a decode bundle saved now can be resumed the same way
+    else:
+        _, output_path = _resume_from_decode(monkeypatch, tmp_path, kept)
+
+    record = read_model_record(output_path)
+    assert _licence_parts(record)["rembg/birefnet-general-lite"]["purpose"] == "background removal"
+    assert record["model"]["resumed_from"] == resume
+    assert record["input"] == {"path": str(picture), "sha256": _sha256(picture), "source": "user-provided"}
+    assert json.loads((tmp_path / "model.json").read_text(encoding="utf-8"))["matte_model"] == "birefnet-general-lite"
+
+
+def test_a_resumed_run_does_not_take_another_file_at_the_pictures_old_path_for_the_picture(monkeypatch, tmp_path):
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"the picture the model was made from")
+    kept = {"images": [str(picture)], "image_sha256": _sha256(picture), "matte_model": None}
+    picture.write_bytes(b"something else saved under the same name since")
+
+    decode_path, output_path = _resume_from_decode(monkeypatch, tmp_path, kept)
+
+    assert read_model_record(output_path)["input"] == {
+        "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}
+
+
+def test_an_older_bundle_with_a_relative_picture_path_is_not_looked_up_from_the_current_folder(monkeypatch, tmp_path):
+    # Bundles made before the hash was kept: a relative path is tried against wherever the
+    # resume happens to run, and a file of that name there need not be the picture.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "cutout.png").write_bytes(b"not the picture")
+    monkeypatch.chdir(elsewhere)
+
+    decode_path, output_path = _resume_from_decode(monkeypatch, tmp_path, {"images": ["cutout.png"]})
+
+    assert read_model_record(output_path)["input"] == {
+        "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}
+
+
+def test_an_older_bundle_takes_the_remover_from_the_first_runs_own_file(monkeypatch, tmp_path):
+    # Before the bundle kept it, the remover's name was only in <name>.json, which a finished
+    # debug run leaves beside <name>_latents.pt and <name>_decode.pt.
+    (tmp_path / "model.json").write_text(json.dumps({"matte_model": "u2net"}), encoding="utf-8")
+
+    _, output_path = _resume_from_decode(monkeypatch, tmp_path, {"images": [str(tmp_path / "gone.png")]})
+
+    assert "rembg/u2net" in _licence_parts(read_model_record(output_path))
 
 
 def _git(folder, *args):

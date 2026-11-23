@@ -345,6 +345,50 @@ def _artifact(path: Path) -> dict[str, Any]:
     return {"path": str(path), "sha256": sha256(path), "bytes": path.stat().st_size}
 
 
+def bundle_origin(image_path: Path, matted_with: str | None) -> dict[str, Any]:
+    """What a latents or decode bundle keeps about the picture it came from, so a run resumed
+    from it writes the same licence record: where the picture was, its hash (a path alone
+    cannot tell it from another file saved there since), and the remover that cut it out."""
+    return {"images": [str(image_path)],
+            "image_sha256": sha256(image_path) if image_path.is_file() else None,
+            "matte_model": matted_with}
+
+
+def origin_of(bundle: dict[str, Any], bundle_path: Path, kind: str) -> dict[str, Any]:
+    """`bundle_origin`, read back from a bundle (`kind`: "latents" or "decode").
+
+    An older bundle kept only the picture's path. Its remover is then taken from the first
+    run's own file, `<name>.json` beside `<name>_latents.pt` or `<name>_decode.pt`, when a
+    finished run left one there.
+    """
+    matte = bundle.get("matte_model")
+    if "matte_model" not in bundle:
+        stem = bundle_path.stem.removesuffix(f"_{kind}")
+        try:
+            first_run = json.loads(bundle_path.with_name(stem + ".json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            first_run = None
+        matte = first_run.get("matte_model") if isinstance(first_run, dict) else None
+    return {"images": [str(image) for image in bundle.get("images") or []] or [f"<from {kind}>"],
+            "image_sha256": bundle.get("image_sha256"),
+            "matte_model": matte if isinstance(matte, str) else None}
+
+
+def recorded_input(origin: dict[str, Any], bundle_path: Path) -> tuple[Path, str]:
+    """The input a resumed run puts on record, and what kind of input it is.
+
+    The picture, when it is still the file the first run read: told by its hash, or for an
+    older bundle with no hash, only at an absolute path (a relative one would be looked up
+    from wherever this run happens to start). Otherwise the bundle itself, named as that.
+    """
+    picture = Path(origin["images"][0])
+    if picture.is_file():
+        known = origin.get("image_sha256")
+        if (sha256(picture) == known) if known else picture.is_absolute():
+            return picture, "user-provided"
+    return bundle_path, "resumed-bundle"
+
+
 def backend_revision(vendor_root: Path) -> str | None:
     """The commit of the TRELLIS.2 checkout a run used, or None when that cannot be read.
 
@@ -362,7 +406,8 @@ def backend_revision(vendor_root: Path) -> str | None:
 
 
 def _write_records(manifest: dict[str, Any], *, image: Path, output_path: Path,
-                   vendor_root: Path) -> None:
+                   vendor_root: Path, input_source: str = "user-provided",
+                   resumed_from: str | None = None) -> None:
     """Write the run file and the licence record beside the model.
 
     Every way out of this script ends here. `<out>.provenance.json` is the record that
@@ -378,6 +423,7 @@ def _write_records(manifest: dict[str, Any], *, image: Path, output_path: Path,
         matted_with=manifest["matte_model"], route=PROVENANCE_ROUTE,
         bria_patch="scripts/patch_trellis_space_core.py",
         backend_revision=backend_revision(vendor_root),
+        input_source=input_source, resumed_from=resumed_from,
     )
     sidecar = write_provenance(output_path.with_suffix(".provenance.json"), record)
     print(f"Manifest: {manifest_path}", flush=True)
@@ -463,12 +509,13 @@ def filter_degenerate_faces(mesh) -> int:
 
 def _decode_mesh(
     pipeline, shape_slat, tex_slat, res, *,
-    pipeline_type: str, seed: int, image_path: Path,
+    pipeline_type: str, seed: int, origin: dict[str, Any],
 ) -> tuple[dict[str, Any], float]:
     """decode_latent -> drop degenerate faces -> CPU bundle. Returns (bundle, decode_seconds).
 
     The bundle is exactly the ``--from-decode`` cache schema (verts/faces/attrs/coords on CPU
-    plus attr_layout/res/pipeline_type/seed/images), so saving it IS writing the cache.
+    plus attr_layout/res/pipeline_type/seed and the picture's `origin`, see `bundle_origin`),
+    so saving it IS writing the cache.
     """
     decode_started = time.time()
     mesh = pipeline.decode_latent(shape_slat, tex_slat, res)[0]
@@ -488,7 +535,7 @@ def _decode_mesh(
             "res": int(res),
             "pipeline_type": pipeline_type,
             "seed": seed,
-            "images": [str(image_path)],
+            **origin,
         },
         decode_seconds,
     )
@@ -672,7 +719,7 @@ def _bake_export(
 def _decode_and_cache(
     pipeline, shape_slat, tex_slat, res, output_path: Path, *,
     save_decode: bool, decode_path: Path | None,
-    pipeline_type: str, seed: int, image_path: Path,
+    pipeline_type: str, seed: int, origin: dict[str, Any],
 ) -> tuple[dict[str, Any], float]:
     """decode -> filter -> (save the CPU bundle) -> return (bundle, decode_seconds).
 
@@ -683,7 +730,7 @@ def _decode_and_cache(
     """
     bundle, decode_seconds = _decode_mesh(
         pipeline, shape_slat, tex_slat, res,
-        pipeline_type=pipeline_type, seed=seed, image_path=image_path,
+        pipeline_type=pipeline_type, seed=seed, origin=origin,
     )
     if save_decode:
         if decode_path is None:
@@ -762,12 +809,12 @@ def generate_from_latents(
     decode_path = None
     if save_decode:
         decode_path = output_path.with_name(output_path.stem + "_decode.pt")
-    image_path = Path(str(bundle["images"][0])) if bundle.get("images") else Path("<from latents>")
+    origin = origin_of(bundle, latents_path, "latents")
     mesh_bundle, decode_seconds = _decode_and_cache(
         pipeline, shape_slat, tex_slat, res, output_path,
         save_decode=save_decode, decode_path=decode_path,
         pipeline_type=pipeline_type, seed=int(bundle.get("seed", -1)),
-        image_path=image_path,
+        origin=origin,
     )
     del pipeline  # free the 4B model before the memory-heavy bake (see _release_mps_memory)
     _release_mps_memory()
@@ -786,7 +833,7 @@ def generate_from_latents(
     effective_params = {**DEMO_PARAMS, "decimation_target": decimation_target,
                         "texture_size": texture_size}
     manifest = build_manifest(
-        image=str(bundle.get("images", ["<from latents>"])[0]),
+        image=origin["images"][0],
         output=str(output_path),
         params=effective_params,
         pipeline_type=pipeline_type,
@@ -798,10 +845,12 @@ def generate_from_latents(
         sparse_attn_dtype=resolved_attention_dtype(
             sparse_attn_backend, os.environ.get("I2L_MLX_ATTN_DTYPE")
         ),
+        matte_model=origin["matte_model"],
     )
     manifest["resumed_from_latents"] = str(latents_path)
-    _write_records(manifest, image=image_path if image_path.is_file() else latents_path,
-                   output_path=output_path, vendor_root=vendor_root)
+    image, input_source = recorded_input(origin, latents_path)
+    _write_records(manifest, image=image, output_path=output_path, vendor_root=vendor_root,
+                   input_source=input_source, resumed_from="latents")
     print(f"Total (decode+bake, no resample): {timings['total']:.1f}s", flush=True)
     return manifest
 
@@ -906,6 +955,7 @@ def generate(
     # those runs the checkpoint is deleted only after a GLB exists. A decode/bake failure
     # therefore remains resumable without turning ordinary successful runs into disk leaks.
     latents_path = output_path.with_name(output_path.stem + "_latents.pt")
+    origin = bundle_origin(image_path, matted_with)     # what a resumed run cannot find out again
     torch.save(
         {
             "shape_slat_feats": shape_slat.feats.cpu(),
@@ -914,7 +964,7 @@ def generate(
             "res": int(res),
             "pipeline_type": pipeline_type,
             "seed": seed,
-            "images": [str(image_path)],
+            **origin,
         },
         latents_path,
     )
@@ -928,7 +978,7 @@ def generate(
     mesh_bundle, decode_seconds = _decode_and_cache(
         pipeline, shape_slat, tex_slat, res, output_path,
         save_decode=save_decode, decode_path=decode_path,
-        pipeline_type=pipeline_type, seed=seed, image_path=image_path,
+        pipeline_type=pipeline_type, seed=seed, origin=origin,
     )
     del pipeline  # free the 4B model before the memory-heavy bake (see _release_mps_memory)
     _release_mps_memory()
@@ -1002,8 +1052,9 @@ def generate_from_decode(
     bake_artifacts["decode"] = _artifact(decode_path)
     timings = {"load_decode_bundle": time.time() - started, **bake_timings,
                "total": time.time() - started}
+    origin = origin_of(bundle, decode_path, "decode")
     manifest = build_manifest(
-        image=str(bundle.get("images", ["<from decode>"])[0]),
+        image=origin["images"][0],
         output=str(output_path),
         params={**DEMO_PARAMS, "decimation_target": decimation_target,
                 "texture_size": texture_size, "pre_cap_faces": pre_cap},
@@ -1014,11 +1065,12 @@ def generate_from_decode(
         artifacts=bake_artifacts,
         load_rembg=False,
         sparse_attn_backend="sdpa",
+        matte_model=origin["matte_model"],
     )
     manifest["resumed_from_decode"] = str(decode_path)
-    source = Path(str(bundle.get("images", ["<from decode>"])[0]))
-    _write_records(manifest, image=source if source.is_file() else decode_path,
-                   output_path=output_path, vendor_root=vendor_root)
+    image, input_source = recorded_input(origin, decode_path)
+    _write_records(manifest, image=image, output_path=output_path, vendor_root=vendor_root,
+                   input_source=input_source, resumed_from="decode")
     print(f"Total (pre-cap + bake, no decode): {timings['total']:.1f}s", flush=True)
     return manifest
 

@@ -304,13 +304,19 @@ def sha256_file(path: Path) -> str:
 # The in-repo MLX port is MIT. The weights it loads are not.
 def trellis2_record(*, image: Path, output: Path, parameters: dict[str, Any],
                     matted_with: str | None, route: str, bria_patch: str,
-                    backend_revision: str | None) -> dict[str, Any]:
+                    backend_revision: str | None, input_source: str = "user-provided",
+                    resumed_from: str | None = None) -> dict[str, Any]:
     """The licence record of a TRELLIS.2 run made by one of the wrapper scripts.
 
     One builder for the Mac, NVIDIA and AMD routes, in `finalize_output`'s schema, so a model
     says the same thing about its licences whichever machine made it. `matted_with` is our
     remover that cut the picture out, if one did; `bria_patch` is the script that keeps
     BRIA RMBG-2.0 unloaded on that route.
+
+    A run resumed from saved latents or a decode bundle says so (`resumed_from`). Its
+    components are still the models the asset was made with, though the resumed run itself
+    loaded fewer or none; `input_source` is "resumed-bundle" when the picture could not be
+    told apart from another file, and the bundle is the input on record.
     """
     profile = LICENSES["trellis2"]
     components: list[dict[str, Any]] = []
@@ -340,10 +346,11 @@ def trellis2_record(*, image: Path, output: Path, parameters: dict[str, Any],
     return {
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
-        "input": {"path": str(image), "sha256": sha256_file(image), "source": "user-provided"},
+        "input": {"path": str(image), "sha256": sha256_file(image), "source": input_source},
         "output": {"path": str(output), "sha256": sha256_file(output),
                    "classification": profile.classification},
-        "model": {"backend": "trellis2", "route": route, "parameters": parameters},
+        "model": {"backend": "trellis2", "route": route, "parameters": parameters,
+                  **({"resumed_from": resumed_from} if resumed_from else {})},
         "license": {"name": profile.license_name, "url": profile.license_url,
                     "conditions": list(profile.conditions)},
         "components": components,

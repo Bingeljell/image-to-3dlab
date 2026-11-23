@@ -67,7 +67,7 @@ import patch_trellis_space_core as space_patch
 
 # At import, not at the end of a run: a 25-minute generation must not find out on its last
 # statement that the licence record cannot be written.
-from image_to_3dlab.provenance import trellis2_record, write_provenance
+from image_to_3dlab.provenance import MATTE_UNKNOWN, trellis2_record, write_provenance
 
 #: This route's name in the licence record, beside "nvidia-cuda" and "amd-rocm".
 PROVENANCE_ROUTE = "apple-mps"
@@ -359,11 +359,14 @@ def origin_of(bundle: dict[str, Any], bundle_path: Path, kind: str) -> dict[str,
 
     An older bundle kept only the picture's path. Its remover is then taken from the first
     run's own file, `<name>.json` beside `<name>_latents.pt` or `<name>_decode.pt`, but only
-    when that file names this bundle's hash among what its run made: the name alone could be
-    another run's.
+    when that file names this bundle's hash among what its run made (the name alone could be
+    another run's) and kept the remover at all. Otherwise it is MATTE_UNKNOWN, never None:
+    None says no remover was used, and is carried into every bundle saved from this one.
     """
-    matte = bundle.get("matte_model")
-    if "matte_model" not in bundle:
+    matte: Any = MATTE_UNKNOWN
+    if "matte_model" in bundle:
+        matte = bundle["matte_model"]
+    else:
         stem = bundle_path.stem.removesuffix(f"_{kind}")
         try:
             first_run = json.loads(bundle_path.with_name(stem + ".json").read_text(encoding="utf-8"))
@@ -371,11 +374,11 @@ def origin_of(bundle: dict[str, Any], bundle_path: Path, kind: str) -> dict[str,
             first_run = None
         made = first_run.get("artifacts") if isinstance(first_run, dict) else None
         made = made.get(kind) if isinstance(made, dict) else None
-        ours = isinstance(made, dict) and made.get("sha256") == sha256(bundle_path)
-        matte = first_run.get("matte_model") if ours else None
+        if isinstance(made, dict) and made.get("sha256") == sha256(bundle_path) and "matte_model" in first_run:
+            matte = first_run["matte_model"]
     return {"images": [str(image) for image in bundle.get("images") or []] or [f"<from {kind}>"],
             "image_sha256": bundle.get("image_sha256"),
-            "matte_model": matte if isinstance(matte, str) else None}
+            "matte_model": matte if matte is None or isinstance(matte, str) else MATTE_UNKNOWN}
 
 
 def recorded_input(origin: dict[str, Any], bundle_path: Path) -> tuple[Path, str]:

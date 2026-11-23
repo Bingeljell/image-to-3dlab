@@ -369,6 +369,12 @@ def _licence_parts(record):
     return {part["component"]: part for part in record["components"]}
 
 
+def _removers(record):
+    """The background removers a record says were used (BRIA is listed as not loaded)."""
+    return [part["component"] for part in record["components"]
+            if part["purpose"] == "background removal" and part.get("loaded", True)]
+
+
 def _stub_the_bake(monkeypatch, output_path):
     def finish_bake(*_args, **_kwargs):
         output_path.write_bytes(b"glTF")
@@ -495,6 +501,7 @@ def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, t
     assert record["input"]["path"] == str(picture)      # still on disk and still the same file
     assert record["input"]["sha256"] == _sha256(picture)
     assert record["output"]["sha256"] == _sha256(output_path)
+    assert _removers(record) == []      # none cut this picture out, and the record says no more
 
 
 # --- a resumed run says what the first run knew ---------------------------------------------
@@ -593,25 +600,36 @@ def test_an_older_bundle_takes_the_remover_from_the_first_runs_own_file(monkeypa
 
 
 @pytest.mark.parametrize("resume", ["latents", "decode"])
-@pytest.mark.parametrize("left_there", ["by another run", "without the bundles it made"])
-def test_an_older_bundle_does_not_take_the_remover_from_a_file_another_run_left(
+@pytest.mark.parametrize("left_there", ["by another run", "without the bundles it made",
+                                        "from before the remover was kept"])
+def test_an_older_bundle_whose_remover_cannot_be_told_says_it_is_not_known(
         monkeypatch, tmp_path, resume, left_there):
     # <name>.json is only a name: a later run of the same name writes over it, and a bundle
     # copied into another folder can land beside anyone's. It speaks for this bundle only when
-    # it names this bundle's hash among what that run made.
+    # it names this bundle's hash among what that run made, and then only if it kept the
+    # remover at all. Otherwise the record left the remover out, which reads as "none".
     older = {"images": [str(tmp_path / "gone.png")]}
     if left_there == "by another run":
         not_this_one = _first_runs_file(lambda _bundle: "0" * 64)
-    else:
+    elif left_there == "without the bundles it made":
         def not_this_one(bundle_path):
             bundle_path.with_name("model.json").write_text(json.dumps({"matte_model": "u2net"}), encoding="utf-8")
+    else:
+        def not_this_one(bundle_path):
+            made = {"path": str(bundle_path), "sha256": _sha256(bundle_path), "bytes": 1}
+            bundle_path.with_name("model.json").write_text(
+                json.dumps({"artifacts": {"latents": made, "decode": made}}), encoding="utf-8")
 
     if resume == "latents":
-        _, output_path, _ = _resume_from_latents(monkeypatch, tmp_path, older, beside=not_this_one)
+        _, output_path, handed_on = _resume_from_latents(monkeypatch, tmp_path, older, beside=not_this_one)
+        assert handed_on["origin"]["matte_model"] == "unknown"      # and so does a bundle saved now
     else:
         _, output_path = _resume_from_decode(monkeypatch, tmp_path, older, beside=not_this_one)
 
-    assert "rembg/u2net" not in _licence_parts(read_model_record(output_path))
+    record = read_model_record(output_path)
+    assert _removers(record) == ["background remover (not known)"]
+    assert _licence_parts(record)["background remover (not known)"]["commercial_status"] == "unknown"
+    assert json.loads((tmp_path / "model.json").read_text(encoding="utf-8"))["matte_model"] == "unknown"
 
 
 def _git(folder, *args):

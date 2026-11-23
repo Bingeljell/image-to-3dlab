@@ -3512,8 +3512,9 @@ class Handler(SimpleHTTPRequestHandler):
                     self._send_json(409, {"error": "a skin is being made; wait for it to finish"})
                     return
                 number = body.get("number")
-                skin = skins_api.STORE.approve(skin, str(body.get("side", "front")),
-                                               int(number) if number is not None else None)
+                with skins_api.STORE.lock:      # a try takes it too: neither writes over the other
+                    skin = skins_api.STORE.approve(skins_api.STORE.get(skin.id), str(body.get("side", "front")),
+                                                   int(number) if number is not None else None)
                 started = None
                 # The back follows the front at once, with the same change asked for.
                 if skin.next_side() == "back" and not skin.tries["back"]:
@@ -3523,16 +3524,22 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"skin": self._skin_state(skin), "picture_job": started})
                 return
             if action == "discard":
-                drawing = any(image_api.MANAGER.jobs.get(t.get("job_id")) is not None
-                              and image_api.MANAGER.jobs[t["job_id"]].status in {"queued", "running"}
-                              for side in skins_api.SIDES for t in skin.tries[side])
-                building = any(b.skin_id == skin.id and b.status not in skins_api.TERMINAL
-                               for b in skins_api.BUILDS.jobs.values())
-                if drawing or building:
-                    self._send_json(409, {"error": "This skin is being drawn or painted; wait for it to finish."})
-                    return
-                skins_api.STORE.discard(skin)
-                self._send_json(200, {"discarded": skin.id})
+                # Under the lock a try holds from recording itself until its picture has a job:
+                # in between it would not look like drawing, and its next save would bring the
+                # deleted skin back.
+                with skins_api.STORE.lock:
+                    skin = skins_api.STORE.get(skin.id)
+                    drawing = any(image_api.MANAGER.jobs.get(t.get("job_id")) is not None
+                                  and image_api.MANAGER.jobs[t["job_id"]].status in {"queued", "running"}
+                                  for side in skins_api.SIDES for t in skin.tries[side])
+                    building = any(b.skin_id == skin.id and b.status not in skins_api.TERMINAL
+                                   for b in skins_api.BUILDS.jobs.values())
+                    if drawing or building:
+                        answer = 409, {"error": "This skin is being drawn or painted; wait for it to finish."}
+                    else:
+                        skins_api.STORE.discard(skin)
+                        answer = 200, {"discarded": skin.id}
+                self._send_json(*answer)
                 return
             if action == "build":
                 waiting = self._claim("skin")

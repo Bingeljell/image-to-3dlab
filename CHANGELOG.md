@@ -69,7 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the picture engine was set up, answered "wait" or "not installed" but still kept an empty skin on the
   model; asking twice kept two. The skin is now kept only once its first picture has started. And a new try
   on an existing skin that loses the start to another picture leaves the skin as it was, approvals included,
-  also when the try that won was on the same skin.
+  also when the try that won was on the same skin. An approval made while a try of the same skin is starting no
+  longer writes over that try or gets written over by it, and a skin deleted at that moment stays deleted.
 - **A request that is not a JSON object gets an answer.** Sent a list or a number, the studio closed the connection
   without a word, so a script or an agent could not tell what was wrong. Making a picture or a back view, renaming,
   hiding, deleting or picking a main version in the Library, using or deleting a kept back, the bug report, the

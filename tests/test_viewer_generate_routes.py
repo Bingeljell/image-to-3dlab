@@ -1412,6 +1412,48 @@ def test_two_tries_of_one_skin_at_once_keep_the_try_that_won_the_start(studio, w
     assert after[-1]["instruction"] == winner and after[-1]["job_id"] == answer["picture_job"]["job_id"]
 
 
+def test_an_approval_made_while_a_try_of_the_skin_is_starting_keeps_both(studio, workshop, monkeypatch):
+    # Approving read the skin and wrote it back whole, outside the store's lock that tries
+    # take: the try starting meanwhile wrote over the approval, or the approval over the try.
+    reached, let_go = _hold(monkeypatch, "start_edit", on=api.image_api)
+    skin_id = workshop.approved.id
+    first = workshop.skins.get(skin_id).tries["front"][0]["picture"]
+
+    trying, tried = _in_the_background(
+        lambda: _send(studio, f"/api/skins/{skin_id}/try", {"side": "front", "instruction": "gold"}))
+    assert reached.wait(20)
+    approving, approved = _in_the_background(
+        lambda: _send(studio, f"/api/skins/{skin_id}/approve", {"side": "front", "number": 1}))
+    approving.join(1.0)                 # done, or waiting its turn behind the try
+    let_go.set()
+
+    assert _answered(trying, tried)[0] == 202
+    assert _answered(approving, approved)[0] == 200
+    after = workshop.skins.get(skin_id)
+    assert after.tries["front"][-1]["instruction"] == "gold" and after.tries["front"][-1].get("job_id")
+    assert after.approved["front"] == first
+
+
+def test_a_skin_discarded_while_a_try_of_it_is_starting_does_not_come_back(studio, workshop, monkeypatch):
+    # Discard asked whether a picture was being drawn and deleted the folder, outside the
+    # store's lock: a try between recording itself and starting its picture had no job yet,
+    # so the skin was deleted, and the try's next save brought it back.
+    reached, let_go = _hold(monkeypatch, "start_edit", on=api.image_api)
+    skin_id = workshop.approved.id
+
+    trying, tried = _in_the_background(
+        lambda: _send(studio, f"/api/skins/{skin_id}/try", {"side": "front", "instruction": "gold"}))
+    assert reached.wait(20)
+    discarding, discarded = _in_the_background(lambda: _send(studio, f"/api/skins/{skin_id}/discard", {}))
+    discarding.join(1.0)                # done, or waiting its turn behind the try
+    let_go.set()
+
+    assert _answered(trying, tried)[0] == 202
+    status, _ = _answered(discarding, discarded)
+    kept = skin_id in {skin.id for skin in workshop.skins.all()}
+    assert (status, kept) in {(200, False), (409, True)}, "said one thing about the skin, did another"
+
+
 def test_a_new_skin_whose_picture_did_start_is_kept_even_if_noting_it_fails(studio, workshop, monkeypatch):
     # Removing the skin is right when its picture never started. It was removed on any error,
     # also one after the start: the picture was then being drawn into a folder that was gone.

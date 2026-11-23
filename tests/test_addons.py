@@ -899,6 +899,13 @@ class TestPicture:
             assert addons.read_registry([listing(picture=bad)])[0].picture is None
         assert addons.read_registry([listing()])[0].picture is None
 
+    def test_a_picture_link_is_checked_like_every_other_link_from_the_list(self):
+        """It only had to start with https://, so one with a quote, a bracket or a space in it
+        was kept where the author and source links with the same in them are dropped."""
+        for bad in ('https://example.com/a.png" onerror="alert(1)', "https://example.com/<a>.png",
+                    "https://example.com/a b.png", "https://example.com/a.png'x"):
+            assert addons.read_registry([listing(picture=bad)])[0].picture is None, bad
+
 
 class TestRunCheck:
     def test_the_skipped_list_is_read_only_for_a_partial_result_and_only_strings(self):

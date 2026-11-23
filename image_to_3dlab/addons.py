@@ -262,9 +262,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         runs = item.get("runs", "local")
         if runs not in RUNS:
             raise ValueError(f"{where} 'runs' must be one of {sorted(RUNS)}; got {runs!r}")
-        picture = item.get("picture")
-        if not (isinstance(picture, str) and picture.startswith("https://")):
-            picture = None  # a picture is only ever a plain https link
+        picture = _https_link(item.get("picture")) or None  # only ever a plain https link
         tier = item.get("tier", "listed")
         if tier not in LISTED_TIERS:
             raise ValueError(f"{where} 'tier' must be one of {sorted(LISTED_TIERS)}; got {tier!r}")

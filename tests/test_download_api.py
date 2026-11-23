@@ -885,6 +885,45 @@ def _deaf_run(tmp_path, monkeypatch):
     return run
 
 
+@pytest.mark.posix
+def test_a_downloader_that_ignores_the_polite_stop_is_stopped_when_the_run_fails(
+        tmp_path, monkeypatch):
+    # A run that failed after the downloader launched (here: its pid note could not be written)
+    # was marked an error and the slot freed, but the downloader kept running, unread and
+    # untracked, spending bandwidth beside the next setup.
+    from deaf_worker import kill_and_reap
+
+    run = _deaf_run(tmp_path, monkeypatch)
+    try:
+        dl._run(run)
+
+        assert run.status == "error"
+        assert dl.active() is None
+        assert run.process.poll() is not None, "the downloader was left running"
+    finally:
+        kill_and_reap(run.process)
+
+
+@pytest.mark.posix
+def test_a_run_ends_and_its_downloader_is_stopped_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed raised out of the finally: the error escaped the
+    # runner's thread, the downloader kept running, and the run stayed "running" for good, so
+    # no other setup could start.
+    from deaf_worker import kill_and_reap, unremovable_pid_note
+
+    run = _deaf_run(tmp_path, monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        dl._run(run)
+
+        assert run.status == "error"
+        assert dl.active() is None
+        assert run.process.poll() is not None, "the downloader was left running"
+    finally:
+        kill_and_reap(run.process)
+
+
 def test_a_finished_download_is_not_left_running_when_its_pid_note_cannot_be_removed(
         tmp_path, monkeypatch):
     # A download that finished fine still raised out of the finally when its pid note could not

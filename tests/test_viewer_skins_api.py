@@ -763,3 +763,66 @@ def test_a_skin_build_whose_thread_cannot_start_does_not_hold_the_slot(output, m
     again = builds.start(saved, background=False, runner=lambda c, **k: _FakeProcess(["boom"], code=1),
                          box=_same_box)
     assert again.status == "error" and "repaint" in again.error  # accepted and ran (failing on purpose)
+
+
+def _deaf_build(output, tmp_path, monkeypatch):
+    """A build whose repaint is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import deaf_popen_class, failing_pid_note
+
+    failing_pid_note(monkeypatch)
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    seen = {}
+    record = builds._history
+
+    def history(job, skin):
+        seen["alive_when_saved"] = job.process is not None and job.process.poll() is None
+        seen["still_active"] = builds.active == job.id
+        record(job, skin)
+
+    builds._history = history
+    return builds, skin, deaf_popen_class(tmp_path), seen
+
+
+@pytest.mark.posix
+def test_a_repaint_that_ignores_the_polite_stop_is_stopped_when_the_build_fails(
+        output, tmp_path, monkeypatch):
+    # A build that failed after its repaint launched (here: its pid note could not be written)
+    # left the repaint running, unread and untracked, once the skin was saved as an error and
+    # the slot freed.
+    from deaf_worker import kill_and_reap
+
+    builds, skin, runner, seen = _deaf_build(output, tmp_path, monkeypatch)
+    job = None
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=_same_box)
+
+        assert job.status == "error"
+        assert not builds.running()
+        assert seen["alive_when_saved"] is False, "the build ended with the repaint still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(next(iter(builds.jobs.values())).process)
+
+
+@pytest.mark.posix
+def test_a_build_is_stopped_and_its_slot_freed_when_its_pid_note_cannot_be_removed(
+        output, tmp_path, monkeypatch):
+    # A pid note that could not be removed raised out of the finally before the skin was saved,
+    # the history written or the slot cleared: the skin stayed "building" and no skin could be
+    # built again.
+    from deaf_worker import kill_and_reap, unremovable_pid_note
+
+    builds, skin, runner, seen = _deaf_build(output, tmp_path, monkeypatch)
+    store = builds.store
+    unremovable_pid_note(monkeypatch)
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=_same_box)
+
+        assert job.status == "error"
+        assert not builds.running()
+        assert store.get(skin.id).status == "error"
+        assert seen["alive_when_saved"] is False, "the build ended with the repaint still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(next(iter(builds.jobs.values())).process)

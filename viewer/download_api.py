@@ -520,6 +520,19 @@ def _run(run: DownloadRun) -> None:
         return
     finally:
         stop.set()
+        # A run that failed after the downloader launched must not leave it running: stop it,
+        # and reap it, before the run's state is set and the slot freed.
+        proc = run.process
+        if proc is not None and proc.poll() is None:
+            try:
+                processes.terminate_group(proc.pid)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    processes.kill_group(proc.pid)
+                    proc.wait(timeout=5)
+            except Exception as cleanup_exc:
+                run.log.append(f"cleanup warning: {cleanup_exc}")
         try:
             run.directory.joinpath("pid").unlink(missing_ok=True)
         except Exception as cleanup_exc:

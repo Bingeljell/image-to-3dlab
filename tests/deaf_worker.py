@@ -42,6 +42,11 @@ def _deaf_popen(tmp_path):
     return DeafPopen
 
 
+def deaf_popen_class(tmp_path):
+    """The SIGTERM-ignoring Popen itself, for a runner that takes its launcher as an argument."""
+    return _deaf_popen(tmp_path)
+
+
 def use_deaf_popen(module, monkeypatch, tmp_path):
     monkeypatch.setattr(module, "subprocess", types.SimpleNamespace(
         **{**vars(subprocess), "Popen": _deaf_popen(tmp_path)}))

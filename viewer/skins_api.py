@@ -557,6 +557,19 @@ class SkinBuilds:
             job.emit({"phase": "error", "message": str(exc)})
             usage_api.count_failed("skin", exc)
         finally:
+            # A build that failed after its repaint or finish launched must not leave it running:
+            # stop it, and reap it, before the skin is saved and the slot freed.
+            proc = job.process
+            if proc is not None and proc.poll() is None:
+                try:
+                    processes.terminate_group(proc.pid)
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        processes.kill_group(proc.pid)
+                        proc.wait(timeout=5)
+                except Exception as cleanup_exc:
+                    job.log_lines.append(f"cleanup warning: {cleanup_exc}")
             try:
                 folder.joinpath("pid").unlink(missing_ok=True)
             except Exception as cleanup_exc:

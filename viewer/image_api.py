@@ -1027,6 +1027,19 @@ def run_job(job: ImageJob, manager: ImageJobManager,
         job.set_status("error", error=job.error)
         usage_api.count_failed("picture", exc)
     finally:
+        # A run that failed after sd-cli launched must not leave it running: stop it, and reap
+        # it, before the job is finished and the slot freed.
+        proc = job.process
+        if proc is not None and proc.poll() is None:
+            try:
+                processes.terminate_group(proc.pid)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    processes.kill_group(proc.pid)
+                    proc.wait(timeout=5)
+            except Exception as cleanup_exc:
+                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
         for scratch in [*job.scratch, job.directory.joinpath("pid")]:
             try:
                 scratch.unlink(missing_ok=True)

@@ -940,3 +940,55 @@ def test_a_picture_whose_thread_cannot_start_does_not_hold_the_slot(which, tmp_p
     assert job.status == "error" and "can't start new thread" in job.error
     assert manager.active is None
     manager.create("the next one", api.clean_settings({}), output_path=tmp_path / "next" / "next.png")
+
+
+def _deaf_picture_job(tmp_path, monkeypatch):
+    """A picture job whose sd-cli is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import failing_pid_note, use_deaf_popen
+
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_APPLE)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: ["sd-cli"])
+    use_deaf_popen(api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    return manager, manager.create("a fox", api.clean_settings({}))
+
+
+@pytest.mark.posix
+def test_an_sd_cli_that_ignores_the_polite_stop_is_stopped_when_the_run_fails(tmp_path, monkeypatch):
+    # A run that failed after sd-cli launched (here: its pid note could not be written) left
+    # sd-cli running, unread and untracked, while the slot was freed for the next picture.
+    from deaf_worker import kill_and_reap, watch_slot
+
+    manager, job = _deaf_picture_job(tmp_path, monkeypatch)
+    seen = watch_slot(manager, job)
+    try:
+        api.run_job(job, manager, weights=WEIGHTS)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with sd-cli still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_picture_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed raised out of the finally before the slot was
+    # freed: the error escaped the runner's thread and the next picture was refused for good.
+    from deaf_worker import kill_and_reap, unremovable_pid_note, watch_slot
+
+    manager, job = _deaf_picture_job(tmp_path, monkeypatch)
+    seen = watch_slot(manager, job)
+    unremovable_pid_note(monkeypatch)
+    try:
+        api.run_job(job, manager, weights=WEIGHTS)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with sd-cli still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

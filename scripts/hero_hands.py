@@ -3,7 +3,8 @@
 
     .venv/bin/python scripts/hero_hands.py rigged.glb front.png [--out output/hero_hands/NAME]
         [--also finer.glb ...] [--left mirror|own] [--tries 8] [--keep 2] [--seeds 42 7]
-        [--hand-faces 20000] [--hand-detail 1] [--look "black fingerless gloves, black cuffs with teal stripes"]
+        [--hand-faces 20000] [--hand-detail 1] [--hand-paint match|keep]
+        [--look "black fingerless gloves, black cuffs with teal stripes"]
 
 A hand that is a few dozen pixels of a full-body picture comes out of Pixal3D as a mitten. Built on its own it
 fills Pixal3D's whole box and keeps its fingers, but only if its picture shows them: in an A-pose picture a hand
@@ -27,7 +28,9 @@ hangs beside the thigh, seen from the thumb's side with the fingers stacked, and
               every body weight; the new hand takes the old hand's. Every --also model (the finer models a
               game-ready step bakes paint and bumps from, in the same frame) gets the same hands. Each model's
               hands are as fine as the model round its wrists (--hand-detail; Pixal3D's own clean-up at that
-              size), so a game-ready step thins them with the rest of the figure.
+              size), so a game-ready step thins them with the rest of the figure. Their paint is brought to the
+              tone of the figure's own hands (--hand-paint match): the clean-up paints a built hand darker and far
+              more saturated than its drawing.
   7. check    each grafted hand's digits counted again, on the figure.
 
 Writes <out>/<model>_hands.glb (and <out>/<also>_hands.glb), with hands.json (every number) and a licence
@@ -272,10 +275,11 @@ def clean_sizes(density: float, hands: dict, detail: float) -> dict:
 
 
 def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, detail: float, rigged: bool,
-              loaded: dict):
+              loaded: dict, paint: str = "match"):
     """MODEL with both hands grafted on, written to OUT, each hand as fine as the model round its wrists times
     DETAIL (`wrist_density`, `clean_sizes`): (the report per side, both hands as one part, the body part, how the
-    hands were sized). LOADED keeps each hand build read once."""
+    hands were sized and painted). LOADED keeps each hand build read once. With PAINT "match" the new hands' paint is
+    brought to the model's own hands' (`match_paint`)."""
     from image_to_3dlab import hero_hands as hh
 
     data = model.read_bytes()
@@ -291,6 +295,7 @@ def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, 
         put[side] = {"part": loaded[path, hand["mirrored"]], "tf": hand["tf"]}
         used[side] = str(path)
     body, both, report = hh.graft_model(part, model_bone, plans, put)
+    toned = match_paint(run, out, part, model_bone, plans, both) if paint == "match" else {"paint": "kept"}
     for side, entry in report.items():         # the build was checked at the reference size; a smaller one may differ
         if entry["rim_share"] < hh.RIM_LIMIT:
             run.flag(f"the {side} hand's stitch in {out.name} closes only {entry['rim_share']:.0%} of its wrist: "
@@ -300,8 +305,35 @@ def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, 
     run.say(f"graft: {out.name}: body {len(body['faces'])} faces, hands {len(both['faces'])} faces "
             f"({finer:.1f} times as fine as the figure round its wrists; from "
             f"{', '.join(sorted({Path(p).name for p in used.values()}))})")
-    sizing = {"figure_density": round(density, 1), "hands_finer": round(finer, 2), "built_from": used}
+    sizing = {"figure_density": round(density, 1), "hands_finer": round(finer, 2), "built_from": used, **toned}
     return report, both, body, sizing
+
+
+def match_paint(run: Run, out: Path, part: dict, bone, plans: dict, both: dict) -> dict:
+    """Bring BOTH's paint (the grafted hands) to PART's own hands' (the faces the cut takes), in place, by quantile
+    curves per L*a*b* channel (`tone_curves`): Pixal3D's clean-up paints a built hand darker and far more saturated
+    than its drawing. Returns the medians before and after, for hands.json."""
+    import numpy as np
+
+    from image_to_3dlab import hero_hands as hh
+
+    old = hh.part_paint(part, hh.old_hand_faces(part["positions"], part["faces"], bone, plans))
+    new = hh.part_paint(both)
+    if old is None or new is None or min(len(old), len(new)) < hh.TONE_LEAST_FACES:
+        run.say(f"paint: {out.name}: the hands' paint is kept (no painted hand to match it to)")
+        return {"paint": "kept, nothing to match"}
+    curves = hh.tone_curves(new, old)
+    both["material"] = hh.retinted(both["material"], curves)
+    after = hh.part_paint(both)
+    medians = {name: np.round(np.median(hh.to_lab(rgb), axis=0), 1).tolist()
+               for name, rgb in (("figure", old), ("built", new), ("matched", after))}
+    shift = abs(medians["matched"][0] - medians["built"][0])
+    run.say(f"paint: {out.name}: the new hands' L*a*b* median {medians['built']} brought to {medians['matched']} "
+            f"(the figure's own hands {medians['figure']})")
+    if shift > hh.TONE_SHIFT_LIMIT:
+        run.flag(f"the new hands' paint in {out.name} moved {shift:.0f} L* to meet the figure's own hands: if the old "
+                 "hands wore something the new ones do not (a glove), rerun with --hand-paint keep")
+    return {"paint": "matched", "paint_lab_median": medians}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -325,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hand-detail", type=float, default=HAND_DETAIL,
                         help="how fine the new hands are against the figure round their wrists: 1 as fine, so a "
                              "game-ready step thins them with the rest; 2 twice as fine; 0 as built")
+    parser.add_argument("--hand-paint", choices=("match", "keep"), default="match",
+                        help="match: the new hands' paint brought to the figure's own hands' tone (Pixal3D's clean-up "
+                             "paints a built hand darker and more saturated); keep: as built")
     parser.add_argument("--look", default=None,
                         help="what the hand wears, in words, for the drawing (default: as in the picture)")
     args = parser.parse_args(argv)
@@ -448,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
             run.flag(f"the built {source} hand showed no wrist below its cuff; it is cut halfway")
     result = out / f"{args.model.stem}_hands.glb"
     report, both, body, sizing = graft_one(run, args.model, result, bone, plans, hands, args.hand_detail, True,
-                                           loaded)
+                                           loaded, args.hand_paint)
     for side, entry in report.items():
         if not hh.SCALE_LIMITS[0] <= entry["wrist_ratio"] <= hh.SCALE_LIMITS[1]:
             run.flag(f"the new {side} wrist had to be eased {entry['wrist_ratio']}x to meet the arm: check its size")
@@ -461,7 +496,8 @@ def main(argv: list[str] | None = None) -> int:
     for extra in args.also:
         target = out / f"{extra.stem}_hands.glb"
         if run.step(f"graft {extra.name}", target):
-            also[extra.name] = graft_one(run, extra, target, bone, plans, hands, args.hand_detail, False, loaded)[3]
+            also[extra.name] = graft_one(run, extra, target, bone, plans, hands, args.hand_detail, False, loaded,
+                                         args.hand_paint)[3]
 
     # 7. check
     stage(run, "check", "Counting the grafted hands' fingers")

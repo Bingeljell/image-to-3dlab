@@ -26,7 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the figure's cut falls, is turned away for the next seed; where a build's inner wall is fused to its outer
   one, the stitch keeps to the outer wall. Each model's hands are as fine as the model round its wrists (`--hand-detail`; Pixal3D's own clean-up at that
   size), so a game-ready step thins them with the rest of the figure: with a raw hand in its shape model, the
-  Waechter's game figure stopped at 37,887 triangles instead of 14,000 and came out 10 cm short.
+  Waechter's game figure stopped at 37,887 triangles instead of 14,000 and came out 10 cm short. The new hands' paint
+  is brought to the tone of the figure's own hands (`--hand-paint match`, the default; `keep` leaves it as built):
+  Pixal3D's clean-up paints a built hand darker and far more saturated than its drawing (a summoner's skin L*a*b*
+  59/17/24 where its own hands and the drawing were 69/7/13, its black wrap 7.5 L* for 24), and the hands read as
+  gloves of another colour. Curves per L*a*b* channel take the new paint's quantiles onto the old hand's, so a skin
+  and a wrap each meet their own tone and the paint keeps its detail; a shift over 20 L* is flagged.
 
 ### Fixed
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone

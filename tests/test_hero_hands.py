@@ -965,3 +965,106 @@ def test_regraft_keeps_the_skeleton_and_carries_each_parts_paint():
     assert _accessor(doc, binary, second["attributes"]["JOINTS_0"])[0, 0] == 1
     assert json.loads(json.dumps(doc))                       # plain JSON all through
     assert struct.unpack_from("<I", out, 0)[0] == 0x46546C67
+
+
+# --- the hand's paint matched to the figure's ------------------------------------------------------------------
+
+def mixed(skin, dark, skin_share, count=2000, seed=0):
+    """COUNT paint samples: SKIN_SHARE of them near SKIN, the rest near DARK (RGB 0-255), with a little noise."""
+    rng = np.random.default_rng(seed)
+    n = int(count * skin_share)
+    rows = np.vstack([np.tile(skin, (n, 1)), np.tile(dark, (count - n, 1))]).astype(float)
+    return np.clip(rows + rng.normal(0, 2.0, rows.shape), 0, 255)
+
+
+def test_tone_curves_bring_the_built_hands_paint_to_the_figures():
+    # the summoner (round 28 of the AssetFurnace Support notes): its old hand's skin L*a*b* 69/7/13 and its wrap
+    # L* 24; Pixal3D's clean-up painted the new hand 59/17/24 and its wrap L* 7.5, darker and far more saturated
+    old = mixed((190, 163, 145), (62, 58, 60), 0.75)
+    new = mixed((184, 130, 100), (20, 18, 19), 0.71, seed=1)
+    curves = hh.tone_curves(new, old)
+    skin, wrap = hh.toned(np.array([[184.0, 130, 100]]), curves), hh.toned(np.array([[20.0, 18, 19]]), curves)
+    assert np.abs(hh.to_lab(skin) - hh.to_lab(np.array([[190.0, 163, 145]]))).max() < 4
+    assert np.abs(hh.to_lab(wrap) - hh.to_lab(np.array([[62.0, 58, 60]]))).max() < 6
+    shades = hh.toned(np.array([[150.0, 105, 80], [184, 130, 100], [215, 160, 130]]), curves)
+    assert np.all(np.diff(hh.to_lab(shades)[:, 0]) > 0)      # the detail stays: lighter stays lighter
+
+
+def test_tone_curves_leave_alike_paint_alone():
+    old = mixed((190, 163, 145), (62, 58, 60), 0.75)
+    curves = hh.tone_curves(mixed((190, 163, 145), (62, 58, 60), 0.75, seed=3), old)
+    rgb = np.array([[190.0, 163, 145], [62, 58, 60], [120, 100, 90]])
+    assert np.abs(hh.toned(rgb, curves) - rgb).max() < 4
+
+
+def test_lab_round_trip():
+    rgb = np.array([[0.0, 0, 0], [255, 255, 255], [190, 163, 145], [20, 200, 40]])
+    assert np.allclose(hh.to_rgb(hh.to_lab(rgb)), rgb, atol=0.5)
+
+
+def painted_glb(colour, size=4):
+    """A one-triangle GLB whose base colour is a SIZE x SIZE picture of COLOUR, behind EXT_texture_webp as
+    Pixal3D's clean-up writes it, with a second texture (a normal map) the material also names."""
+    import io
+
+    from PIL import Image
+
+    from image_to_3dlab.glb_turn import build_glb, parse_glb
+
+    doc, binary = parse_glb(tiny_glb(skinned=False))
+    blob = bytearray(binary)
+    for name, fill in (("albedo", colour), ("normal", (128, 128, 255))):
+        out = io.BytesIO()
+        Image.new("RGB", (size, size), fill).save(out, "WEBP", lossless=True)
+        blob.extend(b"\0" * (-len(blob) % 4))
+        doc["bufferViews"].append({"buffer": 0, "byteOffset": len(blob), "byteLength": len(out.getvalue())})
+        blob.extend(out.getvalue())
+        doc["images"].append({"bufferView": len(doc["bufferViews"]) - 1, "mimeType": "image/webp", "name": name})
+        doc["textures"].append({"sampler": 0, "extensions": {"EXT_texture_webp": {"source": len(doc["images"]) - 1}}})
+    doc["extensionsUsed"] = ["EXT_texture_webp"]
+    doc["materials"] = [{"name": "hand", "pbrMetallicRoughness": {"baseColorTexture": {"index": 1}},
+                         "normalTexture": {"index": 2}}]
+    doc["buffers"][0]["byteLength"] = len(blob)
+    return build_glb(doc, bytes(blob))
+
+
+def test_part_paint_reads_the_base_colour_at_each_face():
+    _, _, part = hh.read_part(painted_glb((184, 130, 100)))
+    assert np.allclose(hh.part_paint(part), [[184, 130, 100]], atol=1)
+    _, _, plain = hh.read_part(tiny_glb(skinned=False, with_image=False))
+    assert hh.part_paint(plain) is None                       # no picture: nothing to match
+
+
+def test_retinted_material_maps_only_the_base_colour_and_writes_through_regraft():
+    from image_to_3dlab.glb_turn import parse_glb
+
+    old = mixed((190, 163, 145), (62, 58, 60), 1.0)
+    new = mixed((184, 130, 100), (20, 18, 19), 1.0, seed=1)
+    _, _, hand = hh.read_part(painted_glb((184, 130, 100)))
+    hand["material"] = hh.retinted(hand["material"], hh.tone_curves(new, old))
+    assert np.abs(hh.part_paint(hand)[0] - [190, 163, 145]).max() < 6
+    template = tiny_glb()
+    _, _, body = hh.read_part(template)
+    hand.update(dense=np.array([[0.0, 1.0]] * 3))
+    doc, _ = parse_glb(hh.regraft_glb(template, [hh.finish_part(body), hh.finish_part(hand)]))
+    material = doc["materials"][doc["meshes"][0]["primitives"][1]["material"]]
+    normal = doc["textures"][material["normalTexture"]["index"]]
+    assert doc["images"][normal["extensions"]["EXT_texture_webp"]["source"]]["name"] == "normal"   # kept as it was
+    _, _, again = hh.read_part(hh.regraft_glb(template, [hh.finish_part(hand)]))
+    assert np.abs(hh.part_paint(again)[0] - [190, 163, 145]).max() < 6
+
+
+def test_old_hand_faces_are_the_ones_the_cut_takes():
+    positions = np.array([[0.0, 0, 0], [1, 0, 0], [0, 1, 0], [0.0, -2, 0], [1, -2, 0], [0, -3, 0]])
+    faces = np.array([[0, 1, 2], [3, 4, 5]])
+    bone = np.array([0, 0, 0, 1, 1, 1])
+    plan = {"arm": [1], "centre": np.array([0.0, -2, 0]), "reach": 5.0, "cut": np.array([0.0, -1, 0]),
+            "axis": np.array([0.0, -1, 0])}
+    assert hh.old_hand_faces(positions, faces, bone, {"right": plan}).tolist() == [False, True]
+
+
+def test_top_weights_fill_four_pairs_for_a_skeleton_of_two_bones():
+    # a two-bone test skeleton wrote two joints a vertex into glTF's VEC4: the file read back garbage
+    joints, weights = hh.top_weights(np.array([[0.25, 0.75], [1.0, 0.0]]))
+    assert joints.shape == weights.shape == (2, 4)
+    assert joints[0, :2].tolist() == [1, 0] and np.allclose(weights.sum(axis=1), 1)

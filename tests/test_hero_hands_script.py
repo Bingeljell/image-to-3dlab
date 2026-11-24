@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
+
 from scripts import hero_hands
 
 
@@ -129,3 +131,31 @@ def test_a_step_that_always_runs_forgets_its_old_notes(tmp_path):
     hero_hands.fresh(again, "check")                          # ... and the check runs again
     assert again.unsure == ["the picture editor failed on seed 3"]
     assert "check" not in json.loads((tmp_path / "unsure.json").read_text(encoding="utf-8"))
+
+
+def test_the_new_hands_take_the_figures_own_hand_tone(monkeypatch, tmp_path):
+    # the summoner (round 28 of the AssetFurnace Support notes): Pixal3D's clean-up painted the new skin 59/17/24
+    # (L*a*b*) where the figure's own hands and the drawing were 69/7/13
+    from image_to_3dlab import hero_hands as hh
+    from tests.test_hero_hands import painted_glb
+
+    _, _, old = hh.read_part(painted_glb((190, 163, 145)))
+    _, _, new = hh.read_part(painted_glb((184, 130, 100)))
+    monkeypatch.setattr(hh, "TONE_LEAST_FACES", 1)
+    monkeypatch.setattr(hh, "old_hand_faces", lambda positions, faces, bone, plans: np.ones(len(faces), bool))
+    run = hero_hands.Run(tmp_path)
+    toned = hero_hands.match_paint(run, tmp_path / "figure_hands.glb", old, None, {}, new)
+    medians = toned["paint_lab_median"]
+    assert toned["paint"] == "matched"
+    assert np.abs(np.subtract(medians["matched"], medians["figure"])).max() < 2
+    assert np.abs(np.subtract(medians["built"], medians["figure"])).max() > 8
+    assert "brought to" in (tmp_path / "run.log").read_text(encoding="utf-8")
+
+
+def test_hands_without_paint_to_match_are_kept(tmp_path):
+    from image_to_3dlab import hero_hands as hh
+    from tests.test_hero_hands import tiny_glb
+
+    _, _, plain = hh.read_part(tiny_glb(skinned=False, with_image=False))
+    run = hero_hands.Run(tmp_path)
+    assert hero_hands.match_paint(run, tmp_path / "f.glb", plain, None, {}, dict(plain))["paint"].startswith("kept")

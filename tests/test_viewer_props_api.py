@@ -105,12 +105,12 @@ def test_names_that_cannot_be_file_names_or_repeat_are_refused(names):
 
 
 def test_lods_arrive_as_text_or_a_list():
-    assert props.normalise_settings({"lods": "8000,3000"})["lods"] == [8000, 3000]
+    assert props.normalise_settings({"lods": "8000,500"})["lods"] == [8000, 500]
     assert props.normalise_settings({"lods": [4000]})["lods"] == [4000]
 
 
 @pytest.mark.parametrize("lods", [
-    "", "5000,500", "5000,250000", "1000,2500", "3000,3000", "9000,8000,7000,6000,5000", "lots",
+    "", "5000,499", "5000,250000", "1000,2500", "3000,3000", "9000,8000,7000,6000,5000", "lots",
 ])
 def test_lods_the_finisher_would_refuse_are_refused_first(lods):
     with pytest.raises(ValueError) as caught:

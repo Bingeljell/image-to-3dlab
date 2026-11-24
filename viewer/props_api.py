@@ -73,7 +73,7 @@ SETTING_BOUNDS: dict[str, tuple[float, float]] = {
     "yaw_threshold": (0.0, 0.99),
 }
 ATLAS_SIZES = (1024, 2048, 4096)
-FACE_RANGE = (1000, 200000)
+FACE_RANGE = (500, 200000)
 
 # How the bar divides, from a measured nine-prop run: the split takes about 4 seconds
 # (8 before its tilt search was batched, 2026-10-01) and each prop's three LODs about 14.

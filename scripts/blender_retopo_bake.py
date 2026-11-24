@@ -83,11 +83,9 @@ def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float
     # 256 and 512 are for the far LODs finish_props.py bakes, which are seen small.
     if size not in (256, 512, 1024, 2048, 4096):
         raise SystemExit(f"atlas size must be 256, 512, 1024, 2048 or 4096, got {size}")
-    if not 1000 <= target_faces <= 200000:
-        raise SystemExit(
-            f"target faces must be 1000..200000; too few loses the silhouette, too many "
-            f"re-fragments the atlas. got {target_faces}"
-        )
+    # Distant props can use 500 triangles. Studio applies its own Finish limits.
+    if not 500 <= target_faces <= 200000:
+        raise SystemExit(f"target faces must be 500..200000, got {target_faces}")
     if not 0.0 < angle_degrees <= 89.9:
         raise SystemExit(f"angle limit must be in (0, 89.9] degrees, got {angle_degrees}")
     if voxel_fraction != 0.0 and not 0.0005 <= voxel_fraction <= 0.05:

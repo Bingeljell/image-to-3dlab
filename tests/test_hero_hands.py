@@ -990,6 +990,37 @@ def test_tone_curves_bring_the_built_hands_paint_to_the_figures():
     assert np.all(np.diff(hh.to_lab(shades)[:, 0]) > 0)      # the detail stays: lighter stays lighter
 
 
+def test_a_lifted_black_keeps_its_own_contrast():
+    # the summoner's wrap (round 28): quantile curves took its near-black (L* 3-12) onto the figure's dark grey (L*
+    # 15-35) and doubled its contrast, and the atlas's blocks showed as grey squares on the back of the hand; a tone is
+    # moved, not stretched
+    rng = np.random.default_rng(5)
+    old = np.vstack([mixed((190, 163, 145), (62, 58, 60), 0.75), np.tile([[45.0, 42, 44], [80, 75, 78]], (300, 1))])
+    new = np.vstack([mixed((184, 130, 100), (20, 18, 19), 0.71, seed=1),
+                     np.clip(np.tile([[10.0, 10, 10], [32, 30, 31]], (300, 1)) + rng.normal(0, 1, (600, 3)), 0, 255)])
+    curves = hh.tone_curves(new, old)
+    dark = hh.to_lab(hh.toned(np.array([[12.0, 12, 12], [30, 29, 29]]), curves))[:, 0]
+    before = hh.to_lab(np.array([[12.0, 12, 12], [30, 29, 29]]))[:, 0]
+    assert dark.min() > before.min() + 8                                   # lifted toward the figure's dark grey
+    assert dark[1] - dark[0] < 1.35 * (before[1] - before[0])               # its own contrast about kept
+
+
+def test_a_lifted_black_shows_no_colour_blotches_its_black_hid():
+    # the summoner's wrap (round 28): near-black, Pixal3D's atlas holds brown and teal blotches no one sees; lifted to
+    # the figure's dark grey they showed as brown and teal patches on the back of the hand. A tone's colour may vary
+    # no more than the figure's own hand's does there
+    rng = np.random.default_rng(7)
+    old = np.vstack([mixed((190, 163, 145), (62, 60, 64), 0.75), np.clip(rng.normal(62, 1.0, (400, 3)), 0, 255)])
+    shades = hh.to_rgb(np.array([[6.0, 5, 5], [6, -5, -5], [6, 0, 0]]))           # brown, teal, black: one L*
+    blotched = np.repeat(shades, 300, axis=0) + rng.normal(0, 0.3, (900, 3))
+    new = np.vstack([mixed((184, 130, 100), (14, 14, 14), 0.71, seed=1), np.clip(blotched, 0, 255)])
+    curves = hh.tone_curves(new, old)
+    brown, teal, _ = hh.to_lab(hh.toned(shades, curves))
+    before = hh.to_lab(shades)
+    assert brown[0] > before[0, 0] + 10                                        # lifted toward the dark grey
+    assert np.hypot(*(brown[1:] - teal[1:])) < 0.5 * np.hypot(*(before[0, 1:] - before[1, 1:]))
+
+
 def test_tone_curves_leave_alike_paint_alone():
     old = mixed((190, 163, 145), (62, 58, 60), 0.75)
     curves = hh.tone_curves(mixed((190, 163, 145), (62, 58, 60), 0.75, seed=3), old)
@@ -1068,3 +1099,15 @@ def test_top_weights_fill_four_pairs_for_a_skeleton_of_two_bones():
     joints, weights = hh.top_weights(np.array([[0.25, 0.75], [1.0, 0.0]]))
     assert joints.shape == weights.shape == (2, 4)
     assert joints[0, :2].tolist() == [1, 0] and np.allclose(weights.sum(axis=1), 1)
+
+
+def test_drawing_paint_reads_the_subject_from_the_kept_cut_out(tmp_path):
+    from PIL import Image
+
+    Image.new("RGB", (8, 8), (128, 128, 128)).save(tmp_path / "d.png")
+    cut = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    cut.paste((190, 163, 145, 255), (2, 2, 6, 6))
+    cut.save(tmp_path / "d__matted.png")
+    paint = hh.drawing_paint(tmp_path / "d.png")
+    assert paint.shape == (16, 3) and np.allclose(paint, [190, 163, 145])      # the grey around it left out
+    assert hh.drawing_paint(tmp_path / "gone.png") is None

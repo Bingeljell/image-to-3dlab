@@ -1313,7 +1313,12 @@ def finish_part(part: dict, smooth: bool = False) -> dict:
 
 # --- The hand's paint matched to the figure's -----------------------------------------------------------------
 
-TONE_STEPS = 41            # quantiles per L*a*b* channel the tone curves pass through (every 2.5 %)
+TONE_STEPS = 41            # quantiles of L* the tone curves pass through (every 2.5 %)
+TONE_SMOOTH = 7            # each shift is the median of this many neighbouring quantiles (15 %): moved, not stretched
+TONE_BAND = 10.0           # the a* and b* of a tone: the medians of this share (%) of each paint round its quantile
+TONE_GAIN = (0.75, 1.3)    # the L* curve's slope stays within these: a tone's own contrast is about kept
+TONE_SPREAD_FLOOR = 1.0    # a* or b* units added to both spreads, so two flat paints keep their colour's own play
+TONE_LIFT_FLOOR = 0.2      # a tone lifted fivefold or more keeps a fifth of its own tint
 TONE_SHIFT_LIMIT = 20.0    # a median skin shift of more L* than this is said: the old hand may have worn another thing
 TONE_LEAST_FACES = 50      # fewer painted faces than this on either hand: too few to match a tone
 _SRGB_TO_XYZ = np.array([[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]])
@@ -1341,31 +1346,83 @@ def to_rgb(lab: np.ndarray) -> np.ndarray:
     return np.clip(c * 255.0, 0.0, 255.0)
 
 
-def tone_curves(new_rgb: np.ndarray, old_rgb: np.ndarray, steps: int = TONE_STEPS) -> np.ndarray:
-    """Curves taking the built hand's paint (NEW_RGB samples) to the figure's own hand's (OLD_RGB): for each L*a*b*
-    channel the new paint's quantiles mapped onto the old's, shape (3, 2, steps + 2). Pixal3D's clean-up paints a
-    built hand darker and far more saturated than its drawing (the summoner's skin L*a*b* 59/17/24 where the figure's
-    and the drawing's were 69/7/13, its black wrap L* 7.5 for 24: round 28 of the AssetFurnace Support notes), and
-    the hand then read as a glove of another colour. Matching quantiles keeps the paint's own detail (a lighter
-    knuckle stays lighter) and takes a skin and a wrap each to their own tone, as long as the hand shows about the
-    same mix of them as the figure's own (a mitten of the same skin and cuff)."""
+def _smoothed(values: np.ndarray, width: int) -> np.ndarray:
+    """VALUES as the median of WIDTH neighbours (odd), the ends padded with their own value: a shift that jumps at one
+    or two quantiles (where the two paints change from wrap to skin at a slightly different share) stays out, where
+    a mean spread it over the skin's tones."""
+    if width <= 1:
+        return values
+    half = width // 2
+    padded = np.concatenate([np.full(half, values[0]), values, np.full(half, values[-1])])
+    return np.median(np.lib.stride_tricks.sliding_window_view(padded, width), axis=1)
+
+
+def tone_curves(new_rgb: np.ndarray, old_rgb: np.ndarray, steps: int = TONE_STEPS) -> dict:
+    """Curves taking one paint (NEW_RGB samples: a built hand's) to another of the same thing (OLD_RGB: the drawing it
+    was built from): the new paint's L* ("L") to the old's ("to"), and for a* and b* at each L* the new and the old
+    middle colour and how much a colour may vary there (rows of "a" and "b"). Pixal3D's clean-up paints a built hand
+    darker and far more saturated than its drawing (the summoner's skin L*a*b* 59/17/24 where the figure's and the
+    drawing were 69/7/13, its black wrap L* 7.5 for about 24: round 28 of the AssetFurnace Support notes), and the hand
+    read as a glove of another colour.
+
+    Each tone is moved, not stretched: at each of STEPS quantiles of L* the new paint is shifted by how far the old
+    paint's same quantile lies from it, each shift the median of its neighbours' (TONE_SMOOTH), the curve's slope kept
+    within TONE_GAIN; each tone's a* and b* go from the new band's median to the old's, and vary round it no more than
+    the old band's do (never more than the new paint's own). A skin and a wrap thus each meet their own tone while the
+    paint keeps its own contrast and detail: quantile curves alone took the wrap's near-black onto the figure's dark
+    grey at twice its contrast, and the atlas's blocks showed as grey squares on the back of the hand; brown and teal
+    blotches the atlas holds in a near-black, invisible there, showed once it was lifted. Both paints must show the
+    same thing in about the same mix: the figure's own hand below the cut was no such match (the summoner's mitten is
+    skin with brown creases, where the new hand wears a black wrap on its back, and the wrap came out brown); the
+    drawing a hand was built from is."""
     q = np.linspace(0.0, 100.0, steps)
     new, old = to_lab(new_rgb), to_lab(old_rgb)
-    curves = np.empty((3, 2, steps + 2))
-    for c in range(3):
-        xs, ys = np.percentile(new[:, c], q), np.percentile(old[:, c], q)
-        xs = np.maximum.accumulate(xs + 1e-6 * np.arange(steps))          # strictly rising, for np.interp
-        ys = np.maximum.accumulate(ys)
-        curves[c, 0] = np.concatenate([[xs[0] - 100.0], xs, [xs[-1] + 100.0]])   # beyond the samples: a slope of one
-        curves[c, 1] = np.concatenate([[ys[0] - 100.0], ys, [ys[-1] + 100.0]])
+    xs, ys = np.percentile(new[:, 0], q), np.percentile(old[:, 0], q)
+    shift_l = _smoothed(ys - xs, TONE_SMOOTH)
+    new_rank, old_rank = np.argsort(new[:, 0], kind="stable"), np.argsort(old[:, 0], kind="stable")
+    centre_new, centre_old, gain = np.empty((steps, 2)), np.empty((steps, 2)), np.empty((steps, 2))
+    for i, at in enumerate(q):
+        lo, hi = max(at - TONE_BAND / 2, 0.0), min(at + TONE_BAND / 2, 100.0)
+        pick_new = new_rank[int(lo / 100 * len(new)):max(int(hi / 100 * len(new)), int(lo / 100 * len(new)) + 1)]
+        pick_old = old_rank[int(lo / 100 * len(old)):max(int(hi / 100 * len(old)), int(lo / 100 * len(old)) + 1)]
+        centre_new[i], centre_old[i] = np.median(new[pick_new, 1:], axis=0), np.median(old[pick_old, 1:], axis=0)
+        spread_new = np.median(np.abs(new[pick_new, 1:] - centre_new[i]), axis=0)
+        spread_old = np.median(np.abs(old[pick_old, 1:] - centre_old[i]), axis=0)
+        # a tone's colour varies no more than the figure's own does there: never amplified, at most damped fourfold
+        gain[i] = np.clip((spread_old + TONE_SPREAD_FLOOR) / (spread_new + TONE_SPREAD_FLOOR), 0.25, 1.0)
+    centre_new, centre_old, gain = (np.stack([_smoothed(a[:, k], TONE_SMOOTH) for k in range(2)], axis=1)
+                                    for a in (centre_new, centre_old, gain))
+    xs = np.maximum.accumulate(xs + 1e-6 * np.arange(steps))           # strictly rising, for np.interp
+    moved = xs + shift_l
+    # each tone moved, not stretched: the curve's slope kept within TONE_GAIN, hung at the middle tone
+    slope = np.clip(np.diff(moved) / np.maximum(np.diff(xs), 1e-9), *TONE_GAIN)
+    rebuilt = np.concatenate([[0.0], np.cumsum(slope * np.diff(xs))])
+    middle = steps // 2
+    moved = rebuilt - rebuilt[middle] + moved[middle]
+    def held(values):                                                   # beyond the samples: the last value
+        return np.concatenate([[values[0]], values, [values[-1]]])
+
+    curves = {"L": np.concatenate([[xs[0] - 100.0], xs, [xs[-1] + 100.0]]),
+              "to": np.concatenate([[moved[0] - 100.0], moved, [moved[-1] + 100.0]])}   # beyond: a slope of one
+    for k, name in enumerate("ab"):
+        curves[name] = np.stack([held(centre_new[:, k]), held(centre_old[:, k]), held(gain[:, k])])
     return curves
 
 
-def toned(rgb: np.ndarray, curves: np.ndarray) -> np.ndarray:
-    """RGB rows 0-255 put through CURVES (`tone_curves`)."""
+def toned(rgb: np.ndarray, curves: dict) -> np.ndarray:
+    """RGB rows 0-255 put through CURVES (`tone_curves`): L* along its curve; a* and b* from the new paint's middle
+    colour at that L* to the old's, the difference to it damped as the figure's own paint varies less there."""
     lab = to_lab(rgb)
-    out = np.stack([np.interp(lab[:, c], curves[c, 0], curves[c, 1]) for c in range(3)], axis=1)
-    return to_rgb(out)
+    lifted = np.interp(lab[:, 0], curves["L"], curves["to"])
+    # a tone lifted to several times its lightness keeps that much less of its own tint: in a near-black the atlas's
+    # tints are bleed and noise (the summoner's wrap took the beads' red and teal), not the cloth's colour
+    with np.errstate(divide="ignore", invalid="ignore"):
+        lift = np.clip(np.where(lifted > lab[:, 0], lab[:, 0] / np.maximum(lifted, 1e-6), 1.0), TONE_LIFT_FLOOR, 1.0)
+    out = [lifted]
+    for k, name in enumerate("ab"):
+        centre_new, centre_old, gain = (np.interp(lab[:, 0], curves["L"], row) for row in curves[name])
+        out.append(centre_old + np.minimum(gain, lift) * (lab[:, 1 + k] - centre_new))
+    return to_rgb(np.stack(out, axis=1))
 
 
 def _base_texture(doc: dict, material: int) -> tuple[int, int] | None:
@@ -1411,7 +1468,27 @@ def part_paint(part: dict, faces: np.ndarray | None = None) -> np.ndarray | None
     return picture[y, x]
 
 
-def retinted(material: tuple, curves: np.ndarray) -> tuple:
+def drawing_paint(drawing: Path) -> np.ndarray | None:
+    """The drawing's own paint (RGB 0-255 rows) where it shows the subject: the cut-out Pixal3D kept beside it
+    (`<drawing>__matted.png`), else the background remover's; None when neither can be read."""
+    from PIL import Image
+
+    drawing = Path(drawing)
+    matted = drawing.with_name(f"{drawing.stem}__matted.png")
+    if matted.is_file():
+        with Image.open(matted) as opened:
+            cut = np.asarray(opened.convert("RGBA"))
+    elif drawing.is_file():
+        from image_to_3dlab import matte
+
+        with Image.open(drawing) as opened:
+            cut = np.asarray(matte.cut_out(opened.convert("RGB"))[0].convert("RGBA"))
+    else:
+        return None
+    return cut[..., :3][cut[..., 3] > 127].astype(np.float64)
+
+
+def retinted(material: tuple, curves: dict) -> tuple:
     """MATERIAL ((document, binary, index), as `read_part` gives it) with its base colour picture put through CURVES,
     as a new (document, binary, index): the picture a PNG of its own, its other pictures (normal map, metal and
     roughness) as they were. The alpha, if any, is kept."""

@@ -6,6 +6,7 @@ the cheap parts that decide whether a run starts at all and what its result's li
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 
@@ -133,23 +134,38 @@ def test_a_step_that_always_runs_forgets_its_old_notes(tmp_path):
     assert "check" not in json.loads((tmp_path / "unsure.json").read_text(encoding="utf-8"))
 
 
-def test_the_new_hands_take_the_figures_own_hand_tone(monkeypatch, tmp_path):
+def drawn(tmp_path, colour, name="right_draw_s2"):
+    """A drawing on grey and the cut-out Pixal3D keeps beside it: COLOUR where the subject is."""
+    from PIL import Image
+
+    picture = Image.new("RGB", (8, 8), (128, 128, 128))
+    picture.paste(colour, (2, 2, 6, 6))
+    picture.save(tmp_path / f"{name}.png")
+    cut = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    cut.paste((*colour, 255), (2, 2, 6, 6))
+    cut.save(tmp_path / f"{name}__matted.png")
+    return tmp_path / f"{name}.png"
+
+
+def test_the_new_hands_take_their_drawings_tone(monkeypatch, tmp_path):
     # the summoner (round 28 of the AssetFurnace Support notes): Pixal3D's clean-up painted the new skin 59/17/24
-    # (L*a*b*) where the figure's own hands and the drawing were 69/7/13
+    # (L*a*b*) where the drawing and the figure's own hands were 69/7/13
     from image_to_3dlab import hero_hands as hh
     from tests.test_hero_hands import painted_glb
 
-    _, _, old = hh.read_part(painted_glb((190, 163, 145)))
-    _, _, new = hh.read_part(painted_glb((184, 130, 100)))
+    _, _, built = hh.read_part(painted_glb((184, 130, 100)))
+    _, _, both = hh.read_part(painted_glb((184, 130, 100)))
     monkeypatch.setattr(hh, "TONE_LEAST_FACES", 1)
-    monkeypatch.setattr(hh, "old_hand_faces", lambda positions, faces, bone, plans: np.ones(len(faces), bool))
     run = hero_hands.Run(tmp_path)
-    toned = hero_hands.match_paint(run, tmp_path / "figure_hands.glb", old, None, {}, new)
+    figure = np.array([[190.0, 163, 145]])
+    toned = hero_hands.match_paint(run, tmp_path / "figure_hands.glb", built, drawn(tmp_path, (190, 163, 145)), both,
+                                   figure)
     medians = toned["paint_lab_median"]
     assert toned["paint"] == "matched"
-    assert np.abs(np.subtract(medians["matched"], medians["figure"])).max() < 2
-    assert np.abs(np.subtract(medians["built"], medians["figure"])).max() > 8
-    assert "brought to" in (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert np.abs(np.subtract(medians["matched"], medians["drawing"])).max() < 2
+    assert np.abs(np.subtract(medians["built"], medians["drawing"])).max() > 8
+    assert medians["figure"] == np.round(hh.to_lab(figure)[0], 1).tolist()      # reported beside it
+    assert "the drawing's" in (tmp_path / "run.log").read_text(encoding="utf-8")
 
 
 def test_hands_without_paint_to_match_are_kept(tmp_path):
@@ -158,4 +174,10 @@ def test_hands_without_paint_to_match_are_kept(tmp_path):
 
     _, _, plain = hh.read_part(tiny_glb(skinned=False, with_image=False))
     run = hero_hands.Run(tmp_path)
-    assert hero_hands.match_paint(run, tmp_path / "f.glb", plain, None, {}, dict(plain))["paint"].startswith("kept")
+    kept = hero_hands.match_paint(run, tmp_path / "f.glb", plain, drawn(tmp_path, (190, 163, 145)), dict(plain))
+    assert kept["paint"].startswith("kept")
+
+
+def test_a_build_names_its_drawing():
+    assert hero_hands.drawing_of(Path("hands/right_draw_s2_b42.glb")) == Path("hands/right_draw_s2.png")
+    assert hero_hands.drawing_of(Path("hands/left_draw_s10_b7_clean6500.glb")).name.startswith("left_draw_s10")

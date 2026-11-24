@@ -29,8 +29,8 @@ hangs beside the thigh, seen from the thumb's side with the fingers stacked, and
               game-ready step bakes paint and bumps from, in the same frame) gets the same hands. Each model's
               hands are as fine as the model round its wrists (--hand-detail; Pixal3D's own clean-up at that
               size), so a game-ready step thins them with the rest of the figure. Their paint is brought to the
-              tone of the figure's own hands (--hand-paint match): the clean-up paints a built hand darker and far
-              more saturated than its drawing.
+              tone of their drawing (--hand-paint match): the clean-up paints a built hand darker and far more
+              saturated than its drawing.
   7. check    each grafted hand's digits counted again, on the figure.
 
 Writes <out>/<model>_hands.glb (and <out>/<also>_hands.glb), with hands.json (every number) and a licence
@@ -295,7 +295,12 @@ def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, 
         put[side] = {"part": loaded[path, hand["mirrored"]], "tf": hand["tf"]}
         used[side] = str(path)
     body, both, report = hh.graft_model(part, model_bone, plans, put)
-    toned = match_paint(run, out, part, model_bone, plans, both) if paint == "match" else {"paint": "kept"}
+    if paint == "match":
+        first = next(iter(hands))
+        figure = hh.part_paint(part, hh.old_hand_faces(part["positions"], part["faces"], model_bone, plans))
+        toned = match_paint(run, out, put[first]["part"], drawing_of(hands[first]["raw"]), both, figure)
+    else:
+        toned = {"paint": "kept"}
     for side, entry in report.items():         # the build was checked at the reference size; a smaller one may differ
         if entry["rim_share"] < hh.RIM_LIMIT:
             run.flag(f"the {side} hand's stitch in {out.name} closes only {entry['rim_share']:.0%} of its wrist: "
@@ -309,30 +314,33 @@ def graft_one(run: Run, model: Path, out: Path, bone, plans: dict, hands: dict, 
     return report, both, body, sizing
 
 
-def match_paint(run: Run, out: Path, part: dict, bone, plans: dict, both: dict) -> dict:
-    """Bring BOTH's paint (the grafted hands) to PART's own hands' (the faces the cut takes), in place, by quantile
-    curves per L*a*b* channel (`tone_curves`): Pixal3D's clean-up paints a built hand darker and far more saturated
-    than its drawing. Returns the medians before and after, for hands.json."""
+def match_paint(run: Run, out: Path, built: dict, drawing: Path, both: dict, figure=None) -> dict:
+    """Bring BOTH's paint (the grafted hands) to the tone of the DRAWING they were built from, in place: curves per
+    L*a*b* tone (`tone_curves`) from the whole BUILT hand's paint (hand, cuff and sleeve, as drawn) to the drawing's.
+    Pixal3D's clean-up paints a built hand darker and far more saturated than its drawing. FIGURE (the figure's own
+    hands' paint, when known) is only reported. Returns the medians, for hands.json."""
     import numpy as np
 
     from image_to_3dlab import hero_hands as hh
 
-    old = hh.part_paint(part, hh.old_hand_faces(part["positions"], part["faces"], bone, plans))
-    new = hh.part_paint(both)
-    if old is None or new is None or min(len(old), len(new)) < hh.TONE_LEAST_FACES:
-        run.say(f"paint: {out.name}: the hands' paint is kept (no painted hand to match it to)")
+    new, ref = hh.part_paint(built), hh.drawing_paint(drawing)
+    if new is None or ref is None or min(len(new), len(ref)) < hh.TONE_LEAST_FACES:
+        run.say(f"paint: {out.name}: the hands' paint is kept (no painted build or drawing to match it to)")
         return {"paint": "kept, nothing to match"}
-    curves = hh.tone_curves(new, old)
-    both["material"] = hh.retinted(both["material"], curves)
+    before = hh.part_paint(both)
+    both["material"] = hh.retinted(both["material"], hh.tone_curves(new, ref))
     after = hh.part_paint(both)
-    medians = {name: np.round(np.median(hh.to_lab(rgb), axis=0), 1).tolist()
-               for name, rgb in (("figure", old), ("built", new), ("matched", after))}
-    shift = abs(medians["matched"][0] - medians["built"][0])
+    named = {"built": before, "matched": after, "drawing": ref}
+    if figure is not None and len(figure):
+        named["figure"] = figure
+    medians = {name: np.round(np.median(hh.to_lab(rgb), axis=0), 1).tolist() for name, rgb in named.items()}
+    tail = f", the figure's own hands {medians['figure']})" if "figure" in medians else ")"
     run.say(f"paint: {out.name}: the new hands' L*a*b* median {medians['built']} brought to {medians['matched']} "
-            f"(the figure's own hands {medians['figure']})")
+            f"(the drawing's {medians['drawing']}{tail}")
+    shift = abs(medians["matched"][0] - medians["built"][0])
     if shift > hh.TONE_SHIFT_LIMIT:
-        run.flag(f"the new hands' paint in {out.name} moved {shift:.0f} L* to meet the figure's own hands: if the old "
-                 "hands wore something the new ones do not (a glove), rerun with --hand-paint keep")
+        run.flag(f"the new hands' paint in {out.name} moved {shift:.0f} L* to meet their drawing: look at the hands, "
+                 "or rerun with --hand-paint keep")
     return {"paint": "matched", "paint_lab_median": medians}
 
 
@@ -358,8 +366,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="how fine the new hands are against the figure round their wrists: 1 as fine, so a "
                              "game-ready step thins them with the rest; 2 twice as fine; 0 as built")
     parser.add_argument("--hand-paint", choices=("match", "keep"), default="match",
-                        help="match: the new hands' paint brought to the figure's own hands' tone (Pixal3D's clean-up "
-                             "paints a built hand darker and more saturated); keep: as built")
+                        help="match: the new hands' paint brought to the tone of the drawing they were built from "
+                             "(Pixal3D's clean-up paints a built hand darker and more saturated); keep: as built")
     parser.add_argument("--look", default=None,
                         help="what the hand wears, in words, for the drawing (default: as in the picture)")
     args = parser.parse_args(argv)
@@ -533,11 +541,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def drawing_of(raw: Path) -> Path:
+    """The drawing a hand build was made from: `<side>_draw_s<seed>.png` beside `<side>_draw_s<seed>_b<seed>.glb`."""
+    return raw.with_name(f"{raw.stem.rsplit('_b', 1)[0]}.png")
+
+
 def _picture_record(raw: Path) -> dict | None:
     """The licence record of the drawing a build was made from, as a component record: the classification and the
     output's path where the licence ancestry (`write_derived_sidecar`) reads them. The picture editor's own record
     keeps its output as a bare file name, and the ancestry stopped on it."""
-    name = raw.stem.rsplit("_b", 1)[0]
+    name = drawing_of(raw).stem
     path = raw.with_name(f"{name}.provenance.json")
     if not path.is_file():
         return None

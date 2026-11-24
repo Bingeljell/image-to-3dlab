@@ -422,6 +422,8 @@ class ChainRunner:
         if step == "rigged":
             source = chain.made.get("finished") or chain.made.get("model")
             fields = {k: str(v) for k, v in chain.rig_settings.items() if k in RIG_KEYS}
+            if chain.want == "character":  # a missed leg is then worth a second rig (autorig_api)
+                fields["humanoid"] = "yes"
             if source:
                 body, ctype = multipart({"model": source, **fields}, {})
             elif chain.upload:

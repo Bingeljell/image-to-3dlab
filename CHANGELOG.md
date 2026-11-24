@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
+  one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
+  rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",
+  a `humanoid=yes` field, or a model standing on two separate feet, measured from its mesh by `scripts/rig_check.py`),
+  Rig runs once more and keeps the humanoid try, or the first when the second is no better. Pets, birds, slimes and
+  props are rigged once, as before.
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned

@@ -134,6 +134,16 @@ def bone_names_choice(form: dict[str, dict[str, Any]]) -> str | None:
     return bone_names_preset((form.get("bone_names") or {}).get("value"))
 
 
+def humanoid_choice(form: dict[str, dict[str, Any]]) -> bool | None:
+    """The Rig upload's optional `humanoid` field: yes (Create's character), no, or None to let the model say."""
+    text = str((form.get("humanoid") or {}).get("value", "")).strip().lower()
+    if text == "":
+        return None
+    if text not in ("yes", "no"):
+        raise ValueError("humanoid is yes or no")
+    return text == "yes"
+
+
 def friendly_name(stem: str, detail: str | None = None) -> str:
     """'a-cute-anime-girl-standing-in__20261003-153554__pixal3d' -> 'a cute anime girl
     standing in', capped at 40 characters, plus an optional detail ('40k')."""
@@ -440,6 +450,8 @@ class AnimateJob:
         self.cancel_requested = False
         self.log_lines: deque[str] = deque(maxlen=300)
         self.bone_names: str | None = None  # a rig job's engine names preset (bone_names_preset)
+        self.source: Path | None = None     # a rig job's input model
+        self.expect_humanoid: bool | None = None  # a rig job: meant as a humanoid (None: the model says)
 
     @property
     def log_path(self) -> Path:
@@ -485,7 +497,7 @@ class AnimateJobManager:
         return job
 
     def create_rig(self, name: str, data: bytes, source: dict[str, Any] | None,
-                   origin: str, bone_names: str | None = None) -> AnimateJob:
+                   origin: str, bone_names: str | None = None, humanoid: bool | None = None) -> AnimateJob:
         preset = bone_names_preset(bone_names)   # refused before anything is written
         with self.lock:
             if self.busy():
@@ -507,6 +519,8 @@ class AnimateJobManager:
             if preset:
                 job.bone_names = preset
                 job.record["rig"]["bone_names"] = preset
+            job.source = source_glb
+            job.expect_humanoid = humanoid
             return self._claim(job)
 
     def create_animation(self, rigged: Path, preset_id: str, arm_spread: Any,
@@ -598,6 +612,55 @@ def rig_fit(glb: Path) -> dict[str, Any]:
         return {}
 
 
+def meant_humanoid(job: AnimateJob) -> tuple[bool, str]:
+    """Whether a rig that came back without the humanoid shape is worth one more try, and why.
+
+    Rigging again costs about a minute and only helps a model meant as a humanoid: Create says so for a
+    character, and otherwise the model itself does when it stands on two separate feet (rig_check)."""
+    if job.expect_humanoid is not None:
+        return job.expect_humanoid, "asked for " + ("a humanoid" if job.expect_humanoid else "no humanoid")
+    if job.source is None:
+        return False, "no model to look at"
+    try:
+        if str(REPO / "scripts") not in sys.path:
+            sys.path.insert(0, str(REPO / "scripts"))
+        import rig_check
+        out = rig_check.stands_on_two_legs(rig_check.mesh_points(job.source))
+    except Exception as exc:
+        return False, f"could not read the model ({exc})"
+    return bool(out["two_legs"]), out["detail"]
+
+
+def rig_again_if_not_humanoid(job: AnimateJob) -> int:
+    """Rig once more when the first skeleton missed the humanoid shape of a model meant as one; keep the
+    humanoid try, or the first when the second is no better. Returns the commands' exit code (0 when kept).
+
+    SkinTokens is not deterministic: two of seven first rigs of ArcherSoul's bosses (2026-11-24) hung one
+    leg off the spine and left the bones unnamed, and the same models rigged right the next time."""
+    fit = rig_fit(job.result)
+    if fit.get("humanoid", True):  # humanoid, or the check could not read it: as before
+        return 0
+    meant, why = meant_humanoid(job)
+    if not meant:
+        return 0
+    job.append_log(f"the rig has no humanoid shape ({fit.get('detail') or 'unreadable'}) but the model is meant "
+                   f"as one ({why}): rigging once more")
+    job.emit({"phase": "running", "overall_pct": 50, "message": "The skeleton missed a leg: rigging once more"})
+    first = job.result.with_name(job.result.stem + "_try1.glb")
+    job.result.replace(first)
+    code = _run_commands(job, rig_ports())
+    if job.cancel_requested:
+        first.unlink(missing_ok=True)
+        return code
+    if code == 0 and job.result.is_file() and rig_fit(job.result).get("humanoid"):
+        first.unlink(missing_ok=True)
+        job.append_log("the second rig has the humanoid shape: kept")
+        return 0
+    first.replace(job.result)
+    job.append_log("the second rig was no better: kept the first")
+    return 0
+
+
 def card_problem(python: Path | None = None) -> str | None:
     """Why the rig cannot run on this card, in one plain sentence; None when it can.
 
@@ -630,6 +693,39 @@ def write_history(job: AnimateJob, manager: AnimateJobManager, note: str) -> Non
     })
 
 
+def _run_commands(job: AnimateJob, ports: dict[str, str]) -> int:
+    """Run the job's commands in order, their output into the log; the first non-zero exit code, or 0."""
+    code = 0
+    for command, cwd in job.commands:
+        if job.kind == "rig" and Path(cwd) == SKINTOKENS:
+            note = ensure_port_patch(SKINTOKENS)
+            if note:
+                job.append_log(note)
+            try:
+                note = ensure_diffusers(SKINTOKENS)
+            except (OSError, subprocess.CalledProcessError) as exc:
+                note = f"note: could not repair diffusers for the auto-rig ({exc})"
+            if note:
+                job.append_log(note)
+        job.process = subprocess.Popen(
+            command, cwd=str(cwd),
+            env=processes.child_env(HF_HUB_OFFLINE="1", **ports),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
+            **processes.group_popen_kwargs(),
+        )
+        job.directory.joinpath("pid").write_text(
+            processes.pid_record(job.process.pid), encoding="utf-8")
+        assert job.process.stdout is not None
+        for raw in job.process.stdout:
+            line = raw.rstrip("\n")
+            if line:
+                job.append_log(line)
+        code = job.process.wait()
+        if code != 0 or job.cancel_requested:
+            break
+    return code
+
+
 def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
     stop = threading.Event()
     try:
@@ -648,35 +744,9 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
         job.emit({"phase": "queued", "overall_pct": 0,
                   "message": "Starting the auto-rig" if job.kind == "rig" else "Starting"})
         threading.Thread(target=_tick, args=(job, stop), daemon=True).start()
-        code = 0
-        ports = rig_ports() if job.kind == "rig" else {}
-        for command, cwd in job.commands:
-            if job.kind == "rig" and Path(cwd) == SKINTOKENS:
-                note = ensure_port_patch(SKINTOKENS)
-                if note:
-                    job.append_log(note)
-                try:
-                    note = ensure_diffusers(SKINTOKENS)
-                except (OSError, subprocess.CalledProcessError) as exc:
-                    note = f"note: could not repair diffusers for the auto-rig ({exc})"
-                if note:
-                    job.append_log(note)
-            job.process = subprocess.Popen(
-                command, cwd=str(cwd),
-                env=processes.child_env(HF_HUB_OFFLINE="1", **ports),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, **processes.TEXT_PIPE,
-                **processes.group_popen_kwargs(),
-            )
-            job.directory.joinpath("pid").write_text(
-                processes.pid_record(job.process.pid), encoding="utf-8")
-            assert job.process.stdout is not None
-            for raw in job.process.stdout:
-                line = raw.rstrip("\n")
-                if line:
-                    job.append_log(line)
-            code = job.process.wait()
-            if code != 0 or job.cancel_requested:
-                break
+        code = _run_commands(job, rig_ports() if job.kind == "rig" else {})
+        if job.kind == "rig" and code == 0 and not job.cancel_requested and job.result.is_file():
+            code = rig_again_if_not_humanoid(job)
         stop.set()
         if job.cancel_requested:
             job.status = "cancelled"

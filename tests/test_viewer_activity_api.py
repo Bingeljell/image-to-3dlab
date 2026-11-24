@@ -657,6 +657,16 @@ def test_a_rig_with_bone_names_sends_the_choice(tmp_path):
     assert b'name="bone_names"' in rig_body and b"unity" in rig_body
 
 
+def test_a_character_tells_the_rig_it_is_a_humanoid_and_a_prop_does_not(tmp_path):
+    """A rig that misses a leg is rigged once more only for a model meant as a humanoid (autorig_api)."""
+    for want, said in (("character", True), ("prop", False)):
+        runner, jobs = _runner(tmp_path / want)
+        chain = aa.Chain(title="mine", want=want, steps=["rigged"], upload=("mine.glb", b"GLB!"))
+        runner.submit(chain, background=False)
+        rig_body = next(b for m, p, b in jobs.calls if p == "/api/animate/rig")
+        assert (b'name="humanoid"' in rig_body) is said
+
+
 def test_the_plan_form_carries_only_known_rig_settings():
     form = {"title": {"value": "k"}, "steps": {"value": '["rigged"]'},
             "made": {"value": '{"finished": "finish/k/k_8k.glb"}'},

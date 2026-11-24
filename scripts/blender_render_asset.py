@@ -58,8 +58,15 @@ collection = bpy.data.collections.new(collection_name)
 bpy.context.scene.collection.children.link(collection)
 
 before = set(bpy.data.objects)
-bpy.ops.import_scene.gltf(filepath=asset_path)
-imported = [obj for obj in bpy.data.objects if obj not in before]
+# A rigged model brings a 1 m bone-shape sphere at the origin (collection glTF_not_exported, not in the
+# file): drawn and framed with the figure, it dwarfed it. Imported without it; an older Blender that has
+# no such option still imports, and what lands in that collection stays out of the render.
+try:
+    bpy.ops.import_scene.gltf(filepath=asset_path, disable_bone_shape=True)
+except TypeError:
+    bpy.ops.import_scene.gltf(filepath=asset_path)
+imported = [obj for obj in bpy.data.objects if obj not in before
+            and not any(c.name == "glTF_not_exported" for c in obj.users_collection)]
 for obj in imported:
     for owner in list(obj.users_collection):
         owner.objects.unlink(obj)

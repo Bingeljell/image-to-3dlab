@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `is`, which never matches a Blender node there, so nothing was baked and the re-unwrapped
   model came out all black. It compares with `==` now.
 - The installers' fallback when the locked PyTorch is not on PyTorch's CUDA index works again: dropping torch from the lock left its `--hash` lines behind, and the install stopped with `Unexpected '-'` (#276).
+- **Preview renders of a rigged model no longer show Blender's helper sphere.** Blender's glTF importer adds a 1 m
+  bone-shape sphere at the origin to every rigged model (collection `glTF_not_exported`, not in the file);
+  `scripts/blender_render_asset.py` took it into its render scene, drew it and framed the figure with it (a 0.9 m
+  figure beside a 2 m sphere). It now imports without it, and keeps that collection out on an older Blender.
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned

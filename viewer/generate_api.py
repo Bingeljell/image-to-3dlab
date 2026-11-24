@@ -239,6 +239,10 @@ BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"  # shipped default, n
 LEARNED_BASELINE_PATH = REPO / "output" / ".generate_baseline.json"
 TINYCLIP_ADVISOR = REPO / "scripts" / "classify_trellis_input.py"
 TINYCLIP_TIMEOUT_SECONDS = 300
+# How long a restart waits for an orphaned worker to stop after a polite stop, then after a
+# forced kill, before it gives up and keeps the pid file for the next start.
+RESTART_STOP_GRACE_SECONDS = 10.0
+RESTART_FORCE_GRACE_SECONDS = 5.0
 
 # dgrauet's shape stage stays vendored (Tencent-licensed code, not just weights — see
 # docs/info_and_credits.md). Its shape quality is genuinely the best we've tested
@@ -1640,6 +1644,25 @@ def _process_group_alive(pid: int) -> bool:
     return processes.group_alive(pid)
 
 
+def _wait_group_gone(pid: int, seconds: float) -> bool:
+    """Poll until the process group is gone or `seconds` pass; True when it is gone."""
+    deadline = time.monotonic() + seconds
+    while _process_group_alive(pid):
+        if time.monotonic() >= deadline:
+            return not _process_group_alive(pid)
+        time.sleep(0.05)
+    return True
+
+
+def _stop_orphan(pid: int) -> bool:
+    """Stop an orphaned worker's group: a polite stop, then a forced kill. True when it is gone."""
+    _killpg_if_alive(pid)
+    if _wait_group_gone(pid, RESTART_STOP_GRACE_SECONDS):
+        return True
+    processes.kill_group(pid)
+    return _wait_group_gone(pid, RESTART_FORCE_GRACE_SECONDS)
+
+
 def _process_alive(pid: int) -> bool:
     return processes.process_alive(pid)
 
@@ -1797,9 +1820,14 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
             continue
         # A process that started at another time was given the number after the job ended.
         alive = _process_group_alive(pid) and processes.still_the_process(pid, started)
+        stopped = True
         if alive:
-            _killpg_if_alive(pid)
-            note = "orphaned generation from a previous server session, terminated on restart"
+            stopped = _stop_orphan(pid)
+            if stopped:
+                note = "orphaned generation from a previous server session, terminated on restart"
+            else:
+                note = ("orphaned job from a previous server session could not be stopped on restart; "
+                        f"pid {pid} is still running")
         else:
             note = "server died mid-run (previous session) -- job status unknown, treat as failed"
         # Finish runs from 0.3.5 keep their log in steps/.
@@ -1808,7 +1836,8 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
         if log_path is not None:
             with log_path.open("a", encoding="utf-8") as handle:
                 handle.write(note + "\n")
-        pid_file.unlink(missing_ok=True)
+        if stopped:
+            pid_file.unlink(missing_ok=True)    # otherwise keep it, so the next start retries
         touched.append(directory.name)
     return touched
 

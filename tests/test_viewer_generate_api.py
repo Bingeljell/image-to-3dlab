@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import types
 from pathlib import Path
 
@@ -1139,14 +1140,26 @@ def test_reconcile_annotates_and_clears_a_dead_orphan(tmp_path, monkeypatch):
     assert "died mid-run" in (job_dir / "run.log").read_text()
 
 
+def _group_ends_when_stopped(monkeypatch, stopped):
+    """A fake process group that is running until it is asked to stop, then gone, as a worker that
+    obeys the polite stop is. Records each pid asked to stop in `stopped`."""
+    state = {"running": True}
+
+    def stop(pid):
+        stopped.append(pid)
+        state["running"] = False
+
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: state["running"])
+    monkeypatch.setattr(api, "_killpg_if_alive", stop)
+
+
 def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
     job_dir = tmp_path / "live-job"
     job_dir.mkdir()
     (job_dir / "pid").write_text("4242")
     (job_dir / "run.log").write_text("step 3/15\n")
     killed = []
-    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
-    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+    _group_ends_when_stopped(monkeypatch, killed)
 
     touched = api._reconcile_orphaned_jobs(tmp_path)
 
@@ -1154,6 +1167,69 @@ def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
     assert killed == [4242]
     assert "orphaned generation" in (job_dir / "run.log").read_text()
     assert not (job_dir / "pid").exists()
+
+
+@pytest.mark.posix
+def test_reconcile_forces_a_real_worker_that_ignores_the_first_stop(tmp_path, monkeypatch):
+    """On a Mac a worker that shrugs off the polite stop was logged as stopped and its pid file
+    deleted while it ran on. The cleanup must confirm the group is gone, forcing it if need be."""
+    import threading
+
+    from deaf_worker import _DEAF_WORKER, kill_and_reap
+
+    from image_to_3dlab import processes
+
+    monkeypatch.setattr(api, "RESTART_STOP_GRACE_SECONDS", 0.5, raising=False)
+    monkeypatch.setattr(api, "RESTART_FORCE_GRACE_SECONDS", 0.5, raising=False)
+    ready = tmp_path / "ready"
+    worker = subprocess.Popen([sys.executable, "-c", _DEAF_WORKER, str(ready)], **processes.group_popen_kwargs())
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "the worker never began ignoring SIGTERM"
+        job_dir = tmp_path / "stubborn-job"
+        job_dir.mkdir()
+        (job_dir / "run.log").write_text("step 3/15\n")
+        dead_owner = _an_ended_process()
+        (job_dir / "pid").write_text(processes.pid_record(
+            worker.pid, owner=dead_owner, started=processes.process_started(worker.pid)))
+        # The worker is this test's child, so an ended one stays a zombie, which still counts as a
+        # group, until reaped. Its real-life parent is gone and the system reaps it at once.
+        reaper = threading.Thread(target=worker.wait, daemon=True)
+        reaper.start()
+
+        touched = api._reconcile_orphaned_jobs(tmp_path)
+
+        reaper.join(2)
+        assert worker.poll() is not None, "the worker is still running: the cleanup never forced it"
+        assert touched == ["stubborn-job"]
+        assert not (job_dir / "pid").exists()
+        assert "terminated on restart" in (job_dir / "run.log").read_text()
+    finally:
+        kill_and_reap(worker)
+
+
+def test_reconcile_keeps_the_pid_file_of_a_worker_it_cannot_stop(tmp_path, monkeypatch):
+    job_dir = tmp_path / "unstoppable-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    (job_dir / "run.log").write_text("step 3/15\n")
+    asked, forced = [], []
+    monkeypatch.setattr(api, "RESTART_STOP_GRACE_SECONDS", 0.05, raising=False)
+    monkeypatch.setattr(api, "RESTART_FORCE_GRACE_SECONDS", 0.05, raising=False)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api, "_killpg_if_alive", asked.append)
+    monkeypatch.setattr(api.processes, "kill_group", forced.append)
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    log = (job_dir / "run.log").read_text()
+    assert touched == ["unstoppable-job"]
+    assert asked == [4242] and forced == [4242]
+    assert (job_dir / "pid").read_text() == "4242", "the note was removed while the worker still runs"
+    assert "terminated on restart" not in log
+    assert "4242" in log and "could not be stopped" in log and "still running" in log
 
 
 @pytest.mark.posix
@@ -1526,8 +1602,7 @@ def test_reconcile_kills_a_live_job_whose_owner_died(tmp_path, monkeypatch):
     (job_dir / "pid").write_text("4242 5151")
     killed = []
     monkeypatch.setattr(api, "_process_alive", lambda pid: False)
-    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
-    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+    _group_ends_when_stopped(monkeypatch, killed)
 
     assert api._reconcile_orphaned_jobs(tmp_path) == ["orphan"]
     assert killed == [4242]
@@ -1562,10 +1637,9 @@ def test_reconcile_leaves_a_job_only_to_the_studio_that_started_it(tmp_path, mon
     (job_dir / "pid").write_text("4242 5151 job-then owner-then")
     killed = []
     monkeypatch.setattr(api, "_process_alive", lambda pid: pid == 5151)
-    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
     monkeypatch.setattr(api.processes, "process_started",
                         lambda pid, windows=False: {4242: "job-then", 5151: owner_now}[pid])
-    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+    _group_ends_when_stopped(monkeypatch, killed)
 
     assert api._reconcile_orphaned_jobs(tmp_path) == ([] if left_alone else ["someone-elses-job"])
     assert killed == ([] if left_alone else [4242])

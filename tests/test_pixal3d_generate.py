@@ -679,6 +679,33 @@ def test_safe_sides_are_staged_with_their_paint_rule(tmp_path):
         px.write_views({"front": cut, "back": cut}, model_dir, paint_dir, sides_paint="some")
 
 
+def test_a_four_view_build_leaves_pixel_match_off_unless_asked(tmp_path):
+    # four views shape a model better, but Pixel Match can drift on it (a paladin's face): Finish
+    # leaves it off for them unless asked; front and back are staged exactly as before
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    four = {"front": cut, "right": cut, "back": cut, "left": cut}
+
+    def staged(folder):
+        return json.loads((folder / "transforms.json").read_text())
+
+    px.write_views(four, tmp_path / "in", tmp_path / "off.svviews")
+    assert staged(tmp_path / "off.svviews")["pixel_match"] is False
+    assert "pixel_match" not in staged(tmp_path / "in")          # the build itself does not care
+    px.write_views(four, tmp_path / "in2", tmp_path / "shape.svviews", sides_paint="none")
+    assert staged(tmp_path / "shape.svviews")["pixel_match"] is False
+    px.write_views(four, tmp_path / "in3", tmp_path / "on.svviews", pixel_match=True)
+    assert "pixel_match" not in staged(tmp_path / "on.svviews")
+    px.write_views({"front": cut, "back": cut}, tmp_path / "in4", tmp_path / "two.svviews")
+    assert "pixel_match" not in staged(tmp_path / "two.svviews")
+
+
+def test_the_pixel_match_switch_reaches_the_views():
+    assert px.parse_args(["f.png", "o.glb"]).pixel_match is False
+    args = px.parse_args(["f.png", "o.glb", "--back", "b.png", "--right", "r.png", "--left", "l.png",
+                          "--pixel-match"])
+    assert args.pixel_match is True
+
+
 def _extent(image):
     ys, xs = np.nonzero(np.asarray(image)[..., 3] > 127)
     return xs.max() - xs.min() + 1, ys.max() - ys.min() + 1

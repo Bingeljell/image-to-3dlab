@@ -548,3 +548,19 @@ def test_local_colour_can_fall_back_to_the_global_match():
                               settings=pp.Settings(local_colour=False))
     # The global fit sees a zero average gap, so the unseen halves stay alike.
     assert abs(int(out[20, 64, 0]) - int(out[108, 64, 0])) < 20
+
+
+def test_staged_views_say_whether_pixel_match_is_on(tmp_path):
+    # a four-view build stages its views with Pixel Match off (pixal3d_generate.py); front and back,
+    # and runs from before the switch, carry no word about it and keep it on
+    import json
+
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "transforms.json").write_text(json.dumps({"pixel_match": False, "frames": []}))
+    on = tmp_path / "on"
+    on.mkdir()
+    (on / "transforms.json").write_text(json.dumps({"frames": []}))
+    assert pp.staged_pixel_match(off) is False
+    assert pp.staged_pixel_match(on) is True
+    assert pp.staged_pixel_match(tmp_path / "nowhere") is True

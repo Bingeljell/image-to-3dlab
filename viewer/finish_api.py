@@ -78,6 +78,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "texture_size": 2048, "drop_surface_maps": False,
     "skip_paint": True, "skip_compress": False, "skip_bake": False,
     "skip_photo": False, "keep_mesh": False, "skip_edge_fade": False, "skip_nudge": False,
+    "four_view_pixel_match": False,
     "high_detail": False, "hero": False, "cleanup": "auto", "height_m": None, "upright": False,
 }
 
@@ -86,7 +87,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 CHOICE_SETTINGS: dict[str, tuple[str, ...]] = {"cleanup": ("auto", "fast", "rebuild")}
 
 BOOL_SETTINGS = {"skip_paint", "skip_compress", "skip_bake", "skip_photo", "keep_mesh", "skip_edge_fade", "skip_nudge",
-                 "high_detail", "hero", "upright", "drop_surface_maps"}
+                 "high_detail", "hero", "upright", "drop_surface_maps", "four_view_pixel_match"}
 
 INTEGER_SETTINGS = {
     "faces", "atlas", "paint_seed", "paint_res", "paint_steps", "paint_tex", "texture_size",
@@ -288,9 +289,18 @@ def needed_inputs(job: FinishJob, settings: dict[str, Any]) -> list[Path]:
     return [job.asset_path, job.image_path]
 
 
+def four_views_off(views_dir: Path) -> bool:
+    """Whether these views come from a four-view build, which stages Pixel Match off
+    (`scripts/pixal3d_generate.py`): the paint can drift around a face on such a model."""
+    return (_read_json(views_dir / "transforms.json") or {}).get("pixel_match") is False
+
+
 def uses_photo(job: FinishJob, settings: dict[str, Any]) -> bool:
-    """Whether this run gets the photo stage: a camera was found and it was not turned off."""
-    return not settings.get("skip_photo", False) and (job.views_dir / "transforms.json").is_file()
+    """Whether this run gets the photo stage: a camera was found and it was not turned off.
+    A four-view build's views need `four_view_pixel_match` too."""
+    if settings.get("skip_photo", False) or not (job.views_dir / "transforms.json").is_file():
+        return False
+    return bool(settings.get("four_view_pixel_match", False)) or not four_views_off(job.views_dir)
 
 
 def photo_note(job: FinishJob, settings: dict[str, Any]) -> str | None:
@@ -300,6 +310,9 @@ def photo_note(job: FinishJob, settings: dict[str, Any]) -> str | None:
     and a one-second start-up line read as Pixel Match having run."""
     if settings.get("skip_photo", False) or uses_photo(job, settings):
         return None
+    if four_views_off(job.views_dir):
+        return ("Pixel Match is off for a model built from four views: its paint can drift "
+                "around a face. Turn on Pixel Match for four views to try it.")
     return ("Pixel Match skipped: no saved camera for this model. It works on Pixal3D "
             "models generated in this lab, which keep their camera beside the .glb.")
 
@@ -310,14 +323,18 @@ PIXEL_MATCH_NAME = "pixel-match.json"   # beside the result: the Library reads i
 
 
 def pixel_match_result(ran: bool, views_dir: Path, settings: dict[str, Any]) -> str:
-    """Whether Pixel Match ran, in the words the Finish step shows: 'on (front + back)',
-    'on (front)', 'off' or 'skipped: <why>'. Without it a skipped run and one where Pixel Match
-    changed little look the same."""
+    """Whether Pixel Match ran, in the words the Finish step shows: 'on (four views)',
+    'on (front + back)', 'on (front)', 'off', 'off: four views (...)' or 'skipped: <why>'.
+    Without it a skipped run and one where Pixel Match changed little look the same."""
     if ran:
         frames = (_read_json(views_dir / "transforms.json") or {}).get("frames") or []
+        if len(frames) >= 4:
+            return "on (four views)"
         return "on (front + back)" if len(frames) >= 2 else "on (front)"
     if settings.get("skip_photo", False):
         return "off"
+    if four_views_off(views_dir) and not settings.get("four_view_pixel_match", False):
+        return "off: four views (the paint can drift; Pixel Match for four views turns it on)"
     if not (views_dir / "transforms.json").is_file():
         return "skipped: no saved camera (only Pixal3D models made here have one)"
     return "skipped"

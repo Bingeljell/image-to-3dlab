@@ -345,6 +345,17 @@ def view_weights(texel_points: np.ndarray, texel_normals: np.ndarray, view: View
     return weight, sample_rgb(view.image, x, y)
 
 
+def staged_pixel_match(directory: Path) -> bool:
+    """Whether the build that staged these views leaves Pixel Match on. A four-view build leaves it
+    off (`pixal3d_generate.py`, `"pixel_match": false`): the paint can drift around a face. Front and
+    back, and runs staged before the switch, say nothing and keep it on."""
+    try:
+        meta = json.loads((Path(directory) / "transforms.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    return not (isinstance(meta, dict) and meta.get("pixel_match") is False)
+
+
 def is_side(view: View) -> bool:
     """A side view: its camera stands more to the side than in front or behind (the views' x against y)."""
     position = view.position

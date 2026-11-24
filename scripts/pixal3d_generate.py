@@ -214,8 +214,11 @@ def pad_views(cuts: dict, size: int = VIEW_SIZE) -> dict:
     return out
 
 
-def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back"), paint: dict | None = None) -> dict:
+def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back"), paint: dict | None = None,
+         pixel_match: bool = True) -> dict:
     out = {"camera_angle_x": fov, "mesh_scale": 1, "frames": []}
+    if not pixel_match:
+        out["pixel_match"] = False   # Finish leaves Pixel Match off for these views unless asked
     for side in sides:
         frame = {"file_path": f"view_{SIDES[side]:03d}.png",
                  "transform_matrix": (turn(SIDES[side]) @ GAUGE_CAMERA).tolist(), "camera_angle_x": fov}
@@ -228,7 +231,8 @@ def _rig(fov: float = DEFAULT_FOV, sides: tuple[str, ...] = ("front", "back"), p
 SIDES_PAINT = ("all", "safe", "none")
 
 
-def write_views(cuts: dict, model_dir: Path, paint_dir: Path, sides_paint: str = "all") -> None:
+def write_views(cuts: dict, model_dir: Path, paint_dir: Path, sides_paint: str = "all",
+                pixel_match: bool | None = None) -> None:
     """Stage the cut-outs of each side ("front", "right", "back", "left") with one camera rig,
     for Pixal3D (`model_dir`, 768 px) and for Pixel Match (`paint_dir`, at least the pictures'
     own size). Front and back alone is the usual case; all four add the sides. `sides_paint`
@@ -236,19 +240,27 @@ def write_views(cuts: dict, model_dir: Path, paint_dir: Path, sides_paint: str =
     vehicle's doors), "safe" only where a drawn picture cannot be wrong (a figure's ears, side
     hair, arms and legs: `image_to_3dlab/side_paint.py`), "none" not at all, they only shape the
     model (the front and back still framed as in the four-view build, so they line up with it).
+    `pixel_match` says whether Finish paints from the views at all; by default it does for front
+    and back and does not for a four-view build, where the paint can drift (around a face most of
+    all). Off, the views are staged all the same, marked `"pixel_match": false`, so Finish can
+    still be asked to paint from them (`retopo_repaint.py --pixel-match`).
     """
     if sides_paint not in SIDES_PAINT:
         raise ValueError(f"sides_paint must be one of {SIDES_PAINT}, not {sides_paint!r}")
     sides = tuple(side for side in SIDE_ORDER if side in cuts)
     painted = sides if sides_paint != "none" else tuple(side for side in sides if side in ("front", "back"))
     paint = {"right": "safe", "left": "safe"} if sides_paint == "safe" else None
+    if pixel_match is None:
+        pixel_match = not ({"right", "left"} & set(sides))
     paint_size = max(VIEW_SIZE, *(n for cut in cuts.values() for n in cut.size))
-    for folder, size, which, how in ((model_dir, VIEW_SIZE, sides, None), (paint_dir, paint_size, painted, paint)):
+    for folder, size, which, how, match in ((model_dir, VIEW_SIZE, sides, None, True),
+                                            (paint_dir, paint_size, painted, paint, pixel_match)):
         folder.mkdir(parents=True, exist_ok=True)
         padded = pad_views(cuts, size)
         for side in which:
             padded[side].save(folder / f"view_{SIDES[side]:03d}.png")
-        (folder / "transforms.json").write_text(json.dumps(_rig(sides=which, paint=how), indent=2) + "\n")
+        rig = _rig(sides=which, paint=how, pixel_match=match)
+        (folder / "transforms.json").write_text(json.dumps(rig, indent=2) + "\n")
 
 
 def views_problem(back: Path | None, right: Path | None, left: Path | None) -> str | None:
@@ -638,6 +650,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "never sits exactly where the model has it) or none (they only shape the model)")
     parser.add_argument("--sides-shape-only", action="store_const", const="none", dest="sides_paint",
                         help="the same as --sides-paint none")
+    parser.add_argument("--pixel-match", action="store_true",
+                        help="let Finish paint a four-view build from its pictures (Pixel Match). Off by "
+                             "default for four views, where the paint can drift around a face; front and "
+                             "back always have it. retopo_repaint.py --pixel-match does the same later")
     parser.add_argument("--models", type=Path, default=None,
                         help="weights folder (default: single-view, or multi-view with --back)")
     parser.add_argument("--cli", type=Path, default=CLI)
@@ -731,7 +747,11 @@ def main() -> int:
             cuts["right"] = cut_out(args.right.resolve(), "right")
             cuts["left"] = cut_out(args.left.resolve(), "left")
         model_views = args.output.with_suffix(".mvinput")
-        write_views(cuts, model_views, args.output.with_suffix(".svviews"), sides_paint=args.sides_paint)
+        write_views(cuts, model_views, args.output.with_suffix(".svviews"), sides_paint=args.sides_paint,
+                    pixel_match=True if args.pixel_match else None)
+        if args.right is not None and not args.pixel_match:
+            print("[pixal3d] four views: Finish leaves Pixel Match off for this model (the paint can "
+                  "drift); --pixel-match here or in retopo_repaint.py turns it on", flush=True)
         command = build_multiview_command(model_views, args.output, args.res, args.seed,
                                           args.models, args.cli, args.gss, args.gsh)
         print(f"[pixal3d] {' + '.join(side for side in SIDE_ORDER if side in cuts)}: "

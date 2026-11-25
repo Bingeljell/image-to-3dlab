@@ -59,6 +59,7 @@ from assets_api import thumbnail as asset_thumbnail
 from autorig_api import (
     ANIMATE_JOBS,
     bone_names_choice,
+    humanoid_choice,
 )
 from autorig_api import (
     aliases as animate_aliases,
@@ -4229,7 +4230,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             try:
                 job = ANIMATE_JOBS.create_rig(name, data, record, origin,
-                                              bone_names=bone_names_choice(form))
+                                              bone_names=bone_names_choice(form),
+                                              humanoid=humanoid_choice(form))
             except ValueError as exc:
                 self._send_json(422, {"error": str(exc)})
                 return

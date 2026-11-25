@@ -721,6 +721,90 @@ def test_the_rig_form_s_bone_names_field_is_read_and_checked():
         aa.bone_names_choice({"bone_names": {"value": "maya"}})
 
 
+# --- a rig without the humanoid shape gets one more try when the model stands on two legs --------------------------
+# SkinTokens is not deterministic: two of seven first rigs of ArcherSoul's bosses (2026-11-24) hung one leg off the
+# spine and left the bones unnamed, and a second rig of the same model came out right.
+
+def _counting_job(tmp_path, expect=None):
+    """A rig job whose stand-in writes a GLB and counts its runs in runs.txt."""
+    counter = tmp_path / "runs.txt"
+    script = (f"open(r'{counter}', 'a').write('x'); " + _write_glb_script())
+    job = _fake_job(tmp_path, script)
+    job.expect_humanoid = expect
+    return job, counter
+
+
+def _fits(*answers):
+    """rig_fit's answers in turn: True a humanoid, False not."""
+    seq = list(answers)
+    return lambda path: ({"humanoid": True, "message": "Rigged. Ready for moves.", "detail": ""} if seq.pop(0)
+                         else {"humanoid": False, "message": "Rigged. Preset moves are for humanoids only",
+                               "detail": "expected 2 legs + 1 spine under root, got legs=['bone_17']"})
+
+
+def test_a_rig_that_missed_a_leg_is_rigged_once_more_and_the_humanoid_one_kept(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=True)
+    monkeypatch.setattr(aa, "rig_fit", _fits(False, True, True))   # first try, second try, the done event's check
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "xx"
+    assert job.status == "done" and job.events[-1]["message"] == "Rigged. Ready for moves."
+    assert "rigging once more" in job.log_path.read_text()
+    assert not list(tmp_path.glob("*_try1.glb"))
+
+
+def test_a_second_rig_no_better_keeps_the_first(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=True)
+    first = []
+    real = aa._run_commands
+
+    def run(j, ports):
+        code = real(j, ports)
+        first.append(j.result.read_bytes())
+        if len(first) == 2:
+            j.result.write_bytes(first[0][:-4] + b"two!")   # the second try's file differs
+        return code
+
+    monkeypatch.setattr(aa, "_run_commands", run)
+    monkeypatch.setattr(aa, "rig_fit", _fits(False, False, False))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "xx" and job.status == "done"
+    assert job.result.read_bytes()[-4:] != b"two!"                  # the first try's file is the result
+    assert "kept the first" in job.log_path.read_text()
+
+
+def test_a_model_not_meant_as_a_humanoid_is_rigged_once(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=False)              # a wolf, a bird, a crate
+    monkeypatch.setattr(aa, "rig_fit", _fits(False, False))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "x" and job.status == "done"
+
+
+def test_a_humanoid_first_rig_is_not_rigged_again(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=True)
+    monkeypatch.setattr(aa, "rig_fit", _fits(True, True))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "x"
+
+
+def test_without_a_say_the_model_itself_decides(tmp_path, monkeypatch):
+    import rig_check
+    job, _ = _counting_job(tmp_path)
+    job.source = tmp_path / "source.glb"
+    monkeypatch.setattr(rig_check, "mesh_points", lambda path: path)
+    monkeypatch.setattr(rig_check, "stands_on_two_legs", lambda pts: {"two_legs": True, "feet": 2, "detail": "2 parts"})
+    assert aa.meant_humanoid(job) == (True, "2 parts")
+    job.source = None
+    assert aa.meant_humanoid(job)[0] is False
+
+
+def test_the_rig_form_and_create_can_say_humanoid():
+    assert aa.humanoid_choice({}) is None
+    assert aa.humanoid_choice({"humanoid": {"value": "yes"}}) is True
+    assert aa.humanoid_choice({"humanoid": {"value": "no"}}) is False
+    with pytest.raises(ValueError):
+        aa.humanoid_choice({"humanoid": {"value": "maybe"}})
+
+
 @pytest.mark.posix
 def test_an_animate_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
         tmp_path, monkeypatch):

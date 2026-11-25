@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
+  one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
+  rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",
+  a `humanoid=yes` field, or a model standing on two separate feet, measured from its mesh by `scripts/rig_check.py`),
+  Rig runs once more and keeps the humanoid try, or the first when the second is no better. Pets, birds, slimes and
+  props are rigged once, as before.
 - **The background remover no longer cuts a glowing eye out of a face.** On a close crop of a face (as the Hero route
   makes) BiRefNet-lite cut a bright cyan eye away as if it were background, and the 3D build got a hole there. A hole
   closed in by the subject on every side whose pixels are not the picture's backdrop colour is now given back; a real

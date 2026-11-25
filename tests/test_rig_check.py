@@ -7,6 +7,8 @@ import struct
 import sys
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import rig_check as rc
 
@@ -93,3 +95,63 @@ def test_the_rig_job_asks_the_check_and_a_broken_file_never_fails_the_rig(tmp_pa
     assert rig_fit(_glb(tmp_path / "q.glb", nodes, list(range(len(nodes))), [0]))["humanoid"] is False
     (tmp_path / "bad.glb").write_bytes(b"nope")
     assert rig_fit(tmp_path / "bad.glb") == {}
+
+
+# --- does the model itself stand on two legs (the auto-rig's second try, TODO 194 of the support notes) -----------
+
+def _box(lo, hi, n=600, seed=0):
+    """Points spread through a box from corner `lo` to corner `hi` (x, y, z; Y up)."""
+    return np.random.default_rng(seed).uniform(lo, hi, size=(n, 3))
+
+
+def _biped(feet_apart=0.12):
+    legs = [_box([-feet_apart / 2 - 0.12, 0, -0.08], [-feet_apart / 2, 0.85, 0.14], seed=1),
+            _box([feet_apart / 2, 0, -0.08], [feet_apart / 2 + 0.12, 0.85, 0.14], seed=2)]
+    body = _box([-0.25, 0.85, -0.12], [0.25, 1.5, 0.12], seed=3)
+    arms = _box([-0.85, 1.35, -0.05], [0.85, 1.45, 0.05], seed=4)   # a T-pose: as wide as tall
+    head = _box([-0.1, 1.5, -0.1], [0.1, 1.75, 0.1], seed=5)
+    return np.vstack(legs + [body, arms, head])
+
+
+def test_a_figure_on_two_legs_is_seen_from_its_mesh():
+    out = rc.stands_on_two_legs(_biped())
+    assert out["two_legs"] is True and out["feet"] == 2
+
+
+def test_knuckles_touching_the_floor_beside_two_feet_still_read_as_two_legs():
+    knuckles = [_box([x, 0, -0.03], [x + 0.06, 0.15, 0.03], n=40, seed=20 + i) for i, x in enumerate((-0.6, 0.54))]
+    out = rc.stands_on_two_legs(np.vstack([_biped()] + knuckles))   # a golem's long arms reach the ground
+    assert out["two_legs"] is True and out["feet"] == 4
+
+
+def test_a_robe_to_the_floor_a_crate_and_feet_together_are_not_two_legs():
+    robe = np.vstack([_box([-0.3, 0, -0.25], [0.3, 1.5, 0.25], n=2000), _box([-0.1, 1.5, -0.1], [0.1, 1.75, 0.1])])
+    assert rc.stands_on_two_legs(robe)["two_legs"] is False
+    assert rc.stands_on_two_legs(_box([0, 0, 0], [1, 1, 1], n=2000))["two_legs"] is False
+    assert rc.stands_on_two_legs(_biped(feet_apart=0.0))["two_legs"] is False   # one block: no retry, as before
+
+
+def test_a_four_legged_creature_is_not_two_legs():
+    legs = [_box([x, 0, z], [x + 0.1, 0.4, z + 0.1], seed=i)
+            for i, (x, z) in enumerate([(-0.2, -0.5), (0.1, -0.5), (-0.2, 0.4), (0.1, 0.4)])]
+    body = _box([-0.2, 0.4, -0.55], [0.2, 0.7, 0.55], n=1500, seed=9)
+    assert rc.stands_on_two_legs(np.vstack(legs + [body]))["feet"] == 4
+    # its legs fused side by side along the body: two long parts, still not a biped's feet
+    sides = [_box([-0.2, 0, -0.5], [-0.1, 0.4, 0.5], seed=11), _box([0.1, 0, -0.5], [0.2, 0.4, 0.5], seed=12)]
+    assert rc.stands_on_two_legs(np.vstack(sides + [body]))["two_legs"] is False
+
+
+def test_the_points_come_from_every_mesh_in_the_glb_with_its_node_moved(tmp_path):
+    pts = np.array([[0, 0, 0], [1, 2, 3], [0, 1, 0]], np.float32)
+    blob = pts.tobytes()
+    doc = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
+           "nodes": [{"mesh": 0, "translation": [0, 5, 0]}],
+           "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+           "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+           "bufferViews": [{"buffer": 0, "byteLength": len(blob)}], "buffers": [{"byteLength": len(blob)}]}
+    js = json.dumps(doc).encode()
+    js += b" " * (-len(js) % 4)
+    path = tmp_path / "m.glb"
+    path.write_bytes(struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(blob))
+                     + struct.pack("<II", len(js), 0x4E4F534A) + js + struct.pack("<II", len(blob), 0x004E4942) + blob)
+    assert rc.mesh_points(path).tolist() == [[0, 5, 0], [1, 7, 3], [0, 6, 0]]

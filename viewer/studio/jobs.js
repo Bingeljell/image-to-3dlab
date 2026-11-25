@@ -45,8 +45,8 @@ export async function copyDetails(why, log = '', { send = globalThis.fetch, clip
 
 export function plainError(message = '') {
   const text = String(message);
-  // already written for a person (how to install Blender): shown as it is
-  if (/Install Blender|blender\.org/.test(text)) return text;
+  // already written for a person (how to install Blender, what a plan still needs): shown as it is
+  if (/Install Blender|blender\.org|^Before this can start, set up:/.test(text)) return text;
   const rules = [
     [/memory|MemoryError|out of memory|Killed/i, 'This Mac ran out of memory. Close other big apps and try again, or pick a lower detail or texture size.'],
     [/not installed|is not installed\/ready|needs_setup/i, 'This engine is not installed yet. Install it from Setup, then try again.'],

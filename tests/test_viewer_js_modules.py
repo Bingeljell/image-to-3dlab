@@ -607,6 +607,7 @@ def test_library_filters_wrap_before_select_labels_are_clipped():
     assert "grid-template-columns: repeat(auto-fit, minmax(112px, 1fr))" in css
 
 
+@pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
 def test_library_load_runner_ignores_stale_success_and_failure():
     """A late response from an older real load cannot overwrite the newest result or error."""
     module_url = (REPO / "viewer" / "studio" / "library-loading.js").as_uri()

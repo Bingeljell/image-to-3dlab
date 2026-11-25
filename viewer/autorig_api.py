@@ -728,6 +728,7 @@ def _run_commands(job: AnimateJob, ports: dict[str, str]) -> int:
 
 def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
     stop = threading.Event()
+    stopped = False
     try:
         job.status = "running"
         if job.kind == "rig":
@@ -780,19 +781,26 @@ def run_job(job: AnimateJob, manager: AnimateJobManager = ANIMATE_JOBS) -> None:
             job.status = "done"
             usage_api.count_done("rig" if job.kind == "rig" else "animation")
     except Exception as exc:
+        # Stop and reap the worker before the status turns terminal: the start gate reads it.
+        stopped = True
+        if job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         write_history(job, manager, str(exc))
         usage_api.count_failed("rig" if job.kind == "rig" else "animation", exc)
     finally:
         stop.set()
-        job.directory.joinpath("pid").unlink(missing_ok=True)
-        if job.process is not None and job.process.poll() is None:
-            try:
-                processes.terminate_group(job.process.pid)
-                job.process.wait(timeout=30)
-            except Exception as cleanup_exc:
-                job.append_log(f"cleanup warning: {cleanup_exc}")
+        if not stopped and job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
+        try:
+            job.directory.joinpath("pid").unlink(missing_ok=True)
+        except Exception as cleanup_exc:
+            job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

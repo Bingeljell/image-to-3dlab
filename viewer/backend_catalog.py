@@ -681,7 +681,9 @@ CATALOG: tuple[Backend, ...] = (
         rank=5,
         best_for="Fastest of the lot, and the smallest download. Good for a quick look.",
         tradeoff="Lowest fidelity here, and it bakes lighting into the texture.",
-        license_name="Stability AI Community License (non-commercial under $1M revenue)",
+        # The name alone, as the note at the top says. It carried terms of its own here,
+        # and they disagreed with the reviewed record (image_to_3dlab.provenance.LICENSES).
+        license_name="Stability AI Community License",
         license_url="https://huggingface.co/stabilityai/stable-fast-3d",
         install="scripts/bootstrap_sf3d.py",
         # Not a card limitation at all: SF3D's pins (numpy 1.26, transformers 4.42, an old

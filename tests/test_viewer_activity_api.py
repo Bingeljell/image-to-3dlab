@@ -380,8 +380,16 @@ def test_install_help_for_blender_is_passed_on_as_it_is():
     assert aa.plain_error("Blender: Error: something broke").startswith("Blender stopped with an error")
 
 
+def test_what_a_plan_still_needs_is_passed_on_as_it_is():
+    """It names Blender among the things to set up, and "Blender" alone reads as a crash."""
+    message = (f"{aa.PLAN_NEEDS} Blender 4.2 or newer (for Finish); the auto-rig (for Rig and Animate). "
+               "Each is on the Setup & Status page.")
+    assert aa.plain_error(message) == message
+
+
 def test_a_plan_with_finish_is_refused_up_front_when_blender_is_missing(tmp_path, monkeypatch):
     """Checked before the picture and the 3D model, not ten minutes in at Finish."""
+    import dataclasses
     import http.server
     import threading
     import urllib.error
@@ -391,6 +399,10 @@ def test_a_plan_with_finish_is_refused_up_front_when_blender_is_missing(tmp_path
 
     monkeypatch.setattr(api, "OUTPUT_ROOT", tmp_path)
     monkeypatch.setattr(api, "find_blender", lambda: None)
+    # Blender is the one thing missing: a plan is asked for everything its steps need now
+    monkeypatch.setattr(api.image_api, "is_installed", lambda engine=None: True)
+    monkeypatch.setitem(api.BACKENDS, "trellis",
+                        dataclasses.replace(api.BACKENDS["trellis"], readiness=lambda: {"ready": True}))
     started = []
     monkeypatch.setattr(api.ChainRunner, "submit", lambda self, chain, **k: started.append(chain))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
@@ -672,3 +684,24 @@ def test_the_plan_form_carries_only_known_rig_settings():
             "made": {"value": '{"finished": "finish/k/k_8k.glb"}'},
             "rig_settings": {"value": '{"bone_names": "unity", "colour": "red"}'}}
     assert aa.chain_from_form(form).rig_settings == {"bone_names": "unity"}
+
+
+def test_a_run_whose_thread_cannot_start_does_not_hold_the_slot(tmp_path, monkeypatch):
+    # Before: a Chain is "running" from birth, so one whose thread failed to start was
+    # reported by running() for ever and every later plan was refused as already being made.
+    import threading
+    import types
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    runner, _ = _runner(tmp_path)
+    monkeypatch.setattr(aa, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    chain = aa.Chain(title="x", steps=["picture"], prompt="x")
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        runner.submit(chain)
+
+    assert chain.status == "error" and "can't start new thread" in chain.error
+    assert runner.running() is None
+    runner.submit(aa.Chain(title="next", steps=["picture"], prompt="next"), background=False)

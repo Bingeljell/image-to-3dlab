@@ -724,6 +724,19 @@ def test_four_views_share_one_scale_so_a_long_vehicle_stays_long(tmp_path):
     assert sw <= 0.9 * 768 + 2                          # and still fits
 
 
+def test_front_and_back_keep_independent_framing(tmp_path):
+    from PIL import Image
+
+    front = _cut(800, 400, (100, 100, 700, 300))
+    back = _cut(800, 400, (300, 100, 500, 300))
+    model_dir, paint_dir = tmp_path / "model", tmp_path / "paint"
+    px.write_views({"front": front, "back": back}, model_dir, paint_dir)
+
+    for folder, size in ((model_dir, px.VIEW_SIZE), (paint_dir, 800)):
+        assert np.array_equal(Image.open(folder / "view_000.png"), px.pad_view(front, size))
+        assert np.array_equal(Image.open(folder / "view_180.png"), px.pad_view(back, size))
+
+
 def test_front_and_back_through_write_views_keep_their_rig(tmp_path):
     cut = _cut(400, 400, (150, 40, 250, 360))
     px.write_views({"front": cut, "back": cut}, tmp_path / "a", tmp_path / "a.svviews")

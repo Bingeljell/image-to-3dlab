@@ -250,13 +250,14 @@ def write_views(cuts: dict, model_dir: Path, paint_dir: Path, sides_paint: str =
     sides = tuple(side for side in SIDE_ORDER if side in cuts)
     painted = sides if sides_paint != "none" else tuple(side for side in sides if side in ("front", "back"))
     paint = {"right": "safe", "left": "safe"} if sides_paint == "safe" else None
+    has_sides = "right" in cuts or "left" in cuts
     if pixel_match is None:
-        pixel_match = not ({"right", "left"} & set(sides))
+        pixel_match = not has_sides
     paint_size = max(VIEW_SIZE, *(n for cut in cuts.values() for n in cut.size))
     for folder, size, which, how, match in ((model_dir, VIEW_SIZE, sides, None, True),
                                             (paint_dir, paint_size, painted, paint, pixel_match)):
         folder.mkdir(parents=True, exist_ok=True)
-        padded = pad_views(cuts, size)
+        padded = pad_views(cuts, size) if has_sides else {side: pad_view(cuts[side], size) for side in which}
         for side in which:
             padded[side].save(folder / f"view_{SIDES[side]:03d}.png")
         rig = _rig(sides=which, paint=how, pixel_match=match)

@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO))   # standing alone, not only after another module 
 import usage_api
 
 from image_to_3dlab import processes
-from image_to_3dlab.provenance import read_run_record
+from image_to_3dlab.provenance import pixal3d_four_views, read_run_record
 
 OUTPUT_ROOT = REPO / "output"
 SKINS_DIR = "skins"
@@ -121,6 +121,8 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
     record = read_run_record(model) or {}
     if record.get("backend") != "pixal3d":
         raise SkinError("Only Pixal3D models can take new skins.")
+    if pixal3d_four_views(record):
+        raise SkinError("Skins need a one- or two-view build. This model was built from four views.")
     shape = model.with_suffix(".shape.bin")
     if not shape.is_file():
         if not install_keeps_shapes():

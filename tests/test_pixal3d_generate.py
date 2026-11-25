@@ -370,9 +370,20 @@ def test_background_removal_is_named_only_when_this_run_did_it(tmp_path):
     assert given["components"] == []
 
 
-def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypatch):
+@pytest.mark.parametrize("sides, view_label", [
+    ((), None),
+    (("back",), "front + back"),
+    (("back", "right", "left"), "four views"),
+])
+def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypatch, sides, view_label):
     image = tmp_path / "gnome.png"
-    image.write_bytes(b"png")
+    cut = _cut(100, 100, (30, 20, 70, 80))
+    cut.save(image)
+    flags = []
+    for side in sides:
+        picture = tmp_path / f"{side}.png"
+        cut.save(picture)
+        flags.extend((f"--{side}", str(picture)))
     output = tmp_path / "out" / "gnome.glb"
 
     views = output.with_suffix(".svviews")
@@ -383,26 +394,31 @@ def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypat
         def wait(self):
             # What trellis-cli leaves: a GLB facing -Z, and the camera it staged.
             output.write_bytes(make_glb([[0.1, 0.2, 0.3]]))
-            views.mkdir()
-            (views / "transforms.json").write_text(json.dumps(
-                {"frames": [{"file_path": "input.png", "transform_matrix": np.eye(4).tolist()}]}))
+            if not views.exists():
+                views.mkdir()
+                (views / "transforms.json").write_text(json.dumps(
+                    {"frames": [{"file_path": "input.png", "transform_matrix": np.eye(4).tolist()}]}))
             return 0
 
     monkeypatch.setattr(px, "has_alpha", lambda _: True)
     monkeypatch.setattr(px, "readiness", lambda *a, **k: {"ready": True})
+    monkeypatch.setattr(px, "multiview_readiness", lambda *a, **k: {"ready": True})
     monkeypatch.setattr(px.subprocess, "Popen", lambda *a, **k: FakeProcess())
-    monkeypatch.setattr(sys, "argv", ["pixal3d_generate.py", str(image), str(output)])
+    monkeypatch.setattr(sys, "argv", ["pixal3d_generate.py", str(image), str(output), *flags])
 
     assert px.main() == 0
     record = __import__("json").loads((tmp_path / "out" / "gnome.provenance.json").read_text())
     assert record["backend"] == "pixal3d"
+    assert record["parameters"].get("views") == view_label
+    for side in sides:
+        assert record[f"{side}_input"]["sha256"] == px.sha256_file(tmp_path / f"{side}.png")
     assert record["made_with"]["name"] == "AssetFurnace"
     assert record["output"]["path"] == str(output.resolve())
     # Turned to face front, with its camera, before the record hashes it.
     assert glb_turn.glb_faces_front(output.read_bytes())
     assert np.allclose(read(output.read_bytes(), 0), [[-0.1, 0.2, -0.3]])
     camera = json.loads((views / "transforms.json").read_text())
-    assert camera["frames"][0]["transform_matrix"][0][0] == -1.0
+    assert camera["frames"][0]["transform_matrix"][0][0] == pytest.approx(-1.0)
     assert record["output"]["sha256"] == px.sha256_file(output)
 
 
@@ -885,6 +901,23 @@ def test_a_front_back_shape_needs_a_back_picture_to_repaint(tmp_path):
     shape = _saved_shape(tmp_path, "front + back")
     assert "--back" in px.reuse_problem(shape, has_back=False)
     assert px.reuse_problem(shape, has_back=True) is None
+
+
+@pytest.mark.parametrize("record", [
+    {"parameters": {"views": "four views"}},
+    {"parameters": {"views": "front + back"}, "right_input": {"path": "right.png"},
+     "left_input": {"path": "left.png"}},
+])
+def test_a_four_view_shape_needs_both_side_pictures_to_repaint(tmp_path, record):
+    shape = _saved_shape(tmp_path)
+    (tmp_path / "run.provenance.json").write_text(json.dumps(record))
+    assert "--right and --left" in px.reuse_problem(shape, has_back=True)
+    assert px.reuse_problem(shape, has_back=True, has_sides=True) is None
+
+
+def test_a_front_back_shape_does_not_accept_side_pictures(tmp_path):
+    shape = _saved_shape(tmp_path, "front + back")
+    assert "drop --right and --left" in px.reuse_problem(shape, has_back=True, has_sides=True)
 
 
 def test_a_front_only_shape_refuses_a_back_picture(tmp_path):

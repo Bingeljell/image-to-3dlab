@@ -48,6 +48,7 @@ from image_to_3dlab.matte import cut_out, fallback_note, is_matted, matte_model
 from image_to_3dlab.models_home import vendor_models
 from image_to_3dlab.provenance import (
     LICENSES,
+    pixal3d_four_views,
     set_glb_generator,
     sha256_file,
     write_provenance,
@@ -471,23 +472,32 @@ def shape_supported(cli: Path = CLI) -> bool:
         return False
 
 
-def reuse_problem(shape: Path, has_back: bool) -> str | None:
+def reuse_problem(shape: Path, has_back: bool, has_sides: bool = False) -> str | None:
     """Why `shape` cannot be repainted from these pictures, or None.
 
-    Front-only and front + back runs place their cameras differently, so painting one's
-    shape with the other's pictures lands the paint off target. The run that saved the
-    shape recorded which it was in `<name>.provenance.json` beside it, or `<name>.json` on
-    runs from before that name; without either record, allow it.
+    Single-view, two-view and four-view runs frame their pictures differently. The run
+    that saved the shape recorded its view mode in `<name>.provenance.json`, or
+    `<name>.json` on older runs. Without a record, allow it.
     """
     base = shape.with_name(shape.name.removesuffix(SHAPE_SUFFIX))
     for record in (base.with_suffix(".provenance.json"), base.with_suffix(".json")):
         try:
-            views = json.loads(record.read_text())["parameters"].get("views")
+            source = json.loads(record.read_text())
+            parameters = source["parameters"]
+            if not isinstance(parameters, dict):
+                continue
+            views = parameters.get("views")
         except (OSError, ValueError, KeyError, TypeError):
             continue
         break
     else:
         return None   # no record: the original behaviour was to allow it
+    if pixal3d_four_views(source):
+        if not (has_back and has_sides):
+            return f"{shape.name} was built from four views: give --back, --right and --left"
+        return None
+    if has_sides:
+        return f"{shape.name} was built without side pictures: drop --right and --left"
     built_with_back = views == "front + back"
     if built_with_back and not has_back:
         return f"{shape.name} was built from front + back pictures: give --back too"
@@ -680,7 +690,7 @@ def main() -> int:
         raise SystemExit("this trellis-cli cannot repaint a saved shape. Re-apply "
                          "scripts/patch_pixal3d_shape_reuse.py and rebuild")
     if args.reuse_shape is not None:
-        problem = reuse_problem(args.reuse_shape, args.back is not None)
+        problem = reuse_problem(args.reuse_shape, args.back is not None, has_sides=args.right is not None)
         if problem:
             raise SystemExit(problem)
     if args.back is not None:
@@ -809,7 +819,7 @@ def main() -> int:
             picture = getattr(args, side)
             if picture is not None:
                 record[f"{side}_input"] = {"path": str(picture), "sha256": sha256_file(picture)}
-        record["parameters"]["views"] = "front + back"
+        record["parameters"]["views"] = "four views" if args.right is not None else "front + back"
     if save_shape is not None and save_shape.is_file():
         record["shape"] = save_shape.name
     if load_shape is not None:

@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;
   from four views they come out right. **Pixel Match is off by default for a four-view build**: its paint can drift
   around a face. `--pixel-match` (on `pixal3d_generate.py`, or later on `retopo_repaint.py`) turns it on to try it,
-  and so does the Finish setting `four_view_pixel_match`; front-and-back builds keep Pixel Match as before.
+  and so does the Finish setting `four_view_pixel_match`. Front-and-back builds keep Pixel Match as before.
+  Skins currently support one- and two-view builds.
 - **`scripts/make_side_views.py` draws those side pictures** with the studio's own picture engine: the right side from
   the front picture, the left one its mirror (or drawn too with `--draw-left`, for a tail curled to one side), so both
   agree on the length. `--four-legged` draws a side again until the legs stand apart (`image_to_3dlab/leg_check.py`):

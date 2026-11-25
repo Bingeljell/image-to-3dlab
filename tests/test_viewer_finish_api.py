@@ -13,6 +13,13 @@ import json
 from pathlib import Path
 
 import pytest
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 from glb_fixtures import valid_glb
 
 MODULE = Path(__file__).resolve().parents[1] / "viewer" / "finish_api.py"
@@ -34,6 +41,10 @@ def test_defaults_are_used_when_nothing_is_sent():
     assert settings is not finish.DEFAULT_SETTINGS  # a copy, not the shared dict
 
 
+def test_accepts_a_custom_500_triangle_finish():
+    assert finish.normalise_settings({"faces": 500})["faces"] == 500
+
+
 def test_client_values_override_defaults():
     settings = finish.normalise_settings({"metallic": 0.648, "roughness": 0.686, "ior": 1.4})
     assert settings["metallic"] == pytest.approx(0.648)
@@ -45,7 +56,7 @@ def test_client_values_override_defaults():
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("faces", 500), ("faces", 500000),      # blender_retopo_bake rejects both
+        ("faces", 499), ("faces", 500000),      # blender_retopo_bake rejects both
         ("metallic", 1.5), ("roughness", -0.1),
         ("ior", 0.5), ("ior", 4.0),
         ("voxel", 0.5),                          # coarse enough to melt the subject
@@ -992,3 +1003,81 @@ def test_the_progress_bar_lists_the_compress_stage_a_drop_needs(monkeypatch):
         settings["skip_paint"], settings["skip_compress"], settings["skip_bake"],
         drop_surface_maps=settings["drop_surface_maps"])
     assert "compress" in plan and plan[-1] == "compress"
+
+
+@pytest.mark.posix
+def test_a_finish_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked the worker to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next Finish started beside it.
+    import finish_api
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_failed_finish_run_is_not_over_until_its_worker_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its worker (up to 35 s), so the
+    # gate was open and a new Finish could start beside a worker still holding the GPU.
+    import finish_api
+    from deaf_worker import assert_still_running_when_stop_began, watch_status_at_stop
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_status_at_stop(finish_api, monkeypatch, lambda: job.status)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_finish_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next Finish was blocked.
+    import finish_api
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

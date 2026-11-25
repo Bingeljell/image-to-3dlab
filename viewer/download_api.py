@@ -330,7 +330,9 @@ LOCK = threading.Lock()
 
 
 def active() -> DownloadRun | None:
-    return next((r for r in DOWNLOADS.values() if r.status not in TERMINAL), None)
+    # A copy of the list: every start asks this, each on its own thread, and a dict that
+    # another request adds a download to must not be the one being read.
+    return next((r for r in list(DOWNLOADS.values()) if r.status not in TERMINAL), None)
 
 
 def running_payload() -> dict[str, Any] | None:
@@ -359,8 +361,13 @@ def start(backend_id: str, rebuild: bool = False) -> DownloadRun:  # Come get so
             raise RuntimeError("a download is already running")
         run = DownloadRun(backend, rebuild)
         DOWNLOADS[backend_id] = run
-    threading.Thread(target=_run, args=(run,), daemon=True,
-                     name=f"download-{backend_id}").start()
+    try:
+        threading.Thread(target=_run, args=(run,), daemon=True,
+                         name=f"download-{backend_id}").start()
+    except RuntimeError as exc:   # no thread could start: end the run so it stops holding the slot
+        run.status = "error"
+        run.emit({"phase": "error", "overall_pct": 0, "detail": f"cannot start: {exc}"})
+        raise
     return run
 
 
@@ -508,12 +515,27 @@ def _run(run: DownloadRun) -> None:
         code = run.process.wait()
     except Exception as exc:
         stop.set()
+        proc = run.process     # stop and reap the downloader before the status turns terminal
+        if proc is not None and proc.poll() is None:
+            warning = processes.stop_and_reap(proc, grace=5)
+            if warning:
+                run.log.append(f"cleanup warning: {warning}")
         run.status = "error"
         run.emit({"phase": "error", "detail": str(exc)})
         return
     finally:
         stop.set()
-        run.directory.joinpath("pid").unlink(missing_ok=True)
+        # A run that failed after the downloader launched must not leave it running: stop it,
+        # and reap it, before the run's state is set and the slot freed.
+        proc = run.process
+        if proc is not None and proc.poll() is None:
+            warning = processes.stop_and_reap(proc, grace=5)
+            if warning:
+                run.log.append(f"cleanup warning: {warning}")
+        try:
+            run.directory.joinpath("pid").unlink(missing_ok=True)
+        except Exception as cleanup_exc:
+            run.log.append(f"cleanup warning: {cleanup_exc}")
 
     present = run.bytes_present()
     if run.cancelled:

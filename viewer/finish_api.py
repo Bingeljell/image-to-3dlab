@@ -56,7 +56,7 @@ ARTIFACTS = {
 # rejects a face target outside 1k..200k, and a voxel fraction outside its own range melts
 # the subject or exhausts memory.
 SETTING_BOUNDS: dict[str, tuple[float, float]] = {
-    "faces": (1000, 200000),
+    "faces": (500, 200000),
     "atlas": (1024, 4096),
     "angle": (1.0, 89.9),
     "voxel": (0.0, 0.05),
@@ -717,6 +717,7 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
         usage_api.count_failed("finish", "worker missing")
         manager.finish(job)
         return
+    stopped = False
     try:
         job.status = "running"
         hero = bool(job.settings.get("hero"))
@@ -808,17 +809,24 @@ def run_job(job: FinishJob, manager: FinishJobManager = FINISH_JOBS) -> None:  #
             job.emit({"phase": "error", "message": "worker exited without writing a GLB"})
             usage_api.count_failed("finish", "worker exited without writing a GLB")
     except Exception as exc:
+        # Stop and reap the worker before the status turns terminal: the start gate reads it.
+        stopped = True
+        if job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         usage_api.count_failed("finish", exc)
     finally:
-        job.directory.joinpath("pid").unlink(missing_ok=True)
-        if job.process is not None and job.process.poll() is None:
-            try:
-                processes.terminate_group(job.process.pid)
-                job.process.wait(timeout=30)
-            except Exception as cleanup_exc:
-                job.append_log(f"cleanup warning: {cleanup_exc}")
+        if not stopped and job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
+        try:
+            job.directory.joinpath("pid").unlink(missing_ok=True)
+        except Exception as cleanup_exc:
+            job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

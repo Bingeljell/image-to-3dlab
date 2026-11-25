@@ -1021,8 +1021,11 @@ def test_a_four_view_build_finishes_without_pixel_match_unless_asked(tmp_path):
     asked = finish.normalise_settings({"four_view_pixel_match": True})
     assert finish.uses_photo(job, asked) is True
     assert finish.photo_note(job, asked) is None
-    assert "--views" in finish.build_command(job, asked)
-    assert "--views" not in finish.build_command(job, job.settings)
+    worker = finish.worker_module()
+    enabled = worker.build_parser().parse_args(finish.build_command(job, asked)[3:])
+    assert worker.photo_views(enabled.views, enabled.pixel_match)[0] == job.views_dir
+    default = worker.build_parser().parse_args(finish.build_command(job, job.settings)[3:])
+    assert worker.photo_views(default.views, default.pixel_match)[0] is None
     assert finish.pixel_match_result(True, job.views_dir, asked) == "on (four views)"
 
 

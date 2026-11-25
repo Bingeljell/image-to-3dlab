@@ -214,11 +214,12 @@ def build_command(
     job: FinishJob, settings: dict[str, Any], *, resume: bool = False,
 ) -> list[str]:
     """The worker invocation. Flags, not positions — the worker owns its own ordering."""
+    views = job.views_dir if uses_photo(job, settings) else None
     command = [
         sys.executable, "-u", str(WORKER),
         str(job.asset_path), str(job.image_path), str(job.result_glb),
         *(["--steps-dir", str(job.steps_dir)] if job.steps_dir is not None else []),
-        *(["--views", str(job.views_dir)] if uses_photo(job, settings) else []),
+        *(["--views", str(views)] if views is not None else []),
         *(["--native-dump", str(job.dump_path)]
           if job.dump_path.is_file() and not settings.get("keep_mesh") else []),
         "--faces", str(settings["faces"]),
@@ -239,6 +240,8 @@ def build_command(
         command += ["--height-m", str(settings["height_m"])]
     if record.is_file():
         command += ["--source-record", str(record)]
+    if views is not None and settings.get("four_view_pixel_match"):
+        command.append("--pixel-match")
     if settings["skip_paint"]:
         command.append("--skip-paint")
     if settings["skip_compress"]:

@@ -77,6 +77,18 @@ def test_a_new_run_with_a_provenance_record_takes_a_skin(output):
     assert base["seed"] == 15629060
 
 
+@pytest.mark.parametrize("parameters, side_inputs", [
+    ({"views": "four views"}, {}),
+    ({"views": "front + back"}, {"right_input": {"path": "right.png"}, "left_input": {"path": "left.png"}}),
+])
+def test_skins_rejects_four_view_models_before_drawing(output, parameters, side_inputs):
+    _write(output / GEN / f"{GEN}.provenance.json", json.dumps({
+        "backend": "pixal3d", "parameters": parameters, **side_inputs,
+    }))
+    with pytest.raises(sk.SkinError, match="Skins need a one- or two-view build"):
+        sk.base_from_asset(output, _asset())
+
+
 def test_a_version_changed_by_fix_a_spot_cannot_take_a_skin(output):
     """A skin repaints the shape the model was made with, so the fixed spots would come back."""
     _write(output / "finish" / FIN / "fix-spot.json", "{}")

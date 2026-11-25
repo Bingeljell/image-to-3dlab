@@ -370,9 +370,20 @@ def test_background_removal_is_named_only_when_this_run_did_it(tmp_path):
     assert given["components"] == []
 
 
-def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypatch):
+@pytest.mark.parametrize("sides, view_label", [
+    ((), None),
+    (("back",), "front + back"),
+    (("back", "right", "left"), "four views"),
+])
+def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypatch, sides, view_label):
     image = tmp_path / "gnome.png"
-    image.write_bytes(b"png")
+    cut = _cut(100, 100, (30, 20, 70, 80))
+    cut.save(image)
+    flags = []
+    for side in sides:
+        picture = tmp_path / f"{side}.png"
+        cut.save(picture)
+        flags.extend((f"--{side}", str(picture)))
     output = tmp_path / "out" / "gnome.glb"
 
     views = output.with_suffix(".svviews")
@@ -383,26 +394,31 @@ def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypat
         def wait(self):
             # What trellis-cli leaves: a GLB facing -Z, and the camera it staged.
             output.write_bytes(make_glb([[0.1, 0.2, 0.3]]))
-            views.mkdir()
-            (views / "transforms.json").write_text(json.dumps(
-                {"frames": [{"file_path": "input.png", "transform_matrix": np.eye(4).tolist()}]}))
+            if not views.exists():
+                views.mkdir()
+                (views / "transforms.json").write_text(json.dumps(
+                    {"frames": [{"file_path": "input.png", "transform_matrix": np.eye(4).tolist()}]}))
             return 0
 
     monkeypatch.setattr(px, "has_alpha", lambda _: True)
     monkeypatch.setattr(px, "readiness", lambda *a, **k: {"ready": True})
+    monkeypatch.setattr(px, "multiview_readiness", lambda *a, **k: {"ready": True})
     monkeypatch.setattr(px.subprocess, "Popen", lambda *a, **k: FakeProcess())
-    monkeypatch.setattr(sys, "argv", ["pixal3d_generate.py", str(image), str(output)])
+    monkeypatch.setattr(sys, "argv", ["pixal3d_generate.py", str(image), str(output), *flags])
 
     assert px.main() == 0
     record = __import__("json").loads((tmp_path / "out" / "gnome.provenance.json").read_text())
     assert record["backend"] == "pixal3d"
+    assert record["parameters"].get("views") == view_label
+    for side in sides:
+        assert record[f"{side}_input"]["sha256"] == px.sha256_file(tmp_path / f"{side}.png")
     assert record["made_with"]["name"] == "AssetFurnace"
     assert record["output"]["path"] == str(output.resolve())
     # Turned to face front, with its camera, before the record hashes it.
     assert glb_turn.glb_faces_front(output.read_bytes())
     assert np.allclose(read(output.read_bytes(), 0), [[-0.1, 0.2, -0.3]])
     camera = json.loads((views / "transforms.json").read_text())
-    assert camera["frames"][0]["transform_matrix"][0][0] == -1.0
+    assert camera["frames"][0]["transform_matrix"][0][0] == pytest.approx(-1.0)
     assert record["output"]["sha256"] == px.sha256_file(output)
 
 
@@ -619,6 +635,139 @@ def test_front_and_back_views_share_one_rig_half_a_turn_apart(tmp_path):
         assert Image.open(folder / "view_000.png").size == (size, size)
 
 
+def test_four_views_put_each_camera_on_its_side(tmp_path):
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir)
+    for folder in (model_dir, paint_dir):
+        rig = json.loads((folder / "transforms.json").read_text())
+        names = [frame["file_path"] for frame in rig["frames"]]
+        assert names == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]  # front, right, back, left
+        where = {f["file_path"]: np.array(f["transform_matrix"])[:3, 3] for f in rig["frames"]}
+        d = np.linalg.norm(where["view_000.png"])
+        assert np.allclose(where["view_000.png"], (0, -d, 0))
+        # the subject faces the front camera, so its own right side is at -X and its left at +X
+        assert np.allclose(where["view_270.png"], (-d, 0, 0), atol=1e-9)
+        assert np.allclose(where["view_090.png"], (d, 0, 0), atol=1e-9)
+        assert np.allclose(where["view_180.png"], (0, d, 0), atol=1e-9)
+        assert all((folder / name).is_file() for name in names)
+
+
+def test_drawn_sides_can_shape_the_model_without_painting_it(tmp_path):
+    # a side drawn by make_side_views.py never puts an eye exactly where the front has it, so
+    # painting from it doubles the eye; the sides then go to the build only
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, sides_paint="none")
+    built = [f["file_path"] for f in json.loads((model_dir / "transforms.json").read_text())["frames"]]
+    painted = [f["file_path"] for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]]
+    assert built == ["view_000.png", "view_270.png", "view_180.png", "view_090.png"]
+    assert painted == ["view_000.png", "view_180.png"]
+    assert sorted(p.name for p in paint_dir.glob("view_*.png")) == ["view_000.png", "view_180.png"]
+    # the two paint views keep the four-view framing, so they still line up with the model
+    four = tmp_path / "four.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, tmp_path / "in4", four)
+    assert (paint_dir / "view_000.png").read_bytes() == (four / "view_000.png").read_bytes()
+
+
+def test_the_sides_shape_only_switch_reaches_the_views():
+    args = px.parse_args(["f.png", "o.glb", "--back", "b.png", "--right", "r.png", "--left", "l.png",
+                          "--sides-shape-only"])
+    assert args.sides_paint == "none"
+    assert px.parse_args(["f.png", "o.glb"]).sides_paint == "all"
+    assert px.parse_args(["f.png", "o.glb", "--sides-paint", "safe"]).sides_paint == "safe"
+    with pytest.raises(SystemExit):
+        px.parse_args(["f.png", "o.glb", "--sides-paint", "some"])
+
+
+def test_safe_sides_are_staged_with_their_paint_rule(tmp_path):
+    # a figure's drawn sides paint only where they cannot misplace a hand or an eye (side_paint.py):
+    # Pixel Match reads that from each frame of the paint views; the build itself is unchanged
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    model_dir, paint_dir = tmp_path / "in", tmp_path / "out.svviews"
+    px.write_views({"front": cut, "right": cut, "back": cut, "left": cut}, model_dir, paint_dir, sides_paint="safe")
+    painted = {f["file_path"]: f.get("paint", "all")
+               for f in json.loads((paint_dir / "transforms.json").read_text())["frames"]}
+    assert painted == {"view_000.png": "all", "view_270.png": "safe", "view_180.png": "all", "view_090.png": "safe"}
+    built = json.loads((model_dir / "transforms.json").read_text())["frames"]
+    assert all("paint" not in f for f in built)
+    with pytest.raises(ValueError):
+        px.write_views({"front": cut, "back": cut}, model_dir, paint_dir, sides_paint="some")
+
+
+def test_a_four_view_build_leaves_pixel_match_off_unless_asked(tmp_path):
+    # four views shape a model better, but Pixel Match can drift on it (a paladin's face): Finish
+    # leaves it off for them unless asked; front and back are staged exactly as before
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    four = {"front": cut, "right": cut, "back": cut, "left": cut}
+
+    def staged(folder):
+        return json.loads((folder / "transforms.json").read_text())
+
+    px.write_views(four, tmp_path / "in", tmp_path / "off.svviews")
+    assert staged(tmp_path / "off.svviews")["pixel_match"] is False
+    assert "pixel_match" not in staged(tmp_path / "in")          # the build itself does not care
+    px.write_views(four, tmp_path / "in2", tmp_path / "shape.svviews", sides_paint="none")
+    assert staged(tmp_path / "shape.svviews")["pixel_match"] is False
+    px.write_views(four, tmp_path / "in3", tmp_path / "on.svviews", pixel_match=True)
+    assert "pixel_match" not in staged(tmp_path / "on.svviews")
+    px.write_views({"front": cut, "back": cut}, tmp_path / "in4", tmp_path / "two.svviews")
+    assert "pixel_match" not in staged(tmp_path / "two.svviews")
+
+
+def test_the_pixel_match_switch_reaches_the_views():
+    assert px.parse_args(["f.png", "o.glb"]).pixel_match is False
+    args = px.parse_args(["f.png", "o.glb", "--back", "b.png", "--right", "r.png", "--left", "l.png",
+                          "--pixel-match"])
+    assert args.pixel_match is True
+
+
+def _extent(image):
+    ys, xs = np.nonzero(np.asarray(image)[..., 3] > 127)
+    return xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+
+
+def test_four_views_share_one_scale_so_a_long_vehicle_stays_long(tmp_path):
+    # a van: narrow and tall from the front and the back, three times as long from the side
+    front = _cut(400, 400, (150, 100, 250, 300))   # 100 wide, 200 high
+    side = _cut(800, 400, (100, 100, 700, 300))    # 600 long, 200 high
+    px.write_views({"front": front, "right": side, "back": front, "left": side}, tmp_path / "in", tmp_path / "o.svviews")
+    from PIL import Image
+    _, fh = _extent(Image.open(tmp_path / "in" / "view_000.png"))
+    sw, sh = _extent(Image.open(tmp_path / "in" / "view_270.png"))
+    assert sh == pytest.approx(fh, abs=2)               # the same height in every view
+    assert sw / sh == pytest.approx(3.0, rel=0.02)      # the side keeps its length
+    assert sw <= 0.9 * 768 + 2                          # and still fits
+
+
+def test_front_and_back_keep_independent_framing(tmp_path):
+    from PIL import Image
+
+    front = _cut(800, 400, (100, 100, 700, 300))
+    back = _cut(800, 400, (300, 100, 500, 300))
+    model_dir, paint_dir = tmp_path / "model", tmp_path / "paint"
+    px.write_views({"front": front, "back": back}, model_dir, paint_dir)
+
+    for folder, size in ((model_dir, px.VIEW_SIZE), (paint_dir, 800)):
+        assert np.array_equal(Image.open(folder / "view_000.png"), px.pad_view(front, size))
+        assert np.array_equal(Image.open(folder / "view_180.png"), px.pad_view(back, size))
+
+
+def test_front_and_back_through_write_views_keep_their_rig(tmp_path):
+    cut = _cut(400, 400, (150, 40, 250, 360))
+    px.write_views({"front": cut, "back": cut}, tmp_path / "a", tmp_path / "a.svviews")
+    px.write_front_back_views(cut, cut, tmp_path / "b", tmp_path / "b.svviews")
+    assert (tmp_path / "a" / "transforms.json").read_text() == (tmp_path / "b" / "transforms.json").read_text()
+
+
+def test_side_pictures_need_the_back_and_each_other():
+    assert px.views_problem(back=None, right=Path("r.png"), left=Path("l.png"))
+    assert px.views_problem(back=Path("b.png"), right=Path("r.png"), left=None)
+    assert px.views_problem(back=Path("b.png"), right=Path("r.png"), left=Path("l.png")) is None
+    assert px.views_problem(back=Path("b.png"), right=None, left=None) is None
+    assert px.views_problem(back=None, right=None, left=None) is None
+
+
 def test_paint_copies_keep_a_bigger_pictures_detail(tmp_path):
     big = _cut(1024, 1024, (400, 50, 620, 980))
     px.write_front_back_views(big, big, tmp_path / "in", tmp_path / "out.svviews")
@@ -752,6 +901,23 @@ def test_a_front_back_shape_needs_a_back_picture_to_repaint(tmp_path):
     shape = _saved_shape(tmp_path, "front + back")
     assert "--back" in px.reuse_problem(shape, has_back=False)
     assert px.reuse_problem(shape, has_back=True) is None
+
+
+@pytest.mark.parametrize("record", [
+    {"parameters": {"views": "four views"}},
+    {"parameters": {"views": "front + back"}, "right_input": {"path": "right.png"},
+     "left_input": {"path": "left.png"}},
+])
+def test_a_four_view_shape_needs_both_side_pictures_to_repaint(tmp_path, record):
+    shape = _saved_shape(tmp_path)
+    (tmp_path / "run.provenance.json").write_text(json.dumps(record))
+    assert "--right and --left" in px.reuse_problem(shape, has_back=True)
+    assert px.reuse_problem(shape, has_back=True, has_sides=True) is None
+
+
+def test_a_front_back_shape_does_not_accept_side_pictures(tmp_path):
+    shape = _saved_shape(tmp_path, "front + back")
+    assert "drop --right and --left" in px.reuse_problem(shape, has_back=True, has_sides=True)
 
 
 def test_a_front_only_shape_refuses_a_back_picture(tmp_path):

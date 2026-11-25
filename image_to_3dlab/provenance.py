@@ -629,6 +629,12 @@ def finalize_output(
     return destination, sidecar
 
 
+def pixal3d_four_views(record: dict[str, Any]) -> bool:
+    """Recognise four-view runs, including early ones that kept the two-view label."""
+    return ((record.get("parameters") or {}).get("views") == "four views"
+            or bool(record.get("right_input") and record.get("left_input")))
+
+
 def read_run_record(glb: Path) -> dict[str, Any] | None:
     """The run's own record beside a model: `.provenance.json`, or `.json` on older runs."""
     for suffix in (".provenance.json", ".json"):

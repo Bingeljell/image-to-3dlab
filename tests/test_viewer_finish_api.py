@@ -1005,6 +1005,30 @@ def test_the_progress_bar_lists_the_compress_stage_a_drop_needs(monkeypatch):
     assert "compress" in plan and plan[-1] == "compress"
 
 
+def test_a_four_view_build_finishes_without_pixel_match_unless_asked(tmp_path):
+    # four views stage Pixel Match off (pixal3d_generate.py): the paint can drift on them. The tick
+    # box alone does not bring it back; the four-view switch does, for people who want to try it
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"some-other-model", b"png", {})
+    job.views_dir.mkdir(parents=True, exist_ok=True)
+    (job.views_dir / "transforms.json").write_text(json.dumps(
+        {"pixel_match": False, "frames": [{"file_path": f"view_{a:03d}.png"} for a in (0, 270, 180, 90)]}))
+    assert finish.DEFAULT_SETTINGS["four_view_pixel_match"] is False
+    assert finish.uses_photo(job, job.settings) is False
+    note = finish.photo_note(job, job.settings)
+    assert note and "four" in note and "Pixel Match" in note
+    assert finish.pixel_match_result(False, job.views_dir, job.settings).startswith("off: four views")
+    asked = finish.normalise_settings({"four_view_pixel_match": True})
+    assert finish.uses_photo(job, asked) is True
+    assert finish.photo_note(job, asked) is None
+    worker = finish.worker_module()
+    enabled = worker.build_parser().parse_args(finish.build_command(job, asked)[3:])
+    assert worker.photo_views(enabled.views, enabled.pixel_match)[0] == job.views_dir
+    default = worker.build_parser().parse_args(finish.build_command(job, job.settings)[3:])
+    assert worker.photo_views(default.views, default.pixel_match)[0] is None
+    assert finish.pixel_match_result(True, job.views_dir, asked) == "on (four views)"
+
+
 @pytest.mark.posix
 def test_a_finish_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
         tmp_path, monkeypatch):

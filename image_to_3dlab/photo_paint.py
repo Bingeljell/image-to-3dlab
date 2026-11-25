@@ -283,6 +283,17 @@ class Settings:
     # in colour (a robe's side next to a pale back, a belt beside a dark front). Falls back
     # to the global match when too little of the picture is trusted.
     local_colour: bool = True
+    # Surfaces that face up and that no picture sees (a hat's brim, shoulders, the top of
+    # the hair: the pictures' cameras stand level with the subject) keep the model's own
+    # paint instead of taking the local match's shift. The shift there is borrowed from
+    # whatever the pictures see nearby, so a brim beside a light hat band turned from the
+    # model's dark violet to teal; the generator's own paint of a top face is its best
+    # guess, since no picture says otherwise. Faces turned sideways still take the shift
+    # (a head's sides under a brim need it). Full keep from `top_high`, none below
+    # `top_low` (dot of the outward normal with up).
+    keep_top_paint: bool = False
+    top_low: float = 0.6
+    top_high: float = 0.85
     # Nudge each picture onto the model before painting (see view_align): the cut-out onto
     # the model's outline, then detailed spots onto where the model built them. Only moves
     # what it is sure of, a few pixels at most.
@@ -474,6 +485,8 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     if settings.match_colour and settings.local_colour:
         local = local_colour_offset(positions, faces, texel_face, texel_bary,
                                     flat[index, :3], photo, blend)
+    if local is not None and settings.keep_top_paint:
+        local = local * (1.0 - top_keep(texel_n, blend, frame, outward, settings))[:, None]
     if local is not None:
         flat[index, :3] = np.clip(flat[index, :3] + local, 0, 255)
     elif settings.match_colour:
@@ -492,6 +505,20 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     else:
         out, weight_map = _grow_into_gutter(out, weight_map, covered, settings.gutter_px)
     return np.clip(np.rint(out), 0, 255).astype(np.uint8), weight_map
+
+
+def top_keep(texel_normals: np.ndarray, blend: np.ndarray, frame=PIXAL3D_FRAME, outward: float = 1.0,
+             settings: Settings | None = None) -> np.ndarray:
+    """How much of each texel keeps the model's own paint for facing up unseen (0..1), see Settings.keep_top_paint.
+
+    `texel_normals` are in view space; up is the glTF's +y carried through `frame`. On an open mesh (`outward` 0) the
+    winding cannot tell up from down, so only normals that already point up count.
+    """
+    settings = settings or DEFAULT_SETTINGS
+    up = to_view_space(np.array([[0.0, 1.0, 0.0]]), frame)[0]
+    up = up / np.linalg.norm(up)
+    facing_up = (texel_normals @ up) * (outward or 1.0)
+    return smoothstep(facing_up, settings.top_low, settings.top_high) * (1.0 - blend)
 
 
 def local_colour_offset(positions: np.ndarray, faces: np.ndarray, texel_face: np.ndarray,

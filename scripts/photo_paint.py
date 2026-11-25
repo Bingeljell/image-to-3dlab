@@ -18,6 +18,9 @@ figure's drawn sides (ears, side hair, arms and legs only, never the face or the
 the neck and the hands; `image_to_3dlab/side_paint.py`), `all` or `none`. Each step can be switched off to compare:
 `--no-align`, `--no-local-colour`, `--cutout-edge 0`, `--inner-edge 0`.
 
+`--keep-top-paint` leaves upward-facing surfaces that no picture sees in the model's own
+paint. Use it when Pixel Match shifts the colour of a hat brim, shoulders or hair.
+
 The logic lives in `image_to_3dlab/photo_paint.py`.
 """
 
@@ -55,6 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="match colour with one shift for the whole model instead")
     parser.add_argument("--no-align", action="store_true",
                         help="paint from the pictures as they are, without nudging them onto the model")
+    parser.add_argument("--keep-top-paint", action="store_true",
+                        help="surfaces facing up that no picture sees (a brim, shoulders, hair tops) keep the "
+                             "model's own paint instead of the colour shift of their neighbours")
     parser.add_argument("--sides", choices=("staged", "all", "safe", "none"), default="staged",
                         help="how the side views paint: as the build staged them (default), everywhere, only "
                              "where a drawn side cannot misplace a hand or an eye (safe), or not at all")
@@ -75,7 +81,7 @@ def main() -> int:
     settings = pp.Settings(facing_low=args.facing_low, facing_high=args.facing_high,
                            edge_px=args.edge_px, cutout_edge=args.cutout_edge,
                            inner_edge=args.inner_edge, local_colour=not args.no_local_colour,
-                           align=not args.no_align)
+                           align=not args.no_align, keep_top_paint=args.keep_top_paint)
     reports: list = []
     sides: list = []
     painted, weight = pp.paint_texture(texture, positions, uvs, faces, views, mesh_scale,

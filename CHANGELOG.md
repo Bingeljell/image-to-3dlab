@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Pixel Match: `--keep-top-paint`** leaves surfaces that face up and that no picture sees (a hat's brim, shoulders,
+  the top of the hair) in the generator's own paint. The pictures' cameras stand level with the subject, so they never
+  see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet
+  brim beside a light hat band turned teal. Faces turned sideways still take the shift, so the head's sides under the
+  brim keep their correction. Off by default.
 - **Build from four pictures** (`scripts/pixal3d_generate.py --right --left`): front, right side, back and left side
   instead of front and back, every view at one shared scale. Front and back say nothing about how deep a subject is,
   so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;

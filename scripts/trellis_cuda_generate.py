@@ -30,7 +30,6 @@ import json
 import os
 import sys
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -45,10 +44,9 @@ import trellis_route  # noqa: E402, RUF100
 import trellis_space_generate as space  # noqa: E402, RUF100
 
 from image_to_3dlab.provenance import (  # noqa: E402, RUF100
-    LICENSES,
-    MATTE_LICENSES,
     set_glb_generator,
     sha256_file,
+    trellis2_record,
     write_provenance,
 )
 
@@ -164,44 +162,10 @@ def build_provenance(*, image: Path, output: Path, parameters: dict[str, Any],
                      matte_model: str | None, backend_revision: str | None,
                      route: trellis_route.Route = ROUTE) -> dict[str, Any]:
     """The `.provenance.json` licence record, in `provenance.finalize_output`'s schema."""
-    profile = LICENSES["trellis2"]
-    components: list[dict[str, Any]] = []
-    if matte_model:
-        components.append({
-            "component": f"rembg/{matte_model}",
-            "purpose": "background removal",
-            "license": MATTE_LICENSES.get(matte_model, "see rembg"),
-            "commercial_status": "commercial-clear",
-        })
-    components += [
-        {
-            "component": "facebook/dinov3-vitl16-pretrain-lvd1689m",
-            "purpose": "image conditioning",
-            "license": "DINOv3 License",
-            "commercial_status": "commercial-clear",
-            "license_url": "https://ai.meta.com/resources/models-and-libraries/dinov3-license/",
-        },
-        {
-            "component": "BRIA RMBG-2.0",
-            "purpose": "background removal",
-            "loaded": False,
-            "commercial_status": "blocked",
-            "note": "Explicitly disabled by scripts/patch_trellis_cuda_no_bria.py.",
-        },
-    ]
-    return {
-        "schema_version": 1,
-        "created_at": datetime.now(UTC).isoformat(),
-        "input": {"path": str(image), "sha256": sha256_file(image), "source": "user-provided"},
-        "output": {"path": str(output), "sha256": sha256_file(output),
-                   "classification": profile.classification},
-        "model": {"backend": "trellis2", "route": route.provenance_route,
-                  "parameters": parameters},
-        "license": {"name": profile.license_name, "url": profile.license_url,
-                    "conditions": list(profile.conditions)},
-        "components": components,
-        "software": {"backend_revision": backend_revision},
-    }
+    return trellis2_record(image=image, output=output, parameters=parameters,
+                           matted_with=matte_model, route=route.provenance_route,
+                           bria_patch="scripts/patch_trellis_cuda_no_bria.py",
+                           backend_revision=backend_revision)
 
 
 def provenance_path(output: Path) -> Path:

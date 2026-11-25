@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-from image_to_3dlab import __version__
+from image_to_3dlab import __version__, processes
 from image_to_3dlab.addons import (
     Listing,
     Manifest,
@@ -293,15 +293,25 @@ def remove_addon(addon_id: str, addons_dir: Path | None = None) -> None:
     _remove_tree(dest)
 
 
+# How long a cancelled tool gets to stop by itself before it is stopped for certain.
+CANCEL_GRACE_SECONDS = 10.0
+
+
 def _run_subprocess(
     argv: list[str],
     cwd: Path,
     env: dict[str, str],
     logger: Callable[[str], None] | None,
     cancel_event: threading.Event | None = None,
+    on_start: Callable[[subprocess.Popen], None] | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run a command, optionally streaming each line to `logger`."""
-    if logger is None and cancel_event is None:
+    """Run a command, optionally streaming each line to `logger`.
+
+    From a terminal (no logger, nothing to cancel it) the tool runs in the foreground, where
+    Ctrl-C reaches it. Otherwise it leads its own process group, `on_start` is told the
+    process, and a cancel stops the group: the tool and everything it started.
+    """
+    if logger is None and cancel_event is None and on_start is None:
         return subprocess.run(argv, cwd=str(cwd), env=env, check=False)
     proc = subprocess.Popen(
         argv,
@@ -311,6 +321,7 @@ def _run_subprocess(
         stderr=subprocess.STDOUT,
         bufsize=0,
         text=True,
+        **processes.stoppable_popen_kwargs(),
     )
     assert proc.stdout is not None
     done = threading.Event()
@@ -319,16 +330,37 @@ def _run_subprocess(
         # Stop a silent process too: the reading loop below only wakes on output.
         while not done.is_set():
             if cancel_event.wait(timeout=0.2):
-                proc.terminate()
+                # The group, not the tool alone: what it started (Blender's helpers) would run
+                # on, and keep the output open so the loop below never ends.
+                processes.terminate_group(proc.pid)
+                # Asked first, so a tool can tidy up. One that carries on would stay
+                # "cancelling" for good, holding the place every other big job waits for.
+                if not done.wait(timeout=CANCEL_GRACE_SECONDS):
+                    processes.kill_group(proc.pid)
                 return
 
-    if cancel_event is not None:
-        threading.Thread(target=watch_for_cancel, daemon=True).start()
-    for line in proc.stdout:
-        if logger is not None:
-            logger(line.rstrip("\n"))
-    code = proc.wait()
-    done.set()
+    try:
+        if on_start is not None:
+            on_start(proc)
+        if cancel_event is not None:
+            threading.Thread(target=watch_for_cancel, daemon=True).start()
+        for line in proc.stdout:
+            if logger is not None:
+                logger(line.rstrip("\n"))
+        code = proc.wait()
+    except BaseException:
+        # A line that could not be logged or read: nobody reads the output now, so the tool
+        # would block on it or run on unwatched. It goes with the run.
+        processes.kill_group(proc.pid)
+        # A group that cannot be stopped must not hold the error back: wait the grace, then go on.
+        try:
+            proc.wait(timeout=CANCEL_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        proc.stdout.close()
+        raise
+    finally:
+        done.set()      # after the wait: a tool that closes its output and carries on is still watched
     return subprocess.CompletedProcess(argv, returncode=code)
 
 
@@ -350,8 +382,11 @@ def run_addon(
     blender: str | Path | None = None,
     logger: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
+    on_start: Callable[[subprocess.Popen], None] | None = None,
 ) -> Path:
     """Run one tool from an installed add-on and return the result file path.
+
+    `on_start` is given the tool's process once it runs, so the caller can stop it.
 
     Raises ValueError or RuntimeError on failure.
     """
@@ -389,7 +424,8 @@ def run_addon(
     started = datetime.now(UTC).timestamp()
     # PWD too: Blender on Linux finds a relative script (`-P crate.py`) from $PWD, which still names the folder we started in
     env = {**os.environ, "HF_HUB_OFFLINE": "1", "PWD": str(addon_dir.resolve())}
-    result = _run_subprocess(argv, addon_dir, env, logger, cancel_event=cancel_event)
+    result = _run_subprocess(argv, addon_dir, env, logger, cancel_event=cancel_event,
+                             on_start=on_start)
     if cancel_event is not None and cancel_event.is_set():
         raise RuntimeError("cancelled")
     if result.returncode != 0:

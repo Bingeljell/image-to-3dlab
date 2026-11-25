@@ -128,6 +128,11 @@ MATTE_LICENSES = {
     "u2net": "MIT code / Apache-2.0 U-2-Net",
 }
 
+# `matted_with` for a run that cannot say which remover cut its picture out, if any: one
+# resumed from a bundle made before the remover was kept with it. Leaving the remover out
+# would say none was used.
+MATTE_UNKNOWN = "unknown"
+
 # What the DINOv3 License asks (text dated 19 Aug 2025, read 2026-11-06). It has no commercial
 # limit, revenue threshold or product credit, so it does not make a model conditional. Its use
 # bans still bind, so every record that carries the encoder names them.
@@ -299,6 +304,73 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def trellis2_record(*, image: Path, output: Path, parameters: dict[str, Any],
+                    matted_with: str | None, route: str, bria_patch: str,
+                    backend_revision: str | None, input_source: str = "user-provided",
+                    resumed_from: str | None = None) -> dict[str, Any]:
+    """The licence record of a TRELLIS.2 run made by one of the wrapper scripts.
+
+    One builder for the Mac, NVIDIA and AMD routes, in `finalize_output`'s schema, so a model
+    says the same thing about its licences whichever machine made it. `matted_with` is our
+    remover that cut the picture out, if one did; `bria_patch` is the script that keeps
+    BRIA RMBG-2.0 unloaded on that route.
+
+    `matted_with` is MATTE_UNKNOWN when that cannot be told any more (an older bundle), and
+    the record then says the remover is not known.
+
+    A run resumed from saved latents or a decode bundle says so (`resumed_from`). Its
+    components are still the models the asset was made with, though the resumed run itself
+    loaded fewer or none; `input_source` is "resumed-bundle" when the picture could not be
+    told apart from another file, and the bundle is the input on record.
+    """
+    profile = LICENSES["trellis2"]
+    components: list[dict[str, Any]] = []
+    if matted_with == MATTE_UNKNOWN:
+        components.append({
+            "component": "background remover (not known)",
+            "purpose": "background removal",
+            "commercial_status": "unknown",
+            "note": "Resumed from a bundle made before the remover was kept with it: which "
+                    "remover cut the picture out, if any did, is not known.",
+        })
+    elif matted_with:
+        components.append({
+            "component": f"rembg/{matted_with}",
+            "purpose": "background removal",
+            "license": MATTE_LICENSES.get(matted_with, "see rembg"),
+            "commercial_status": "commercial-clear",
+        })
+    components += [
+        {
+            "component": "facebook/dinov3-vitl16-pretrain-lvd1689m",
+            "purpose": "image conditioning",
+            "license": "DINOv3 License",
+            "commercial_status": "commercial-clear",
+            "license_url": "https://ai.meta.com/resources/models-and-libraries/dinov3-license/",
+        },
+        {
+            "component": "BRIA RMBG-2.0",
+            "purpose": "background removal",
+            "loaded": False,
+            "commercial_status": "blocked",
+            "note": f"Explicitly disabled by {bria_patch}.",
+        },
+    ]
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        "input": {"path": str(image), "sha256": sha256_file(image), "source": input_source},
+        "output": {"path": str(output), "sha256": sha256_file(output),
+                   "classification": profile.classification},
+        "model": {"backend": "trellis2", "route": route, "parameters": parameters,
+                  **({"resumed_from": resumed_from} if resumed_from else {})},
+        "license": {"name": profile.license_name, "url": profile.license_url,
+                    "conditions": list(profile.conditions)},
+        "components": components,
+        "software": {"backend_revision": backend_revision},
+    }
 
 
 # The in-repo MLX port is MIT. The weights it loads are not.

@@ -205,12 +205,26 @@ def read_manifest(path: Path) -> Manifest:
     )
 
 
+_NOT_IN_A_LINK = re.compile(r"""[\s"'<>]""")
+
+
+def _https_link(value: Any) -> str:
+    """A link the studio may show: a plain https address, or nothing.
+
+    The add-on list and an add-on's manifest are written by other people, and these end up
+    inside a link on a page: no other scheme, and nothing that could end the link early.
+    """
+    if isinstance(value, str) and value.startswith("https://") and not _NOT_IN_A_LINK.search(value):
+        return value
+    return ""
+
+
 def _author(data: Any) -> dict[str, str]:
     if not isinstance(data, dict):
         raise ValueError("addon.json 'author' must be an object with at least 'name'")
     if "name" not in data:
         raise ValueError("addon.json 'author' is missing 'name'")
-    return {"name": str(data["name"]), "url": str(data.get("url", ""))}
+    return {"name": str(data["name"]), "url": _https_link(data.get("url", ""))}
 
 
 def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
@@ -233,7 +247,8 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         if addon_type not in ADDON_TYPES:
             raise ValueError(f"{where} 'type' must be one of {ADDON_TYPES}; got {addon_type!r}")
         raw_links = item.get("links", {})
-        links = {k: str(v) for k, v in raw_links.items()} if isinstance(raw_links, dict) else {}
+        links = ({k: link for k, v in raw_links.items() if (link := _https_link(v))}
+                 if isinstance(raw_links, dict) else {})
         rating = item.get("rating")
         if rating is not None:
             try:
@@ -247,9 +262,7 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         runs = item.get("runs", "local")
         if runs not in RUNS:
             raise ValueError(f"{where} 'runs' must be one of {sorted(RUNS)}; got {runs!r}")
-        picture = item.get("picture")
-        if not (isinstance(picture, str) and picture.startswith("https://")):
-            picture = None  # a picture is only ever a plain https link
+        picture = _https_link(item.get("picture")) or None  # only ever a plain https link
         tier = item.get("tier", "listed")
         if tier not in LISTED_TIERS:
             raise ValueError(f"{where} 'tier' must be one of {sorted(LISTED_TIERS)}; got {tier!r}")

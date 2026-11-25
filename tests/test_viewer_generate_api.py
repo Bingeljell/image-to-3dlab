@@ -7,7 +7,10 @@ import dataclasses
 import importlib.util
 import json
 import os
+import subprocess
 import sys
+import threading
+import time
 import types
 from pathlib import Path
 
@@ -910,7 +913,8 @@ def test_image_has_transparent_alpha_false_for_rgb_no_alpha_channel(tmp_path):
 
 def test_pid_file_write_and_remove_roundtrip(tmp_path):
     api._write_pid_file(tmp_path, 4242)
-    assert api._pid_file_path(tmp_path).read_text() == f"4242 {os.getpid()}"
+    note = api.processes.parse_pid_record(api._pid_file_path(tmp_path).read_text())
+    assert (note.pid, note.owner, note.owner_started) == (4242, os.getpid(), api.processes.process_started(os.getpid()))
     api._remove_pid_file(tmp_path)
     assert not api._pid_file_path(tmp_path).exists()
 
@@ -1014,13 +1018,13 @@ def test_a_prop_bake_waits_for_a_running_rig_rebind(tmp_path, monkeypatch):
     """Both are headless Blender; a generation already refused to start beside either."""
     rig_jobs = api.RIG_JOBS.__class__(tmp_path)
     monkeypatch.setattr(api, "RIG_JOBS", rig_jobs)
-    assert api.Handler._props_busy(None) is None
+    assert api.busy_reason("props") is None
     job = rig_jobs.create(
         "asset.glb", b"glb", b"blend", _valid_rig_sidecar(b"glb", b"blend")
     )
-    assert api.Handler._props_busy(None) == "a rig rebind is running; wait for it to finish"
+    assert api.busy_reason("props") == "a rig rebind is running; wait for it to finish"
     job.status = "done"
-    assert api.Handler._props_busy(None) is None
+    assert api.busy_reason("props") is None
 
 
 @pytest.mark.posix
@@ -1136,14 +1140,26 @@ def test_reconcile_annotates_and_clears_a_dead_orphan(tmp_path, monkeypatch):
     assert "died mid-run" in (job_dir / "run.log").read_text()
 
 
+def _group_ends_when_stopped(monkeypatch, stopped):
+    """A fake process group that is running until it is asked to stop, then gone, as a worker that
+    obeys the polite stop is. Records each pid asked to stop in `stopped`."""
+    state = {"running": True}
+
+    def stop(pid):
+        stopped.append(pid)
+        state["running"] = False
+
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: state["running"])
+    monkeypatch.setattr(api, "_killpg_if_alive", stop)
+
+
 def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
     job_dir = tmp_path / "live-job"
     job_dir.mkdir()
     (job_dir / "pid").write_text("4242")
     (job_dir / "run.log").write_text("step 3/15\n")
     killed = []
-    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
-    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+    _group_ends_when_stopped(monkeypatch, killed)
 
     touched = api._reconcile_orphaned_jobs(tmp_path)
 
@@ -1151,6 +1167,69 @@ def test_reconcile_kills_and_annotates_a_live_orphan(tmp_path, monkeypatch):
     assert killed == [4242]
     assert "orphaned generation" in (job_dir / "run.log").read_text()
     assert not (job_dir / "pid").exists()
+
+
+@pytest.mark.posix
+def test_reconcile_forces_a_real_worker_that_ignores_the_first_stop(tmp_path, monkeypatch):
+    """On a Mac a worker that shrugs off the polite stop was logged as stopped and its pid file
+    deleted while it ran on. The cleanup must confirm the group is gone, forcing it if need be."""
+    import threading
+
+    from deaf_worker import _DEAF_WORKER, kill_and_reap
+
+    from image_to_3dlab import processes
+
+    monkeypatch.setattr(api, "RESTART_STOP_GRACE_SECONDS", 0.5, raising=False)
+    monkeypatch.setattr(api, "RESTART_FORCE_GRACE_SECONDS", 0.5, raising=False)
+    ready = tmp_path / "ready"
+    worker = subprocess.Popen([sys.executable, "-c", _DEAF_WORKER, str(ready)], **processes.group_popen_kwargs())
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "the worker never began ignoring SIGTERM"
+        job_dir = tmp_path / "stubborn-job"
+        job_dir.mkdir()
+        (job_dir / "run.log").write_text("step 3/15\n")
+        dead_owner = _an_ended_process()
+        (job_dir / "pid").write_text(processes.pid_record(
+            worker.pid, owner=dead_owner, started=processes.process_started(worker.pid)))
+        # The worker is this test's child, so an ended one stays a zombie, which still counts as a
+        # group, until reaped. Its real-life parent is gone and the system reaps it at once.
+        reaper = threading.Thread(target=worker.wait, daemon=True)
+        reaper.start()
+
+        touched = api._reconcile_orphaned_jobs(tmp_path)
+
+        reaper.join(2)
+        assert worker.poll() is not None, "the worker is still running: the cleanup never forced it"
+        assert touched == ["stubborn-job"]
+        assert not (job_dir / "pid").exists()
+        assert "terminated on restart" in (job_dir / "run.log").read_text()
+    finally:
+        kill_and_reap(worker)
+
+
+def test_reconcile_keeps_the_pid_file_of_a_worker_it_cannot_stop(tmp_path, monkeypatch):
+    job_dir = tmp_path / "unstoppable-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242")
+    (job_dir / "run.log").write_text("step 3/15\n")
+    asked, forced = [], []
+    monkeypatch.setattr(api, "RESTART_STOP_GRACE_SECONDS", 0.05, raising=False)
+    monkeypatch.setattr(api, "RESTART_FORCE_GRACE_SECONDS", 0.05, raising=False)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api, "_killpg_if_alive", asked.append)
+    monkeypatch.setattr(api.processes, "kill_group", forced.append)
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    log = (job_dir / "run.log").read_text()
+    assert touched == ["unstoppable-job"]
+    assert asked == [4242] and forced == [4242]
+    assert (job_dir / "pid").read_text() == "4242", "the note was removed while the worker still runs"
+    assert "terminated on restart" not in log
+    assert "4242" in log and "could not be stopped" in log and "still running" in log
 
 
 @pytest.mark.posix
@@ -1174,6 +1253,25 @@ def test_reconcile_discards_an_unparseable_pid_file(tmp_path):
     touched = api._reconcile_orphaned_jobs(tmp_path)
 
     assert touched == []
+    assert not (job_dir / "pid").exists()
+
+
+@pytest.mark.parametrize("note", ["0", "-5", "4242 0"])
+def test_reconcile_discards_a_note_naming_no_possible_process_and_stops_nothing(tmp_path, monkeypatch, note):
+    # Before, a note of 0 passed the group check (killpg(0, 0) is the caller's own group) and
+    # the studio sent SIGTERM to itself at startup; an owner of 0 left the job running.
+    job_dir = tmp_path / "corrupt-note-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text(note)
+    stopped = []
+    monkeypatch.setattr(api, "_process_alive", lambda pid: True)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api, "_killpg_if_alive", stopped.append)
+
+    touched = api._reconcile_orphaned_jobs(tmp_path)
+
+    assert touched == []
+    assert stopped == []
     assert not (job_dir / "pid").exists()
 
 
@@ -1504,11 +1602,113 @@ def test_reconcile_kills_a_live_job_whose_owner_died(tmp_path, monkeypatch):
     (job_dir / "pid").write_text("4242 5151")
     killed = []
     monkeypatch.setattr(api, "_process_alive", lambda pid: False)
-    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
-    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+    _group_ends_when_stopped(monkeypatch, killed)
 
     assert api._reconcile_orphaned_jobs(tmp_path) == ["orphan"]
     assert killed == [4242]
+
+
+def test_reconcile_leaves_a_process_that_was_given_the_jobs_number_since(tmp_path, monkeypatch):
+    """The job ended long ago and its number went to another process, which leads a group of
+    its own (a terminal's shell does). Starting the studio stopped that process and its group."""
+    job_dir = tmp_path / "ended-long-ago"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242 5151 Mon-Nov-23-10:00:00-2026")
+    (job_dir / "run.log").write_text("step 3/15\n")
+    killed = []
+    monkeypatch.setattr(api, "_process_alive", lambda pid: False)
+    monkeypatch.setattr(api, "_process_group_alive", lambda pid: True)
+    monkeypatch.setattr(api.processes, "process_started", lambda _pid, windows=False: "Tue-Nov-24-09:00:00-2026")
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    assert api._reconcile_orphaned_jobs(tmp_path) == ["ended-long-ago"]
+    assert killed == []
+    assert "died mid-run" in (job_dir / "run.log").read_text()
+    assert not (job_dir / "pid").exists()
+
+
+@pytest.mark.parametrize("owner_now, left_alone", [("owner-then", True), ("owner-now", False)],
+                         ids=["the studio that started it", "another process given its number"])
+def test_reconcile_leaves_a_job_only_to_the_studio_that_started_it(tmp_path, monkeypatch, owner_now, left_alone):
+    """The studio that started the job had died and its number had gone to another program,
+    which counted as that studio still running the job: the job was left running for good."""
+    job_dir = tmp_path / "someone-elses-job"
+    job_dir.mkdir()
+    (job_dir / "pid").write_text("4242 5151 job-then owner-then")
+    killed = []
+    monkeypatch.setattr(api, "_process_alive", lambda pid: pid == 5151)
+    monkeypatch.setattr(api.processes, "process_started",
+                        lambda pid, windows=False: {4242: "job-then", 5151: owner_now}[pid])
+    _group_ends_when_stopped(monkeypatch, killed)
+
+    assert api._reconcile_orphaned_jobs(tmp_path) == ([] if left_alone else ["someone-elses-job"])
+    assert killed == ([] if left_alone else [4242])
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("owner_noted", ["as it started", "as starting at another time"])
+def test_reconcile_with_real_processes_leaves_a_job_only_to_its_living_studio(tmp_path, owner_noted):
+    import subprocess
+
+    from image_to_3dlab import processes
+
+    owner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    job = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    try:
+        job_dir = tmp_path / "tracked-or-not"
+        job_dir.mkdir()
+        (job_dir / "pid").write_text(processes.pid_record(job.pid, owner=owner.pid) if owner_noted == "as it started"
+                                     else processes.pid_record(job.pid, owner=owner.pid, owner_started="1.000001"))
+
+        touched = api._reconcile_orphaned_jobs(tmp_path)
+
+        try:
+            job.wait(5 if owner_noted != "as it started" else 0.5)
+            stopped = True
+        except subprocess.TimeoutExpired:
+            stopped = False
+        assert (touched, stopped) == (([], False) if owner_noted == "as it started" else (["tracked-or-not"], True))
+    finally:
+        for process in (owner, job):
+            process.kill()
+            process.wait()
+
+
+def _an_ended_process():
+    import subprocess
+
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait()
+    return ended.pid
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("note", ["the job's own", "one naming another start"])
+def test_reconcile_stops_a_real_left_job_but_not_a_process_given_its_number(tmp_path, note):
+    import subprocess
+
+    from image_to_3dlab import processes
+
+    # A real process leading a group of its own, as a job does and as a terminal's shell does.
+    running = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    try:
+        job_dir = tmp_path / "left-by-a-killed-studio"
+        job_dir.mkdir()
+        owner = _an_ended_process()     # the studio that started it, gone
+        (job_dir / "pid").write_text(processes.pid_record(running.pid, owner=owner) if note == "the job's own"
+                                     else f"{running.pid} {owner} Mon-Nov-23-10:00:00-2020")
+
+        assert api._reconcile_orphaned_jobs(tmp_path) == ["left-by-a-killed-studio"]
+
+        try:
+            running.wait(5)
+            stopped = True
+        except subprocess.TimeoutExpired:
+            stopped = False
+        assert stopped is (note == "the job's own")
+    finally:
+        running.kill()
+        running.wait()
 
 
 def test_reconcile_notes_a_finish_run_in_its_steps_log(tmp_path, monkeypatch):
@@ -1944,21 +2144,23 @@ def test_sign_in_answers_with_status_or_a_plain_error(monkeypatch):
 
 def test_blender_install_is_refused_when_it_cannot_or_should_not_run():
     ok = {"blender_installable": True}
-    assert api.blender_install_refusal(ok, generating=False, setting_up=False) is None
-    assert api.blender_install_refusal(ok, generating=True, setting_up=False)[0] == 409
-    assert api.blender_install_refusal(ok, generating=False, setting_up=True)[0] == 409
+    assert api.blender_install_refusal(ok, waiting=None, setting_up=False) is None
+    assert api.blender_install_refusal(ok, waiting="a picture is being made; wait for it to finish",
+                                       setting_up=False) == (409, "a picture is being made; wait for it to finish")
+    assert api.blender_install_refusal(ok, waiting=None, setting_up=True)[0] == 409
     code, message = api.blender_install_refusal(
-        {"blender_installable": False}, generating=False, setting_up=False)
+        {"blender_installable": False}, waiting=None, setting_up=False)
     assert code == 409 and "blender.org" in message
 
 
 def test_gltfpack_install_is_refused_when_it_cannot_or_should_not_run():
     ok = {"gltfpack_installable": True}
-    assert api.gltfpack_install_refusal(ok, generating=False, setting_up=False) is None
-    assert api.gltfpack_install_refusal(ok, generating=True, setting_up=False)[0] == 409
-    assert api.gltfpack_install_refusal(ok, generating=False, setting_up=True)[0] == 409
+    assert api.gltfpack_install_refusal(ok, waiting=None, setting_up=False) is None
+    assert api.gltfpack_install_refusal(ok, waiting="a picture is being made; wait for it to finish",
+                                       setting_up=False) == (409, "a picture is being made; wait for it to finish")
+    assert api.gltfpack_install_refusal(ok, waiting=None, setting_up=True)[0] == 409
     code, message = api.gltfpack_install_refusal(
-        {"gltfpack_installable": False}, generating=False, setting_up=False)
+        {"gltfpack_installable": False}, waiting=None, setting_up=False)
     assert code == 409 and "meshoptimizer/releases" in message
 
 
@@ -2144,6 +2346,72 @@ def test_a_running_rebind_is_seen_by_the_shared_check(tmp_path, monkeypatch):
     assert api.busy_reason("animate") is None
 
 
+# --- Add-on runs are heavy jobs too: they wait, are waited for, and end with the server ------
+def _addon_run_in_progress(monkeypatch, process=None):
+    """An add-on tool the studio is running right now."""
+    manager = api.addons_api.AddonJobManager()
+    job = api.addons_api.AddonJob("d" * 32, "vehicle-kit", "build", {}, "run")
+    job.status = "running"
+    job.process = process
+    manager.jobs[job.id] = job
+    manager.active = job.id
+    monkeypatch.setattr(api.addons_api, "ADDON_JOBS", manager)
+    return job
+
+
+def test_every_other_heavy_job_waits_for_a_running_add_on(monkeypatch):
+    # An add-on's Blender run was not on the list every other start checks, so it ran beside a
+    # generation and the two fought over memory.
+    job = _addon_run_in_progress(monkeypatch)
+    assert api.busy_reason("generate") == "an add-on is running; wait for it to finish"
+    job.status = "done"
+    assert api.busy_reason("generate") is None
+
+
+def test_an_add_on_run_waits_for_the_other_heavy_jobs(monkeypatch, tmp_path):
+    import http.server
+    import urllib.error
+    import urllib.request
+
+    monkeypatch.setattr(api.addons_api, "ADDONS_DIR", tmp_path / "addons")      # nothing is installed here
+    monkeypatch.setattr(api.addons_api, "ADDON_JOBS", api.addons_api.AddonJobManager())
+    generating = {"now": True}
+    monkeypatch.setattr(api, "HEAVY_JOBS", {**{kind: (lambda: False) for kind in api.HEAVY_JOBS},
+                                            "generate": lambda: generating["now"]})
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def run_tool():
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/addons/vehicle-kit/run/build",
+            data=json.dumps({"inputs": {}}).encode(),
+            headers={"Content-Type": "application/json", "X-AssetFurnace-Request": "studio"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.status, json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    try:
+        assert run_tool() == (409, {"error": "a generation is running; wait for it to finish"})
+        generating["now"] = False
+        # Nothing is in the way now, so the request reaches the add-on itself: not installed here.
+        assert run_tool() == (422, {"error": "vehicle-kit is not installed"})
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_terminate_active_job_also_stops_a_running_add_on(monkeypatch):
+    _addon_run_in_progress(monkeypatch, process=_FakeProcess(7373))
+    killed = []
+    monkeypatch.setattr(api, "_killpg_if_alive", killed.append)
+
+    api._terminate_active_job()
+
+    assert killed == [7373]
+
+
 def test_a_backend_is_found_by_its_catalogue_id_too():
     # Issue #151: the studio sends the catalogue's id ("hunyuan_xiong"); the generator's own key
     # is "hunyuan-mlx-xiong", so generating answered "unknown backend 'hunyuan_xiong'".
@@ -2196,6 +2464,106 @@ def test_a_job_whose_engine_is_unknown_fails_instead_of_running_forever(tmp_path
     assert job.events[-1]["phase"] == "error"
     assert "no-such-engine" in job.events[-1]["message"]
     assert jobs.active is None
+
+
+# More output than a pipe holds (about 64 KB): a generator nobody is reading stops at a print.
+CHATTY_GENERATOR = ("import sys\n"
+                    "for _ in range(4000): print('x' * 80, flush=True)\n"
+                    "open(sys.argv[1], 'wb').write(b'glb')\n")
+
+
+def _chatty_job(tmp_path, monkeypatch, parse_line):
+    writer = tmp_path / "writer.py"
+    writer.write_text(CHATTY_GENERATOR, encoding="utf-8")
+    fake = dataclasses.replace(api.BACKENDS["hunyuan-mlx-xiong"], interpreter=Path(sys.executable),
+                               wrapper=writer, build_args=lambda job: [str(job.output_path)],
+                               parse_line=parse_line, finalize=None)
+    monkeypatch.setitem(api.BACKENDS, "hunyuan-mlx-xiong", fake)
+    return _job_for("hunyuan_xiong", tmp_path, monkeypatch)
+
+
+def _run_job_or_fail(job, seconds=30):
+    """The real runner, on a thread: a job that never ends fails this test instead of hanging the suite."""
+    runner = threading.Thread(target=api._run_job, args=(job,), daemon=True)
+    runner.start()
+    runner.join(seconds)
+    if runner.is_alive():
+        if job.process is not None:
+            job.process.kill()      # the generator is stuck at a print; do not leave it behind
+        runner.join(10)
+        pytest.fail("the job never ended: nobody was reading the generator's output")
+
+
+def test_a_progress_parser_that_fails_does_not_hang_the_generation(tmp_path, monkeypatch):
+    # The reader thread died on the first line, the pipe filled, the generator stopped at its
+    # next print and the job stayed "running" for good, with Cancel the only way out.
+    def broken(job, line):
+        raise ValueError("a line this parser did not expect")
+    job, jobs = _chatty_job(tmp_path, monkeypatch, broken)
+    job.debug = True        # a debug run keeps run.log, where the reader says what went wrong
+
+    _run_job_or_fail(job)
+
+    assert job.status == "done", list(job.log_lines)
+    assert jobs.active is None
+    log = (tmp_path / "run.log").read_text(encoding="utf-8")
+    assert log.count("a line this parser did not expect") == 1     # said once, not 4000 times
+
+
+def test_a_log_that_cannot_be_written_does_not_cost_the_generation(tmp_path, monkeypatch):
+    # A full disk, or a locked run.log: the model is still made, so the run still ends as done.
+    (tmp_path / "run.log").mkdir()      # opening it to append now fails, as a full disk would
+    job, jobs = _chatty_job(tmp_path, monkeypatch, lambda job, line: None)
+
+    _run_job_or_fail(job)
+
+    assert job.status == "done", list(job.log_lines)
+    assert jobs.active is None
+
+
+@pytest.mark.posix
+@pytest.mark.parametrize("failing_start", [1, 2], ids=["reader", "memory monitor"])
+def test_a_generation_that_fails_after_its_process_started_stops_that_process(
+        tmp_path, monkeypatch, failing_start):
+    # A thread that could not start ended the job as an error and freed its place, but the
+    # generator it had already launched kept running: unread, with its pid note gone, so
+    # nothing would ever find it and the next generation fought it for GPU memory.
+    starts = []
+
+    class FailsOnStart(threading.Thread):
+        def start(self):
+            starts.append(self.name)
+            if len(starts) == failing_start:
+                raise RuntimeError("can't start new thread")
+            super().start()
+
+    monkeypatch.setattr(api, "threading", types.SimpleNamespace(
+        **{**vars(threading), "Thread": FailsOnStart}))
+    sleeper = dataclasses.replace(
+        api.BACKENDS["hunyuan-mlx-xiong"], interpreter=Path(sys.executable), wrapper="-c",
+        build_args=lambda job: ["import time; time.sleep(30)"],
+        parse_line=lambda job, line: None, finalize=None)
+    monkeypatch.setitem(api.BACKENDS, "hunyuan-mlx-xiong", sleeper)
+    job, jobs = _job_for("hunyuan_xiong", tmp_path, monkeypatch)
+    try:
+        api._run_job(job)
+
+        assert job.status == "error"
+        assert jobs.active is None
+        assert not api._pid_file_path(tmp_path).exists()
+        try:
+            job.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        assert job.process.poll() is not None, "the generator is still running"
+    finally:
+        if job.process is not None:
+            if job.process.poll() is None:
+                try:
+                    os.killpg(job.process.pid, 9)
+                except OSError:
+                    job.process.kill()
+            job.process.wait(timeout=10)
 
 
 
@@ -2361,3 +2729,79 @@ def test_the_rig_upload_reads_the_bone_names_choice_and_refuses_an_unknown_one()
     rig = source[source.index("def _create_animate_rig"):source.index("def _create_animate_play")]
     assert "bone_names_choice(form)" in rig and "bone_names=" in rig
     assert "except ValueError" in rig
+
+
+def _deaf_job(tmp_path, monkeypatch):
+    """A job whose generator is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import failing_pid_note, use_deaf_popen
+
+    fake = dataclasses.replace(api.BACKENDS["hunyuan-mlx-xiong"], interpreter=Path(sys.executable),
+                               wrapper=tmp_path / "unused.py", build_args=lambda job: [],
+                               parse_line=lambda job, line: None, finalize=None)
+    monkeypatch.setitem(api.BACKENDS, "hunyuan-mlx-xiong", fake)
+    job, jobs = _job_for("hunyuan-mlx-xiong", tmp_path, monkeypatch)
+    use_deaf_popen(api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    return job, jobs
+
+
+@pytest.mark.posix
+def test_a_failed_generation_is_not_over_until_its_generator_has_been_stopped(tmp_path, monkeypatch):
+    # The job was marked "error" first and only then stopped its generator (up to 5 s), so the
+    # heavy-job gate was open and a new generation could start beside a generator still holding the GPU.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    job, jobs = _deaf_job(tmp_path, monkeypatch)
+    seen = watch_status_at_stop(api, monkeypatch, lambda: job.status)
+    try:
+        api._run_job(job)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert jobs.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_generator_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") raised out of the
+    # finally before the slot was freed: the error escaped the runner's thread, the job stayed
+    # the active one, and the next generation was refused for good.
+    from deaf_worker import kill_and_reap, unremovable_pid_note, watch_slot
+
+    job, jobs = _deaf_job(tmp_path, monkeypatch)
+    seen = watch_slot(jobs, job)
+    unremovable_pid_note(monkeypatch)
+    try:
+        api._run_job(job)
+
+        assert job.status == "error"
+        assert jobs.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the generator still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_generation_whose_generator_cannot_be_stopped_says_so_in_its_log(tmp_path, monkeypatch):
+    # Before: the warning that stopping the generator failed was thrown away, so the log said
+    # nothing while a generator could still be holding the GPU. Every other runner logs it.
+    from deaf_worker import kill_and_reap
+
+    job, _jobs = _deaf_job(tmp_path, monkeypatch)
+    monkeypatch.setattr(api.processes, "stop_and_reap", lambda proc, **_more: "the generator would not stop")
+    try:
+        api._run_job(job)
+
+        assert job.status == "error"
+        assert "cleanup warning: the generator would not stop" in list(job.log_lines)
+    finally:
+        kill_and_reap(job.process)

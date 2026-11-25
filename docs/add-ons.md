@@ -91,7 +91,8 @@ up to you.
   in `output/`.
 - `name`: the human name shown in the studio and CLI.
 - `version`: any string you like; shown to users but not parsed.
-- `author`: an object with at least `name`. `url` is optional and shown as a link.
+- `author`: an object with at least `name`. `url` is optional and shown as a link. It must be a plain
+  `https://` address; anything else is not shown.
 - `licence`: the SPDX name or short name of the licence for the add-on itself.
 - `summary`: one sentence describing what the add-on does.
 
@@ -199,7 +200,7 @@ ADDONS_INDEX=/path/to/index.json ./lab addon list
 
 The index file is a JSON list of listing objects. Each listing needs `id`, `name`,
 `repo`, `commit`, `author`, `summary`, `type`, and can include `links`, `rating` and
-`ratings_count`.
+`ratings_count`. The addresses in `links` must be plain `https://` ones; any other is dropped.
 
 ## Rules
 
@@ -213,6 +214,9 @@ The index file is a JSON list of listing objects. Each listing needs `id`, `name
   `run-stem` is the run name AssetFurnace chooses.
 - Keep the manifest honest: `models`, `licence` and `needs` are shown to the user before
   they say yes.
+- In the studio a tool is a big job like any other: it waits while a model, picture or other big
+  job is being made, and they wait for it. Cancel, or stopping the studio, stops the tool and
+  everything it started, so do not leave work running in the background.
 
 ## Getting listed
 

@@ -14,6 +14,13 @@ import sys
 from pathlib import Path
 
 import pytest
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 from glb_fixtures import read_glb, valid_glb
 
 from image_to_3dlab import __version__
@@ -98,12 +105,12 @@ def test_names_that_cannot_be_file_names_or_repeat_are_refused(names):
 
 
 def test_lods_arrive_as_text_or_a_list():
-    assert props.normalise_settings({"lods": "8000,3000"})["lods"] == [8000, 3000]
+    assert props.normalise_settings({"lods": "8000,500"})["lods"] == [8000, 500]
     assert props.normalise_settings({"lods": [4000]})["lods"] == [4000]
 
 
 @pytest.mark.parametrize("lods", [
-    "", "5000,500", "5000,250000", "1000,2500", "3000,3000", "9000,8000,7000,6000,5000", "lots",
+    "", "5000,499", "5000,250000", "1000,2500", "3000,3000", "9000,8000,7000,6000,5000", "lots",
 ])
 def test_lods_the_finisher_would_refuse_are_refused_first(lods):
     with pytest.raises(ValueError) as caught:
@@ -688,7 +695,7 @@ def test_a_running_step_records_this_server_as_its_owner(tmp_path):
         seen.append(processes.parse_pid_record(job.directory.joinpath("pid").read_text()))
 
     assert props._run_step(job, "LODs", [sys.executable, "-c", "print('working')"], feed)
-    assert seen[0] == (job.process.pid, os.getpid())
+    assert seen[0][:2] == (job.process.pid, os.getpid()) and seen[0][2] is not None
 
 
 def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
@@ -843,3 +850,76 @@ def test_the_server_can_load_the_gltfpack_bootstrap_in_a_fresh_process():
                             text=True, check=False)
     assert result.returncode == 0, result.stderr[-2000:]
     assert result.stdout.strip().endswith("True")
+
+
+@pytest.mark.posix
+def test_a_props_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked the worker to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next props job started beside it.
+    job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {"names": "barrel"})
+    manager = props.PropsJobManager(tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(props, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(props, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        props.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_failed_props_run_is_not_over_until_its_worker_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its worker (up to 35 s), so the
+    # gate was open and a new props job could start beside a worker still holding the GPU.
+    from deaf_worker import assert_still_running_when_stop_began, watch_status_at_stop
+
+    job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {"names": "barrel"})
+    manager = props.PropsJobManager(tmp_path)
+    manager.active = job.id
+    seen = watch_status_at_stop(props, monkeypatch, lambda: job.status)
+    monkeypatch.setattr(props, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(props, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        props.run_job(job, manager)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_props_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next props job was blocked.
+    job = props.PropsJobManager(tmp_path).create("sheet.glb", b"glb", {"names": "barrel"})
+    manager = props.PropsJobManager(tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(props, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(props, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        props.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

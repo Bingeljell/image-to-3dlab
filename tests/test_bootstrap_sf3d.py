@@ -40,6 +40,22 @@ def test_announcement_names_backend_route_size_and_gating(monkeypatch):
         assert needle in text
 
 
+def test_the_announcement_states_every_condition_the_licence_record_states(monkeypatch):
+    """The record written beside every SF3D model says "Commercial registration required"; this
+    announcement, shown before the download, said only "free under $1M annual revenue". It now
+    repeats the record's conditions word for word, so the two cannot drift apart again."""
+    from image_to_3dlab.provenance import LICENSES
+
+    monkeypatch.setattr(boot, "target", lambda: "macos-arm64")
+    said = " ".join(boot.announcement().split())        # the announcement wraps its lines
+    record = LICENSES["sf3d"]
+    assert f"licence: {record.license_name}: free under $1M annual revenue" in said
+    assert len(record.conditions) == 2
+    for condition in record.conditions:
+        assert condition in said
+    assert "https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`" in said
+
+
 @pytest.mark.parametrize("key", [None, "windows-nvidia", "linux-nvidia"])
 def test_unsupported_machines_are_refused_before_anything(monkeypatch, capsys, key):
     monkeypatch.setattr(boot, "target", lambda: key)

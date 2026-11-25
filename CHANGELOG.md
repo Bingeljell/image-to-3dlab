@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned
   folder now clears the read-only flag first, as `addon remove` already did.
 - The shared Blender bake supports 500 triangles for distant props, including Game-ready's 1,200 / 500 preset.
+- Finish accepts custom triangle counts from 500 for any model, including characters.
 - **"Turn off" on the first-start usage card turns the counts off.** It only marked the card as seen, which is what
   lets the daily count go, and left the counts on until you unticked the box on About. "See exactly what's sent" no
   longer counts as a yes either: it opens About, and the card is back at the next start until you choose.

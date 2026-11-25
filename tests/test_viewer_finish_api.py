@@ -41,6 +41,10 @@ def test_defaults_are_used_when_nothing_is_sent():
     assert settings is not finish.DEFAULT_SETTINGS  # a copy, not the shared dict
 
 
+def test_accepts_a_custom_500_triangle_finish():
+    assert finish.normalise_settings({"faces": 500})["faces"] == 500
+
+
 def test_client_values_override_defaults():
     settings = finish.normalise_settings({"metallic": 0.648, "roughness": 0.686, "ior": 1.4})
     assert settings["metallic"] == pytest.approx(0.648)
@@ -52,7 +56,7 @@ def test_client_values_override_defaults():
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("faces", 500), ("faces", 500000),      # blender_retopo_bake rejects both
+        ("faces", 499), ("faces", 500000),      # blender_retopo_bake rejects both
         ("metallic", 1.5), ("roughness", -0.1),
         ("ior", 0.5), ("ior", 4.0),
         ("voxel", 0.5),                          # coarse enough to melt the subject

@@ -502,16 +502,19 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     resize();
   }
 
-  /** One picture, or a front and back pair side by side (`back` given). */
+  /** One picture, a front and back pair side by side (`back` given), or all four views of a
+   *  four-view build (`sides` = {right, left} given too), in the order the build reads them. */
   // `labels` names the two pictures: front and back by default, original and new for a skin
-  function showImage(url, caption, back = null, labels = ['Front', 'Back']) {
+  function showImage(url, caption, back = null, labels = ['Front', 'Back'], sides = null) {
     setToolsMode(false);
     ++loadToken;
     dispose();
+    const four = !!(back && sides?.right && sides?.left);
+    const shown = four ? [[url, labels[0]], [sides.right, 'Right'], [back, labels[1]], [sides.left, 'Left']] : [[url, labels[0]], [back, labels[1]]];
     const pictures = back
-      ? `<div class="pair"><div><div class="zoombox"><img src="${url}" alt="${labels[0]}"></div><span>${labels[0]}</span></div><div><div class="zoombox"><img src="${back}" alt="${labels[1]}"></div><span>${labels[1]}</span></div></div>`
+      ? `<div class="pair">${shown.map(([src, label]) => `<div><div class="zoombox"><img src="${src}" alt="${label}"></div><span>${label}</span></div>`).join('')}</div>`
       : `<div class="zoombox"><img src="${url}" alt=""></div>`;
-    setOverlay(`<figure class="sv-picture${back ? ' two' : ''}">${pictures}<div class="zoombar" role="group" aria-label="Zoom"></div><figcaption>${caption} <span class="zoomhint">Pick a zoom, or scroll over a picture; drag to move, double-click to reset.</span></figcaption></figure>`);
+    setOverlay(`<figure class="sv-picture${back ? ' two' : ''}${four ? ' four' : ''}">${pictures}<div class="zoombar" role="group" aria-label="Zoom"></div><figcaption>${caption} <span class="zoomhint">Pick a zoom, or scroll over a picture; drag to move, double-click to reset.</span></figcaption></figure>`);
     resizePictureOverlay();
     attachZoom(overlay);
     resizePictureOverlay();

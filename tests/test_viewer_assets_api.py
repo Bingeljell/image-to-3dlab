@@ -296,6 +296,42 @@ def test_an_asset_carries_its_back_picture_when_there_is_one(output):
     assert "a wooden barrel back" not in assets   # the back is not an asset of its own
 
 
+def _views(model: Path, angles) -> Path:
+    """A build's saved views (`<model>.svviews`), one picture per angle, as pixal3d_generate writes them."""
+    views = model.with_suffix(".svviews")
+    _write(views / "transforms.json", json.dumps({"frames": [{"file_path": f"view_{a:03d}.png"} for a in angles]}))
+    for a in angles:
+        _write(views / f"view_{a:03d}.png", f"view {a}")
+    return views
+
+
+def test_a_four_view_build_shows_its_sides(output, tmp_path):
+    model = output / "commercial_conditional" / GEN / f"{GEN}.glb"
+    knight = lambda: _by_name(aa.list_assets(output))["a chunky knight"]
+    assert knight()["sides"] is None
+    _views(model, (0, 180))
+    assert knight()["sides"] is None, "a front + back build has no sides"
+    views = _views(model, (0, 270, 180, 90))
+    folder = f"commercial_conditional/{GEN}/{GEN}.svviews"
+    # the sides it read; and its back, since this front has no back beside it
+    assert knight()["sides"] == {"right": f"{folder}/view_270.png", "left": f"{folder}/view_090.png",
+                                 "back": f"{folder}/view_180.png"}
+    assert knight()["back"] is None
+    # the pictures it was made from win when the studio can serve them (under output/) ...
+    record = model.with_suffix(".provenance.json")
+    sides = {side: _write(output / "images" / IMG / f"{side}.png", side) for side in ("right", "left")}
+    _write(record, json.dumps({f"{side}_input": {"path": str(path)} for side, path in sides.items()}))
+    assert knight()["sides"] == {"right": f"images/{IMG}/right.png", "left": f"images/{IMG}/left.png",
+                                 "back": f"{folder}/view_180.png"}
+    # ... and not when they are elsewhere on disk
+    away = {side: _write(tmp_path / "elsewhere" / f"{side}.png", side) for side in ("right", "left")}
+    _write(record, json.dumps({f"{side}_input": {"path": str(path)} for side, path in away.items()}))
+    assert knight()["sides"]["right"] == f"{folder}/view_270.png"
+    (views / "view_090.png").unlink()
+    assert knight()["sides"] is None, "both sides or nothing"
+    assert not any("view" in name for name in _by_name(aa.list_assets(output)))
+
+
 def test_an_uploaded_picture_belongs_to_its_model_with_its_back(output):
     up = output / "images" / "uploads"
     _write(up / "my-orc__1a2b3c4d.png", b"uploaded", 7000)

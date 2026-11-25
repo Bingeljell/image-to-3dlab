@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet
   brim beside a light hat band turned teal. Faces turned sideways still take the shift, so the head's sides under the
   brim keep their correction. Off by default.
+- **Studio: a model built from four pictures shows all four** (front, right, back, left) under "View pictures";
+  it showed only front and back. The sides are the pictures the build was made from (its record's `right_input` and
+  `left_input`, when they are under `output/`), else the ones it read, kept in its `.svviews` folder.
 - **Build from four pictures** (`scripts/pixal3d_generate.py --right --left`): front, right side, back and left side
   instead of front and back, every view at one shared scale. Front and back say nothing about how deep a subject is,
   so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;

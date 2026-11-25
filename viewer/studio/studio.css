@@ -124,6 +124,7 @@ a { color: inherit; }
 .sv-picture .pair > div { display: grid; gap: 6px; justify-items: center; }
 .sv-picture.two .zoombox { max-width: min(640px, 38vw); }
 .sv-picture.two img { max-height: min(74vh, var(--sv-picture-max-height, 74vh)); }
+.sv-picture.four .zoombox { max-width: min(360px, 19vw); }   /* four views in one row */
 .sv-picture .pair span { color: var(--ash); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .hud { position: absolute; z-index: 5; }
 .hud.tl { top: 14px; left: 14px; right: 260px; display: grid; gap: 4px; pointer-events: none; }  /* clear of the tools and the axis widget */

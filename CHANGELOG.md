@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The background remover no longer cuts a glowing eye out of a face.** On a close crop of a face (as the Hero route
+  makes) BiRefNet-lite cut a bright cyan eye away as if it were background, and the 3D build got a hole there. A hole
+  closed in by the subject on every side whose pixels are not the picture's backdrop colour is now given back; a real
+  see-through gap (a trigger guard, a cup's handle) shows the backdrop and stays cut, and so does any hole larger than
+  2 % of the subject.
 - `scripts/blender_reunwrap_bake.py` bakes again on Blender 5.2: it picked its bake target with
   `is`, which never matches a Blender node there, so nothing was baked and the re-unwrapped
   model came out all black. It compares with `==` now.

@@ -8,6 +8,8 @@ the viewer server, running its tests, or serving Compare never imports torch.
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import io
 import json
 import os
@@ -180,6 +182,7 @@ from update_api import check as update_check
 from welcome_api import payload as welcome_payload
 
 from image_to_3dlab import models_home, processes
+from image_to_3dlab.blender import MIN_VERSION as BLENDER_MIN_VERSION
 from image_to_3dlab.blender import find_blender
 from image_to_3dlab.blender import missing_help as blender_missing_help
 from image_to_3dlab.gpu_memory import gpu_busy_note
@@ -236,6 +239,10 @@ BASELINE_PATH = REPO / "viewer" / "generate_baseline.json"  # shipped default, n
 LEARNED_BASELINE_PATH = REPO / "output" / ".generate_baseline.json"
 TINYCLIP_ADVISOR = REPO / "scripts" / "classify_trellis_input.py"
 TINYCLIP_TIMEOUT_SECONDS = 300
+# How long a restart waits for an orphaned worker to stop after a polite stop, then after a
+# forced kill, before it gives up and keeps the pid file for the next start.
+RESTART_STOP_GRACE_SECONDS = 10.0
+RESTART_FORCE_GRACE_SECONDS = 5.0
 
 # dgrauet's shape stage stays vendored (Tencent-licensed code, not just weights — see
 # docs/info_and_credits.md). Its shape quality is genuinely the best we've tested
@@ -581,6 +588,7 @@ def front_back_status(weights=None, drawer=None) -> dict[str, Any]:
 BRUSH_UPLOAD_LIMIT = 8 * 1024 * 1024
 # A plan's uploads: a picture or two, or a model GLB (a million-triangle one is a few hundred MB)
 CHAIN_UPLOAD_LIMIT = 1024 * 1024 * 1024
+BLENDER_NEED = f"Blender {BLENDER_MIN_VERSION[0]}.{BLENDER_MIN_VERSION[1]} or newer"
 
 
 BACK_VERSIONS_LOCK = threading.Lock()   # "use" and "delete" of a kept back, one at a time
@@ -663,6 +671,66 @@ def brush_request(form: dict[str, dict[str, Any]], output_root: Path | None = No
     except ValueError:
         seed = 42
     return picture, stroke, instruction, seed, keep_old
+
+
+def plan_needs(chain: activity_api.Chain) -> list[tuple[str, list[str]]]:
+    """What a plan's steps still need set up, as (what, the steps it is for), in the order the
+    steps run; empty when the plan can start.
+
+    Each step is asked what its own route asks when the run reaches it. Asked here, the plan is
+    refused before anything is made: a missing auto-rig used to show only after the picture, the
+    3D model and Finish. Raises ValueError for an engine nobody knows.
+    """
+    needs: dict[str, list[str]] = {}
+
+    def need(what: str, step: str) -> None:
+        needs.setdefault(what, []).append(activity_api.LABELS[step])
+
+    for step in chain.steps:
+        if step == "picture":
+            engine = image_api.pick_engine(chain.picture_engine or None)
+            if not image_api.is_installed(engine):
+                need(f"the {engine.label} picture engine" if chain.picture_engine else "a picture engine", step)
+        elif step == "back" and not chain.back_upload:      # your own back picture: nothing to draw
+            asked = chain.back_settings.get("engine")
+            can_draw = (image_api.usable(image_api.pick_engine(str(asked)), edit=True) if asked
+                        else back_drawer_ready())
+            if not (image_api.BINARY.exists() and can_draw):
+                need("a picture engine that can draw a back view", step)
+        elif step == "model":
+            backend_id = chain.engine or "trellis"           # what the generate route takes for none
+            spec = backend_spec(backend_id)
+            if spec is None:
+                raise ValueError(f"unknown backend {backend_id!r}")
+            if not spec.readiness()["ready"]:
+                need(spec.label, step)
+        elif step in activity_api.NEEDS_BLENDER:
+            if find_blender() is None:
+                need(BLENDER_NEED, step)
+        elif step in ("rigged", "animated") and not autorig_installed():
+            need("the auto-rig", step)
+    # one engine to set up, not two lines that read as two downloads
+    plain, drawing = "a picture engine", "a picture engine that can draw a back view"
+    if plain in needs and drawing in needs:
+        both = needs.pop(plain) + needs.pop(drawing)
+        needs = {"a picture engine that can also draw a back view": both, **needs}
+    return list(needs.items())
+
+
+def plan_refusal(needs: list[tuple[str, list[str]]]) -> dict[str, Any]:
+    """The answer to a plan that cannot start yet: everything to set up, in one sentence."""
+    blender = [steps for what, steps in needs if what == BLENDER_NEED]
+    if blender and len(needs) == 1:
+        # Blender alone: its own help says how to install it on this system, and what to do meanwhile
+        return {"error": blender_missing_help() + " Or make it without Finish for now: "
+                         "stop after the 3D model, and Finish it once Blender is in.",
+                "needs_blender": True}
+    listed = "; ".join(f"{what} (for {' and '.join(steps)})" for what, steps in needs)
+    answer: dict[str, Any] = {"error": f"{activity_api.PLAN_NEEDS} {listed}. Each is on the Setup & Status page.",
+                              "needs_setup": True}
+    if blender:
+        answer["needs_blender"] = True
+    return answer
 
 
 def back_drawer_ready() -> bool:
@@ -912,11 +980,13 @@ def blender_install_command() -> list[str]:
     return [sys.executable, str(REPO / "scripts" / "bootstrap_blender.py"), "--yes"]
 
 
-def blender_install_refusal(caps: dict[str, Any], generating: bool,
+def blender_install_refusal(caps: dict[str, Any], waiting: str | None,
                             setting_up: bool) -> tuple[int, str] | None:
-    """Why Setup's Install Blender cannot start now, or None when it can."""
-    if generating:
-        return 409, "a generation is running; wait for it to finish"
+    """Why Setup's Install Blender cannot start now, or None when it can.
+
+    `waiting` is the shared rule's answer for a setup: the big job in the way."""
+    if waiting:
+        return 409, waiting
     if setting_up:
         return 409, "another setup is running; wait for it to finish"
     if not caps.get("blender_installable"):
@@ -925,11 +995,13 @@ def blender_install_refusal(caps: dict[str, Any], generating: bool,
     return None
 
 
-def gltfpack_install_refusal(tools: dict[str, Any], generating: bool,
+def gltfpack_install_refusal(tools: dict[str, Any], waiting: str | None,
                              setting_up: bool) -> tuple[int, str] | None:
-    """Why Setup's Install gltfpack cannot start now, or None when it can."""
-    if generating:
-        return 409, "a generation is running; wait for it to finish"
+    """Why Setup's Install gltfpack cannot start now, or None when it can.
+
+    `waiting` is the shared rule's answer for a setup: the big job in the way."""
+    if waiting:
+        return 409, waiting
     if setting_up:
         return 409, "another setup is running; wait for it to finish"
     if not tools.get("gltfpack_installable"):
@@ -969,7 +1041,24 @@ def _start_setup_run(run_id: str, command: list[str] | None = None) -> SetupRun:
         with SETUP_LOCK:
             SETUP_ACTIVE = None
 
-    threading.Thread(target=reader, daemon=True, name=f"setup-{run_id[:8]}").start()
+    try:
+        threading.Thread(target=reader, daemon=True, name=f"setup-{run_id[:8]}").start()
+    except RuntimeError as exc:
+        # Nothing will read the installer: stop it and reap it, and end the run as an error.
+        # The caller holds SETUP_LOCK and clears SETUP_ACTIVE.
+        with contextlib.suppress(Exception):
+            processes.terminate_group(proc.pid)
+        with contextlib.suppress(Exception):
+            proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            with contextlib.suppress(Exception):
+                proc.kill()
+                proc.wait(timeout=5)
+        run.status = "error"
+        run.emit({"phase": "setup_done", "status": "error", "message": str(exc)})
+        raise WorkerStartError(str(exc)) from exc
     return run
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -1227,6 +1316,14 @@ def _safe_id(value: str) -> bool:
     return bool(JOB_RE.fullmatch(value))
 
 
+def _json_object(body: Any) -> dict[str, Any]:
+    """A request body, once it is known to have fields. A list, a number, a string or null is
+    JSON too: reading a field from one raised, and the connection closed with no answer."""
+    if not isinstance(body, dict):
+        raise ValueError("expected a JSON object")
+    return body
+
+
 def parse_multipart(content_type: str, body: bytes) -> dict[str, dict[str, Any]]:
     """Parse the two small multipart fields without the removed Python 3.13 ``cgi`` module."""
     raw = (f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("ascii") + body)
@@ -1278,7 +1375,10 @@ class Job:
 
     def append_log(self, line: str) -> None:
         self.log_lines.append(line)
-        with self.directory.joinpath("run.log").open("a", encoding="utf-8") as handle:
+        # A full disk or a locked run.log must not cost the run: the last lines stay in
+        # memory for the error report, and whoever called this (the output reader, the
+        # runner) carries on.
+        with contextlib.suppress(OSError), self.directory.joinpath("run.log").open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
 
@@ -1324,6 +1424,22 @@ class JobManager:
 
 
 JOBS = JobManager()
+
+
+class WorkerStartError(RuntimeError):
+    """A worker thread could not start; routes answer it 409 with the reason as it came."""
+
+
+def _start_worker(manager, job, target: Callable[..., Any], *, name: str | None = None) -> None:
+    """Start `target(job)` on a thread; if none can start, the job ends in its manager's
+    error state and frees its slot, then the error is raised for the route to answer."""
+    try:
+        threading.Thread(target=target, args=(job,), daemon=True, name=name).start()
+    except RuntimeError as exc:
+        job.status = "error"
+        job.emit({"phase": "error", "message": str(exc)})
+        manager.finish(job)
+        raise WorkerStartError(str(exc)) from exc
 
 
 def _phase_for_tqdm(job: Job, label: str, step: int) -> str:
@@ -1430,6 +1546,20 @@ def _read_process(job: Job) -> None:
     assert job.process is not None and job.process.stdout is not None
     spec = backend_spec(job.backend_id)
     assert spec is not None, "_run_job resolves the backend before it starts this reader"
+    said = False
+
+    def take(line: str) -> None:
+        # Whatever the parser makes of a line, keep reading: a reader that stops leaves the
+        # pipe full, the generator stuck at its next print, and the job "running" for good.
+        nonlocal said
+        job.append_log(line)
+        try:
+            spec.parse_line(job, line)
+        except Exception as exc:
+            if not said:
+                said = True
+                job.append_log(f"[could not read progress from the line above; the run goes on: {exc!r}]")
+
     buffer = ""
     while True:
         chunk = job.process.stdout.read(4096)
@@ -1444,11 +1574,9 @@ def _read_process(job: Job) -> None:
             line, buffer = buffer[:cut], buffer[cut + 1:]
             if not line:
                 continue
-            job.append_log(line)
-            spec.parse_line(job, line)
+            take(line)
     if buffer:
-        job.append_log(buffer)
-        spec.parse_line(job, buffer)
+        take(buffer)
 
 
 def _trellis_parse_line(job: Job, line: str) -> None:
@@ -1497,8 +1625,14 @@ def _write_pid_file(directory: Path, pid: int) -> None:
     _pid_file_path(directory).write_text(processes.pid_record(pid), encoding="utf-8")
 
 
-def _remove_pid_file(directory: Path) -> None:
-    _pid_file_path(directory).unlink(missing_ok=True)
+def _remove_pid_file(directory: Path, job: Job | None = None) -> None:
+    """Remove the pid note. A removal that fails for any reason but "not found" is logged on the
+    job (when there is one) and swallowed: it must not skip the rest of the runner's cleanup."""
+    try:
+        _pid_file_path(directory).unlink(missing_ok=True)
+    except Exception as exc:
+        if job is not None:
+            job.log_lines.append(f"cleanup warning: {exc}")
 
 
 def _killpg_if_alive(pid: int) -> None:
@@ -1508,6 +1642,25 @@ def _killpg_if_alive(pid: int) -> None:
 
 def _process_group_alive(pid: int) -> bool:
     return processes.group_alive(pid)
+
+
+def _wait_group_gone(pid: int, seconds: float) -> bool:
+    """Poll until the process group is gone or `seconds` pass; True when it is gone."""
+    deadline = time.monotonic() + seconds
+    while _process_group_alive(pid):
+        if time.monotonic() >= deadline:
+            return not _process_group_alive(pid)
+        time.sleep(0.05)
+    return True
+
+
+def _stop_orphan(pid: int) -> bool:
+    """Stop an orphaned worker's group: a polite stop, then a forced kill. True when it is gone."""
+    _killpg_if_alive(pid)
+    if _wait_group_gone(pid, RESTART_STOP_GRACE_SECONDS):
+        return True
+    processes.kill_group(pid)
+    return _wait_group_gone(pid, RESTART_FORCE_GRACE_SECONDS)
 
 
 def _process_alive(pid: int) -> bool:
@@ -1543,6 +1696,10 @@ def _terminate_active_job() -> None:
     skin_job = skins_api.BUILDS.jobs.get(skins_api.BUILDS.active) if skins_api.BUILDS.active else None
     if skin_job is not None and skin_job.process is not None and skin_job.process.poll() is None:
         _killpg_if_alive(skin_job.process.pid)
+    addon_jobs = addons_api.ADDON_JOBS
+    addon_job = addon_jobs.jobs.get(addon_jobs.active) if addon_jobs.active else None
+    if addon_job is not None and addon_job.process is not None and addon_job.process.poll() is None:
+        _killpg_if_alive(addon_job.process.pid)
     for download in DOWNLOADS.values():
         if download.process is not None and download.process.poll() is None:
             _killpg_if_alive(download.process.pid)
@@ -1568,8 +1725,13 @@ def _running(manager) -> bool:
 # Every job that holds the GPU or gigabytes of unified memory. Each start waits while any
 # OTHER kind runs (its own manager refuses a second of its kind), so the studio, the MCP
 # and a second tab all meet the same rule; the page's busy flag is only a convenience.
+#
+# A start asks through `claim_start`, which answers and takes the slot in one step. A job
+# is only on its manager's books some time after it asked (an upload is read, a picture
+# is cut out), and in between another kind saw nothing running and started as well.
 HEAVY_JOBS: dict[str, Callable[[], bool]] = {
-    "setup": lambda: SETUP_ACTIVE is not None,
+    # a setup run, or an engine being downloaded or built from Setup & Status
+    "setup": lambda: SETUP_ACTIVE is not None or download_active() is not None,
     "generate": lambda: _running(JOBS),
     "image": lambda: _running(image_api.MANAGER),
     "finish": lambda: _running(FINISH_JOBS),
@@ -1577,6 +1739,8 @@ HEAVY_JOBS: dict[str, Callable[[], bool]] = {
     "rebind": lambda: _running(RIG_JOBS),
     "animate": lambda: _animate_running(),
     "skin": lambda: skins_api.BUILDS.running(),
+    # someone else's tool, usually Blender: nobody knows how much memory it takes, so it counts
+    "addon": lambda: addons_api.ADDON_JOBS.busy(),
 }
 BUSY_WORDS = {
     "setup": "setup is running", "generate": "a generation is running",
@@ -1584,15 +1748,45 @@ BUSY_WORDS = {
     "props": "a prop sheet is baking", "rebind": "a rig rebind is running",
     "animate": "an auto-rig or animation is running",
     "skin": "a skin is being made",
+    "addon": "an add-on is running",
 }
 
 
+# Starts that were told they may go and are not on the books yet, by kind.
+_STARTING: dict[str, int] = {}
+_STARTING_LOCK = threading.Lock()
+
+
 def busy_reason(starting: str) -> str | None:
-    """Why a `starting` job must wait, or None."""
+    """Why a `starting` job must wait, or None. Only an answer: a start asks `claim_start`."""
     for kind, running in HEAVY_JOBS.items():
-        if kind != starting and running():
+        if kind != starting and (_STARTING.get(kind) or running()):
             return f"{BUSY_WORDS[kind]}; wait for it to finish"
     return None
+
+
+def claim_start(kind: str) -> str | None:
+    """Why a `kind` job must wait, or None, and then the slot is the caller's.
+
+    Asking and taking are one step, so of two kinds that ask together one is told to wait.
+    The caller hands the slot back with `release_start` once its job is on its manager's
+    books, or once the start was refused or failed. Two starts of one kind may both hold
+    it: their own manager settles which of them runs.
+    """
+    with _STARTING_LOCK:
+        waiting = busy_reason(kind)
+        if waiting is None:
+            _STARTING[kind] = _STARTING.get(kind, 0) + 1
+        return waiting
+
+
+def release_start(kind: str) -> None:
+    with _STARTING_LOCK:
+        left = _STARTING.get(kind, 0) - 1
+        if left > 0:
+            _STARTING[kind] = left
+        else:
+            _STARTING.pop(kind, None)
 
 
 def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
@@ -1603,8 +1797,9 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
 
     For each leftover <job-dir>/pid: if the process that started the job is still alive
     (another viewer, or a script driving the Finish code), the job is not an orphan and is
-    left alone. Otherwise, if that process group is still running, it's an actual ghost
-    (nobody has been tracking it since the old server died) -- kill it. Either way,
+    left alone. Otherwise, if that process group is still running and the process at its
+    number is still the job (it started when the note says), it's an actual ghost (nobody
+    has been tracking it since the old server died) -- kill it. Either way,
     annotate that job's run.log so it stops trailing off silently, and remove the pid file
     since this server now owns (or has just closed out) that job's fate.
 
@@ -1615,16 +1810,24 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
             continue    # a folder that happens to be called pid (a prop, say), not a job's
         directory = pid_file.parent
         try:
-            pid, owner = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
+            pid, owner, started, owner_started = processes.parse_pid_record(pid_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             pid_file.unlink(missing_ok=True)
             continue
-        if owner is not None and owner != os.getpid() and _process_alive(owner):
+        # Its studio is still running it, unless that number went to another program since.
+        if (owner is not None and owner != os.getpid() and _process_alive(owner)
+                and processes.still_the_process(owner, owner_started)):
             continue
-        alive = _process_group_alive(pid)
+        # A process that started at another time was given the number after the job ended.
+        alive = _process_group_alive(pid) and processes.still_the_process(pid, started)
+        stopped = True
         if alive:
-            _killpg_if_alive(pid)
-            note = "orphaned generation from a previous server session, terminated on restart"
+            stopped = _stop_orphan(pid)
+            if stopped:
+                note = "orphaned generation from a previous server session, terminated on restart"
+            else:
+                note = ("orphaned job from a previous server session could not be stopped on restart; "
+                        f"pid {pid} is still running")
         else:
             note = "server died mid-run (previous session) -- job status unknown, treat as failed"
         # Finish runs from 0.3.5 keep their log in steps/.
@@ -1633,7 +1836,8 @@ def _reconcile_orphaned_jobs(output_root: Path) -> list[str]:
         if log_path is not None:
             with log_path.open("a", encoding="utf-8") as handle:
                 handle.write(note + "\n")
-        pid_file.unlink(missing_ok=True)
+        if stopped:
+            pid_file.unlink(missing_ok=True)    # otherwise keep it, so the next start retries
         touched.append(directory.name)
     return touched
 
@@ -1754,12 +1958,24 @@ def _run_job(job: Job) -> None:
                       "log_tail": tail})
             usage_api.count_failed("model", return_code)
     except Exception as exc:  # process launch errors must reach the browser, not kill the server
+        _stop_started_process(job)   # the generator is gone before the status frees the gate
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc)})
         usage_api.count_failed("model", exc)
     finally:
-        _remove_pid_file(job.directory)
+        _remove_pid_file(job.directory, job)
         JOBS.finish(job)
+
+
+def _stop_started_process(job: Job) -> None:
+    """A job that failed after its generator launched must not leave it running, unread and
+    untracked: ask its group to stop, wait a bounded time, then force it and reap."""
+    proc = job.process
+    if proc is None or proc.poll() is not None:
+        return
+    warning = processes.stop_and_reap(proc, grace=5)
+    if warning:
+        job.append_log(f"cleanup warning: {warning}")
 
 
 # --- TRELLIS backend spec (wraps the pre-existing, unchanged behavior above) -----------
@@ -2753,7 +2969,7 @@ class Handler(SimpleHTTPRequestHandler):
         self._status_code = int(code)   # what note_request counts a POST by
         super().send_response(code, message)
 
-    def _refuse(self, status: int, message: str) -> None:
+    def _skip_small_body(self) -> None:
         # read a small body first: closing on unread bytes resets the connection, and the
         # caller would see a network error instead of the reason
         try:
@@ -2764,6 +2980,9 @@ class Handler(SimpleHTTPRequestHandler):
             self.rfile.read(length)
         else:
             self.close_connection = True
+
+    def _refuse(self, status: int, message: str) -> None:
+        self._skip_small_body()
         self._send_json(status, {"error": message})
 
     def _allowed(self, *, mutation: bool) -> bool:
@@ -2798,13 +3017,28 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         self._status_code = None
+        self._claims: list[str] = []
         try:
             # every POST changes something: weights, the HF token, jobs, names
             if self._allowed(mutation=True):
                 self._route_post()
         finally:
+            for kind in self._claims:
+                release_start(kind)
             usage_api.note_request(self._path_parts(), self.headers.get(usage_api.CLIENT_HEADER),
                                    "POST", self._status_code)
+
+    def _claim(self, kind: str) -> str | None:
+        """Why a `kind` job cannot start now, or None, and then no other kind starts until
+        this request has ended: by then the job it started is on its manager's books, or the
+        start was refused. Every route that starts a big job asks here."""
+        claims = getattr(self, "_claims", None)
+        if claims is None:
+            return busy_reason(kind)    # not inside a POST: there is nothing to hold, only the answer
+        waiting = claim_start(kind)
+        if waiting is None:
+            claims.append(kind)
+        return waiting
 
     def _route_post(self) -> None:
         parts = self._path_parts()
@@ -2828,11 +3062,10 @@ class Handler(SimpleHTTPRequestHandler):
                                      else "The request is empty."})
                     return
                 chain = chain_from_form(parse_multipart(self.headers.get("Content-Type", ""), self.rfile.read(length)))
-                # Before the picture and the 3D model, not ten minutes later at Finish
-                if set(chain.steps) & activity_api.NEEDS_BLENDER and find_blender() is None:
-                    self._send_json(409, {"error": blender_missing_help() + " Or make it without Finish for now: "
-                                          "stop after the 3D model, and Finish it once Blender is in.",
-                                          "needs_blender": True})
+                # Before the picture and the 3D model, not ten minutes later at Finish or at Rig
+                needs = plan_needs(chain)
+                if needs:
+                    self._send_json(409, plan_refusal(needs))
                     return
                 chain.client = usage_api.source_of(self.headers.get(usage_api.CLIENT_HEADER))
                 self._chains().submit(chain)
@@ -2954,7 +3187,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "name":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 2048 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 2048 else {})
                 name = set_asset_name(OUTPUT_ROOT, parts[2], str(body.get("name", "")))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(422, {"error": str(exc)})
@@ -2964,7 +3197,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "hidden":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {})
                 set_asset_hidden(OUTPUT_ROOT, parts[2], bool(body.get("hidden", True)))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(422, {"error": str(exc)})
@@ -2975,7 +3208,7 @@ class Handler(SimpleHTTPRequestHandler):
             # a deletion cannot be undone, so the page must say so: a bare POST does nothing
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {})
                 if body.get("confirm") is not True:
                     raise ValueError("confirm the deletion first")
                 plan = delete_asset_version(OUTPUT_ROOT, parts[2])
@@ -2987,7 +3220,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ["api", "assets"] and parts[3] == "main":
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                body = json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {}
+                body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1024 else {})
                 set_asset_main(OUTPUT_ROOT, parts[2], bool(body.get("main", True)))
             except (ValueError, json.JSONDecodeError) as exc:
                 self._send_json(422, {"error": str(exc)})
@@ -3048,7 +3281,7 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", "0"))
             # room for a 500-character "what to change" in any script (JSON escapes it 6x)
-            payload = json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {}
+            payload = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 16384 else {})
             front = image_api.back_source(OUTPUT_ROOT, str(payload.get("picture", "")))
             seed = int(payload.get("seed", 3))
             instruction = str(payload.get("instruction") or "")
@@ -3062,7 +3295,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not image_api.BINARY.exists():
             self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
             return
-        waiting = busy_reason("image")
+        waiting = self._claim("image")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -3098,7 +3331,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not image_api.BINARY.exists():
             self._send_json(503, {"error": "stable-diffusion.cpp is not installed.", "needs_setup": True})
             return
-        waiting = busy_reason("image")
+        waiting = self._claim("image")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -3136,7 +3369,7 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(409, {"error": "a picture is being made; wait for it to finish"})
             return
         try:
-            payload = change_back_version(action, body)
+            payload = change_back_version(action, _json_object(body))
         except (ValueError, OSError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -3149,7 +3382,7 @@ class Handler(SimpleHTTPRequestHandler):
             if length <= 0 or length > 64 * 1024:
                 self._send_json(400, {"error": "expected a small JSON body"})
                 return
-            payload = json.loads(self.rfile.read(length))
+            payload = _json_object(json.loads(self.rfile.read(length)))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(400, {"error": f"could not read the request: {exc}"})
             return
@@ -3173,7 +3406,7 @@ class Handler(SimpleHTTPRequestHandler):
                 "needs_setup": True,
             })
             return
-        waiting = busy_reason("image")
+        waiting = self._claim("image")
         if waiting:
             self._send_json(409, {"error": waiting})
             return
@@ -3218,31 +3451,58 @@ class Handler(SimpleHTTPRequestHandler):
         state["build_job"] = build.describe() if build else None
         return state
 
-    def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
-        """Start one picture try, or answer why not (and return None)."""
-        # Checked before the try is recorded: a refused start must not leave a try with no picture.
-        waiting = busy_reason("image") or ("a picture is being made; wait for it to finish"
+    def _skin_try_refusal(self, skin: skins_api.Skin | None = None) -> tuple[int, dict[str, Any]] | None:
+        """Why a picture try cannot start now, as (status, answer); None when it can.
+        `skin`: the one asking, sent back with a wait. None for a new skin, which is not kept yet."""
+        waiting = self._claim("image") or ("a picture is being made; wait for it to finish"
                                            if _running(image_api.MANAGER) else None)
         if waiting or skins_api.BUILDS.running():
-            self._send_json(409, {"error": waiting or "a skin is being made; wait for it to finish",
-                                  "skin": self._skin_state(skin)})
-            return None
+            answer = {"error": waiting or "a skin is being made; wait for it to finish"}
+            if skin is not None:
+                answer["skin"] = self._skin_state(skin)
+            return 409, answer
         if not image_api.BINARY.exists():
-            self._send_json(503, {"error": "The picture engine is not installed.", "needs_setup": True})
-            return None
+            return 503, {"error": "The picture engine is not installed.", "needs_setup": True}
         try:
             image_api.resolve_weights()
             if image_api.resolve_vision() is None:
                 raise image_api.MissingWeights([image_api.VISION_FILE[1]])
         except image_api.MissingWeights as exc:
-            self._send_json(503, {"error": str(exc), "needs_setup": True, "missing": exc.missing})
-            return None
-        reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
-        job = image_api.start_edit(reference, target, prompt, seed)
-        skin.tries[side][-1].update(job_id=job.id, started=time.time())
-        skins_api.STORE.save(skin)
+            return 503, {"error": str(exc), "needs_setup": True, "missing": exc.missing}
+        return None
+
+    def _draw_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any]:
+        """Record one picture try and start drawing it. Ask `_skin_try_refusal` first.
+
+        Two picture starts at the same moment are both let through, and the picture manager
+        then takes one. The one it refuses (RuntimeError), or a start that fails any other way,
+        puts the skin back as it was: a try with no picture could never be approved, and
+        recording it had unapproved the others.
+        Tries take their turn on the store's lock and read the skin afresh there, so one put
+        back never writes over another recorded since `skin` was read.
+        """
+        with skins_api.STORE.lock:
+            vars(skin).update(vars(skins_api.STORE.get(skin.id)))
+            as_it_was = copy.deepcopy(skin)
+            reference, target, prompt, seed = skins_api.STORE.picture_try(skin, side, instruction)
+            try:
+                job = image_api.start_edit(reference, target, prompt, seed)
+            except Exception:       # a lost start, or any other reason it did not start
+                skins_api.STORE.save(as_it_was)
+                raise
+            skin.tries[side][-1].update(job_id=job.id, started=time.time())
+            skins_api.STORE.save(skin)
         return {"job_id": job.id, "status_url": f"/api/image/{job.id}/status",
                 "events_url": f"/api/image/{job.id}/events"}
+
+    def _start_skin_try(self, skin: skins_api.Skin, side: str, instruction: str | None) -> dict[str, Any] | None:
+        """Start one picture try, or answer why not (and return None)."""
+        # Checked before the try is recorded: a refused start must not leave a try with no picture.
+        refusal = self._skin_try_refusal(skin)
+        if refusal:
+            self._send_json(*refusal)
+            return None
+        return self._draw_skin_try(skin, side, instruction)
 
     def _skins_get(self, rest: list[str]) -> None:
         """GET /api/skins?finished=<path> (a model's finished skins), /api/skins/<id>,
@@ -3299,10 +3559,23 @@ class Handler(SimpleHTTPRequestHandler):
                 asset = next((a for a in list_assets(OUTPUT_ROOT) if a["id"] == str(body.get("asset", ""))), None)
                 if asset is None:
                     raise skins_api.SkinError("no such model in the Library")
-                skin = skins_api.STORE.create(asset, str(body.get("instruction", "")), body.get("name"))
-                started = self._start_skin_try(skin, "front", None)
-                if started is not None:
-                    self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
+                skin = skins_api.STORE.draft(asset, str(body.get("instruction", "")), body.get("name"))
+                # Asked before the skin is kept: each refused start used to leave a skin with
+                # nothing drawn, and an agent may not delete one.
+                refusal = self._skin_try_refusal()
+                if refusal:
+                    self._send_json(*refusal)
+                    return
+                skins_api.STORE.save(skin)
+                try:
+                    started = self._draw_skin_try(skin, "front", None)
+                except Exception:
+                    # Whatever stopped it: a skin whose picture never started is not kept. One
+                    # that started (its try has a job) stays, or the picture loses its folder.
+                    if not any(t.get("job_id") for t in skin.tries["front"]):
+                        skins_api.STORE.discard(skin)
+                    raise
+                self._send_json(202, {"skin": self._skin_state(skin), "picture_job": started})
                 return
             if len(rest) == 3 and rest[0] == "build" and rest[2] == "cancel":
                 ok = skins_api.BUILDS.cancel(rest[1])
@@ -3323,8 +3596,9 @@ class Handler(SimpleHTTPRequestHandler):
                     self._send_json(409, {"error": "a skin is being made; wait for it to finish"})
                     return
                 number = body.get("number")
-                skin = skins_api.STORE.approve(skin, str(body.get("side", "front")),
-                                               int(number) if number is not None else None)
+                with skins_api.STORE.lock:      # a try takes it too: neither writes over the other
+                    skin = skins_api.STORE.approve(skins_api.STORE.get(skin.id), str(body.get("side", "front")),
+                                                   int(number) if number is not None else None)
                 started = None
                 # The back follows the front at once, with the same change asked for.
                 if skin.next_side() == "back" and not skin.tries["back"]:
@@ -3334,19 +3608,25 @@ class Handler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"skin": self._skin_state(skin), "picture_job": started})
                 return
             if action == "discard":
-                drawing = any(image_api.MANAGER.jobs.get(t.get("job_id")) is not None
-                              and image_api.MANAGER.jobs[t["job_id"]].status in {"queued", "running"}
-                              for side in skins_api.SIDES for t in skin.tries[side])
-                building = any(b.skin_id == skin.id and b.status not in skins_api.TERMINAL
-                               for b in skins_api.BUILDS.jobs.values())
-                if drawing or building:
-                    self._send_json(409, {"error": "This skin is being drawn or painted; wait for it to finish."})
-                    return
-                skins_api.STORE.discard(skin)
-                self._send_json(200, {"discarded": skin.id})
+                # Under the lock a try holds from recording itself until its picture has a job:
+                # in between it would not look like drawing, and its next save would bring the
+                # deleted skin back.
+                with skins_api.STORE.lock:
+                    skin = skins_api.STORE.get(skin.id)
+                    drawing = any(image_api.MANAGER.jobs.get(t.get("job_id")) is not None
+                                  and image_api.MANAGER.jobs[t["job_id"]].status in {"queued", "running"}
+                                  for side in skins_api.SIDES for t in skin.tries[side])
+                    building = any(b.skin_id == skin.id and b.status not in skins_api.TERMINAL
+                                   for b in skins_api.BUILDS.jobs.values())
+                    if drawing or building:
+                        answer = 409, {"error": "This skin is being drawn or painted; wait for it to finish."}
+                    else:
+                        skins_api.STORE.discard(skin)
+                        answer = 200, {"discarded": skin.id}
+                self._send_json(*answer)
                 return
             if action == "build":
-                waiting = busy_reason("skin")
+                waiting = self._claim("skin")
                 if waiting:
                     self._send_json(409, {"error": waiting})
                     return
@@ -3754,7 +4034,7 @@ class Handler(SimpleHTTPRequestHandler):
             # one card, and a shared-memory chip (an AMD APU) can report a small VRAM figure
             # while the GPU borrows system RAM, so a refusal would lock out runs that work.
             busy = gpu_busy_check(spec)
-            waiting = busy_reason("generate")
+            waiting = self._claim("generate")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
@@ -3844,17 +4124,23 @@ class Handler(SimpleHTTPRequestHandler):
             warning = gpu_busy_warning(busy)
             if warning:
                 job.append_log(warning)
+            try:
+                _start_worker(JOBS, job, _run_job)
+            except WorkerStartError as exc:   # it never ran: a failure, not a use
+                usage_api.count_failed("model", exc)
+                raise
             usage_api.count_features(front_and_back=bool(settings.get("back_name")))
-            threading.Thread(target=_run_job, args=(job,), daemon=True).start()
             self._send_json(202, {"job_id": job.id, "events_url": f"/api/generate/{job.id}/events",
                                   "output_dir": str(job.directory.relative_to(REPO)),
                                   "warning": warning})
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
     def _create_rig_job(self) -> None:
         try:
-            waiting = busy_reason("rebind")
+            waiting = self._claim("rebind")
             if waiting:
                 self._send_json(409, {"error": waiting})
                 return
@@ -3882,21 +4168,21 @@ class Handler(SimpleHTTPRequestHandler):
             except (ValueError, RuntimeError) as exc:
                 self._send_json(422 if isinstance(exc, ValueError) else 409, {"error": str(exc)})
                 return
-            threading.Thread(
-                target=run_rig_job, args=(job,), daemon=True, name=f"rig-{job.id[:8]}"
-            ).start()
+            _start_worker(RIG_JOBS, job, run_rig_job, name=f"rig-{job.id[:8]}")
             self._send_json(202, {
                 "job_id": job.id,
                 "events_url": f"/api/rig/rebind/{job.id}/events",
                 "status_url": f"/api/rig/rebind/{job.id}/status",
             })
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
     def _animate_blocked(self) -> str | None:
         """Why an Animate job cannot start now. The auto-rig loads an ~8 GB model, so it
         waits for anything else that holds the GPU or unified memory."""
-        waiting = busy_reason("animate")
+        waiting = self._claim("animate")
         if waiting:
             return waiting
         if not autorig_installed():
@@ -3904,8 +4190,11 @@ class Handler(SimpleHTTPRequestHandler):
         return None
 
     def _start_animate(self, job) -> None:
-        threading.Thread(target=run_animate_job, args=(job,), daemon=True,
-                         name=f"animate-{job.id[:8]}").start()
+        try:
+            _start_worker(ANIMATE_JOBS, job, run_animate_job, name=f"animate-{job.id[:8]}")
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
         self._send_json(202, {"job_id": job.id, "kind": job.kind,
                               "events_url": f"/api/animate/{job.id}/events",
                               "status_url": f"/api/animate/{job.id}/status"})
@@ -3984,23 +4273,15 @@ class Handler(SimpleHTTPRequestHandler):
     def _create_finish_job(self) -> None:
         """Retopologise, repaint and compress a GLB the viewer already has.
 
-        Deliberately refuses while a generation is running: the repaint stage loads its own
+        Deliberately refuses while another big job is running: the repaint stage loads its own
         multi-gigabyte model, and two of those at once is how this machine runs out of
-        unified memory.
+        unified memory. The shared rule decides, as it does for a resumed run: this route
+        kept a list of its own, which missed every kind of job added after it was written.
         """
         try:
-            active = JOBS.get(JOBS.active) if JOBS.active else None
-            if active is not None and active.status in {"queued", "running", "cancelling"}:
-                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
-                return
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is running; wait for it to finish"})
-                return
-            if _props_baking():
-                self._send_json(409, {"error": "a prop sheet is baking; wait for it to finish"})
-                return
-            if _animate_running():
-                self._send_json(409, {"error": "an auto-rig or animation is running; wait for it to finish"})
+            waiting = self._claim("finish")
+            if waiting:
+                self._send_json(409, {"error": waiting})
                 return
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0 or length > 768 * 1024 * 1024:
@@ -4046,15 +4327,15 @@ class Handler(SimpleHTTPRequestHandler):
             except RuntimeError as exc:
                 self._send_json(409, {"error": str(exc)})
                 return
-            threading.Thread(
-                target=run_finish_job, args=(job,), daemon=True, name=f"finish-{job.id[:8]}"
-            ).start()
+            _start_worker(FINISH_JOBS, job, run_finish_job, name=f"finish-{job.id[:8]}")
             self._send_json(202, {
                 "job_id": job.id,
                 "settings": job.settings,
                 "events_url": f"/api/finish/{job.id}/events",
                 "status_url": f"/api/finish/{job.id}/status",
             })
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -4098,21 +4379,20 @@ class Handler(SimpleHTTPRequestHandler):
         resume faithful. A run that still needs its repaint costs six minutes; one that
         only lost its compression costs a second.
         """
+        self._skip_small_body()   # every answer below closes the connection
         with SETUP_LOCK:
-            waiting = busy_reason("finish")
-            if waiting:
-                self._send_json(409, {"error": waiting})
-                return
+            waiting = self._claim("finish")
+        if waiting:   # sent once the lock is free: a client slow to read must not hold it
+            self._send_json(409, {"error": waiting})
+            return
         try:
             if find_blender() is None:
                 raise RuntimeError(blender_missing_help())
             job = FINISH_JOBS.adopt(name)
+            _start_worker(FINISH_JOBS, job, run_finish_job, name=f"finish-{job.id[:8]}")
         except (RuntimeError, ValueError) as exc:
             self._send_json(409, {"error": str(exc)})
             return
-        threading.Thread(
-            target=run_finish_job, args=(job,), daemon=True, name=f"finish-{job.id[:8]}"
-        ).start()
         self._send_json(202, {
             "job_id": job.id,
             "directory": job.directory.name,
@@ -4133,19 +4413,12 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self._send_json(202, {"job_id": job.id, "status": job.status})
 
-    def _props_busy(self) -> str | None:
-        """Why a prop-sheet job cannot start now, or None.
-
-        Its bakes are Blender on the CPU, but a generation or a finishing repaint holds
-        gigabytes of model in unified memory, and a Blender bake on top of that is how
-        this machine starts swapping.
-        """
-        return busy_reason("props")
-
     def _start_props_job(self, job) -> None:
-        threading.Thread(
-            target=run_props_job, args=(job,), daemon=True, name=f"props-{job.id[:8]}"
-        ).start()
+        try:
+            _start_worker(PROPS_JOBS, job, run_props_job, name=f"props-{job.id[:8]}")
+        except WorkerStartError as exc:
+            self._send_json(409, {"error": str(exc)})
+            return
         self._send_json(202, {
             "job_id": job.id,
             "directory": job.directory.name,
@@ -4159,9 +4432,13 @@ class Handler(SimpleHTTPRequestHandler):
 
         The GLB is an upload, or one the Generate tab already wrote, named by the path
         `/api/props/runs` listed it under; nothing else on disk can be named.
+
+        It waits like every big job: its bakes are Blender on the CPU, but a generation or a
+        finishing repaint holds gigabytes of model in unified memory, and a Blender bake on
+        top of that is how this machine starts swapping.
         """
         try:
-            busy = self._props_busy()
+            busy = self._claim("props")
             if busy:
                 self._send_json(409, {"error": busy})
                 return
@@ -4214,7 +4491,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _turn_prop(self, name: str) -> None:
         """Turn one prop of a finished run about the vertical and re-bake only it."""
         try:
-            busy = self._props_busy()
+            busy = self._claim("props")
             if busy:
                 self._send_json(409, {"error": busy})
                 return
@@ -4362,7 +4639,7 @@ class Handler(SimpleHTTPRequestHandler):
         """The three ways to send a report the person has read and edited: `{message, details}`."""
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length)) if 0 < length <= 64_000 else {}
+            body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 64_000 else {})
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -4380,7 +4657,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {}
+            body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 1_000 else {})
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
             return
@@ -4464,6 +4741,10 @@ class Handler(SimpleHTTPRequestHandler):
         if not isinstance(inputs, dict):
             self._send_json(422, {"error": "inputs must be an object"})
             return
+        waiting = self._claim("addon")
+        if waiting:
+            self._send_json(409, {"error": waiting})
+            return
         try:
             payload = addons_api.run_payload(addon_id, tool_id, inputs)
         except ValueError as exc:
@@ -4509,7 +4790,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            body = json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {}
+            body = _json_object(json.loads(self.rfile.read(length)) if 0 < length <= 4096 else {})
             path = model_info_api.reveal(OUTPUT_ROOT, str(body.get("file", "")))
         except (ValueError, json.JSONDecodeError) as exc:
             self._send_json(422, {"error": str(exc)})
@@ -4555,16 +4836,38 @@ class Handler(SimpleHTTPRequestHandler):
         spends the user's disk and bandwidth, and AGENTS.md requires it to name what it
         is fetching before it runs. The page does the naming; this refuses to start a
         second download while one is in flight.
+
+        A download or a build is a setup like any other, so the shared rule decides: it
+        waits for every big job, and they wait for it. Removing waits too: for a job that
+        may be using those weights, for another setup, and for another engine's download,
+        because engines share some weights (the two Hunyuan routes' paint model). Removing
+        the engine that is itself downloading is answered by the remover: cancel it first.
+        Cancel is never refused.
         """
         try:
             if action == "cancel":
                 cancel_download(backend_id)
                 self._send_json(202, {"backend": backend_id, "status": "cancelling"})
                 return
-            if action == "remove":
-                self._send_json(200, remove_weights(backend_id))
+            answer = None   # sent once the lock is free: a client slow to read must not hold it
+            with SETUP_LOCK:
+                waiting = self._claim("setup")
+                if waiting is None and SETUP_ACTIVE is not None:
+                    waiting = "another setup is running; wait for it to finish"
+                if waiting is None and action == "remove":
+                    fetching = download_active()
+                    if fetching is not None and fetching.backend.id != backend_id:
+                        waiting = "another engine is being set up; wait for it to finish"
+                if waiting:
+                    answer = 409, {"error": waiting}
+                elif action == "remove":
+                    # under the lock: no download can start while the files are going
+                    answer = 200, remove_weights(backend_id)
+                else:
+                    start_download(backend_id, rebuild=action == "rebuild")
+            if answer:
+                self._send_json(*answer)
                 return
-            start_download(backend_id, rebuild=action == "rebuild")
         except KeyError as exc:
             self._send_json(404, {"error": str(exc)})
             return
@@ -4579,60 +4882,80 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _start_blender_install(self) -> None:
         global SETUP_ACTIVE
+        answer = None
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
             refusal = blender_install_refusal(
                 finish_capabilities(),
-                generating=active is not None
-                and active.status in {"queued", "running", "cancelling"},
+                waiting=self._claim("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
-                self._send_json(refusal[0], {"error": refusal[1]})
-                return
-            setup_id = uuid.uuid4().hex
-            SETUP_ACTIVE = setup_id
-            SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+                answer = refusal[0], {"error": refusal[1]}
+            else:
+                setup_id = uuid.uuid4().hex
+                SETUP_ACTIVE = setup_id
+                try:
+                    SETUP_RUNS[setup_id] = _start_setup_run(setup_id, blender_install_command())
+                except Exception as exc:
+                    SETUP_ACTIVE = None
+                    answer = (409 if isinstance(exc, WorkerStartError) else 500), {"error": str(exc)}
+        if answer:   # sent once the lock is free: a client slow to read must not hold it
+            self._send_json(*answer)
+            return
         self._send_json(202, {"setup_run_id": setup_id,
                               "events_url": f"/api/setup/run/{setup_id}/events"})
 
     def _start_gltfpack_install(self) -> None:
         global SETUP_ACTIVE
+        answer = None
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
             refusal = gltfpack_install_refusal(
                 props_tools_payload(),
-                generating=active is not None
-                and active.status in {"queued", "running", "cancelling"},
+                waiting=self._claim("setup"),
                 setting_up=SETUP_ACTIVE is not None or download_active() is not None)
             if refusal:
-                self._send_json(refusal[0], {"error": refusal[1]})
-                return
-            setup_id = uuid.uuid4().hex
-            SETUP_ACTIVE = setup_id
-            SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
+                answer = refusal[0], {"error": refusal[1]}
+            else:
+                setup_id = uuid.uuid4().hex
+                SETUP_ACTIVE = setup_id
+                try:
+                    SETUP_RUNS[setup_id] = _start_setup_run(setup_id, gltfpack_install_command())
+                except Exception as exc:
+                    SETUP_ACTIVE = None
+                    answer = (409 if isinstance(exc, WorkerStartError) else 500), {"error": str(exc)}
+        if answer:   # sent once the lock is free: a client slow to read must not hold it
+            self._send_json(*answer)
+            return
         self._send_json(202, {"setup_run_id": setup_id,
                               "events_url": f"/api/setup/run/{setup_id}/events"})
 
     def _start_setup(self) -> None:
         global SETUP_ACTIVE
+        answer = None   # sent once the lock is free: a client slow to read must not hold it
         with SETUP_LOCK:
-            active = JOBS.get(JOBS.active)
-            if active is not None and active.status in {"queued", "running", "cancelling"}:
-                self._send_json(409, {"error": "a generation is running; wait for it to finish"})
-                return
-            if SETUP_ACTIVE is not None:
-                self._send_json(409, {"error": "setup is already running"})
-                return
-            if clean_port_build_present():
-                self._send_json(409, {"error": "the clean-port build is already installed — nothing to set up"})
-                return
-            ok, reason = setup_available()
-            if not ok:
-                self._send_json(503, {"error": reason})
-                return
-            setup_id = uuid.uuid4().hex
-            SETUP_ACTIVE = setup_id
-            SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+            # The shared rule, not a list of its own: every big job waits for a setup, so a
+            # setup waits for every big job.
+            waiting = self._claim("setup")
+            if waiting:
+                answer = 409, {"error": waiting}
+            elif SETUP_ACTIVE is not None or download_active() is not None:
+                answer = 409, {"error": "setup is already running"}
+            elif clean_port_build_present():
+                answer = 409, {"error": "the clean-port build is already installed — nothing to set up"}
+            else:
+                ok, reason = setup_available()
+                if not ok:
+                    answer = 503, {"error": reason}
+                else:
+                    setup_id = uuid.uuid4().hex
+                    SETUP_ACTIVE = setup_id
+                    try:
+                        SETUP_RUNS[setup_id] = _start_setup_run(setup_id)
+                    except Exception as exc:
+                        SETUP_ACTIVE = None
+                        answer = (409 if isinstance(exc, WorkerStartError) else 500), {"error": str(exc)}
+        if answer:
+            self._send_json(*answer)
+            return
         self._send_json(202, {
             "setup_run_id": setup_id,
             "events_url": f"/api/setup/run/{setup_id}/events",

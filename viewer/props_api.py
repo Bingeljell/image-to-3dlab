@@ -530,6 +530,7 @@ PROPS_JOBS = PropsJobManager()
 
 
 def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
+    stopped = False
     try:
         blender = blender_executable()
         if blender is None:
@@ -583,6 +584,12 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
     # SystemExit too: the finish_props helpers used here end that way, as a script would,
     # and without it the job stayed "running" with no word to the page.
     except (Exception, SystemExit) as exc:
+        # Stop and reap the worker before the status turns terminal: the start gate reads it.
+        stopped = True
+        if job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
         job.status = "error"
         job.emit({"phase": "error", "message": str(exc),
                   "log_tail": "\n".join(job.log_lines)[-8000:]})
@@ -590,13 +597,14 @@ def run_job(job: PropsJob, manager: PropsJobManager = PROPS_JOBS) -> None:
     finally:
         if job.only:
             shutil.rmtree(job.staging, ignore_errors=True)
-        job.directory.joinpath("pid").unlink(missing_ok=True)
-        if job.process is not None and job.process.poll() is None:
-            try:
-                processes.terminate_group(job.process.pid)
-                job.process.wait(timeout=30)
-            except Exception as cleanup_exc:
-                job.append_log(f"cleanup warning: {cleanup_exc}")
+        if not stopped and job.process is not None and job.process.poll() is None:
+            warning = processes.stop_and_reap(job.process, grace=30)
+            if warning:
+                job.append_log(f"cleanup warning: {warning}")
+        try:
+            job.directory.joinpath("pid").unlink(missing_ok=True)
+        except Exception as cleanup_exc:
+            job.append_log(f"cleanup warning: {cleanup_exc}")
         manager.finish(job)
 
 

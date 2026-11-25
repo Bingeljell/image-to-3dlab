@@ -1348,6 +1348,15 @@ def test_an_agents_link_names_the_asset_to_open():
 
 
 @needs_node
+def test_finish_offers_a_custom_500_triangle_budget_for_characters():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const html = m.stepBody('finished', { kind: 'character', picture: 'i/k.png', model: 'm/k.glb', finished: null, clips: [] }, ctx);
+      console.log(JSON.stringify(html.match(/data-k="customFaces" min="([0-9]+)"/)?.[1] || null));""")
+    assert out == "500"
+
+
+@needs_node
 def test_finish_detail_sends_a_triangle_count_or_full_detail():
     out = _run("library.js", """console.log(JSON.stringify(
       [m.finishDetailSettings('20000'), m.finishDetailSettings('custom', '30000'), m.finishDetailSettings('full'),

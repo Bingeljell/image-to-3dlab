@@ -56,7 +56,7 @@ ARTIFACTS = {
 # rejects a face target outside 1k..200k, and a voxel fraction outside its own range melts
 # the subject or exhausts memory.
 SETTING_BOUNDS: dict[str, tuple[float, float]] = {
-    "faces": (1000, 200000),
+    "faces": (500, 200000),
     "atlas": (1024, 4096),
     "angle": (1.0, 89.9),
     "voxel": (0.0, 0.05),

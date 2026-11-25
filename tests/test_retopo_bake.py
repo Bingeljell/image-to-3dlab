@@ -75,9 +75,14 @@ def test_rejects_a_face_target_that_would_refragment_the_atlas():
         retopo.parse_args(["--", "a.glb", "b.glb", "500000"])
 
 
-def test_rejects_a_face_target_too_low_to_hold_a_silhouette():
+def test_accepts_a_500_triangle_prop_bake():
+    args = retopo.parse_args(["--", "a.glb", "b.glb", "500", "512"])
+    assert args[2:4] == (500, 512)
+
+
+def test_rejects_a_face_target_below_the_bake_floor():
     with pytest.raises(SystemExit):
-        retopo.parse_args(["--", "a.glb", "b.glb", "50"])
+        retopo.parse_args(["--", "a.glb", "b.glb", "499"])
 
 
 def test_rejects_a_bad_atlas_size():

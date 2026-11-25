@@ -435,6 +435,7 @@ def test_every_finish_detail_in_the_studio_is_one_agents_can_ask_for():
 @pytest.mark.parametrize("detail, pm, expected", [
     (None, True, {}), ("full", True, {"keep_mesh": True}), ("game", False, {"faces": 20000, "skip_photo": True}),
     ("30000", True, {"faces": 30000}), (12000, True, {"faces": 12000}),
+    (500, True, {"faces": 500}),
 ])
 def test_finish_choices(detail, pm, expected):
     assert ms.finish_choices(detail, pm) == expected
@@ -461,7 +462,7 @@ def test_edge_fade_travels_with_the_plan(studio):
     assert json.loads(sent(studio)["finish_settings"]) == {"keep_mesh": True, "skip_edge_fade": True, "upright": True}
 
 
-@pytest.mark.parametrize("detail", ["huge", "500", "999999"])
+@pytest.mark.parametrize("detail", ["huge", "499", "999999"])
 def test_unknown_finish_details_say_what_is_allowed(detail):
     with pytest.raises(ms.StudioError, match="finish_detail is one of"):
         ms.finish_choices(detail)

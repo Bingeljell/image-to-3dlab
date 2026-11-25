@@ -319,3 +319,60 @@ def test_offline_session_uses_local_rembg_class_without_retrieval(tmp_path, monk
     assert session.inner_session.providers == ["CPUExecutionProvider"]
     assert session.inner_session.sess_options.intra_op_num_threads == 2
     assert session.inner_session.sess_options.inter_op_num_threads == 2
+
+
+# --- holes the remover cut inside the subject -------------------------------------------------
+
+
+def _ring_cut(hole_colour, backdrop=(236, 236, 236)):
+    """A 64 x 64 picture on the studio's grey: a dark square subject with a small patch of `hole_colour` inside it,
+    and a cut-out that kept the square but dropped the patch (as BiRefNet-lite dropped a glowing eye)."""
+    rgb = np.full((64, 64, 3), backdrop, dtype=np.uint8)
+    rgb[12:52, 12:52] = (40, 30, 60)
+    rgb[30:34, 30:34] = hole_colour                 # 16 px: 1 % of the subject, an eye in a face crop
+    rgba = np.concatenate([rgb, np.zeros((64, 64, 1), dtype=np.uint8)], axis=-1)
+    rgba[12:52, 12:52, 3] = 255
+    rgba[30:34, 30:34, 3] = 0
+    return rgb, rgba
+
+
+def test_a_hole_that_does_not_look_like_the_backdrop_is_given_back_to_the_subject():
+    rgb, rgba = _ring_cut((90, 230, 230))            # a glowing cyan eye
+    out = mt.fill_inner_holes(rgba, rgb)
+    assert out[32, 32, 3] == 255
+    assert tuple(out[32, 32, :3]) == (90, 230, 230)
+    assert out[2, 2, 3] == 0                          # the real background stays cut
+
+
+def test_a_hole_that_shows_the_backdrop_stays_a_hole():
+    rgb, rgba = _ring_cut((236, 236, 236))           # a see-through gap (a trigger guard, a handle)
+    out = mt.fill_inner_holes(rgba, rgb)
+    assert out[32, 32, 3] == 0
+
+
+def test_a_large_hole_stays_a_hole_whatever_its_colour():
+    rgb = np.full((64, 64, 3), 236, dtype=np.uint8)
+    rgb[4:60, 4:60] = (40, 30, 60)
+    rgb[10:54, 10:54] = (90, 230, 230)
+    rgba = np.concatenate([rgb, np.zeros((64, 64, 1), dtype=np.uint8)], axis=-1)
+    rgba[4:60, 4:60, 3] = 255
+    rgba[10:54, 10:54, 3] = 0                         # most of the subject: the remover meant it
+    out = mt.fill_inner_holes(rgba, rgb)
+    assert out[32, 32, 3] == 0
+
+
+class _HoleScores(_Scores):
+    def run(self, outputs, feeds):
+        scores = super().run(outputs, feeds)[0]
+        scores[..., 480:544, 480:544] = -8.0          # the remover drops a patch inside the subject
+        return [scores]
+
+
+def test_cut_out_gives_back_a_dropped_patch_that_is_not_backdrop():
+    session = mt.LeanSession(None, inner=_HoleScores())
+    picture = np.full((64, 64, 3), (236, 236, 236), dtype=np.uint8)
+    picture[16:48, 16:48] = (40, 30, 60)
+    picture[30:34, 30:34] = (90, 230, 230)
+    cut, _ = mt.cut_out(Image.fromarray(picture), session=session)
+    a = np.asarray(cut)
+    assert a[32, 32, 3] == 255

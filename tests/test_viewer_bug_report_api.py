@@ -163,11 +163,12 @@ def test_long_message_has_bounded_github_url(message, diagnostics):
     import os
     import subprocess
 
-    # Run the real function out of process: the original infinite loop must not hang pytest.
+    # Run the real function out of process: the original infinite loop must not hang pytest. The limit only has to
+    # catch that loop; a fresh interpreter's cold start on a Windows CI runner alone took more than 5 s.
     result = subprocess.run(
         [sys.executable, "-c", ("import json,sys; import bug_report_api as br; "
          "print(json.dumps(br.links(*json.load(sys.stdin), version='test', home='/Users/ada')))")],
-        input=json.dumps([message, diagnostics]), text=True, capture_output=True, timeout=5,
+        input=json.dumps([message, diagnostics]), text=True, capture_output=True, timeout=60,
         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}, check=True,
     )
     links = json.loads(result.stdout)

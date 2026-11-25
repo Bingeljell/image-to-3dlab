@@ -610,3 +610,19 @@ def test_keep_top_paint_reads_up_through_the_views_frame():
     # in pixal3d.cpp's frame the glTF's up (+y) is the view space's +z
     up = pp.to_view_space(np.array([[0.0, 1.0, 0.0]]))[0]
     assert np.allclose(up, [0.0, 0.0, 1.0])
+
+
+def test_staged_views_say_whether_pixel_match_is_on(tmp_path):
+    # a four-view build stages its views with Pixel Match off (pixal3d_generate.py); front and back,
+    # and runs from before the switch, carry no word about it and keep it on
+    import json
+
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "transforms.json").write_text(json.dumps({"pixel_match": False, "frames": []}))
+    on = tmp_path / "on"
+    on.mkdir()
+    (on / "transforms.json").write_text(json.dumps({"frames": []}))
+    assert pp.staged_pixel_match(off) is False
+    assert pp.staged_pixel_match(on) is True
+    assert pp.staged_pixel_match(tmp_path / "nowhere") is True

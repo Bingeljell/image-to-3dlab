@@ -82,3 +82,20 @@ def test_the_suite_also_runs_on_windows_report_only():
     assert "\n    continue-on-error: true\n" in job
     assert "uv run pytest --tb=short -ra --color=yes" in job
     assert "PYTHONUTF8: " not in job   # a read without an encoding must fail here, as on a user's machine
+
+
+def test_the_suite_also_runs_on_a_mac_and_a_failure_there_fails_the_run():
+    """The Mac routes (MLX Hunyuan, the Apple TRELLIS.2 wrapper, the Xcode and memory checks) are
+    the ones most of this code is written for, and nothing ran the suite on a Mac before a merge.
+    Not report-only like Windows: the suite passed on a Mac from a fresh clone with an empty home
+    folder before this job was added."""
+    workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  pytest-macos:", 1)[1].split("\n  pytest-windows:", 1)[0]
+    assert "\n    name: Tests (macOS)\n" in job
+    assert "\n    runs-on: macos-latest\n" in job
+    assert "\n    needs: pre-commit\n" in job
+    assert "\n    continue-on-error:" not in job      # the setting itself; the Windows note below names it
+    assert "uv sync --frozen" in job
+    assert "uv run pytest --tb=short -ra --color=yes" in job
+    assert "path: ~/.cache/uv" in job and "hashFiles('uv.lock')" in job
+    assert 'version: "0.13.7"' in job       # the same uv as the other two jobs

@@ -13,12 +13,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet
   brim beside a light hat band turned teal. Faces turned sideways still take the shift, so the head's sides under the
   brim keep their correction. Off by default.
+- **Build from four pictures** (`scripts/pixal3d_generate.py --right --left`): front, right side, back and left side
+  instead of front and back, every view at one shared scale. Front and back say nothing about how deep a subject is,
+  so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;
+  from four views they come out right. **Pixel Match is off by default for a four-view build**: its paint can drift
+  around a face. `--pixel-match` (on `pixal3d_generate.py`, or later on `retopo_repaint.py`) turns it on to try it,
+  and so does the Finish setting `four_view_pixel_match`. Front-and-back builds keep Pixel Match as before.
+  Skins currently support one- and two-view builds.
+- **`scripts/make_side_views.py` draws those side pictures** with the studio's own picture engine: the right side from
+  the front picture, the left one its mirror (or drawn too with `--draw-left`, for a tail curled to one side), so both
+  agree on the length. `--four-legged` draws a side again until the legs stand apart (`image_to_3dlab/leg_check.py`):
+  legs that touch in a picture build as one lump.
+- **`pixal3d_generate.py --sides-paint safe`** for a figure's drawn sides: they paint only the ears, the side hair, the
+  arms, the hands and the legs, never the face and never the body between the neck and a little below the hands, where
+  a drawn hand or a drawn profile eye never sits exactly where the model has it (a drawn hand was painted onto a coat
+  beside the holsters, a profile eye onto the brow as a second eye). The neck, the arms and the fingertips are read off
+  the front picture's cut-out, so no rig is needed (`image_to_3dlab/side_paint.py`); `photo_paint.py --sides` sets it
+  for a model painted again. `--sides-paint none` (or `--sides-shape-only`) lets the sides shape the model only;
+  `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
+  one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
+  rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",
+  a `humanoid=yes` field, or a model standing on two separate feet, measured from its mesh by `scripts/rig_check.py`),
+  Rig runs once more and keeps the humanoid try, or the first when the second is no better. Pets, birds, slimes and
+  props are rigged once, as before.
+- **The background remover no longer cuts a glowing eye out of a face.** On a close crop of a face (as the Hero route
+  makes) BiRefNet-lite cut a bright cyan eye away as if it were background, and the 3D build got a hole there. A hole
+  closed in by the subject on every side whose pixels are not the picture's backdrop colour is now given back; a real
+  see-through gap (a trigger guard, a cup's handle) shows the backdrop and stays cut, and so does any hole larger than
+  2 % of the subject.
+- `scripts/blender_reunwrap_bake.py` bakes again on Blender 5.2: it picked its bake target with
+  `is`, which never matches a Blender node there, so nothing was baked and the re-unwrapped
+  model came out all black. It compares with `==` now.
+- The installers' fallback when the locked PyTorch is not on PyTorch's CUDA index works again: dropping torch from the lock left its `--hash` lines behind, and the install stopped with `Unexpected '-'` (#276).
 - **Add-ons on Windows: installing a new version over an old one works**, and an install leaves no temporary clone
   behind in `addons/`. Git keeps a clone's objects read-only on Windows, so replacing an installed add-on stopped with
   "Access is denied", and each planned or failed install kept its `.<id>-install-*` folder; every removal of a cloned
   folder now clears the read-only flag first, as `addon remove` already did.
+- The shared Blender bake supports 500 triangles for distant props, including Game-ready's 1,200 / 500 preset.
+- Finish accepts custom triangle counts from 500 for any model, including characters.
+- **"Turn off" on the first-start usage card turns the counts off.** It only marked the card as seen, which is what
+  lets the daily count go, and left the counts on until you unticked the box on About. "See exactly what's sent" no
+  longer counts as a yes either: it opens About, and the card is back at the next start until you choose.
+  If "Turn off" cannot be saved, the card stays and says so.
+- **A generation no longer hangs when its progress cannot be read or its log cannot be written.** One output line the
+  progress reader did not expect, or a full disk under `run.log`, stopped the studio reading the generator's output;
+  the generator then waited at its next print and the job showed "Working…" for good. The reader now carries on, and a
+  debug run's log says once what it could not read.
+- **TRELLIS.2 models made on a Mac carry their licence record.** That route wrote only its run file, so the model had
+  no `.provenance.json`, and what Finish or Fix a spot made from it was marked "Unverified — source licence
+  unavailable". It now writes the same record as the NVIDIA and AMD routes (the TRELLIS.2 and DINOv3 licences, our
+  background remover, BRIA not loaded), also when a run is resumed from saved latents or a decode bundle. A
+  resumed run's record says it was resumed and still names the remover (for an older bundle, only when the first
+  run's own file names that bundle; otherwise it says the remover is not known, rather than leaving it out as if
+  none was used), and it takes the picture as its input only when its hash proves it is the one the model was made
+  from; otherwise the bundle is the input on record.
+- **Add-on tools take their turn, and Cancel stops all of them.** A tool run from the studio could start beside a
+  generation, a picture or Finish and fight it for memory; it now waits like every other big job ("a generation is
+  running; wait for it to finish"), and they wait for it. Cancel stopped the tool but not what the tool had started
+  (Blender's helpers), so the run stayed "cancelling" until those ended by themselves; the whole group is stopped
+  now, and stopping the studio stops a running tool too. A tool that ignores Cancel is stopped for certain after
+  ten seconds, and one left running by a studio that was killed is stopped when the studio next starts (when the
+  note that makes this possible cannot be written, the run's log says so and names the process). A run that
+  could not start at all no longer blocks every later one with "already in progress" until the studio restarts,
+  and one that fails on the way (a log line that cannot be written, output that is not text) stops its tool, and
+  still reports its error after ten seconds even when the tool cannot be stopped.
+- **Starting the studio no longer stops a program that only shares a finished job's number.** At start the studio
+  stops any job a killed studio left running, found by the process number it noted. When that job had ended long
+  ago and the number had gone to another program since (a terminal's shell, say), that program and everything it
+  had started were stopped instead. Each job now also notes when it started, and only a process that started then
+  is stopped. The same goes for the studio that started the job: when that studio was gone and its number had gone
+  to another program, the job counted as still looked after and was left running for good. A rig rebind's note
+  also names the studio running it, as every other job's does, so a second studio starting up leaves it alone.
+  On Windows, a job that had ended but that another program still held open counted as running; it now counts
+  as ended. A left job that ignored the stop was logged as stopped and its note removed while it ran on; it is
+  now forced after ten seconds, and a job that still runs keeps its note so the next start tries again.
+  Notes written before this change are handled as before. A note naming no possible process (0, say, in a
+  damaged file) is set aside: it made the studio stop its own process group as it started.
+- **A job that cannot start no longer blocks every later one.** When the studio could not start the worker for a job
+  (the system had no threads left), the job stayed on the books as running and every later one was refused until the
+  studio restarted; for a setup the installer also ran on with nothing reading it. It now ends as an error, says why
+  (always as a 409, with the reason), and frees its place. This covers generations, Finish runs and resumes, prop bakes, rig rebinds, auto-rigs and moves,
+  setups and the Blender and gltfpack installs, pictures (a back view, a brush, a skin try), engine downloads, skin
+  builds and plans. A setup whose installer cannot be launched at all (a missing program) is answered with the
+  reason and no longer leaves every later setup refused.
+- **Resuming a Finish run answers on Windows.** A resume that sent a body (as agent tools can) got a dropped
+  connection on Windows instead of its answer, a refusal's reason most of all. The studio now reads the request
+  before it answers.
+- **A job that fails partway no longer leaves its worker running.** A generation, a picture, a skin build or an engine
+  download that failed after its worker started (the generator, sd-cli, the repaint, the downloader) ended as an error
+  but left that worker running, with nothing reading it and nothing to find it later. It is now stopped first. A
+  worker that ignores being asked to stop is forced: Finish runs, prop bakes, rig rebinds, auto-rigs and moves used to
+  free their place while it ran on beside the next job. A failed job also no longer reads as finished while its
+  worker is still being stopped, so the next big job no longer starts beside it during those seconds. A generator
+  that cannot be stopped now says so in its log, as every other job's worker does.
+- **A pid note that cannot be removed no longer holds a job's place.** Each running job leaves a pid note so a later
+  studio start can find it. The note is now removed only once the worker has stopped, and a note that cannot be
+  removed no longer leaves the worker running, the job's place taken, or a finished download looking unfinished.
+- **Cancel on a skin build stops a repaint that ignores it.** Cancel asked once; a repaint that ignored it kept the
+  build running and holding its place. It is now forced after ten seconds, also when Cancel lands just as a step
+  starts, and when the repaint itself quits but a program it started carries on.
+- **A skin that has just finished no longer reads as interrupted.** For a moment after a skin build ended, done,
+  cancelled or failed, the skin could still read as building and show "The build was interrupted". The build now
+  saves the skin before it reads as ended. A skin that cannot be saved ends the build as an error and frees its place.
+- **Finish waits for every other big job.** A new Finish run only waited for a generation, setup, a prop bake or
+  a rig run, so it started beside a picture being made, a rig rebind, a skin or an add-on tool and fought it for
+  memory. It now follows the same rule as every other job, as resuming a Finish run already did.
+- **Setup waits for every other big job.** Installing Blender or gltfpack, and the Mac TRELLIS.2 setup, only waited
+  for a generation, so they could start beside a picture, Finish, a prop bake, a rig run, a skin or an add-on tool,
+  though all of those wait for a setup. They follow the same rule now.
+- **An engine is not set up, rebuilt or removed under a running job, and nothing starts while one is being set up.**
+  Setup & Status only refused a second download: an engine could be rebuilt, or its weights deleted, while a
+  generation was using it, and a generation could start on an engine that was still downloading or building.
+  Download, Rebuild and Remove now wait for every big job, and every big job waits for a download or a build
+  ("setup is running; wait for it to finish"). **This means nothing else can be made during a download**, however
+  long it takes; Cancel still works at any time.
+- **An engine is not removed during another setup or another engine's download.** Engines share some weights, so
+  removing one could delete files another's download was writing. Remove now waits for both.
+- **Two big jobs can no longer start at the same moment.** A start asked whether it had to wait, and only seconds
+  later (once its upload was read, or its picture cut out) was the job on the books. A different job that asked in
+  between saw nothing running and started too. Asking now takes the slot in the same step and keeps it until the
+  job is on the books, for every kind of job.
+- **Two add-on tools can no longer start at the same moment.** Two requests arriving together both started a tool,
+  and stopping the studio then stopped only the later one. The check and the start are one step now.
+- **A new skin that cannot start leaves nothing behind.** Asking for a skin while something else was running, or
+  before the picture engine was set up, answered "wait" or "not installed" but still kept an empty skin on the
+  model; asking twice kept two. The skin is now kept only once its first picture has started. And a new try
+  on an existing skin whose picture does not start (it lost the start to another picture, or anything else stopped
+  it) leaves the skin as it was, approvals included,
+  also when the try that won was on the same skin. An approval made while a try of the same skin is starting no
+  longer writes over that try or gets written over by it, and a skin deleted at that moment stays deleted.
+- **A request that is not a JSON object gets an answer.** Sent a list or a number, the studio closed the connection
+  without a word, so a script or an agent could not tell what was wrong. Making a picture or a back view, renaming,
+  hiding, deleting or picking a main version in the Library, using or deleting a kept back, the bug report, the
+  usage choice and Show in folder now all answer "expected a JSON object".
+- **Stable Fast 3D's licence is described one way.** The Setup card said "non-commercial under $1M revenue", the
+  setup script "free under $1M annual revenue", and the record written beside each model "Commercial registration
+  required". The card now names the licence and links to it, like every other card, and agents are told the same.
+  The setup script keeps its $1M line and adds the record's two conditions word for word. The record is unchanged.
+- **Create says what is missing before it starts.** A plan was only checked for Blender. A missing picture engine,
+  3D engine or auto-rig showed when the run reached that step: the auto-rig only after the picture, the model and
+  Finish had been made. The studio now names everything the chosen steps still need in one answer ("Before this
+  can start, set up: a picture engine (for Picture); the auto-rig (for Rig and Animate)…") and starts nothing
+  until they are set up. Agents get the same answer.
+
+### Security
+- **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as
+  written. They are now shown only when they are plain `https://` addresses, and the list reader drops anything else.
 
 ## [0.6.0] - 2026-11-18
 

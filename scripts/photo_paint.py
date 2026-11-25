@@ -12,10 +12,14 @@ The GLB must be one mesh with one base-colour texture and no node transforms, wh
 what Finish writes. Only the base-colour image changes; every other byte stays.
 
 `--weights` writes the per-texel trust map (white = photo, black = own paint), the first
-thing to look at when a result looks wrong. Each step can be switched off to compare:
-`--no-align`, `--no-local-colour`, `--cutout-edge 0`, `--inner-edge 0`. `--keep-top-paint`
-leaves surfaces that face up and that no picture sees (a hat's brim, shoulders, the top of
-the hair) in the model's own paint instead of shifting them like their neighbours.
+thing to look at when a result looks wrong. A four-view build's side pictures paint as the
+build staged them (`pixal3d_generate.py --sides-paint`); `--sides` overrides it: `safe` for a
+figure's drawn sides (ears, side hair, arms and legs only, never the face or the body between
+the neck and the hands; `image_to_3dlab/side_paint.py`), `all` or `none`. Each step can be switched off to compare:
+`--no-align`, `--no-local-colour`, `--cutout-edge 0`, `--inner-edge 0`.
+
+`--keep-top-paint` leaves upward-facing surfaces that no picture sees in the model's own
+paint. Use it when Pixel Match shifts the colour of a hat brim, shoulders or hair.
 
 The logic lives in `image_to_3dlab/photo_paint.py`.
 """
@@ -57,6 +61,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-top-paint", action="store_true",
                         help="surfaces facing up that no picture sees (a brim, shoulders, hair tops) keep the "
                              "model's own paint instead of the colour shift of their neighbours")
+    parser.add_argument("--sides", choices=("staged", "all", "safe", "none"), default="staged",
+                        help="how the side views paint: as the build staged them (default), everywhere, only "
+                             "where a drawn side cannot misplace a hand or an eye (safe), or not at all")
     return parser
 
 
@@ -68,17 +75,25 @@ def main() -> int:
     started = time.time()
     positions, uvs, faces, texture = pp.read_glb(args.model)
     views, mesh_scale = pp.load_views(args.views)
+    if args.sides != "staged":
+        views = [pp.View(v.image, v.cam_to_world, v.fov_x, v.name, args.sides) if pp.is_side(v) else v
+                 for v in views]
     settings = pp.Settings(facing_low=args.facing_low, facing_high=args.facing_high,
                            edge_px=args.edge_px, cutout_edge=args.cutout_edge,
                            inner_edge=args.inner_edge, local_colour=not args.no_local_colour,
                            align=not args.no_align, keep_top_paint=args.keep_top_paint)
     reports: list = []
+    sides: list = []
     painted, weight = pp.paint_texture(texture, positions, uvs, faces, views, mesh_scale,
-                                       settings=settings, align_reports=reports)
+                                       settings=settings, align_reports=reports, side_reports=sides)
     for view, report in zip(views, reports):
         print(f"[photo-paint] align {view.name}: outline {report.iou_before:.3f} -> "
               f"{report.iou_after:.3f} (scale {report.scale:.3f}, shift {report.dx:+d},{report.dy:+d} px), "
               f"{report.matches} feature matches", flush=True)
+    for side in sides:
+        print(f"[photo-paint] safe side {side['view']}: paints {side['texels_painted']} of the "
+              f"{side['texels_seen']} texels it sees (neck at row {side['neck_row']}, hands down to row "
+              f"{side['hands_row']} of the front picture)", flush=True)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(pp.replace_base_colour(args.model.read_bytes(),
                                                    pp.encode_png(painted)))

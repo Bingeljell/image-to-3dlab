@@ -31,6 +31,7 @@ import argparse
 import os
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -39,6 +40,7 @@ sys.path.insert(0, str(REPO))
 import patch_sf3d_mps_queue as mps_patch  # noqa: E402, RUF100
 
 from image_to_3dlab import host, matte
+from image_to_3dlab.provenance import LICENSES
 
 VENDOR = REPO / "vendor" / "stable-fast-3d"
 UPSTREAM = "https://github.com/Stability-AI/stable-fast-3d.git"
@@ -56,12 +58,18 @@ WEIGHTS = [
     ("laion/CLIP-ViT-B-32-laion2B-s34B-b79K", ["open_clip_pytorch_model.bin"], 0.61),
 ]
 
-LICENCE = (
-    "Stability AI Community License: free under $1M annual revenue, otherwise a\n"
-    "  commercial licence from Stability. Gated: accept it at\n"
-    "  https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`.\n"
-    "  DINOv2 is Apache 2.0. CLIP (LAION) is MIT."
-)
+# The $1M sentence is this script's own and stays (a download must state the revenue
+# condition). The conditions after it are the licence record's, word for word: the record
+# written beside every SF3D model said "Commercial registration required" and this did not.
+_RECORD = LICENSES["sf3d"]
+LICENCE = "\n".join([
+    *textwrap.wrap(f"{_RECORD.license_name}: free under $1M annual revenue, otherwise a commercial "
+                   f"licence from Stability. {' '.join(_RECORD.conditions)}", width=78,
+                   initial_indent=" " * len("  licence: "), subsequent_indent="  ",
+                   break_on_hyphens=False),
+    "  Gated: accept it at https://huggingface.co/stabilityai/stable-fast-3d and run",
+    "  `hf auth login`. DINOv2 is Apache 2.0. CLIP (LAION) is MIT.",
+]).lstrip()
 
 # Looked up through the module so a test can pretend to be another machine.
 target = host.build_target

@@ -51,7 +51,11 @@ def test_one_lod_is_enough():
     assert finish.parse_lods("8000") == [8000]
 
 
-@pytest.mark.parametrize("text", ["", "abc", "5000,500", "5000,250000", "1000,2500", "3000,3000"])
+def test_a_prop_can_have_a_500_triangle_far_lod():
+    assert finish.parse_lods("5000,1200,500") == [5000, 1200, 500]
+
+
+@pytest.mark.parametrize("text", ["", "abc", "5000,499", "5000,250000", "1000,2500", "3000,3000"])
 def test_bad_lods_are_refused(text):
     with pytest.raises(SystemExit):
         finish.parse_lods(text)

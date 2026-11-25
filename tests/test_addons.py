@@ -186,6 +186,15 @@ class TestReadRegistry:
         assert entry.rating == 4.5
         assert entry.ratings_count == 12
 
+    def test_a_link_that_is_not_a_plain_https_address_is_dropped(self):
+        # The studio puts these in a link; a list entry is written by someone else.
+        entry = addons.read_registry([listing(
+            author={"name": "X", "url": "javascript:alert(1)"},
+            links={"repo": "javascript:alert(1)", "site": "https://ok.example",
+                   "docs": 'https://x.example/" onfocus="alert(1)', "old": "http://plain.example"})])[0]
+        assert entry.author == {"name": "X", "url": ""}
+        assert entry.links == {"site": "https://ok.example"}
+
     def test_missing_links_and_rating_default_safely(self):
         entry = addons.read_registry([listing(links=None, rating=None, ratings_count=None)])[0]
         assert entry.links == {}
@@ -889,6 +898,13 @@ class TestPicture:
         for bad in ("javascript:alert(1)", "http://example.com/a.png", "pictures/a.png", 7):
             assert addons.read_registry([listing(picture=bad)])[0].picture is None
         assert addons.read_registry([listing()])[0].picture is None
+
+    def test_a_picture_link_is_checked_like_every_other_link_from_the_list(self):
+        """It only had to start with https://, so one with a quote, a bracket or a space in it
+        was kept where the author and source links with the same in them are dropped."""
+        for bad in ('https://example.com/a.png" onerror="alert(1)', "https://example.com/<a>.png",
+                    "https://example.com/a b.png", "https://example.com/a.png'x"):
+            assert addons.read_registry([listing(picture=bad)])[0].picture is None, bad
 
 
 class TestRunCheck:

@@ -11,7 +11,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -437,6 +439,8 @@ def test_a_plain_jobs_command_has_no_reference(tmp_path):
 
 
 def test_a_picture_run_records_its_pid_and_starts_its_own_group(tmp_path, monkeypatch):
+    import os
+
     from image_to_3dlab import processes
 
     manager = api.ImageJobManager(tmp_path)
@@ -461,7 +465,10 @@ def test_a_picture_run_records_its_pid_and_starts_its_own_group(tmp_path, monkey
 
     api.run_job(job, manager, weights=WEIGHTS)
 
-    assert processes.pid_record(job.process.pid) in job.log_lines
+    [note] = [line for line in job.log_lines if line.startswith(f"{job.process.pid} ")]
+    pid, owner, started, owner_started = processes.parse_pid_record(note)
+    assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
+    assert owner_started == processes.process_started(os.getpid())
     assert seen["group"] is True
     assert not (job.directory / "pid").exists()
 
@@ -900,3 +907,111 @@ def test_two_swaps_in_one_second_keep_both_old_pictures(tmp_path):
     kept = sorted(p.read_bytes() for p in tmp_path.glob("orc__back_prev_*.png"))
     assert kept == [b"first", b"second"] and final.read_bytes() == b"third"
     assert len(api.back_versions(final)) == 2
+
+
+# --- A worker that cannot start must not hold the slot ------------------------------------------
+
+def _starts(tmp_path):
+    back = _back(tmp_path)
+    return {
+        "start": lambda: api.start("a fox", {}),
+        "start_edit": lambda: api.start_edit(back, tmp_path / "skin-try.png", "a red coat", 4),
+        "start_back": lambda: api.start_back(_front(tmp_path / "front")),
+        "start_brush": lambda: api.start_brush(back, _stroke(), "a red satchel"),
+    }
+
+
+@pytest.mark.parametrize("which", ["start", "start_edit", "start_back", "start_brush"])
+def test_a_picture_whose_thread_cannot_start_does_not_hold_the_slot(which, tmp_path, monkeypatch):
+    # Before: the job stayed queued as the active one and nothing finished it, so every later
+    # picture was refused as "already being generated" until the studio restarted.
+    manager = api.ImageJobManager(tmp_path)
+    monkeypatch.setattr(api, "MANAGER", manager)
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(api, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        _starts(tmp_path)[which]()
+
+    [job] = manager.jobs.values()
+    assert job.status == "error" and "can't start new thread" in job.error
+    assert manager.active is None
+    manager.create("the next one", api.clean_settings({}), output_path=tmp_path / "next" / "next.png")
+
+
+def _deaf_picture_job(tmp_path, monkeypatch):
+    """A picture job whose sd-cli is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import failing_pid_note, use_deaf_popen
+
+    monkeypatch.setattr(api, "host_platform", lambda: HOST_APPLE)
+    monkeypatch.setattr(api, "build_command", lambda *a, **k: ["sd-cli"])
+    use_deaf_popen(api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    manager = api.ImageJobManager(output_root=tmp_path)
+    return manager, manager.create("a fox", api.clean_settings({}))
+
+
+@pytest.mark.posix
+def test_an_sd_cli_that_ignores_the_polite_stop_is_stopped_when_the_run_fails(tmp_path, monkeypatch):
+    # A run that failed after sd-cli launched (here: its pid note could not be written) left
+    # sd-cli running, unread and untracked, while the slot was freed for the next picture.
+    from deaf_worker import kill_and_reap, watch_slot
+
+    manager, job = _deaf_picture_job(tmp_path, monkeypatch)
+    seen = watch_slot(manager, job)
+    try:
+        api.run_job(job, manager, weights=WEIGHTS)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with sd-cli still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_failed_picture_run_is_not_over_until_sd_cli_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped sd-cli (up to 5 s), so the gate was
+    # open and a new picture could start beside an sd-cli still holding the GPU.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    manager, job = _deaf_picture_job(tmp_path, monkeypatch)
+    seen = watch_status_at_stop(api, monkeypatch, lambda: job.status)
+    try:
+        api.run_job(job, manager, weights=WEIGHTS)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_picture_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed raised out of the finally before the slot was
+    # freed: the error escaped the runner's thread and the next picture was refused for good.
+    from deaf_worker import kill_and_reap, unremovable_pid_note, watch_slot
+
+    manager, job = _deaf_picture_job(tmp_path, monkeypatch)
+    seen = watch_slot(manager, job)
+    unremovable_pid_note(monkeypatch)
+    try:
+        api.run_job(job, manager, weights=WEIGHTS)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with sd-cli still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

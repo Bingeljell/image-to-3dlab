@@ -579,8 +579,18 @@ def without_cuda(text: str) -> str:
     An AMD machine still gets PyTorch, just from ROCm's index instead of PyPI's CUDA build
     (`torch-rocm-index`). Every other pin is kept, because it was resolved against the same
     Python and was not the problem.
+
+    A pin `uv export` writes runs on over continuation lines (`torch==2.15.0 \\` and its
+    `--hash` lines below), so a dropped pin takes those with it: left behind, the first
+    orphaned hash stops the install with `Unexpected '-'` (#276).
     """
-    kept = [line for line in text.splitlines() if not is_cuda_package(line)]
+    kept: list[str] = []
+    dropping = False
+    for line in text.splitlines():
+        if dropping or is_cuda_package(line):
+            dropping = line.rstrip().endswith("\\")
+            continue
+        kept.append(line)
     return "\n".join(kept) + ("\n" if kept else "")
 
 

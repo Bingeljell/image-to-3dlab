@@ -45,6 +45,9 @@ MAX_BACK_SIDE = 4096
 KEEP_CHAINS = 20   # finished runs remembered for the activity list
 # Steps that run headless Blender; a plan with one is checked for Blender before anything runs.
 NEEDS_BLENDER = {"finished", "split"}
+# How the answer to a plan that cannot start yet opens (generate_api.plan_refusal). It is written
+# for a person, so `plain_error` and the page's `plainError` pass it on as it is.
+PLAN_NEEDS = "Before this can start, set up:"
 NOISE = re.compile(r"\[(VERBOSE|DEBUG)\]|ggml_|kernel_|compile_pipeline|th_max|^\s*[|\-=]*\s*$|^\s*0x[0-9a-f]+", re.IGNORECASE)
 
 # request(method, path, body, content_type, headers=None) -> (http status, parsed JSON)
@@ -62,7 +65,7 @@ def plain_error(message: str) -> str:
     text = str(message or "")
     # Already written for a person (how to install Blender): passed on as it is. 2026-10-19's first
     # site report got "Blender stopped with an error, see the log" for a Mac with no Blender at all.
-    if re.search(r"Install Blender|blender\.org", text):
+    if re.search(r"Install Blender|blender\.org", text) or text.startswith(PLAN_NEEDS):
         return text
     rules = [
         (r"memory|MemoryError|out of memory|Killed", "This Mac ran out of memory. Close other big apps and try again, or pick a lower detail or texture size."),
@@ -170,7 +173,13 @@ class ChainRunner:
             for old in self.recent(limit=len(self.chains))[KEEP_CHAINS:]:
                 del self.chains[old.id]   # finished runs pile up otherwise; nothing running is ever dropped
         if background:
-            threading.Thread(target=self.run, args=(chain,), daemon=True, name=f"chain-{chain.id[:8]}").start()
+            try:
+                threading.Thread(target=self.run, args=(chain,), daemon=True, name=f"chain-{chain.id[:8]}").start()
+            except RuntimeError as exc:   # no thread could start: the chain ends here and frees the slot
+                with self.lock:
+                    chain.status, chain.error = "error", str(exc)
+                chain.upload = chain.back_upload = None
+                raise
         else:
             self.run(chain)
         return chain

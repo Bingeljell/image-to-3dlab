@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO))   # standing alone, not only after another module 
 import usage_api
 
 from image_to_3dlab import processes
-from image_to_3dlab.provenance import read_run_record
+from image_to_3dlab.provenance import pixal3d_four_views, read_run_record
 
 OUTPUT_ROOT = REPO / "output"
 SKINS_DIR = "skins"
@@ -43,6 +43,7 @@ SIDES = ("front", "back")
 MAX_INSTRUCTION = 600
 GENERATOR = REPO / "scripts" / "pixal3d_generate.py"
 TERMINAL = {"done", "error", "cancelled"}
+CANCEL_GRACE_SECONDS = 10.0     # how long a worker gets to honour the polite stop before its group is forced
 # Each try gets its own seed, so asking again draws a different picture. The back's are
 # offset so a front try and a back try never share one by accident.
 FRONT_SEED, BACK_SEED = 42, 142
@@ -120,6 +121,8 @@ def base_from_asset(output: Path, asset: dict[str, Any]) -> dict[str, Any]:
     record = read_run_record(model) or {}
     if record.get("backend") != "pixal3d":
         raise SkinError("Only Pixal3D models can take new skins.")
+    if pixal3d_four_views(record):
+        raise SkinError("Skins need a one- or two-view build. This model was built from four views.")
     shape = model.with_suffix(".shape.bin")
     if not shape.is_file():
         if not install_keeps_shapes():
@@ -246,14 +249,19 @@ class SkinStore:
                 continue
         return sorted(found, key=lambda s: s.created)
 
-    def create(self, asset: dict[str, Any], instruction: str, name: str | None = None) -> Skin:
+    def draft(self, asset: dict[str, Any], instruction: str, name: str | None = None) -> Skin:
+        """A new skin, checked but not kept: `save` keeps it. The studio asks in between whether
+        its first picture can be drawn, so a start that is refused leaves nothing behind."""
         instruction = (instruction or "").strip()
         if not instruction:
             raise SkinError("Say what to change, for example \"make the skirt gold\".")
         if len(instruction) > MAX_INSTRUCTION:
             raise SkinError(f"Keep the change under {MAX_INSTRUCTION} characters.")
         base = base_from_asset(self.output, asset)
-        skin = Skin(name=skin_name(instruction, name), instruction=instruction, base=base)
+        return Skin(name=skin_name(instruction, name), instruction=instruction, base=base)
+
+    def create(self, asset: dict[str, Any], instruction: str, name: str | None = None) -> Skin:
+        skin = self.draft(asset, instruction, name)
         self.save(skin)
         return skin
 
@@ -408,6 +416,7 @@ class SkinBuild:
     error: str | None = None
     process: subprocess.Popen | None = None
     cancel_requested: bool = False
+    step_done: threading.Event | None = None      # set once the current step's process has been waited on
     started: float = field(default_factory=time.monotonic)
     events: list[dict[str, Any]] = field(default_factory=list)
     log_lines: deque = field(default_factory=lambda: deque(maxlen=400))
@@ -463,12 +472,24 @@ class SkinBuilds:
             self.active = job.id
         skin.status, skin.error = "building", None
         self.store.save(skin)
-        # A skin is the feature; its Finish choices are its model's, counted once there.
-        usage_api.count_features(skin=True)
         if background:
-            threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
-                             name=f"skin-{skin.id}").start()
+            try:
+                threading.Thread(target=self.run, args=(job, skin, runner, box), daemon=True,
+                                 name=f"skin-{skin.id}").start()
+            except RuntimeError as exc:   # no thread could start: the build ends here and frees its slot
+                skin.status, skin.error = "error", str(exc)
+                job.status, job.error = "error", str(exc)
+                job.emit({"phase": "error", "message": str(exc)})
+                self.store.save(skin)
+                with self.lock:
+                    if self.active == job.id:
+                        self.active = None
+                usage_api.count_failed("skin", exc)
+                raise
+            # A skin is the feature; its Finish choices are its model's, counted once there.
+            usage_api.count_features(skin=True)
         else:
+            usage_api.count_features(skin=True)
             self.run(job, skin, runner, box)
         return job
 
@@ -477,14 +498,36 @@ class SkinBuilds:
         if job is None or job.status in TERMINAL:
             return False
         job.cancel_requested = True
-        if job.process and job.process.poll() is None:
-            self.stop(job.process.pid)
+        process, done = job.process, job.step_done
+        if process is not None and done is not None and not done.is_set():
+            self.stop(process.pid)
+            self._force_after_grace(process, done)
         return True
+
+    @staticmethod
+    def _force_after_grace(process, done: threading.Event) -> None:
+        """A worker that ignores the polite stop keeps its pipe open, so the build thread never
+        returns: force its group after a grace, off the request thread. Keyed on the step having
+        ended (waited on), not on its leader having exited: a leader that quit while its child holds
+        the pipe open leaves the build blocked. No poll() here: it would reap the leader."""
+        def force() -> None:
+            if not done.is_set():
+                processes.kill_group(process.pid)
+
+        timer = threading.Timer(CANCEL_GRACE_SECONDS, force)
+        timer.daemon = True
+        try:
+            timer.start()
+        except RuntimeError:                # no thread to wait on: force now rather than leave it running
+            force()
 
     def run(self, job: SkinBuild, skin: Skin, runner=subprocess.Popen, box=cut_out_box) -> None:
         output = self.store.output
         folder = self.store.folder(skin.id)
         job.status = "running"
+        failure: Exception | None = None
+        # What the job turns into once its skin is saved; a build cut short by something odd ends as an error.
+        outcome: tuple = ("error", "the build stopped unexpectedly", {"phase": "error", "message": "the build stopped unexpectedly"})
         try:
             job.emit({"phase": "check", "message": "Checking the new pictures line up with the originals", "overall_pct": 1})
             problem = framing_problem(output, skin, box)
@@ -501,6 +544,7 @@ class SkinBuilds:
                 command = make(output, skin)
                 job.emit({"phase": stage, "message": "Repainting the model" if stage == "repaint"
                           else "Finishing, with the model's own settings", "overall_pct": 0 if stage == "repaint" else 80})
+                done = job.step_done = threading.Event()
                 job.process = runner(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                      bufsize=1, cwd=str(REPO), env=processes.child_env(), **processes.TEXT_PIPE,
                                      **processes.group_popen_kwargs())
@@ -509,6 +553,7 @@ class SkinBuilds:
                     folder.joinpath("pid").write_text(processes.pid_record(pid), encoding="utf-8")
                 if job.cancel_requested:            # Cancel landed while it started: it found no process to stop
                     self.stop(job.process.pid)
+                    self._force_after_grace(job.process, done)
                 for raw in job.process.stdout:
                     line = raw.rstrip()
                     if not line:
@@ -518,6 +563,7 @@ class SkinBuilds:
                     if percent is not None:
                         job.emit({"phase": stage, "message": line[:160], "overall_pct": percent})
                 code = job.process.wait()
+                done.set()
                 if job.cancel_requested:
                     raise InterruptedError
                 if code != 0:
@@ -530,24 +576,56 @@ class SkinBuilds:
                     leftover.unlink(missing_ok=True)
             shutil.rmtree(folder / "finish-steps", ignore_errors=True)
             skin.status, skin.result = "done", _rel(output, result)
-            job.status = "done"
-            usage_api.count_done("skin")
-            job.emit({"phase": "done", "message": "Skin ready", "overall_pct": 100, "path": skin.result})
+            outcome = ("done", None, {"phase": "done", "message": "Skin ready", "overall_pct": 100, "path": skin.result})
         except InterruptedError:
-            skin.status, job.status = "pictures", "cancelled"
-            job.emit({"phase": "cancelled", "message": "Cancelled. The approved pictures are kept."})
+            skin.status = "pictures"
+            outcome = ("cancelled", None, {"phase": "cancelled", "message": "Cancelled. The approved pictures are kept."})
         except Exception as exc:
             skin.status, skin.error = "error", str(exc)
-            job.status, job.error = "error", str(exc)
-            job.emit({"phase": "error", "message": str(exc)})
-            usage_api.count_failed("skin", exc)
+            failure = exc
+            outcome = ("error", str(exc), {"phase": "error", "message": str(exc)})
         finally:
-            folder.joinpath("pid").unlink(missing_ok=True)
-            self.store.save(skin)
-            self._history(job, skin)
-            with self.lock:
-                if self.active == job.id:
-                    self.active = None
+            # The job reads as ended only after the skin is saved: stop and reap the worker first
+            # (a failed build must not leave it running), then save, then turn the status terminal.
+            try:
+                proc = job.process
+                if proc is not None and proc.poll() is None:
+                    warning = processes.stop_and_reap(proc, grace=5)
+                    if warning:
+                        job.log_lines.append(f"cleanup warning: {warning}")
+            except Exception as cleanup_exc:
+                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
+            if job.step_done is not None:       # reaped: a pending forced stop must not signal a reused pid
+                job.step_done.set()
+            try:
+                folder.joinpath("pid").unlink(missing_ok=True)
+            except Exception as cleanup_exc:
+                job.log_lines.append(f"cleanup warning: {cleanup_exc}")
+            try:
+                try:
+                    self.store.save(skin)
+                except Exception as save_exc:
+                    message = f"the skin could not be saved: {save_exc}"
+                    if outcome[1]:
+                        message = f"{outcome[1]}; {message}"
+                    outcome = ("error", message, {"phase": "error", "message": message})
+                    failure = failure or save_exc
+                    skin.status, skin.error = "error", message
+                    try:
+                        self.store.save(skin)
+                    except Exception as again:
+                        job.log_lines.append(f"cleanup warning: {again}")
+                job.status, job.error = outcome[0], outcome[1]
+                if outcome[0] == "done":
+                    usage_api.count_done("skin")
+                elif failure is not None:
+                    usage_api.count_failed("skin", failure)
+                job.emit(outcome[2])
+                self._history(job, skin)
+            finally:
+                with self.lock:
+                    if self.active == job.id:
+                        self.active = None
 
     def _history(self, job: SkinBuild, skin: Skin) -> None:
         """One line in output/.activity.jsonl, so Activity lists the build and Report a bug can

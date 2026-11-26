@@ -416,6 +416,99 @@ def local_eye_coordinates(
     return rx, ry, aspect
 
 
+def bake_eye_patches(
+    tri_pos: np.ndarray,
+    tri_uv: np.ndarray,
+    eyes: np.ndarray,
+    source: np.ndarray,
+    orm: np.ndarray,
+    extent: float,
+    patch: int,
+    splay: float,
+    style: EyeStyle,
+    forward: tuple[float, float, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray, list[tuple[np.ndarray, np.ndarray]], dict]:
+    """Bake both eyes and return their atlases, face assignments and diagnostics."""
+    face_normal = np.cross(tri_pos[:, 1] - tri_pos[:, 0], tri_pos[:, 2] - tri_pos[:, 0])
+    lengths = np.linalg.norm(face_normal, axis=1, keepdims=True)
+    face_normal = face_normal / np.where(lengths == 0, 1.0, lengths)
+
+    centres = np.asarray(eyes, np.float64)
+    head_right = centres[1] - centres[0]
+    head_right /= np.linalg.norm(head_right)
+    if forward is None:
+        forward = head_forward(centres)
+    else:
+        forward = np.asarray(forward, np.float64)
+        forward /= np.linalg.norm(forward)
+
+    width = patch * len(centres)
+    albedo = np.zeros((patch, width, 3), np.float32)
+    rough_metal = np.zeros((patch, width, 3), np.float32)
+    report = {"eyes": []}
+    selection: list[tuple[np.ndarray, np.ndarray]] = []
+
+    for index, centre in enumerate(centres):
+        lateral = head_right if index == 1 else -head_right
+        gaze = forward + lateral * splay
+        gaze /= np.linalg.norm(gaze)
+        right, up = eye_basis(gaze)
+
+        delta = tri_pos - centre
+        depth = delta @ gaze
+        sx = delta @ right
+        sy = delta @ up
+        near = (
+            (np.abs(sx) <= extent * 0.98).all(1)
+            & (np.abs(sy) <= extent * 0.98).all(1)
+            & (np.abs(depth) <= extent * 0.8).all(1)
+            & (face_normal @ gaze > 0.15)
+        )
+        chosen = np.nonzero(near)[0]
+        if chosen.size == 0:
+            raise ValueError(f"eye {index} selected no faces; check the centre")
+
+        local = patch_coordinates(tri_pos[chosen], centre, right, up, extent)
+        base_uv, covered = rasterise(local, tri_uv[chosen], patch, patch)
+        base_rgb = sample_bilinear(source, base_uv)
+        base_orm = sample_bilinear(orm, base_uv)
+        base_rgb, _ = dilate(base_rgb, covered, rounds=8)
+        base_orm, covered = dilate(base_orm, covered, rounds=8)
+
+        fit = locate_eye(base_rgb)
+        # Both eyes share one basis, so one highlight offset puts both glints on the
+        # same side of the face -- which is what a single light source does.
+        x, y, aspect = local_eye_coordinates((patch, patch), fit, style)
+        painted, rough = paint_eye(x, y, base_rgb, base_orm[..., 1], style, aspect)
+
+        column = slice(index * patch, (index + 1) * patch)
+        eyeball = smoothstep(
+            1.0 + style.feather,
+            1.0 - style.feather,
+            np.abs(x / aspect) ** style.opening_power + np.abs(y) ** style.opening_power,
+        )
+        albedo[:, column] = painted
+        rough_metal[:, column, 0] = base_orm[..., 0]
+        rough_metal[:, column, 1] = rough
+        # An eye is never metal; whatever the generator packed there only dulls it.
+        rough_metal[:, column, 2] = base_orm[..., 2] * (1.0 - eyeball)
+
+        offset = np.array([index / len(centres), 0.0])
+        scale = np.array([1.0 / len(centres), 1.0])
+        selection.append((chosen, local * scale + offset))
+        report["eyes"].append(
+            {
+                "faces": int(chosen.size),
+                "gaze": [round(float(v), 4) for v in gaze],
+                "fit": {k: round(float(v), 3) for k, v in fit.items()},
+                "aspect": round(float(aspect), 3),
+            }
+        )
+
+    report["patch"] = [width, patch]
+    return albedo, rough_metal, selection, report
+
+
 # ------------------------------------------------------------------- Blender side
 
 
@@ -504,19 +597,6 @@ def apply_in_blender(
     tris = np.arange(loops).reshape(-1, 3)
     tri_pos = world[loop_vert[tris]]
     tri_uv = uv[tris]
-    face_normal = np.cross(tri_pos[:, 1] - tri_pos[:, 0], tri_pos[:, 2] - tri_pos[:, 0])
-    lengths = np.linalg.norm(face_normal, axis=1, keepdims=True)
-    face_normal = face_normal / np.where(lengths == 0, 1.0, lengths)
-
-    centres = np.asarray(eyes, np.float64)
-    head_right = centres[1] - centres[0]
-    head_right /= np.linalg.norm(head_right)
-    if forward is None:
-        forward = head_forward(centres)
-    else:
-        forward = np.asarray(forward, np.float64)
-        forward /= np.linalg.norm(forward)
-
     source = _read_image(_named_image(obj, "Base Color"))
     orm_image_in = _named_image(obj, "Separate Color", required=False)
     orm = (
@@ -525,69 +605,9 @@ def apply_in_blender(
         else constant_orm(source.shape[:2], *_constant_surface(obj))
     )
 
-    width = patch * len(centres)
-    albedo = np.zeros((patch, width, 3), np.float32)
-    rough_metal = np.zeros((patch, width, 3), np.float32)
-    report = {"eyes": []}
-    selection: list[tuple[np.ndarray, np.ndarray]] = []
-
-    for index, centre in enumerate(centres):
-        lateral = head_right if index == 1 else -head_right
-        gaze = forward + lateral * splay
-        gaze /= np.linalg.norm(gaze)
-        right, up = eye_basis(gaze)
-
-        delta = tri_pos - centre
-        depth = delta @ gaze
-        sx = delta @ right
-        sy = delta @ up
-        near = (
-            (np.abs(sx) <= extent * 0.98).all(1)
-            & (np.abs(sy) <= extent * 0.98).all(1)
-            & (np.abs(depth) <= extent * 0.8).all(1)
-            & (face_normal @ gaze > 0.15)
-        )
-        chosen = np.nonzero(near)[0]
-        if chosen.size == 0:
-            raise ValueError(f"eye {index} selected no faces; check the centre")
-
-        local = patch_coordinates(tri_pos[chosen], centre, right, up, extent)
-        base_uv, covered = rasterise(local, tri_uv[chosen], patch, patch)
-        base_rgb = sample_bilinear(source, base_uv)
-        base_orm = sample_bilinear(orm, base_uv)
-        base_rgb, _ = dilate(base_rgb, covered, rounds=8)
-        base_orm, covered = dilate(base_orm, covered, rounds=8)
-
-        fit = locate_eye(base_rgb)
-        # Both eyes share one basis, so one highlight offset puts both glints on the
-        # same side of the face -- which is what a single light source does.
-        x, y, aspect = local_eye_coordinates((patch, patch), fit, style)
-        painted, rough = paint_eye(x, y, base_rgb, base_orm[..., 1], style, aspect)
-
-        column = slice(index * patch, (index + 1) * patch)
-        eyeball = smoothstep(
-            1.0 + style.feather,
-            1.0 - style.feather,
-            np.abs(x / aspect) ** style.opening_power + np.abs(y) ** style.opening_power,
-        )
-        albedo[:, column] = painted
-        rough_metal[:, column, 0] = base_orm[..., 0]
-        rough_metal[:, column, 1] = rough
-        # An eye is never metal; whatever the generator packed there only dulls it.
-        rough_metal[:, column, 2] = base_orm[..., 2] * (1.0 - eyeball)
-
-        offset = np.array([index / len(centres), 0.0])
-        scale = np.array([1.0 / len(centres), 1.0])
-        selection.append((chosen, local * scale + offset))
-        report["eyes"].append(
-            {
-                "faces": int(chosen.size),
-                "gaze": [round(float(v), 4) for v in gaze],
-                "fit": {k: round(float(v), 3) for k, v in fit.items()},
-                "aspect": round(float(aspect), 3),
-            }
-        )
-
+    albedo, rough_metal, selection, report = bake_eye_patches(
+        tri_pos, tri_uv, np.asarray(eyes), source, orm, extent, patch, splay, style, forward
+    )
     eye_image = _make_image(f"{material_name}_albedo", albedo, "sRGB")
     orm_image = _make_image(f"{material_name}_orm", rough_metal, "Non-Color")
     material = _eye_material(material_name, eye_image, orm_image)
@@ -602,7 +622,6 @@ def apply_in_blender(
                 uv_data[loop].uv = tuple(coords[row, corner])
     mesh.update()
     report["material_slot"] = slot
-    report["patch"] = [width, patch]
     return report
 
 

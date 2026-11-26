@@ -606,6 +606,23 @@ def filter_out_of_range_faces(faces, num_vertices: int):
     return faces, removed
 
 
+def precap_worker(source: Path, destination: Path, target_faces: int) -> None:
+    """Read, simplify and write CPU tensors in the isolated worker process."""
+    import fast_simplification
+    import torch
+
+    payload = torch.load(source, map_location="cpu", weights_only=False)
+    vertices, faces = payload["vertices"].numpy(), payload["faces"].numpy()
+    simplified_vertices, simplified_faces = fast_simplification.simplify(
+        vertices, faces, precap_ratio(faces.shape[0], target_faces),
+    )
+    torch.save(
+        (torch.from_numpy(simplified_vertices).float(),
+         torch.from_numpy(simplified_faces.astype("int32"))),
+        destination,
+    )
+
+
 def _precap_subprocess(vertices, faces, pre_cap: int, max_attempts: int = 5):
     """CPU ``fast_simplification`` in a FRESH interpreter, with verify-and-retry.
 
@@ -626,14 +643,6 @@ def _precap_subprocess(vertices, faces, pre_cap: int, max_attempts: int = 5):
 
     import torch
 
-    code = (
-        "import sys, torch, fast_simplification\n"
-        "b = torch.load(sys.argv[1], map_location='cpu', weights_only=False)\n"
-        "v, f = b['vertices'].numpy(), b['faces'].numpy()\n"
-        "sv, sf = fast_simplification.simplify(v, f, 1.0 - int(sys.argv[3]) / f.shape[0])\n"
-        "torch.save((torch.from_numpy(sv).float(), torch.from_numpy(sf.astype('int32'))), "
-        "sys.argv[2])\n"
-    )
     last_error = "no attempts made"
     for attempt in range(1, max_attempts + 1):
         with tempfile.TemporaryDirectory() as tmp:
@@ -642,7 +651,8 @@ def _precap_subprocess(vertices, faces, pre_cap: int, max_attempts: int = 5):
             torch.save({"vertices": vertices, "faces": faces}, in_path)
             try:
                 subprocess.run(
-                    [sys.executable, "-c", code, str(in_path), str(out_path), str(pre_cap)],
+                    [sys.executable, __file__, "--precap-worker", str(in_path),
+                     str(out_path), str(pre_cap)],
                     check=True,
                     capture_output=True,
                     text=True,
@@ -1186,4 +1196,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--precap-worker"]:
+        source, destination, target_faces = sys.argv[2:]
+        precap_worker(Path(source), Path(destination), int(target_faces))
+        raise SystemExit(0)
     raise SystemExit(main())

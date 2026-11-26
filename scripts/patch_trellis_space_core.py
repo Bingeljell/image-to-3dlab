@@ -12,7 +12,9 @@ normalization, flow equations, or decoder equations.
 from __future__ import annotations
 
 import argparse
+import ast
 from pathlib import Path
+from textwrap import dedent
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "trellis-space-mac" / "TRELLIS.2"
@@ -231,13 +233,37 @@ def pipeline_path(root: Path) -> Path:
     return root / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
 
 
+def _remover_is_disabled(source: str) -> bool:
+    """Recognize the audited assignment and reject further writes to the remover."""
+    if _CALL in source:
+        return False
+    try:
+        tree = ast.parse(dedent(source))
+    except SyntaxError:
+        return False
+    approved = None
+    writes = []
+    for node in ast.walk(tree):
+        match node:
+            case ast.Assign(targets=[
+                ast.Attribute(value=ast.Name(id="new_pipeline"), attr="rembg_model") as target
+            ], value=ast.Constant(value=None)):
+                approved = target
+            case ast.Attribute(attr="rembg_model", ctx=ast.Store() | ast.Del()):
+                writes.append(node)
+            case ast.Call(func=ast.Name(id="setattr" | "delattr"),
+                          args=[_, ast.Constant(value="rembg_model"), *_]):
+                return False
+    return approved is not None and writes == [approved]
+
+
 def is_patched(root: Path) -> bool:
-    """False while the pipeline still constructs the background remover."""
+    """True when the only background remover assignment disables it."""
     try:
         text = pipeline_path(root).read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return False
-    return _CALL not in text and DISABLED in text
+    return _remover_is_disabled(text)
 
 
 def has_old_optional_form(root: Path) -> bool:
@@ -245,7 +271,7 @@ def has_old_optional_form(root: Path) -> bool:
     version of this patch wrote. Such a tree is ours to upgrade, not a pristine checkout."""
     try:
         return TERNARY in pipeline_path(root).read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return False
 
 
@@ -291,7 +317,7 @@ def patch_optional_rembg(root: Path) -> bool:
         )
         changed |= did
         if _CALL not in source:
-            if DISABLED in source:
+            if _remover_is_disabled(source):
                 return source, changed
             raise RuntimeError(
                 "background-removal model disabled: expected 1 source anchors, found 0"
@@ -305,6 +331,8 @@ def patch_optional_rembg(root: Path) -> bool:
                 f"background-removal model disabled: expected 1 source anchors, found {found}"
             )
         source = source.replace(old, DISABLED, 1)
+        if not _remover_is_disabled(source):
+            raise RuntimeError("background-removal model disabled: found another remover assignment")
         return source, True
 
     return patch_file(path, transform)

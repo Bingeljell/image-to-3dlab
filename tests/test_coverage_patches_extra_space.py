@@ -6,6 +6,68 @@ import patch_trellis_space_core as patcher
 import pytest
 
 
+@pytest.fixture
+def pipeline(tmp_path):
+    file = patcher.pipeline_path(tmp_path)
+    file.parent.mkdir(parents=True)
+    return file
+
+
+@pytest.mark.parametrize("addition", [
+    "        new_pipeline.rembg_model = alternate_factory()\n",
+    "        new_pipeline.rembg_model = None\n",
+    "        del new_pipeline.rembg_model\n",
+    "        self.rembg_model = alternate_factory()\n",
+    "        setattr(new_pipeline, 'rembg_model', alternate_factory())\n",
+    "        new_pipeline.rembg_model: object = alternate_factory()\n",
+])
+def test_space_refuses_another_remover_assignment(tmp_path, pipeline, addition):
+    pipeline.write_text(dedent("""\
+        class Trellis2ImageTo3DPipeline:
+            def from_pretrained(path):
+                new_pipeline.rembg_model = None
+        """) + addition)
+    assert patcher.bria_refusal(tmp_path) is not None
+    assert not patcher.is_patched(tmp_path)
+
+
+def test_space_refuses_a_string_that_only_looks_like_approved_assignment(tmp_path, pipeline):
+    pipeline.write_text('marker = """\n        new_pipeline.rembg_model = None\n"""\n')
+    assert not patcher.is_patched(tmp_path)
+
+
+def test_space_accepts_a_single_none_assignment_with_remover_reads(tmp_path, pipeline):
+    pipeline.write_text(dedent("""\
+        class Trellis2ImageTo3DPipeline:
+            def from_pretrained(path):
+                new_pipeline.rembg_model = None
+                return new_pipeline
+            def preprocess(self):
+                return self.rembg_model
+        """))
+    assert patcher.is_patched(tmp_path)
+    assert patcher.bria_refusal(tmp_path) is None
+
+
+def test_patcher_refuses_unrecognized_remover_write_without_saving(tmp_path, pipeline):
+    from test_patch_trellis_space_core import UPSTREAM
+
+    source = UPSTREAM + "        new_pipeline.rembg_model = other_factory()\n"
+    pipeline.write_text(source)
+    with pytest.raises(RuntimeError, match="found another remover assignment"):
+        patcher.patch_optional_rembg(tmp_path)
+    assert pipeline.read_text() == source
+
+
+def test_unreadable_or_unparseable_pipeline_cannot_prove_remover_disabled(tmp_path, pipeline):
+    assert not patcher.is_patched(tmp_path)
+    pipeline.write_bytes(b"\xff")
+    assert not patcher.is_patched(tmp_path)
+    assert not patcher.has_old_optional_form(tmp_path)
+    pipeline.write_text("new_pipeline.rembg_model = None; [")
+    assert not patcher.is_patched(tmp_path)
+
+
 DINO_CLASS = '''\
 class Extractor:
     def to(self, device):

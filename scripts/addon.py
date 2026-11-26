@@ -192,7 +192,7 @@ def cmd_remove(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    except RuntimeError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(f"Removed {args.id}")

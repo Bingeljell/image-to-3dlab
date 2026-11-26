@@ -231,7 +231,7 @@ def main() -> int:
     source = HELPER_SOURCE.read_bytes()
     for target in (PIPELINE, GENERATE):
         helper = target.with_name("_i2l_multiview.py")
-        if not helper.is_file():
+        if not helper.is_file() or helper.read_bytes() != source:
             helper.write_bytes(source)
     if undo_token_concatenation():
         print("  removed  : earlier token-concatenation approach (wrong technique)")

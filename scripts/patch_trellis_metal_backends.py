@@ -62,7 +62,7 @@ def patch_mtlbvh_python(root: Path) -> bool:
     patched, changed = transform(source)
     helper = path.with_name("_assetfurnace_bvh.py")
     expected = BVH_HELPER_SOURCE.read_bytes()
-    helper_changed = not helper.is_file()
+    helper_changed = not helper.is_file() or helper.read_bytes() != expected
     if helper_changed:
         helper.write_bytes(expected)
     if changed:
@@ -291,7 +291,7 @@ def patch_ovoxel_sparse_hashmap(root: Path) -> bool:
 
     helper = path.with_name(SPARSE_HASHMAP_SOURCE.name)
     desired = SPARSE_HASHMAP_SOURCE.read_bytes()
-    helper_changed = not helper.is_file()
+    helper_changed = not helper.is_file() or helper.read_bytes() != desired
     if helper_changed:
         helper.write_bytes(desired)
     if patched != source:

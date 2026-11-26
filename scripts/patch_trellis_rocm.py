@@ -414,6 +414,13 @@ def missing_targets(root: Path = DEFAULT_ROOT) -> list[str]:
     return sorted(missing)
 
 
+def helper_matches(source: Path, destination: Path) -> bool:
+    try:
+        return destination.read_bytes() == source.read_bytes()
+    except OSError:
+        return False
+
+
 def is_patched(root: Path = DEFAULT_ROOT) -> bool:
     """True when every patch's proof is in its file and no unpatched anchor is left.
 
@@ -429,6 +436,14 @@ def is_patched(root: Path = DEFAULT_ROOT) -> bool:
         if spec.proof not in text:
             return False
         if not spec.needle_survives and spec.needle in text:
+            return False
+        if ATTENTION_IMPORT in text and not helper_matches(
+            ATTENTION_HELPER_SOURCE, root / ATTENTION_HELPER_TARGET
+        ):
+            return False
+        if BITCODE_LINK in text and not helper_matches(
+            BITCODE_HELPER_SOURCE, path.with_name(BITCODE_HELPER_NAME)
+        ):
             return False
     return True
 
@@ -452,7 +467,7 @@ def apply(root: Path = DEFAULT_ROOT) -> list[tuple[Patch, bool]]:
 
 def copy_helper(source: Path, destination: Path) -> None:
     data = source.read_bytes()
-    if not destination.is_file():
+    if not destination.is_file() or destination.read_bytes() != data:
         destination.write_bytes(data)
 
 

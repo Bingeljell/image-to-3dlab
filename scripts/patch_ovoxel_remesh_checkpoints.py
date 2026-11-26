@@ -106,7 +106,7 @@ def main() -> int:
             continue
         source = target.read_text()
         helper = target.with_name(HELPER_NAME)
-        helper_current = helper.is_file()
+        helper_current = helper.is_file() and helper.read_bytes() == payload
         if MARKER in source and helper_current:
             states.append(f"APPLIED {target}")
         elif args.check:

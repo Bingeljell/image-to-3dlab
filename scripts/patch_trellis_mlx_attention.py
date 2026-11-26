@@ -131,7 +131,7 @@ def apply(root: Path, *, check_only: bool = False) -> int:
     changed = 0
     helper = root / HELPER_TARGET
     payload = HELPER_SOURCE.read_bytes()
-    helper_current = helper.is_file()
+    helper_current = helper.is_file() and helper.read_bytes() == payload
     for relative, transform in TARGETS:
         path = root / relative
         if not path.is_file():

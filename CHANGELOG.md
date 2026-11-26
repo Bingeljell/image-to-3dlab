@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- TRELLIS setup detects stale compatibility helpers and refreshes them when patches are reapplied.
 - **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
   one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
   rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",

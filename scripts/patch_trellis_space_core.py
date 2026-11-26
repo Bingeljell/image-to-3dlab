@@ -29,7 +29,7 @@ LEGACY_DEVICE = '        device = torch.device("mps") if torch.backends.mps.is_a
 def install_attention_helper(root: Path) -> bool:
     path = root / ATTENTION_HELPER_TARGET
     source = ATTENTION_HELPER_SOURCE.read_bytes()
-    if path.is_file():
+    if path.is_file() and path.read_bytes() == source:
         return False
     path.write_bytes(source)
     return True
@@ -250,12 +250,28 @@ def has_old_optional_form(root: Path) -> bool:
 
 
 def bria_refusal(root: Path) -> str | None:
-    """Why this Space checkout may not run, or None. The licence guardrail."""
+    """Why this Space checkout may not run, or None."""
     if is_patched(root):
-        return None
+        return attention_helper_refusal(root)
     return (
         f"{root} still loads BRIA RMBG-2.0, which this repo's "
         "generation pipeline must never load. Apply the guardrail first:\n"
+        f"    python scripts/patch_trellis_space_core.py --root {root}"
+    )
+
+
+def attention_helper_refusal(root: Path) -> str | None:
+    """Older inline patches need no helper. A linked copy must match this release."""
+    attention = root / SPARSE_ATTENTION_TARGET
+    try:
+        if not attention.is_file() or "from trellis2._assetfurnace_attention import" not in attention.read_text():
+            return None
+        if (root / ATTENTION_HELPER_TARGET).read_bytes() == ATTENTION_HELPER_SOURCE.read_bytes():
+            return None
+    except (OSError, UnicodeError):
+        pass
+    return (
+        f"The TRELLIS attention helper in {root} is out of date or missing. Refresh it first:\n"
         f"    python scripts/patch_trellis_space_core.py --root {root}"
     )
 

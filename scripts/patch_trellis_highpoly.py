@@ -95,7 +95,7 @@ def patch(path: Path) -> None:
 
     helper = path.with_name(HELPER_NAME)
     payload = HELPER_SOURCE.read_bytes()
-    if not helper.is_file():
+    if not helper.is_file() or helper.read_bytes() != payload:
         helper.write_bytes(payload)
     if source != original:
         path.write_text(source)

@@ -118,7 +118,7 @@ def main() -> int:
 
     helper = args.path.with_name(HELPER_NAME)
     payload = HELPER_SOURCE.read_bytes()
-    helper_current = helper.is_file()
+    helper_current = helper.is_file() and helper.read_bytes() == payload
     if args.check:
         if ADDED_DUMP in source and not helper_current:
             print(f"ABSENT: missing or outdated helper {helper}")

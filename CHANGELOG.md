@@ -39,7 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for a model painted again. `--sides-paint none` (or `--sides-shape-only`) lets the sides shape the model only;
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
+### Changed
+- Studio asks which move to play when a model contains multiple saved animations.
+
 ### Fixed
+- Blender scene cleanup and replacement preserve shared objects, saved bindings, and references used by other scenes.
+- Staging centers models with transformed roots, and baking restores camera, frame and output settings after success or failure.
+- Video commands reject missing frames and failed Blender replies, preserve prior frames on retries, and replace videos only after successful encoding.
+- TRELLIS compatibility updates preserve optional MLX attention when upgrading older patches.
 - Region exports include the output prefix in standalone texture filenames, so separate exports do not overwrite each other.
 - Retargeting preserves every pose when no loop is found, including two-frame clips.
 - Coverage merging rejects results after executable permissions change and rejects missing or substituted report files.

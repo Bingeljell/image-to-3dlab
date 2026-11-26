@@ -33,7 +33,15 @@ The test imports the production scene worker and checks:
   and outward-facing triangles. Objects in other scenes must not leak into it.
 - The original scene, camera, objects and active selection survive successful
   work, a failed import, a render write failure and an export write failure.
-- Reusing the private render scene removes its old objects and collections.
+- Reusing a private render scene clears its own links and preserves objects,
+  collections and references shared with other scenes.
+- Failed model, marker and rig replacements preserve previous work.
+- Staging normalizes models with transformed roots; baking restores camera,
+  frame and output settings after success and failure.
+- Animation replacement preserves other rigs and saved clips. Short clips retain
+  distinct poses and positive duration after export and re-import.
+- Two region bakes retain separate textures, and the production preview launcher
+  renders animation endpoints in a separate Blender child process.
 
 Images, input and output models, and a JSON result are saved in
 `real-tool-results/blender/`. A Python assertion or exception fails the Blender
@@ -63,7 +71,10 @@ The checks require a visible loading state, a successful model request,
 working WebGL, and actual magenta pixels in the rendered canvas. Switching
 to wireframe must visibly reduce the filled area. Opening a malformed local
 model must show the Studio's error message. Unexpected browser errors or
-network requests fail the test.
+network requests fail the test. The suite also opens the shipped winding-demo
+page using its import map, supplies pinned Three.js modules locally, and checks
+that winding can be reversed. A model with multiple saved animations must wait
+for an explicit move choice and play the selected clip.
 
 Chromium explicitly uses SwiftShader, a CPU graphics implementation, for this
 trusted local test content. Missing WebGL fails the test rather than skipping

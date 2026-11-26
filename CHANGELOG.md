@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- TRELLIS on Mac retries mesh simplification when it returns an empty mesh.
 - Interrupted pod smoke tests report an incomplete run and preserve finished steps.
 - Retargeting exports short clips when there are too few frames to blend into a loop.
 - Hunyuan generation stays offline and checks for weights in the selected checkout.

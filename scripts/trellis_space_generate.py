@@ -664,6 +664,10 @@ def _precap_subprocess(vertices, faces, pre_cap: int, max_attempts: int = 5):
                       flush=True)
                 continue
         num_faces = int(faces_out.shape[0])
+        if num_faces == 0:
+            last_error = "simplifier returned no faces"
+            print(f"  pre-cap attempt {attempt}/{max_attempts}: {last_error}; retrying", flush=True)
+            continue
         bad = int((~valid_face_mask(faces_out.numpy(), verts_out.shape[0])).sum())
         if bad / num_faces > 0.001:  # catastrophic corruption (usual case is a few dozen)
             last_error = f"{bad:,} out-of-range faces ({bad / num_faces:.1%})"

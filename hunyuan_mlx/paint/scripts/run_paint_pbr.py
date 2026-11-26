@@ -11,21 +11,7 @@ import json
 import time
 
 import numpy as np
-import trimesh
-import xatlas
 from PIL import Image
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-
-import mlx.core as mx
-from hy3dpaint_mlx.vae import AutoencoderKL
-from hy3dpaint_mlx.unet2p5d_pbr import UNet2p5DPBRConditionModel
-from hy3dpaint_mlx.dinov2 import Dinov2Model
-from hy3dpaint_mlx.scheduler import DDIMScheduler, UniPCScheduler
-from hy3dpaint_mlx.mesh_render import MeshRender
-from hy3dpaint_mlx.raster import cr_raster
-from hy3dpaint_mlx.convert import load_torch_weights
 
 PBR = "weights/hunyuan3d-paintpbr-v2-1"
 VAEW = f"{PBR}/vae/diffusion_pytorch_model.safetensors"  # SD2.1 VAE, ships with the PBR weights
@@ -87,7 +73,46 @@ def prep_rgb(pil, size):
     return np.asarray(pil.convert("RGB"), np.float32) / 255.0
 
 
+def export_textures(out_dir, vertices, faces, renderer_uv, albedo, metallic_roughness):
+    """Write both texture maps and the painted mesh with its original geometry."""
+    import trimesh
+
+    albedo_image = Image.fromarray((albedo * 255).astype(np.uint8))
+    mr_image = Image.fromarray((metallic_roughness * 255).astype(np.uint8))
+    albedo_image.save(os.path.join(out_dir, "pbr_albedo_texture.png"))
+    mr_image.save(os.path.join(out_dir, "pbr_mr_texture.png"))
+    material = trimesh.visual.material.PBRMaterial(
+        baseColorTexture=albedo_image, metallicRoughnessTexture=mr_image,
+        metallicFactor=1.0, roughnessFactor=1.0,
+    )
+    # Undo the renderer's vertical UV flip for export.
+    uv = renderer_uv.copy()
+    uv[:, 1] = 1.0 - uv[:, 1]
+    mesh = trimesh.Trimesh(
+        vertices=vertices, faces=faces, process=False,
+        visual=trimesh.visual.TextureVisuals(uv=uv, material=material),
+    )
+    output = os.path.join(out_dir, "textured_mesh_pbr.glb")
+    mesh.export(output)
+    _write_sidecar(output)
+    return output
+
+
 def main():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, root)
+
+    import trimesh
+    import xatlas
+    import mlx.core as mx
+    from hy3dpaint_mlx.vae import AutoencoderKL
+    from hy3dpaint_mlx.unet2p5d_pbr import UNet2p5DPBRConditionModel
+    from hy3dpaint_mlx.dinov2 import Dinov2Model
+    from hy3dpaint_mlx.scheduler import DDIMScheduler, UniPCScheduler
+    from hy3dpaint_mlx.mesh_render import MeshRender
+    from hy3dpaint_mlx.raster import cr_raster
+    from hy3dpaint_mlx.convert import load_torch_weights
+
     out_dir = _export_dir()
     t0 = time.time()
     print(f"[2.1 PBR] res={R} steps={STEPS} guidance={GUID}")
@@ -163,22 +188,7 @@ def main():
     tex_pos, _, chart_mask = rend.uv_rasterize(TEX)
     tex_a = rend.inpaint_occlusion_aware(tex_a, tex_pos, chart_mask, cov)
     tex_m = rend.inpaint_occlusion_aware(tex_m, tex_pos, chart_mask, cov)
-    Image.fromarray((tex_a * 255).astype(np.uint8)).save(os.path.join(out_dir, "pbr_albedo_texture.png"))
-    Image.fromarray((tex_m * 255).astype(np.uint8)).save(os.path.join(out_dir, "pbr_mr_texture.png"))
-
-    # PBR GLB: baseColor=albedo; metallicRoughness from mr (G=roughness, B=metallic)
-    mat = trimesh.visual.material.PBRMaterial(
-        baseColorTexture=Image.fromarray((tex_a * 255).astype(np.uint8)),
-        metallicRoughnessTexture=Image.fromarray((tex_m * 255).astype(np.uint8)),
-        metallicFactor=1.0, roughnessFactor=1.0)
-    uv_exp = rend.vtx_uv.copy(); uv_exp[:, 1] = 1.0 - uv_exp[:, 1]   # v-up (OpenGL) UVs for common viewers
-    # export the ORIGINAL geometry (V), not the renderer's internally-normalized vtx_pos whose
-    # Y<->Z axis swap inverts face winding (would show inside-out / see-through in viewers)
-    out = trimesh.Trimesh(vertices=V, faces=F, process=False,
-                          visual=trimesh.visual.TextureVisuals(uv=uv_exp, material=mat))
-    glb = os.path.join(out_dir, "textured_mesh_pbr.glb")
-    out.export(glb)
-    _write_sidecar(glb)
+    glb = export_textures(out_dir, V, F, rend.vtx_uv, tex_a, tex_m)
     print(f"DONE {time.time()-t0:.0f}s -> {glb} (+ pbr_albedo/mr textures)")
 
 

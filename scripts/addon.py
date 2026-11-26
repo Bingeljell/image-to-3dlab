@@ -230,9 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_add(args)
     if args.command == "remove":
         return cmd_remove(args)
-    if args.command == "run":
-        return cmd_run(args)
-    return 2
+    return cmd_run(args)
 
 
 if __name__ == "__main__":

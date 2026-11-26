@@ -91,25 +91,37 @@ def prune_weights(weights: dict[str, float], hops: dict[str, dict[str, int]], an
     return {b: w * scale for b, w in kept.items()}
 
 
-def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover - bpy
-    """Apply `prune_weights` to every vertex of a Blender mesh. Returns vertices changed."""
-    # Damn, I'm good.
+def build_vertex_cleaner(parents, segments, max_hops=MAX_HOPS):
+    """Prepare a geometry-based weight filter for a single skeleton."""
+    import numpy as np
+
+    hops = tree_hops(parents)
+    ends = np.array([end for pair in segments.values() for end in pair])
+    slack = CLOSE_SHARE * float(np.ptp(ends, axis=0).max())
+
+    def clean(point, weights):
+        anchor = nearest_bone(point, segments)
+        close = close_bones(point, segments, slack)
+        return prune_weights(weights, hops, anchor, max_hops, close)
+
+    return clean
+
+
+def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:
+    """Apply the weight filter to every vertex of a Blender mesh. Return vertices changed."""
     import numpy as np
 
     parents = {b.name: (b.parent.name if b.parent else None) for b in arm.data.bones}
-    hops = tree_hops(parents)
     to_arm = arm.matrix_world.inverted() @ mesh.matrix_world
     segments = {b.name: (np.array(b.head_local), np.array(b.tail_local)) for b in arm.data.bones}
-    ends = np.array([e for pair in segments.values() for e in pair])
-    slack = CLOSE_SHARE * float(np.ptp(ends, axis=0).max())
+    clean = build_vertex_cleaner(parents, segments, max_hops)
     names = {g.index: g.name for g in mesh.vertex_groups}
     changed = 0
     for vertex in mesh.data.vertices:
         weights = {names[g.group]: g.weight for g in vertex.groups
                    if g.weight > 0 and names[g.group] in parents}
         point = np.array(to_arm @ vertex.co)
-        anchor = nearest_bone(point, segments)
-        cleaned = prune_weights(weights, hops, anchor, max_hops, close_bones(point, segments, slack))
+        cleaned = clean(point, weights)
         if cleaned is weights:
             continue
         changed += 1
@@ -122,7 +134,7 @@ def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover 
     return changed
 
 
-def main() -> None:  # pragma: no cover - needs bpy
+def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--in", dest="source", required=True, type=Path, help="rigged GLB")
     ap.add_argument("--out", required=True, type=Path, help="cleaned GLB to write")

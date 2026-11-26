@@ -129,7 +129,7 @@ def test_the_probe_reads_the_venvs_own_torch(tmp_path):
 
     assert ca.probe(python, runner) == facts
     assert seen[0][:1] == [str(python)] and seen[0][1] == "-c"
-    assert "torch.cuda.get_arch_list" in seen[0][2]
+    assert repr(str(ca.CUDA_PROBE_PATH)) in seen[0][2]
 
 
 def test_the_probe_speaks_only_when_it_can_be_believed(tmp_path):

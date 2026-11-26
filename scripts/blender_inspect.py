@@ -28,6 +28,14 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+from pathlib import Path
+
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_query_worker.py")
 
 
 def send(code: str, host: str, port: int, timeout: int = 30) -> str:
@@ -52,73 +60,14 @@ def send(code: str, host: str, port: int, timeout: int = 30) -> str:
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
-LIVE_SCENE_CODE = '''
-import bpy, json
-objs = []
-for o in bpy.context.scene.objects:
-    objs.append({
-        "name": o.name,
-        "type": o.type,
-        "dimensions": [round(v, 4) for v in o.dimensions],
-        "scale": [round(v, 4) for v in o.scale],
-        "location": [round(v, 4) for v in o.location],
-        "hide_render": o.hide_render,
-        "parent": o.parent.name if o.parent else None,
-    })
-result = {
-    "filepath": bpy.data.filepath,
-    "is_dirty": bpy.data.is_dirty,
-    "object_count": len(objs),
-    "objects": objs,
-    "actions": [a.name for a in bpy.data.actions],
-    "materials": [m.name for m in bpy.data.materials],
-}
-print("INSPECT_RESULT " + json.dumps(result))
-result
-'''
-
-FILE_PEEK_CODE_TEMPLATE = '''
-import bpy, json
-path = {path!r}
-with bpy.data.libraries.load(path, link=False, assets_only=False) as (data_from, data_to):
-    result = {{
-        "path": path,
-        "objects": list(data_from.objects),
-        "actions": list(data_from.actions),
-        "meshes": list(data_from.meshes),
-        "armatures": list(data_from.armatures),
-        "materials": list(data_from.materials),
-    }}
-    # Loading nothing into data_to -- this only reads the library's index,
-    # it never actually appends anything into the running Blender.
-print("INSPECT_RESULT " + json.dumps(result))
-result
-'''
-
-OBJECT_DETAIL_CODE_TEMPLATE = '''
-import bpy, json
-name = {name!r}
-obj = bpy.data.objects.get(name)
-if obj is None:
-    result = {{"error": f"no object named {{name!r}} in the live scene"}}
-else:
-    result = {{
-        "name": obj.name,
-        "type": obj.type,
-        "dimensions": list(obj.dimensions),
-        "scale": list(obj.scale),
-        "location": list(obj.location),
-        "rotation_euler_deg": [d * 57.29577951308232 for d in obj.rotation_euler],
-        "hide_render": obj.hide_render,
-        "parent": obj.parent.name if obj.parent else None,
-        "children": [c.name for c in obj.children],
-        "modifiers": [(m.name, m.type) for m in getattr(obj, "modifiers", [])],
-        "materials": [m.name for m in obj.data.materials] if hasattr(obj.data, "materials") else [],
-        "active_action": obj.animation_data.action.name if (obj.animation_data and obj.animation_data.action) else None,
-    }}
-print("INSPECT_RESULT " + json.dumps(result))
-result
-'''
+def build_inspect_code(path: str | None = None, name: str | None = None) -> str:
+    if path:
+        request = {"action": "inspect_file", "parameters": {"path": path}}
+    elif name:
+        request = {"action": "inspect_object", "parameters": {"name": name}}
+    else:
+        request = {"action": "inspect_scene", "parameters": {}}
+    return build_worker_code(WORKER_PATH, request)
 
 
 def main() -> int:
@@ -132,13 +81,7 @@ def main() -> int:
     if args.file and args.object:
         parser.error("--file and --object are mutually exclusive")
 
-    if args.file:
-        code = FILE_PEEK_CODE_TEMPLATE.format(path=args.file)
-    elif args.object:
-        code = OBJECT_DETAIL_CODE_TEMPLATE.format(name=args.object)
-    else:
-        code = LIVE_SCENE_CODE
-
+    code = build_inspect_code(args.file, args.object)
     print(send(code, args.host, args.port))
     return 0
 

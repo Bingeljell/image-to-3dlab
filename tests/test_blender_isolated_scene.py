@@ -1,17 +1,19 @@
 """Live Blender helpers must not wipe the user's open file.
 
-A turntable, a wind demo, a normal fix, and a solidify bake used to delete every
+A wind demo, a normal fix, and a solidify bake used to delete every
 object and purge orphans. That emptied unsaved scenes. The generated code is the
 artifact sent to Blender, so these tests import it and read it.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib.util
-import inspect
-import re
+import json
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -28,100 +30,63 @@ def _load(name: str):
     return module
 
 
-def _assert_private(code: str, scene_name: str) -> None:
-    assert isolated_scene_prelude(scene_name) in code
-    assert restore_previous_scene() in code
-    assert "for obj in list(bpy.data.objects)" not in code
-    assert "orphans_purge" not in code
-    # bpy.data.objects spans every scene in the file. Picking, selecting or deselecting
-    # from it reaches the user's own objects (select_set even raises for objects in
-    # another scene), so loops must walk the private scene instead.
-    assert not re.search(r"for \w+ in bpy\.data\.objects\b", code), code
-
-
-def test_turntable_uses_a_private_scene():
-    code = _load("blender_turntable").blender_code(
-        Path("/tmp/a.glb"), Path("/tmp/frames"), "fox", "dark", 24, 256, 1.0, False
+def _scene_request(code):
+    tree = ast.parse(code)
+    source, = (
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, bytes)
     )
-    _assert_private(code, "IMG3D turntable")
-
-
-def test_wind_demo_uses_a_private_scene():
-    code = _load("blender_wind_demo").blender_code(
-        Path("/tmp/m.glb"), Path("/tmp/l.glb"), Path("/tmp/frames"), "fox", "dark",
-        256, 12, 1.0, 25.0, 1.0, 1.0, 0.2, 22.0, 1.0, 0.35, 0.2, 0.1, 0.05,
+    request, = (
+        json.loads(ast.literal_eval(node.args[0]))
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "loads"
     )
-    _assert_private(code, "IMG3D wind")
+    return source, request
 
 
-def test_fix_normals_uses_a_private_scene():
-    code = _load("blender_fix_normals").blender_code(Path("/tmp/a.glb"), Path("/tmp/out.glb"))
-    _assert_private(code, "IMG3D normals")
+@pytest.mark.parametrize("culled", [False, True])
+def test_stage_request_bundles_its_worker_and_culling_choice(culled, tmp_path):
+    stage = _load("blender_stage")
+    path = tmp_path / "subject.glb"
+    source, request = _scene_request(stage.build_code([str(path)], ["A_mesh"], [1.2], culled))
+    assert source == stage.WORKER_PATH.read_bytes()
+    assert request == {
+        "action": "stage_assets",
+        "parameters": {"items": [{"path": str(path), "name": "A_mesh", "dy": 1.2}], "culled": culled},
+    }
 
 
-def test_solidify_bake_uses_a_private_scene():
-    code = _load("blender_solidify_bake").blender_code(
-        Path("/tmp/a.glb"), Path("/tmp/out.glb"), 0.01, 512, 0.002, 32
-    )
-    _assert_private(code, "IMG3D solidify")
-
-
-def test_compare_renders_in_a_headless_blender():
-    compare = _load("compare_to_source")
-    argv = compare.headless_argv(Path("/tmp/job.py"))
-    assert "--background" in argv
-    assert "--python" in argv
-    assert "send_to_blender" not in inspect.getsource(compare.main)
-    code = compare.blender_code(
-        Path("/tmp/a.glb"), Path("/tmp/out"), "cmp", [0.0], 8.0, "studio", False
-    )
-    assert "for obj in list(bpy.data.objects)" not in code
-    assert "orphans_purge" not in code
-    assert "read_factory_settings" in code
-
-
-def test_stage_and_bakes_do_not_wipe_the_open_file():
-    stage = _load("blender_stage").build_code(["/a.glb"], ["A_x"], [0.0], False)
-    assert isolated_scene_prelude("IMG3D stage") in stage
-    assert "for obj in list(bpy.data.objects)" not in stage
-    assert "orphans_purge" not in stage
-
-    bake = _load("blender_bake_normals").blender_code(
-        Path("/tmp/low.glb"), Path("/tmp/high.ply"), Path("/tmp/out.png"),
-        1024, 0.1, False, "CPU", 1.0, 0, 8,
-    )
-    _assert_private(bake, "IMG3D normal bake")
-
-    orbit = _load("blender_light_orbit").blender_code(
-        Path("/tmp/a.glb"), Path("/tmp/f_"), 4, 52.0, 64, "[]",
-    )
-    _assert_private(orbit, "IMG3D light orbit")
-
-    regions = _load("blender_split_regions").blender_code(
-        Path("/tmp/a.glb"), Path("/tmp/out"), 256, 0.25, -0.1,
-    )
-    _assert_private(regions, "IMG3D regions")
-
-
-def test_marker_spawn_refuses_to_replace_markers_unless_confirmed():
-    markers = _load("blender_joint_markers")
-    code = markers.spawn_code(Path("/tmp/a.glb"))
-    assert "orphans_purge" not in code
-    assert "raise RuntimeError" in code
-    assert "JOINT_" in code
-    confirmed = markers.spawn_code(Path("/tmp/a.glb"), confirm=True)
-    assert "orphans_purge" not in confirmed
-    assert confirmed != code
-
-
-def test_stage_bake_puts_the_open_file_back():
-    code = _load("blender_stage_bake").build_code(
-        "Walk", 0.0, 0.0, None, None, None, 1, 256, "/tmp/out", "fox",
-    )
-    assert "previous_action" in code
-    assert "previous_camera" in code
-    assert "previous_target_rotation" in code
-    assert code.index("bpy.ops.render.render") < code.index("animation_data.action = previous_action")
+@pytest.mark.parametrize(
+    ("command", "builder", "args", "action", "parameter", "expected"),
+    [
+        ("fix_normals", "blender_code", (Path("/tmp/a.glb"), Path("/tmp/out.glb")),
+         "fix_normals", "output", "/tmp/out.glb"),
+        ("light_orbit", "blender_code", (Path("/tmp/a.glb"), Path("/tmp/f_"), 1, 52.0, 64, "[[0,0,0]]"),
+         "light_orbit", "rotations", [[0, 0, 0]]),
+        ("stage_bake", "build_code", ("Walk", 0.0, 0.0, None, None, None, 1, 256, "/tmp/out", "test"),
+         "stage_bake", "action_name", "Walk"),
+        ("joint_markers", "spawn_code", (Path("/tmp/a.glb"),),
+         "spawn_markers", "confirm", False),
+        ("joint_markers", "spawn_code", (Path("/tmp/a.glb"), True),
+         "spawn_markers", "confirm", True),
+        ("joint_markers", "load_code", ({"base": [1, 2, 3]},),
+         "load_markers", "markers", {"base": [1, 2, 3]}),
+        ("joint_markers", "read_code", (), "read_markers", "prefix", "JOINT_"),
+        ("pick_pixel", "build_code", (0, 0, 4, 2, "profile_yneg"),
+         "pick_pixel", "ndc", [-0.75, 0.5]),
+        ("orbit_camera", "build_code", ("Cam", (1, 2, 3), (0, 0, -1), 32, None, (64, 32)),
+         "orbit_camera", "resolution", [64, 32]),
+    ],
+)
+def test_scene_tools_bundle_the_dispatched_worker(command, builder, args, action, parameter, expected):
+    client = _load("blender_" + command)
+    code = getattr(client, builder)(*args)
+    compile(code, "<Blender request>", "exec")
+    source, request = _scene_request(code)
+    assert source == client.WORKER_PATH.read_bytes()
+    assert request["action"] == action
+    assert request["parameters"][parameter] == expected
 
 
 def test_prelude_only_clears_its_own_scene():

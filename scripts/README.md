@@ -152,12 +152,19 @@ Most of these drive the user's open Blender (BlenderMCP add-on, port 9876); each
 | `blender_stage.py` | Put assets side by side in the RUNNING Blender, lit, textured and ready to look at. |
 | `blender_stage_bake.py` | Render a full frame sequence of a named Action at the locked dungeon-stage camera angle. |
 | `blender_render_asset.py` | Import a GLB into the local Blender MCP scene and render cardinal previews. |
+| `blender_render_asset_worker.py` | Render cardinal asset previews in a private Blender scene. |
 | `blender_scene.py` | Return the Blender text that renders in a private scene. |
 | `blender_turntable.py` | Render a seamlessly looping 360-degree turntable of a GLB via the Blender MCP scene. |
+| `blender_turntable_worker.py` | Build a private Blender scene and render a turntable frame sequence. |
+| `blender_preview_worker.py` | Render four views of a model or four moments of a move in headless Blender. |
 | `blender_light_orbit.py` | Render a GLB under an orbiting key light, holding the camera still. |
 | `blender_lineup_sweep.py` | Render a camera sweep past a line-up of assets, headless. |
 | `blender_orbit_camera.py` | Point an orbit camera at a target and (optionally) render. |
 | `blender_inspect.py` | Inspect a Blender scene or an unopened .blend file's contents. |
+| `blender_worker_source.py` | Pack a Python worker and its arguments for a live Blender connection. |
+| `blender_scene_query_worker.py` | Inspect live Blender scenes, place joint markers, and position preview cameras. |
+| `blender_scene_stage_worker.py` | Stage assets, render scene previews, and recalculate mesh normals inside Blender. |
+| `blender_agent_worker.py` | Execute the Blender scene agent's actions inside the live Blender session. |
 | `blender_pick_pixel.py` | Raycast one render pixel into the asset currently staged in live Blender. |
 | `blender_import_character.py` | Append a rigged character (armature + skinned mesh) into the currently live Blender scene, cleaned up and positioned. |
 | `blender_wind_demo.py` | Animate labelled foliage with shader-style wind and render it to MP4. |

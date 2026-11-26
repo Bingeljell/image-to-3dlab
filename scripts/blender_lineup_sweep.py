@@ -23,9 +23,6 @@ otherwise wildly different apparent sizes.
 import math
 import sys
 
-import bpy
-from mathutils import Vector
-
 SPACING = 1.7
 FRAMES = 150
 FPS = 30
@@ -33,6 +30,8 @@ YAW_DEGREES = -25.0
 
 
 def clear_scene() -> None:
+    import bpy
+
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
     for block in (bpy.data.meshes, bpy.data.materials, bpy.data.images,
@@ -43,6 +42,9 @@ def clear_scene() -> None:
 
 
 def import_asset(path: str, label: str, index: int, count: int) -> list:
+    import bpy
+    from mathutils import Vector
+
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
     fresh = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
@@ -59,6 +61,8 @@ def import_asset(path: str, label: str, index: int, count: int) -> list:
 
 
 def build_environment() -> None:
+    import bpy
+
     bpy.ops.mesh.primitive_plane_add(size=400, location=(0, 0, 0))
     floor = bpy.context.active_object
     floor.name = "Floor"
@@ -90,7 +94,20 @@ def build_environment() -> None:
         obj.rotation_euler = rotation
 
 
+def sweep_positions(count: int):
+    """Yield evenly spaced camera and target locations along the lineup."""
+    span = (count - 1) * SPACING / 2
+    for i in range(FRAMES):
+        t = i / (FRAMES - 1)
+        # The camera leads and trails the lineup so the end assets are seen head-on.
+        yield i + 1, (-span - 1.8 + (2 * span + 3.6) * t, -7.2, 1.5), (
+            -span + (2 * span) * t, 0.0, 0.55
+        )
+
+
 def build_camera(count: int) -> None:
+    import bpy
+
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.lens = 40
     cam = bpy.data.objects.new("Cam", cam_data)
@@ -110,19 +127,16 @@ def build_camera(count: int) -> None:
     # slots and channelbags, so `action.fcurves` no longer exists and walking it raises.
     bpy.context.preferences.edit.keyframe_new_interpolation_type = "LINEAR"
 
-    span = (count - 1) * SPACING / 2
-    for i in range(FRAMES):
-        t = i / (FRAMES - 1)
-        frame = i + 1
-        # The camera leads and trails the line-up so the first and last asset are
-        # seen head-on rather than only in profile as it arrives or leaves.
-        cam.location = (-span - 1.8 + (2 * span + 3.6) * t, -7.2, 1.5)
+    for frame, camera_location, target_location in sweep_positions(count):
+        cam.location = camera_location
         cam.keyframe_insert("location", frame=frame)
-        target.location = (-span + (2 * span) * t, 0.0, 0.55)
+        target.location = target_location
         target.keyframe_insert("location", frame=frame)
 
 
 def configure_render(output: str) -> None:
+    import bpy
+
     scene = bpy.context.scene
     engines = {item.identifier for item in
                bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items}
@@ -141,6 +155,8 @@ def configure_render(output: str) -> None:
 
 
 def main() -> None:
+    import bpy
+
     argv = sys.argv[sys.argv.index("--") + 1:]
     output, specs = argv[0], argv[1:]
 

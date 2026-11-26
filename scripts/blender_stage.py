@@ -36,7 +36,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from blender_scene import isolated_scene_prelude
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_stage_worker.py")
 
 
 def spread_offsets(count: int, gap: float = 1.25) -> list[float]:
@@ -69,76 +74,13 @@ def labels_for(assets: list[str], labels: list[str] | None) -> list[str]:
 
 
 def build_code(assets: list[str], names: list[str], offsets: list[float], culled: bool) -> str:
-    payload = json.dumps(
-        [{"path": str(Path(a).expanduser().resolve()), "name": n, "dy": d}
-         for a, n, d in zip(assets, names, offsets)]
-    )
-    prelude = isolated_scene_prelude("IMG3D stage")
-    return f'''
-import bpy, json
-from mathutils import Vector
-
-items = json.loads({payload!r})
-culled = {culled!r}
-
-{prelude}
-for item in items:
-    before = set(bpy.data.objects)
-    bpy.ops.import_scene.gltf(filepath=item["path"])
-    fresh = [o for o in bpy.data.objects if o not in before]
-    collection = bpy.data.collections.new(item["name"])
-    bpy.context.scene.collection.children.link(collection)
-    meshes = []
-    for obj in fresh:
-        for owner in list(obj.users_collection):
-            owner.objects.unlink(obj)
-        collection.objects.link(obj)
-        if obj.type == "MESH":
-            meshes.append(obj)
-    if not meshes:
-        continue
-    corners = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
-    low = Vector((min(v.x for v in corners), min(v.y for v in corners), min(v.z for v in corners)))
-    high = Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))
-    centre = (low + high) * 0.5
-    size = max(high.x - low.x, high.y - low.y, high.z - low.z) or 1.0
-    for obj in fresh:
-        if obj.parent is None:
-            obj.scale = (1.0 / size,) * 3
-            obj.location = -Vector((centre.x, centre.y, low.z)) / size
-            obj.location.y += item["dy"]
-    for obj in meshes:
-        for slot in obj.material_slots:
-            if slot.material:
-                slot.material.use_backface_culling = culled
-
-for name, location, energy in (
-    ("KEY", (-2.8, -3.8, 4.5), 900),
-    ("FILL", (3.2, -1.8, 2.7), 500),
-    ("RIM", (1.0, 3.5, 4.0), 700),
-):
-    data = bpy.data.lights.new(name, "AREA")
-    data.energy = energy
-    data.shape = "DISK"
-    data.size = 4.0
-    light = bpy.data.objects.new(name, data)
-    bpy.context.scene.collection.objects.link(light)
-    light.location = Vector(location)
-    light.rotation_euler = (Vector((0, 0, 0.5)) - light.location).to_track_quat("-Z", "Y").to_euler()
-
-bpy.ops.object.select_all(action="DESELECT")
-bpy.context.view_layer.objects.active = None
-
-for area in bpy.context.screen.areas:
-    if area.type == "VIEW_3D":
-        area.spaces[0].shading.type = "MATERIAL"   # textures visible
-        for region in area.regions:
-            if region.type == "WINDOW":
-                with bpy.context.temp_override(area=area, region=region):
-                    bpy.ops.view3d.view_all()
-
-print("STAGED:", ", ".join(i["name"] for i in items))
-'''
+    items = [
+        {"path": str(Path(asset).expanduser().resolve()), "name": name, "dy": offset}
+        for asset, name, offset in zip(assets, names, offsets)
+    ]
+    return build_worker_code(WORKER_PATH, {
+        "action": "stage_assets", "parameters": {"items": items, "culled": culled},
+    })
 
 
 def send(code: str, host: str, port: int) -> str:

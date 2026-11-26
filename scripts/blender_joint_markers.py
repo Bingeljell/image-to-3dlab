@@ -31,6 +31,13 @@ import json
 import socket
 from pathlib import Path
 
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_query_worker.py")
+
 # name -> (x, y, z) as fractions of the mesh bounding box.
 # x: 0 left, 1 right.  y: 0 front (muzzle), 1 back (tail tip).  z: 0 ground, 1 ear tips.
 QUADRUPED_MARKERS: dict[str, tuple[float, float, float]] = {
@@ -88,91 +95,19 @@ PREFIX = "JOINT_"
 
 
 def spawn_code(asset: Path, confirm: bool = False) -> str:
-    return f'''
-import bpy
-import json
-from mathutils import Vector
-
-asset_path = {str(asset)!r}
-markers = {json.dumps(QUADRUPED_MARKERS)}
-prefix = {PREFIX!r}
-confirm = {confirm!r}
-
-existing = [obj.name for obj in bpy.data.objects if obj.name.startswith(prefix)]
-if existing and not confirm:
-    raise RuntimeError(
-        "joint markers already in this file (" + ", ".join(existing)
-        + "). Re-run with --yes to replace the markers only."
-    )
-if confirm:
-    for obj in list(bpy.data.objects):
-        if obj.name.startswith(prefix):
-            bpy.data.objects.remove(obj, do_unlink=True)
-
-before = set(bpy.data.objects)
-bpy.ops.import_scene.gltf(filepath=asset_path)
-meshes = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
-if not meshes:
-    raise RuntimeError("no mesh imported")
-
-lo = Vector((1e9, 1e9, 1e9))
-hi = Vector((-1e9, -1e9, -1e9))
-for obj in meshes:
-    for corner in obj.bound_box:
-        world = obj.matrix_world @ Vector(corner)
-        for axis in range(3):
-            lo[axis] = min(lo[axis], world[axis])
-            hi[axis] = max(hi[axis], world[axis])
-size = hi - lo
-
-# The mesh is reference geometry here; locking selection stops a stray click in the
-# viewport from grabbing 101k faces instead of the marker the user meant to move.
-for obj in meshes:
-    obj.hide_select = True
-
-collection = bpy.data.collections.new("JOINT_MARKERS")
-bpy.context.scene.collection.children.link(collection)
-
-radius = max(size) * 0.018
-for name, (fx, fy, fz) in markers.items():
-    empty = bpy.data.objects.new(prefix + name, None)
-    empty.empty_display_type = "SPHERE"
-    empty.empty_display_size = radius
-    empty.location = (
-        lo.x + size.x * fx,
-        lo.y + size.y * fy,
-        lo.z + size.z * fz,
-    )
-    empty.show_name = True
-    collection.objects.link(empty)
-
-for area in bpy.context.screen.areas:
-    if area.type == "VIEW_3D":
-        for space in area.spaces:
-            if space.type == "VIEW_3D":
-                space.shading.type = "MATERIAL"
-
-print(json.dumps({{
-    "spawned": len(markers),
-    "bbox_min": [round(v, 4) for v in lo],
-    "bbox_max": [round(v, 4) for v in hi],
-}}))
-'''
+    return build_worker_code(WORKER_PATH, {
+        "action": "spawn_markers",
+        "parameters": {
+            "asset_path": str(asset), "markers": QUADRUPED_MARKERS,
+            "prefix": PREFIX, "confirm": confirm,
+        },
+    })
 
 
 def read_code() -> str:
-    return f'''
-import bpy
-import json
-
-prefix = {PREFIX!r}
-placed = {{}}
-for obj in bpy.data.objects:
-    if obj.name.startswith(prefix):
-        loc = obj.matrix_world.translation
-        placed[obj.name[len(prefix):]] = [round(loc.x, 5), round(loc.y, 5), round(loc.z, 5)]
-print(json.dumps(placed, indent=2, sort_keys=True))
-'''
+    return build_worker_code(WORKER_PATH, {
+        "action": "read_markers", "parameters": {"prefix": PREFIX},
+    })
 
 
 def send(code: str, host: str, port: int, timeout: int = 300) -> str:
@@ -201,28 +136,9 @@ def send(code: str, host: str, port: int, timeout: int = 300) -> str:
 
 
 def load_code(markers: dict[str, list[float]]) -> str:
-    return f'''
-import bpy, json
-markers = json.loads({json.dumps(json.dumps(markers))})
-coll = bpy.data.collections.get("JOINT_MARKERS")
-if coll is None:
-    coll = bpy.data.collections.new("JOINT_MARKERS")
-    bpy.context.scene.collection.children.link(coll)
-radius = 0.018
-restored = []
-for name, loc in markers.items():
-    full = "JOINT_" + name
-    obj = bpy.data.objects.get(full)
-    if obj is None:
-        obj = bpy.data.objects.new(full, None)
-        obj.empty_display_type = "SPHERE"
-        obj.empty_display_size = radius
-        obj.show_name = True
-        coll.objects.link(obj)
-    obj.location = loc
-    restored.append(name)
-print(json.dumps({{"restored": len(restored)}}))
-'''
+    return build_worker_code(WORKER_PATH, {
+        "action": "load_markers", "parameters": {"markers": markers, "prefix": PREFIX},
+    })
 
 
 def main() -> int:

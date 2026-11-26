@@ -41,7 +41,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-RESULT_SENTINEL = "AGENT_RESULT "
+if __package__:
+    from .blender_agent_worker import RESULT_SENTINEL
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_agent_worker import RESULT_SENTINEL
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_agent_worker.py")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9876
 DEFAULT_API = "http://127.0.0.1:1234/v1"
@@ -50,10 +57,8 @@ DEFAULT_API = "http://127.0.0.1:1234/v1"
 # --------------------------------------------------------------------------------------
 # The skill library.
 #
-# Each tool owns a JSON schema (what the model is allowed to ask for) and a builder (the
-# bpy it turns into). Builders are pure functions from validated arguments to source text,
-# which is what makes them testable without Blender in the room: `tests/test_blender_agent`
-# compiles every one of them. Rule 2 in AGENTS.md, learned the expensive way.
+# Each tool pairs a JSON schema with a builder that packs the shipped worker and its
+# arguments. The worker runs inside Blender without needing a checkout.
 # --------------------------------------------------------------------------------------
 
 
@@ -90,88 +95,24 @@ _NUM = {"type": "number"}
 _STR = {"type": "string"}
 
 
-def _preamble() -> str:
-    return "import bpy, json, math, mathutils\n"
-
-
-def _emit(expr: str) -> str:
-    """Every snippet reports through one sentinel line, so the reply can be found in
-    whatever else Blender decided to print to stdout that second."""
-    return f'print({RESULT_SENTINEL!r} + json.dumps({expr}))\n'
+def _build_action(action: str, **parameters: Any) -> str:
+    try:
+        return build_worker_code(WORKER_PATH, {"action": action, "parameters": parameters})
+    except ValueError as exc:
+        raise TypeError(f"{action} requires JSON-compatible arguments: {exc}") from exc
 
 
 def build_describe_scene() -> str:
-    return _preamble() + '''
-bpy.context.view_layer.update()
-scene = bpy.context.scene
-objects = []
-for obj in bpy.data.objects:
-    if obj.type not in {"MESH", "ARMATURE", "LIGHT", "CAMERA", "EMPTY"}:
-        continue
-    entry = {"name": obj.name, "type": obj.type,
-             "location": [round(v, 4) for v in obj.matrix_world.translation]}
-    if obj.type == "MESH":
-        corners = [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
-        lo = [round(min(c[i] for c in corners), 4) for i in range(3)]
-        hi = [round(max(c[i] for c in corners), 4) for i in range(3)]
-        entry["bounds_min"] = lo
-        entry["bounds_max"] = hi
-        entry["dimensions"] = [round(hi[i] - lo[i], 4) for i in range(3)]
-        entry["polygons"] = len(obj.data.polygons)
-    if obj.type == "LIGHT":
-        entry["light_type"] = obj.data.type
-        entry["energy"] = round(obj.data.energy, 3)
-    if obj.type == "CAMERA":
-        entry["lens_mm"] = round(obj.data.lens, 2)
-    objects.append(entry)
-world = scene.world
-payload = {
-    "objects": objects,
-    "active_camera": scene.camera.name if scene.camera else None,
-    "resolution": [scene.render.resolution_x, scene.render.resolution_y],
-    "film_transparent": bool(scene.render.film_transparent),
-    "engine": scene.render.engine,
-    "world_strength": (
-        round(world.node_tree.nodes["Background"].inputs[1].default_value, 3)
-        if world and world.use_nodes and "Background" in world.node_tree.nodes
-        else None
-    ),
-}
-''' + _emit("payload")
+    return _build_action("describe_scene")
 
 
 def build_render_view(output_path: str, resolution: int = 640, samples: int = 32) -> str:
-    return _preamble() + f'''
-scene = bpy.context.scene
-scene.render.resolution_x = {int(resolution)}
-scene.render.resolution_y = {int(resolution)}
-scene.render.resolution_percentage = 100
-scene.render.image_settings.file_format = "PNG"
-if scene.render.engine == "CYCLES":
-    scene.cycles.samples = {int(samples)}
-if scene.camera is None:
-    payload = {{"error": "no active camera; call set_camera first"}}
-else:
-    scene.render.filepath = {output_path!r}
-    bpy.ops.render.render(write_still=True)
-    payload = {{"rendered": {output_path!r},
-                "resolution": [scene.render.resolution_x, scene.render.resolution_y]}}
-''' + _emit("payload")
+    return _build_action("render_view", output_path=output_path,
+                         resolution=int(resolution), samples=int(samples))
 
 
 def build_import_asset(path: str, clear_scene: bool = True) -> str:
-    return _preamble() + f'''
-clear = {bool(clear_scene)!r}
-if clear:
-    for obj in list(bpy.data.objects):
-        if obj.type == "MESH":
-            bpy.data.objects.remove(obj, do_unlink=True)
-before = set(bpy.data.objects.keys())
-bpy.ops.import_scene.gltf(filepath={path!r})
-imported = [n for n in bpy.data.objects.keys() if n not in before]
-meshes = [n for n in imported if bpy.data.objects[n].type == "MESH"]
-payload = {{"imported": imported, "meshes": meshes}}
-''' + _emit("payload")
+    return _build_action("import_asset", path=path, clear_scene=bool(clear_scene))
 
 
 def build_set_camera(
@@ -181,63 +122,11 @@ def build_set_camera(
     lens_mm: float = 50.0,
     target: str | None = None,
 ) -> str:
-    """Orbit placement, because absolute coordinates are the thing models get wrong.
-
-    `azimuth` 0 is the subject's front (minimum Y in Blender space, matching the glTF
-    importer's Y-up to Z-up conversion this repo assumes everywhere). `distance_factor`
-    multiplies the target's bounding-sphere radius, so the framing survives a change of
-    asset scale.
-    """
-    return _preamble() + f'''
-import math
-target_name = {target!r}
-candidates = [o for o in bpy.data.objects if o.type == "MESH"]
-if target_name:
-    candidates = [o for o in candidates if o.name == target_name]
-else:
-    # Ground planes are not the subject. Framing at 3x the radius of everything in the
-    # scene put the camera 21 units back from a 2-unit sphere, because a 10-unit floor
-    # dominated the bounds, and the model's reasonable "3x the subject" became a wide
-    # shot of a floor. Anything effectively flat is treated as scenery unless it is named
-    # explicitly, and it is only dropped when something else remains to look at.
-    def _flat(obj):
-        dims = sorted(obj.dimensions)
-        return dims[2] > 1e-6 and dims[0] / dims[2] < 0.05
-    subjects = [o for o in candidates if not _flat(o)]
-    if subjects:
-        candidates = subjects
-if not candidates:
-    payload = {{"error": "no mesh to aim at" + (" named " + repr(target_name) if target_name else "")}}
-else:
-    corners = []
-    for obj in candidates:
-        corners += [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
-    lo = mathutils.Vector([min(c[i] for c in corners) for i in range(3)])
-    hi = mathutils.Vector([max(c[i] for c in corners) for i in range(3)])
-    centre = (lo + hi) / 2.0
-    radius = max((hi - lo).length / 2.0, 1e-4)
-    az = math.radians({float(azimuth)})
-    el = math.radians({float(elevation)})
-    dist = radius * {float(distance_factor)}
-    offset = mathutils.Vector((
-        math.sin(az) * math.cos(el),
-        -math.cos(az) * math.cos(el),
-        math.sin(el),
-    )) * dist
-    cam = bpy.data.objects.get("AGENT_CAM")
-    if cam is None:
-        cam = bpy.data.objects.new("AGENT_CAM", bpy.data.cameras.new("AGENT_CAM"))
-        bpy.context.scene.collection.objects.link(cam)
-    cam.data.lens = {float(lens_mm)}
-    cam.location = centre + offset
-    direction = centre - cam.location
-    cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-    bpy.context.scene.camera = cam
-    payload = {{"camera": cam.name,
-                "location": [round(v, 4) for v in cam.location],
-                "aimed_at": [round(v, 4) for v in centre],
-                "distance": round(dist, 4), "lens_mm": cam.data.lens}}
-''' + _emit("payload")
+    """Frame the subject from the requested orbit angles."""
+    return _build_action(
+        "set_camera", azimuth=float(azimuth), elevation=float(elevation),
+        distance_factor=float(distance_factor), lens_mm=float(lens_mm), target=target,
+    )
 
 
 def build_set_light(
@@ -248,132 +137,31 @@ def build_set_light(
     size: float = 1.0,
     color: list[float] | None = None,
 ) -> str:
-    """Lights orbit the subject on the same convention as the camera, and are named by
-    role so the model can move one without disturbing the others."""
-    rgb = list(color or [1.0, 1.0, 1.0])
-    return _preamble() + f'''
-import math
-role = {role!r}
-name = "AGENT_LIGHT_" + role.upper()
-meshes = [o for o in bpy.data.objects if o.type == "MESH"]
-if not meshes:
-    payload = {{"error": "no mesh in the scene to light"}}
-else:
-    corners = []
-    for obj in meshes:
-        corners += [obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box]
-    lo = mathutils.Vector([min(c[i] for c in corners) for i in range(3)])
-    hi = mathutils.Vector([max(c[i] for c in corners) for i in range(3)])
-    centre = (lo + hi) / 2.0
-    radius = max((hi - lo).length / 2.0, 1e-4)
-    az = math.radians({float(azimuth)})
-    el = math.radians({float(elevation)})
-    offset = mathutils.Vector((
-        math.sin(az) * math.cos(el),
-        -math.cos(az) * math.cos(el),
-        math.sin(el),
-    )) * radius * 3.0
-    light = bpy.data.objects.get(name)
-    if light is None:
-        light = bpy.data.objects.new(name, bpy.data.lights.new(name, type="AREA"))
-        bpy.context.scene.collection.objects.link(light)
-    light.data.type = "AREA"
-    light.data.size = {float(size)} * radius
-    light.data.energy = {float(energy)}
-    light.data.color = tuple({rgb!r})[:3]
-    light.location = centre + offset
-    direction = centre - light.location
-    light.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-    payload = {{"light": name, "energy": light.data.energy,
-                "location": [round(v, 4) for v in light.location]}}
-''' + _emit("payload")
+    """Place or reposition the light identified by its role."""
+    return _build_action(
+        "set_light", role=role, azimuth=float(azimuth), elevation=float(elevation),
+        energy=float(energy), size=float(size), color=list(color or [1.0, 1.0, 1.0]),
+    )
 
 
 def build_set_world(strength: float, color: list[float] | None = None) -> str:
-    rgb = list(color or [0.05, 0.05, 0.06])
-    return _preamble() + f'''
-scene = bpy.context.scene
-world = scene.world
-if world is None:
-    world = bpy.data.worlds.new("AGENT_WORLD")
-    scene.world = world
-world.use_nodes = True
-bg = world.node_tree.nodes.get("Background")
-if bg is None:
-    payload = {{"error": "world has no Background node"}}
-else:
-    rgb = tuple({rgb!r})[:3]
-    bg.inputs[0].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
-    bg.inputs[1].default_value = {float(strength)}
-    payload = {{"world_strength": {float(strength)}, "world_color": list(rgb)}}
-''' + _emit("payload")
+    return _build_action("set_world", strength=float(strength),
+                         color=list(color or [0.05, 0.05, 0.06]))
 
 
 def build_move_object(name: str, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0) -> str:
-    return _preamble() + f'''
-obj = bpy.data.objects.get({name!r})
-if obj is None:
-    payload = {{"error": "no object named " + {name!r}}}
-else:
-    obj.location = (obj.location.x + {float(dx)},
-                    obj.location.y + {float(dy)},
-                    obj.location.z + {float(dz)})
-    payload = {{"moved": obj.name, "location": [round(v, 4) for v in obj.location]}}
-''' + _emit("payload")
+    return _build_action("move_object", name=name, dx=float(dx), dy=float(dy), dz=float(dz))
 
 
 def build_set_render_settings(
     engine: str = "eevee", film_transparent: bool = False, exposure: float = 0.0
 ) -> str:
-    """Engine names are resolved against the running Blender, not hardcoded.
+    return _build_action("set_render_settings", engine=engine,
+                         film_transparent=bool(film_transparent), exposure=float(exposure))
 
-    Blender renamed the realtime engine between versions: 4.2+ calls it
-    BLENDER_EEVEE_NEXT, 5.2 calls it BLENDER_EEVEE. Hardcoding either one breaks on the
-    other, which is how this was found: the generated code crashed with
-    `enum "BLENDER_EEVEE_NEXT" not found` against Blender 5.2. So the model names an
-    engine loosely and the snippet matches it against whatever this build actually offers.
-    """
-    return _preamble() + f'''
-scene = bpy.context.scene
-wanted = {engine!r}.strip().upper()
-available = [item.identifier for item in
-             bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items]
-match = None
-for identifier in available:
-    if identifier == wanted or wanted in identifier or identifier.replace("BLENDER_", "") == wanted:
-        match = identifier
-        break
-if match is None:
-    payload = {{"error": "no engine matching " + wanted + "; this Blender has " + ", ".join(available)}}
-else:
-    scene.render.engine = match
-    scene.render.film_transparent = {bool(film_transparent)!r}
-    scene.view_settings.exposure = {float(exposure)}
-    payload = {{"engine": scene.render.engine,
-                "film_transparent": bool(scene.render.film_transparent),
-                "exposure": round(scene.view_settings.exposure, 3),
-                "available": available}}
-''' + _emit("payload")
 
 def build_clear_scene(keep_lights: bool = False) -> str:
-    """Start from nothing.
-
-    Added after a live run where the model, asked to clear the scene and given no verb for
-    it, improvised `import_asset("empty.glb")` and then fell back to deleting objects by
-    guessed names. A missing verb does not stop a model; it makes one up.
-    """
-    return _preamble() + f'''
-keep_lights = {bool(keep_lights)!r}
-removable = {{"MESH"}}
-if not keep_lights:
-    removable = removable | {{"LIGHT"}}
-removed = []
-for obj in list(bpy.data.objects):
-    if obj.type in removable:
-        removed.append(obj.name)
-        bpy.data.objects.remove(obj, do_unlink=True)
-payload = {{"removed": removed, "count": len(removed)}}
-''' + _emit("payload")
+    return _build_action("clear_scene", keep_lights=bool(keep_lights))
 
 
 def build_add_primitive(
@@ -384,50 +172,12 @@ def build_add_primitive(
     rotation: list[float] | None = None,
     scale: list[float] | None = None,
 ) -> str:
-    """Primitives are how anything gets built from nothing. The name is the model's
-    handle on the result, so it is applied explicitly rather than left as Blender's
-    "Cube.003".
-
-    `scale` is here rather than only on set_object_transform because almost nothing worth
-    building is made of cubes: a torso is a flattened box, a limb is a stretched one. With
-    creation and shaping split across two calls, and a forced render between rounds, a
-    fifteen-part figure cannot fit in any sane round budget.
-    """
-    loc = list(location or [0.0, 0.0, 0.0])[:3] + [0.0, 0.0, 0.0]
-    rot = list(rotation or [0.0, 0.0, 0.0])[:3] + [0.0, 0.0, 0.0]
-    scl = list(scale or [1.0, 1.0, 1.0])[:3] + [1.0, 1.0, 1.0]
-    return _preamble() + f'''
-import math
-adders = {{
-    "cube": lambda: bpy.ops.mesh.primitive_cube_add(size={float(size)}),
-    "sphere": lambda: bpy.ops.mesh.primitive_uv_sphere_add(radius={float(size)} / 2.0),
-    "cylinder": lambda: bpy.ops.mesh.primitive_cylinder_add(radius={float(size)} / 2.0, depth={float(size)}),
-    "cone": lambda: bpy.ops.mesh.primitive_cone_add(radius1={float(size)} / 2.0, depth={float(size)}),
-    "torus": lambda: bpy.ops.mesh.primitive_torus_add(major_radius={float(size)} / 2.0, minor_radius={float(size)} / 6.0),
-    "plane": lambda: bpy.ops.mesh.primitive_plane_add(size={float(size)}),
-}}
-kind = {kind!r}
-if kind not in adders:
-    payload = {{"error": "unknown primitive " + kind + "; have " + ", ".join(sorted(adders))}}
-elif {name!r} in bpy.data.objects:
-    payload = {{"error": "an object named " + {name!r} + " already exists; pick another name"}}
-else:
-    adders[kind]()
-    obj = bpy.context.active_object
-    obj.name = {name!r}
-    obj.location = tuple({loc[:3]!r})
-    obj.rotation_euler = tuple(math.radians(a) for a in {rot[:3]!r})
-    obj.scale = tuple({scl[:3]!r})
-    # Dimensions derive from the object's matrix and do not refresh until the dependency
-    # graph does. Without this the payload reported the UNSCALED size, so the model was
-    # told its 0.02-wide arm was a 0.2 cube and had no way to notice the figure it was
-    # building had limbs like threads. Reporting a stale number is worse than reporting
-    # none: it is a confident lie the model then reasons from.
-    bpy.context.view_layer.update()
-    payload = {{"created": obj.name, "kind": kind,
-                "location": [round(v, 4) for v in obj.location],
-                "dimensions": [round(v, 4) for v in obj.dimensions]}}
-''' + _emit("payload")
+    """Create and shape a named primitive in a single action."""
+    loc = (list(location or []) + [0.0, 0.0, 0.0])[:3]
+    rot = (list(rotation or []) + [0.0, 0.0, 0.0])[:3]
+    scl = (list(scale or []) + [1.0, 1.0, 1.0])[:3]
+    return _build_action("add_primitive", kind=kind, name=name, location=loc,
+                         size=float(size), rotation=rot, scale=scl)
 
 
 def build_set_object_transform(
@@ -436,36 +186,11 @@ def build_set_object_transform(
     rotation: list[float] | None = None,
     scale: list[float] | None = None,
 ) -> str:
-    """Absolute placement, as against move_object's relative nudge. Both exist because
-    models reach for whichever matches how they are thinking, and forcing one means they
-    fake the other with arithmetic they get wrong."""
-    # Built before the f-string: `list(x)` inside one is evaluated whether or not the
-    # conditional around it is taken, so a None here raised TypeError at build time.
+    """Set the transform channels supplied in the call."""
     loc = list(location)[:3] if location is not None else None
     rot = list(rotation)[:3] if rotation is not None else None
     scl = list(scale)[:3] if scale is not None else None
-    return _preamble() + f'''
-import math
-obj = bpy.data.objects.get({name!r})
-location = {loc!r}
-rotation = {rot!r}
-scale = {scl!r}
-if obj is None:
-    payload = {{"error": "no object named " + {name!r}}}
-else:
-    if location is not None:
-        obj.location = tuple(location[:3])
-    if rotation is not None:
-        obj.rotation_euler = tuple(math.radians(a) for a in rotation[:3])
-    if scale is not None:
-        obj.scale = tuple(scale[:3])
-    bpy.context.view_layer.update()
-    payload = {{"name": obj.name,
-                "location": [round(v, 4) for v in obj.location],
-                "rotation_deg": [round(math.degrees(a), 2) for a in obj.rotation_euler],
-                "scale": [round(v, 4) for v in obj.scale],
-                "dimensions": [round(v, 4) for v in obj.dimensions]}}
-''' + _emit("payload")
+    return _build_action("set_object_transform", name=name, location=loc, rotation=rot, scale=scl)
 
 
 def build_set_material(
@@ -475,145 +200,28 @@ def build_set_material(
     roughness: float = 0.5,
     metallic: float = 0.0,
 ) -> str:
-    """Colour one object or many, with one shared material per colour.
-
-    `names` exists because of a round budget, not elegance: colouring a Rubik's cube one
-    cubelet per round costs 26 rounds and the model never reaches the part where it looks
-    at the result. A whole face should be one call.
-    """
     targets = list(names) if names else ([name] if name else [])
     if not targets:
-        # An error the model can read and act on, rather than an exception. Neither field
-        # is required by the schema (JSON Schema cannot say "one of these two" in a way
-        # small models reliably honour), so this path is reachable by an honest caller.
-        return _preamble() + _emit(
-            '{"error": "set_material needs name (one object) or names (several)"}'
-        )
+        return _build_action("set_material", targets=[], color=[], roughness=0.5, metallic=0.0)
     rgb = (list(color)[:3] + [0.0, 0.0, 0.0])[:3]
-    return _preamble() + f'''
-targets = {targets!r}
-rgb = tuple({rgb!r})
-key = "AGENT_MAT_%.3f_%.3f_%.3f_%.2f_%.2f" % (rgb[0], rgb[1], rgb[2], {float(roughness)}, {float(metallic)})
-mat = bpy.data.materials.get(key)
-if mat is None:
-    mat = bpy.data.materials.new(key)
-    mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    if bsdf is not None:
-        bsdf.inputs["Base Color"].default_value = (rgb[0], rgb[1], rgb[2], 1.0)
-        bsdf.inputs["Roughness"].default_value = {float(roughness)}
-        bsdf.inputs["Metallic"].default_value = {float(metallic)}
-coloured = []
-missing = []
-for target in targets:
-    obj = bpy.data.objects.get(target)
-    if obj is None or obj.type != "MESH":
-        missing.append(target)
-        continue
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
-    coloured.append(obj.name)
-payload = {{"coloured": coloured, "material": key, "color": list(rgb)}}
-if missing:
-    payload["not_found"] = missing
-''' + _emit("payload")
+    return _build_action("set_material", targets=targets, color=rgb,
+                         roughness=float(roughness), metallic=float(metallic))
 
 
 def build_duplicate_grid(
     name: str, counts: list[int], spacing: list[float], prefix: str | None = None
 ) -> str:
-    """A 3x3x3 grid is 27 objects. Without this the model spends its whole round budget
-    on primitive_add calls and never reaches the part where it looks at the result.
-
-    Capped at 200 copies: a model that means 3 and types 30 should get an error, not a
-    hung Blender.
-    """
     counts = [max(1, int(c)) for c in (list(counts)[:3] + [1, 1, 1])[:3]]
     space = (list(spacing)[:3] + [0.0, 0.0, 0.0])[:3]
-    return _preamble() + f'''
-source = bpy.data.objects.get({name!r})
-counts = {counts!r}
-spacing = {space!r}
-prefix = {prefix!r} or ({name!r} + "_")
-total = counts[0] * counts[1] * counts[2]
-if source is None:
-    payload = {{"error": "no object named " + {name!r}}}
-elif total > 200:
-    payload = {{"error": "that is " + str(total) + " copies; the limit is 200"}}
-else:
-    created = []
-    for i in range(counts[0]):
-        for j in range(counts[1]):
-            for k in range(counts[2]):
-                if i == j == k == 0:
-                    copy = source
-                else:
-                    copy = source.copy()
-                    # source.data.copy(), not source.data. Linked duplicates share one
-                    # mesh datablock, and material slots live on the mesh, so colouring
-                    # one cubelet coloured all 27. The first live Rubik's cube came out
-                    # uniformly blue for exactly this reason: red, then green, then blue,
-                    # last write winning across the whole grid.
-                    copy.data = source.data.copy()
-                    bpy.context.scene.collection.objects.link(copy)
-                copy.name = prefix + "%d_%d_%d" % (i, j, k)
-                copy.location = (source.location.x + i * spacing[0],
-                                 source.location.y + j * spacing[1],
-                                 source.location.z + k * spacing[2])
-                created.append(copy.name)
-    payload = {{"created": created, "count": len(created)}}
-''' + _emit("payload")
+    return _build_action("duplicate_grid", name=name, counts=counts, spacing=space, prefix=prefix)
 
 
 def build_mirror_object(name: str, new_name: str, axis: str = "x") -> str:
-    """Mirror one object across a world axis, as a new object.
-
-    Added because symmetry is where the model measurably fails, and the fix belongs in the
-    library rather than in the prompt. Asked for a symmetrical character it placed
-    `eye_l` at y=-0.30 (the face) and `eye_r` at y=+0.32 (the back of the head): one sign
-    flipped, on a figure it had been told twice to keep symmetrical. Doing the reflection
-    as arithmetic means getting it right once per part; doing it as a verb means getting
-    it right once, here.
-
-    Scale is negated rather than the mesh rebuilt, so a mirrored part stays linked in
-    shape to its original.
-    """
-    return _preamble() + f'''
-source = bpy.data.objects.get({name!r})
-axis = {axis!r}.strip().lower()
-index = {{"x": 0, "y": 1, "z": 2}}.get(axis)
-if source is None:
-    payload = {{"error": "no object named " + {name!r}}}
-elif index is None:
-    payload = {{"error": "axis must be x, y or z, not " + axis}}
-elif {new_name!r} in bpy.data.objects:
-    payload = {{"error": "an object named " + {new_name!r} + " already exists"}}
-else:
-    copy = source.copy()
-    copy.data = source.data.copy()
-    bpy.context.scene.collection.objects.link(copy)
-    copy.name = {new_name!r}
-    location = list(source.location)
-    location[index] = -location[index]
-    copy.location = tuple(location)
-    scale = list(source.scale)
-    scale[index] = -scale[index]
-    copy.scale = tuple(scale)
-    bpy.context.view_layer.update()
-    payload = {{"created": copy.name, "mirrored": source.name, "axis": axis,
-                "location": [round(v, 4) for v in copy.location]}}
-''' + _emit("payload")
+    return _build_action("mirror_object", name=name, new_name=new_name, axis=axis)
 
 
 def build_delete_object(name: str) -> str:
-    return _preamble() + f'''
-obj = bpy.data.objects.get({name!r})
-if obj is None:
-    payload = {{"error": "no object named " + {name!r}}}
-else:
-    bpy.data.objects.remove(obj, do_unlink=True)
-    payload = {{"deleted": {name!r}}}
-''' + _emit("payload")
+    return _build_action("delete_object", name=name)
 
 
 TOOLS: dict[str, Tool] = {

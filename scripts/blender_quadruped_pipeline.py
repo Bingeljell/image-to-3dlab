@@ -216,6 +216,23 @@ def require_rig(bpy, name):
     return rig
 
 
+def audit_weights(mesh, rig, allow_unused):
+    """Validate normalized deform weights and report the unused bones and sum range."""
+    deform = {b.name for b in rig.data.bones if b.use_deform}
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    used, sums = set(), []
+    for vertex in mesh.data.vertices:
+        sums.append(sum(g.weight for g in vertex.groups if groups[g.group] in deform))
+        used.update(groups[g.group] for g in vertex.groups if g.weight > 0.001)
+    unused = sorted(deform - used)
+    unexpected = set(unused) - set(allow_unused)
+    if unexpected or not sums or min(sums) < 0.999 or max(sums) > 1.001:
+        raise ValueError(
+            f"Weight audit failed: unused={unused}, sum range={min(sums, default=0), max(sums, default=0)}"
+        )
+    return unused, [min(sums), max(sums)]
+
+
 def bind(bpy, args):
     """Generate on a disposable file; preserve world joints before proxy weighting."""
     import numpy as np
@@ -305,18 +322,7 @@ def bind(bpy, args):
     bpy.ops.object.vertex_group_normalize_all(
         group_select_mode="BONE_DEFORM", lock_active=False
     )
-    deform = {b.name for b in rig.data.bones if b.use_deform}
-    groups = {g.index: g.name for g in mesh.vertex_groups}
-    used, sums = set(), []
-    for vertex in mesh.data.vertices:
-        sums.append(sum(g.weight for g in vertex.groups if groups[g.group] in deform))
-        used.update(groups[g.group] for g in vertex.groups if g.weight > 0.001)
-    unused = sorted(deform - used)
-    unexpected = set(unused) - set(args.allow_unused)
-    if unexpected or not sums or min(sums) < 0.999 or max(sums) > 1.001:
-        raise ValueError(
-            f"Weight audit failed: unused={unused}, sum range={min(sums, default=0), max(sums, default=0)}"
-        )
+    unused, sum_range = audit_weights(mesh, rig, args.allow_unused)
     geometry_error = float(np.abs(before - geometry_world()).max())
     if geometry_error > 1e-5 or uv_hash != digest(
         [[list(v.uv) for v in layer.data] for layer in mesh.data.uv_layers]
@@ -328,7 +334,7 @@ def bind(bpy, args):
         unused_deform_bones=unused,
         joint_error=error,
         geometry_error=geometry_error,
-        weight_sum_range=[min(sums), max(sums)],
+        weight_sum_range=sum_range,
         visual_review_required=True,
     )
     return report
@@ -430,10 +436,39 @@ def linear(action):
                         point.interpolation = "LINEAR"
 
 
+def body_offsets(u, height, cfg, mapping, tail):
+    """Yield the local offsets of the body and tail controls at one cycle phase."""
+    w = 2 * math.pi * u
+    yield mapping["torso"], {
+        "z": -height * cfg["bob"] * math.cos(2 * w - 1.5),
+        "roll": math.radians(cfg["body_roll_degrees"]) * math.sin(w - 0.3),
+    }
+    yield mapping["hips"], {
+        "z": height * 0.005 * cfg["hip_motion"] * math.sin(2 * w - 0.4),
+        "pitch": -0.012 * cfg["hip_motion"] * math.sin(2 * w - 0.4),
+    }
+    yield mapping["chest"], {
+        "z": height * 0.0075 * cfg["chest_motion"] * math.sin(2 * w - 0.7),
+        "pitch": 0.018 * cfg["chest_motion"] * math.sin(2 * w - 0.7),
+    }
+    yield mapping["neck"], {
+        "z": height * 0.00375 * cfg["neck_motion"] * math.sin(2 * w - 1),
+        "pitch": 0.028 * cfg["neck_motion"] * math.sin(2 * w - 1.05),
+    }
+    yield mapping["head"], {
+        "pitch": -0.013 * cfg["head_compensation"] * math.sin(2 * w - 1.05),
+    }
+    for i, name in enumerate(tail):
+        yield name, {
+            "pitch": math.radians(cfg["tail_pitch_degrees"])
+            * math.sin(2 * w - 1 - i * cfg["tail_lag"]),
+            "yaw": math.radians(cfg["tail_yaw_degrees"])
+            * math.sin(w - 0.8 - i * cfg["tail_lag"]),
+        }
+
+
 def animate(bpy, rig, pose, cfg, name, transition=False):
     """Author controls only, then solve IK targets after the coordinated body motion."""
-    from mathutils import Matrix, Quaternion, Vector
-
     if pose.get("schema_version") != 1 or pose.get("skeleton") != skeleton_signature(
         rig
     ):
@@ -451,6 +486,8 @@ def animate(bpy, rig, pose, cfg, name, transition=False):
     ):
         if candidate in bpy.data.actions:
             raise ValueError(f"Action already exists: {candidate}")
+    from mathutils import Matrix, Quaternion, Vector
+
     mapping, height = pose["controls"], pose["support_height"]
     up, forward, right = (Vector(pose[n]) for n in ["up", "forward", "right"])
     bones = controls(rig)
@@ -480,39 +517,8 @@ def animate(bpy, rig, pose, cfg, name, transition=False):
     for frame in range(1, cfg["frames"] + 2):
         restore()
         u = (frame - 1) / cfg["frames"]
-        w = 2 * math.pi * u
-        local_offset(
-            mapping["torso"],
-            z=-height * cfg["bob"] * math.cos(2 * w - 1.5),
-            roll=math.radians(cfg["body_roll_degrees"]) * math.sin(w - 0.3),
-        )
-        local_offset(
-            mapping["hips"],
-            z=height * 0.005 * cfg["hip_motion"] * math.sin(2 * w - 0.4),
-            pitch=-0.012 * cfg["hip_motion"] * math.sin(2 * w - 0.4),
-        )
-        local_offset(
-            mapping["chest"],
-            z=height * 0.0075 * cfg["chest_motion"] * math.sin(2 * w - 0.7),
-            pitch=0.018 * cfg["chest_motion"] * math.sin(2 * w - 0.7),
-        )
-        local_offset(
-            mapping["neck"],
-            z=height * 0.00375 * cfg["neck_motion"] * math.sin(2 * w - 1),
-            pitch=0.028 * cfg["neck_motion"] * math.sin(2 * w - 1.05),
-        )
-        local_offset(
-            mapping["head"],
-            pitch=-0.013 * cfg["head_compensation"] * math.sin(2 * w - 1.05),
-        )
-        for i, n in enumerate(pose["tail"]):
-            local_offset(
-                n,
-                pitch=math.radians(cfg["tail_pitch_degrees"])
-                * math.sin(2 * w - 1 - i * cfg["tail_lag"]),
-                yaw=math.radians(cfg["tail_yaw_degrees"])
-                * math.sin(w - 0.8 - i * cfg["tail_lag"]),
-            )
+        for control, offset in body_offsets(u, height, cfg, mapping, pose["tail"]):
+            local_offset(control, **offset)
         for p in bones:
             key(p, frame)
         bpy.context.view_layer.update()

@@ -11,11 +11,11 @@ uses, so the two scripts cannot disagree about where "front" is.
 
 from __future__ import annotations
 
-import importlib.util
 import math
-from pathlib import Path
 
 import pytest
+
+from scripts import compare_to_source as compare
 
 
 def _colours(image):
@@ -23,18 +23,6 @@ def _colours(image):
     read = getattr(image, "get_flattened_data", None)
     return set(read() if read is not None else image.getdata())
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "compare_to_source.py"
-
-
-def _load():
-    """Import the real module, not a re-derived copy of it."""
-    spec = importlib.util.spec_from_file_location("compare_to_source", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-compare = _load()
 Image = pytest.importorskip("PIL.Image")
 
 
@@ -229,34 +217,3 @@ def test_contact_sheet_survives_a_panel_with_no_subject():
     empty = Image.new("RGBA", (50, 50), (0, 0, 0, 0))
     sheet = compare.contact_sheet([(_blob(), "source"), (empty, "empty")], height=80)
     assert sheet.width > 0
-
-
-# --- the generated Blender code -----------------------------------------------------
-
-
-def test_render_is_transparent_so_the_crop_can_find_the_subject():
-    """If this regresses, every crop silently becomes the full frame."""
-    code = compare.blender_code(Path("a.glb"), Path("/out"), "x", [27.0], 8.0, "studio", grey=False)
-    assert "film_transparent = True" in code
-
-
-def test_grey_mode_clears_existing_materials():
-    code = compare.blender_code(Path("a.glb"), Path("/out"), "x", [27.0], 8.0, "studio", grey=True)
-    assert "obj.data.materials.clear()" in code
-    assert "grey_mode = True" in code
-
-
-def test_textured_mode_keeps_the_asset_materials():
-    code = compare.blender_code(Path("a.glb"), Path("/out"), "x", [27.0], 8.0, "studio", grey=False)
-    assert "grey_mode = False" in code
-
-
-def test_every_requested_angle_reaches_the_render_loop():
-    code = compare.blender_code(Path("a.glb"), Path("/out"), "x", [0.0, 27.0, 90.0], 8.0, "studio", grey=False)
-    assert "angles = [0.0, 27.0, 90.0]" in code
-
-
-def test_generated_code_compiles():
-    """Catches the syntax error that would otherwise surface only inside Blender."""
-    code = compare.blender_code(Path("a.glb"), Path("/out"), "x", [27.0], 8.0, "studio", grey=True)
-    compile(code, "<blender>", "exec")

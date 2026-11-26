@@ -26,8 +26,6 @@ lands somewhere on the surface, which is the safer behaviour on a mesh made of s
 
 import sys
 
-import bpy
-
 
 def parse_args(argv: list[str]) -> tuple[str, str, str, float]:
     """Arguments after `--`: remeshed, decode, output, optional offset."""
@@ -40,12 +38,16 @@ def parse_args(argv: list[str]) -> tuple[str, str, str, float]:
 
 
 def clear_scene() -> None:
+    import bpy
+
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def import_largest(path: str, name: str):
     """Import a GLB and return its biggest mesh, joined with any siblings."""
+    import bpy
+
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
     fresh = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
@@ -64,6 +66,8 @@ def import_largest(path: str, name: str):
 
 def shrinkwrap(obj, target, offset: float = 0.0):
     """Move every vertex of `obj` onto `target`. Returns the modifier's mode."""
+    import bpy
+
     modifier = obj.modifiers.new(name="i2l_shrinkwrap", type="SHRINKWRAP")
     modifier.target = target
     modifier.wrap_method = "NEAREST_SURFACEPOINT"
@@ -74,6 +78,8 @@ def shrinkwrap(obj, target, offset: float = 0.0):
 
 
 def main() -> None:
+    import bpy
+
     remeshed_path, decode_path, target_path, offset = parse_args(sys.argv)
     clear_scene()
 

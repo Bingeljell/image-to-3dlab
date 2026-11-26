@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -251,6 +252,46 @@ def audit_cycle(bpy, rig, scene, *, body_height, leg_lengths, axis):
     return measured
 
 
+def motion_plan(args, front_length, hind_length, body_height, fore_geo, hind_geo):
+    """Apply walk options to measured limb geometry before keying the rig."""
+    frames = args.frames or GAITS[args.gait]["frames"]
+
+    # Work out the drop first, then let the stride grow into the reach it creates.
+    drop_now = args.body_drop or 0.0
+    stride_override = None
+    if args.spend_reach:
+        fill = args.reach_fill
+        fore_room = max_half_stride(**dict(fore_geo,
+                                           vertical_drop=fore_geo["vertical_drop"] - drop_now))
+        hind_room = max_half_stride(**dict(hind_geo,
+                                           vertical_drop=hind_geo["vertical_drop"] - drop_now))
+        stride_override = {"front_stride": 2.0 * fill * fore_room,
+                           "hind_stride": 2.0 * fill * hind_room}
+
+    plan = gait_plan(
+        frames, args.gait,
+        front_leg_length=front_length,
+        hind_leg_length=hind_length,
+        body_height=body_height,
+        scale=args.scale,
+        **({"tail_swing_deg": args.tail_swing} if args.tail_swing is not None else {}),
+        **({"sway_per_bob": args.body_sway} if args.body_sway is not None else {}),
+        stride_override=stride_override,
+    )
+
+    return frames, plan
+
+
+def parse_offset(text: str | None) -> tuple[float, ...]:
+    """Read three comma-separated angles in degrees as radians."""
+    if not text:
+        return (0.0, 0.0, 0.0)
+    parts = [float(v) for v in text.replace(" ", "").split(",")]
+    if len(parts) != 3:
+        raise RuntimeError(f"offset needs three comma-separated degrees, got {text!r}")
+    return tuple(math.radians(v) for v in parts)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gait", choices=("walk", "trot", "scamper"), default="walk")
@@ -315,32 +356,9 @@ def main(argv: list[str] | None = None) -> int:
     front_length = chain_length(rig, metarig, FRONT_CHAIN)
     hind_length = chain_length(rig, metarig, HIND_CHAIN)
     body_height = rest_extent([v.co for v in mesh.data.vertices])
-    frames = args.frames or GAITS[args.gait]["frames"]
-
-    # Work out the drop first, then let the stride grow into the reach it creates.
     fore_geo = reach_geometry(rig, metarig, "front_thigh.L", "front_shin.L")
     hind_geo = reach_geometry(rig, metarig, "thigh.L", "shin.L")
-    drop_now = args.body_drop or 0.0
-    stride_override = None
-    if args.spend_reach:
-        fill = args.reach_fill
-        fore_room = max_half_stride(**dict(fore_geo,
-                                           vertical_drop=fore_geo["vertical_drop"] - drop_now))
-        hind_room = max_half_stride(**dict(hind_geo,
-                                           vertical_drop=hind_geo["vertical_drop"] - drop_now))
-        stride_override = {"front_stride": 2.0 * fill * fore_room,
-                           "hind_stride": 2.0 * fill * hind_room}
-
-    plan = gait_plan(
-        frames, args.gait,
-        front_leg_length=front_length,
-        hind_leg_length=hind_length,
-        body_height=body_height,
-        scale=args.scale,
-        **({"tail_swing_deg": args.tail_swing} if args.tail_swing is not None else {}),
-        **({"sway_per_bob": args.body_sway} if args.body_sway is not None else {}),
-        stride_override=stride_override,
-    )
+    frames, plan = motion_plan(args, front_length, hind_length, body_height, fore_geo, hind_geo)
 
     # Every foot rides on IK so it plants; the shoulders then absorb the forelegs' reach.
     # IK controls are only obeyed in IK mode -- keying them in FK authors dead curves.
@@ -425,14 +443,6 @@ def main(argv: list[str] | None = None) -> int:
     else:
         total_yaw = -_math.radians(float(args.head_yaw))
     yaw_split = {"neck": total_yaw * 0.43, "head": total_yaw * 0.57}
-
-    def parse_offset(text):
-        if not text:
-            return (0.0, 0.0, 0.0)
-        parts = [float(v) for v in text.replace(" ", "").split(",")]
-        if len(parts) != 3:
-            raise RuntimeError(f"offset needs three comma-separated degrees, got {text!r}")
-        return tuple(_math.radians(v) for v in parts)
 
     static_offset = {"neck": parse_offset(args.neck_offset),
                      "head": parse_offset(args.head_offset)}

@@ -132,6 +132,7 @@ Numbers and renders to decide whether a change helped. Read `docs/` before trust
 | Script | What it does |
 |---|---|
 | `compare_to_source.py` | Put a generated asset next to the image it was generated from. |
+| `blender_compare_source_worker.py` | Render transparent panels for the source comparison command. |
 | `mark_asset.py` | Record a human verdict on a generated asset, so winners stay findable. |
 | `ribbon_metric.py` | Measure how torn a generated mesh is, and gate post-processing on it. |
 | `tear_provenance.py` | Ask of every large tear: could the input view see it?. |
@@ -167,7 +168,9 @@ Most of these drive the user's open Blender (BlenderMCP add-on, port 9876); each
 | `blender_agent_worker.py` | Execute the Blender scene agent's actions inside the live Blender session. |
 | `blender_pick_pixel.py` | Raycast one render pixel into the asset currently staged in live Blender. |
 | `blender_import_character.py` | Append a rigged character (armature + skinned mesh) into the currently live Blender scene, cleaned up and positioned. |
+| `blender_import_character_worker.py` | Append and place a rigged character in the live Blender scene. |
 | `blender_wind_demo.py` | Animate labelled foliage with shader-style wind and render it to MP4. |
+| `blender_wind_demo_worker.py` | Bend labelled foliage and render a sequence in a private scene. |
 | `blender_agent.py` | Let a local LLM stage a scene in the running Blender, by calling a small set of tools. |
 
 ## Blender: change the geometry
@@ -179,6 +182,7 @@ Heavier edits that need Blender's own operators rather than trimesh.
 | `blender_fix_normals.py` | Recalculate outward-facing normals on a generated mesh and re-export it. |
 | `blender_solidify.py` | Give a generated mesh's zero-thickness sheets real thickness, headless. |
 | `blender_solidify_bake.py` | Voxel-remesh a mesh into a closed surface and bake its albedo back on. |
+| `blender_solidify_bake_worker.py` | Remesh and bake a model in a private Blender scene. |
 | `blender_voxel_remesh.py` | Rebuild one closed skin from the decode, using Blender's voxel remesh. |
 | `blender_shrinkwrap.py` | Pull a clean remeshed surface back onto the original decode. |
 | `blender_visibility_cull.py` | Delete every face never seen from outside the mesh, headless. |
@@ -186,8 +190,10 @@ Heavier edits that need Blender's own operators rather than trimesh.
 | `blender_split_props.py` | Split a multi-prop GLB into one upright, named object per prop, headless. |
 | `blender_reunwrap_bake.py` | Re-unwrap a generated mesh into coherent UV islands and re-bake its texture, headless. |
 | `blender_split_regions.py` | Split a generated mesh into per-region material slots, each with its own texture. |
+| `blender_split_regions_worker.py` | Bake independent texture maps for the regions of a Blender mesh. |
 | `blender_bake_ao.py` | Bake an ambient-occlusion map from an asset's own geometry, headless. |
 | `blender_bake_normals.py` | Bake TRELLIS' discarded high-poly detail into a normal map for the low-poly mesh. |
+| `blender_bake_normals_worker.py` | Bake a normal map from an aligned high-poly mesh in a private scene. |
 | `blender_bake_detail.py` | Bake the original's surface detail onto a finished mesh: normal map + metallic-roughness. |
 
 ## Rig and animate
@@ -206,8 +212,9 @@ tuning checklist. Manual fitting and visual weight/deformation review remain req
 | `blender_quadruped_walk.py` | Author a natural walk, trot or scamper on any Rigify basic-quadruped rig. |
 | `blender_joint_markers.py` | Spawn named joint markers on a mesh in Blender, and read their placed positions back. |
 | `blender_build_rig.py` | Build a quadruped armature from placed joint markers and bind the mesh to it. |
+| `blender_rig_weights_worker.py` | Build a quadruped rig and transfer weights from a voxel proxy in Blender. |
 | `blender_voxel_weights.py` | Weight a generated mesh via a watertight voxel proxy, then transfer the result back. |
-| `blender_voxel_weights_code.py` | The Blender-side program for `blender_voxel_weights.py`. |
+| `blender_voxel_weights_code.py` | Build the payload sent to Blender for voxel proxy weights. |
 | `blender_rebind.py` | Apply browser fit-joint corrections to an opened prepared Blender scene. |
 | `blender_bind_rig.py` | Generate a Rigify rig and bind a mesh to it through a watertight voxel proxy, headless. |
 | `blender_rebind_weights.py` | Voxel-proxy weight transfer used by the headless rig rebind worker. |
@@ -223,10 +230,14 @@ tuning checklist. Manual fitting and visual weight/deformation review remain req
 | `name_bones.py` | Give a rigged humanoid GLB's bones an engine's names (Unity Humanoid), without Blender. |
 | `attack_pose.py` | Pose curves for a quadruped slam attack, as pure functions. |
 | `rigify_walk_pose.py` | Pose curves for a quadruped trot on a Rigify-generated rig, as pure functions. |
+| `blender_walk_cycle_worker.py` | Write a looping quadruped gait and keep the paws on the rest floor. |
+| `blender_rigify_walk_cycle_worker.py` | Write a sampled gait to a Rigify armature. |
+| `blender_idle_cycle_worker.py` | Write idle motion and interpolation to an armature. |
 | `blender_walk_cycle.py` | Author a looping quadruped gait cycle on the rigged fox in the live Blender scene. |
 | `blender_rigify_walk_cycle.py` | Author a trot cycle on the Rigify-generated 'rig' armature in the live Blender scene. |
 | `blender_idle_cycle.py` | Author a looping idle for the rigged fox. |
 | `blender_attack_cycle.py` | Author a slam-attack clip on a rigged quadruped in the live Blender scene. |
+| `blender_attack_cycle_worker.py` | Write a sampled slam attack to an armature. |
 
 ## Project upkeep
 
@@ -279,6 +290,7 @@ Numbers about the project itself, not about any asset.
 | `patch_trellis_rocm.py` | Make TRELLIS.2 run on an AMD card: an attention backend, and a build that compiles. |
 | `patch_trellis_mlx_attention.py` | Add an `mlx` sparse-attention backend to a vendored TRELLIS.2 checkout. |
 | `render_glb_comparison.py` | Render several GLBs from one fixed camera and lay them out as a comparison image. |
+| `blender_render_glb_comparison_worker.py` | Render one comparison panel in a fresh headless Blender scene. |
 | `patch_ovoxel_pack_options.py` | Let `o_voxel.postprocess.to_glb` forward xatlas packing options. |
 | `patch_ovoxel_opaque_material.py` | Match the official TRELLIS GLB's opaque, single-sided material flags. |
 | `patch_ovoxel_weld_before_simplify.py` | Weld coincident vertices before every `simplify()` in o_voxel's `to_glb`. |

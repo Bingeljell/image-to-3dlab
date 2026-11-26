@@ -234,41 +234,8 @@ def unwrap_finish(bpy, mesh, angle_limit: float) -> int | None:
     return unwrap_islands(bpy, mesh, angle_limit)
 
 
-def main() -> int:
-    import bpy
-
-    (source, destination, target_faces, size, angle_limit, voxel_fraction,
-     metallic, roughness, ior) = parse_args(list(sys.argv))
-
-    for obj in list(bpy.data.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-
-    bpy.ops.import_scene.gltf(filepath=source)
-    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
-    if not meshes:
-        raise SystemExit(f"no mesh found in {source}")
-    original = meshes[0]
-
-    material = original.data.materials[0] if original.data.materials else None
-    image = base_colour_image(material)
-    if image is None:
-        raise SystemExit("could not find the base colour texture to transfer")
-    print(f"RETOPO:: in faces={len(original.data.polygons):,} texture={image.size[0]}px")
-
-    # --- clean topology ---------------------------------------------------------------
-    # An explicit copy, NOT bpy.ops.object.duplicate(): that can produce a linked
-    # duplicate sharing mesh data, so clearing materials on the copy also strips them
-    # from the original and the bake silently finds no target.
-    retopo = original.copy()
-    retopo.data = original.data.copy()
-    retopo.name = "RETOPO"
-    retopo.data.materials.clear()
-    bpy.context.scene.collection.objects.link(retopo)
-
-    bpy.ops.object.select_all(action="DESELECT")
-    retopo.select_set(True)
-    bpy.context.view_layer.objects.active = retopo
-
+def reduce_topology(bpy, retopo, target_faces: int, voxel_fraction: float) -> None:
+    """Weld and reduce the selected mesh, falling back when QuadriFlow declines."""
     # QuadriFlow refuses a mesh that is not manifold with consistent normals -- which
     # describes every asset here. Voxel remeshing rebuilds the surface as a watertight
     # manifold first, which also closes the see-through holes as a side effect. It
@@ -354,6 +321,44 @@ def main() -> int:
             f"{target_faces:,}). Writing this would be worse than the input, so it fails "
             "rather than producing a file that looks retopologised and is not."
         )
+
+
+def main() -> int:
+    import bpy
+
+    (source, destination, target_faces, size, angle_limit, voxel_fraction,
+     metallic, roughness, ior) = parse_args(list(sys.argv))
+
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+
+    bpy.ops.import_scene.gltf(filepath=source)
+    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    if not meshes:
+        raise SystemExit(f"no mesh found in {source}")
+    original = meshes[0]
+
+    material = original.data.materials[0] if original.data.materials else None
+    image = base_colour_image(material)
+    if image is None:
+        raise SystemExit("could not find the base colour texture to transfer")
+    print(f"RETOPO:: in faces={len(original.data.polygons):,} texture={image.size[0]}px")
+
+    # --- clean topology ---------------------------------------------------------------
+    # An explicit copy, NOT bpy.ops.object.duplicate(): that can produce a linked
+    # duplicate sharing mesh data, so clearing materials on the copy also strips them
+    # from the original and the bake silently finds no target.
+    retopo = original.copy()
+    retopo.data = original.data.copy()
+    retopo.name = "RETOPO"
+    retopo.data.materials.clear()
+    bpy.context.scene.collection.objects.link(retopo)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    retopo.select_set(True)
+    bpy.context.view_layer.objects.active = retopo
+
+    reduce_topology(bpy, retopo, target_faces, voxel_fraction)
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")

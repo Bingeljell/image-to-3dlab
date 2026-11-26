@@ -30,6 +30,35 @@ def _load(name: str):
     return module
 
 
+def test_wind_demo_ships_the_private_scene_worker():
+    code = _load("blender_wind_demo").blender_code(
+        Path("/tmp/m.glb"), Path("/tmp/l.glb"), Path("/tmp/frames"), "fox", "dark",
+        256, 12, 1.0, 25.0, 1.0, 1.0, 0.2, 22.0, 1.0, 0.35, 0.2, 0.1, 0.05,
+        body_name="Fern", labels_name="Fern Labels",
+    )
+    tree = ast.parse(code)
+    source, = (
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, bytes)
+    )
+    assert source == (SCRIPTS / "blender_wind_demo_worker.py").read_bytes()
+    arguments, = (
+        json.loads(ast.literal_eval(node.args[0]))
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "loads"
+    )
+    assert arguments["mesh_path"] == "/tmp/m.glb"
+    assert arguments["labels_path"] == "/tmp/l.glb"
+    assert arguments["frame_dir"] == "/tmp/frames"
+    assert arguments["body_name"] == "Fern"
+    assert arguments["labels_name"] == "Fern Labels"
+    assert arguments["label"] == "fox"
+    assert arguments["frames"] == 12
+    assert arguments["bend"] == 22.0
+    assert arguments["flutter"] == 0.05
+
+
 def _scene_request(code):
     tree = ast.parse(code)
     source, = (

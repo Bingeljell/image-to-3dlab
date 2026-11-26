@@ -8,7 +8,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "patch_trellis_metal_
 def test_patch_keeps_production_fixes_and_excludes_investigation_logging():
     source = SCRIPT.read_text()
     for marker in (
-        "MTLBVH_QUERY_CHUNK",
+        "chunked_unsigned_distance",
         "FixedStack48",
         "closest_triangle_stackless",
         "@autoreleasepool",

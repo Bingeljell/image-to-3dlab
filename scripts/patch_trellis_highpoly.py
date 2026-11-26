@@ -19,6 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "vendor" / "trellis-mac" / "generate.py"
+HELPER_SOURCE = Path(__file__).with_name("trellis_export_compat.py")
+HELPER_NAME = "_i2l_trellis_export.py"
 
 OPTION_ANCHOR = '    parser.add_argument(\n        "--no-texture", action="store_true",\n'
 OPTION = (
@@ -33,7 +35,7 @@ NEEDLE = (
     '    print(f"\\nMesh: {verts.shape[0]:,} vertices, {faces.shape[0]:,} triangles")'
 )
 
-REPLACEMENT = '''    print(f"\\nMesh: {verts.shape[0]:,} vertices, {faces.shape[0]:,} triangles")
+LEGACY_REPLACEMENT = '''    print(f"\\nMesh: {verts.shape[0]:,} vertices, {faces.shape[0]:,} triangles")
 
     # image-to-3dlab: keep the full-resolution mesh before decimation. It is the bake
     # source for a normal map, and the only moment it exists on disk.
@@ -68,20 +70,35 @@ REPLACEMENT = '''    print(f"\\nMesh: {verts.shape[0]:,} vertices, {faces.shape[
         print(f"  high-poly written: {_hp} ({_v.shape[0]:,} verts, {_f.shape[0]:,} tris)")'''
 
 
+REPLACEMENT = NEEDLE + """
+    # image-to-3dlab: keep the full-resolution mesh before decimation.
+    if getattr(args, "dump_highpoly", None):
+        from _i2l_trellis_export import write_highpoly
+
+        write_highpoly(args.dump_highpoly, verts, faces)"""
+
+
 def patch(path: Path) -> None:
-    source = path.read_text()
+    original = source = path.read_text()
 
     if '"--dump-highpoly"' not in source:
         if OPTION_ANCHOR not in source:
             raise RuntimeError(f"expected TRELLIS CLI option anchor not found in {path}")
         source = source.replace(OPTION_ANCHOR, OPTION + OPTION_ANCHOR)
 
-    if "image-to-3dlab: keep the full-resolution mesh" not in source:
+    if LEGACY_REPLACEMENT in source:
+        source = source.replace(LEGACY_REPLACEMENT, REPLACEMENT)
+    elif REPLACEMENT not in source:
         if NEEDLE not in source:
             raise RuntimeError(f"expected mesh-report line not found in {path}")
         source = source.replace(NEEDLE, REPLACEMENT)
 
-    path.write_text(source)
+    helper = path.with_name(HELPER_NAME)
+    payload = HELPER_SOURCE.read_bytes()
+    if not helper.is_file():
+        helper.write_bytes(payload)
+    if source != original:
+        path.write_text(source)
 
 
 def main() -> None:

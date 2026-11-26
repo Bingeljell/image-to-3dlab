@@ -86,12 +86,12 @@ def test_patching_ten_times_does_not_stack_the_imports(checkout: Path):
     for _ in range(10):
         gen.patch(checkout)
     text = (checkout / gen.ATTN_FILE).read_text()
-    assert text.count("import os  # image-to-3dlab") == 1
+    assert text.count("from ._i2l_rocm_compat import chunked_attention") == 1
     # This patch keeps its anchor by design, so exactly one of those must survive too.
     assert text.count(gen.ATTN_IMPORT_NEEDLE) == 1
-    # The attention call is fully replaced: it becomes the unchunked branch, re-indented.
+    # The attention call now goes through the shared helper.
     assert gen.ATTN_NEEDLE not in text
-    assert text.count("F.scaled_dot_product_attention(") == 2
+    assert text.count("hidden_states = chunked_attention(") == 1
 
 
 def test_the_patched_file_is_still_valid_python(checkout: Path):
@@ -109,7 +109,7 @@ def test_the_scheduler_stops_matching_on_exact_float_equality(checkout: Path):
     gen.patch(checkout)
     text = (checkout / gen.SCHEDULER_FILE).read_text()
     assert "(schedule_timesteps == timestep).nonzero()" not in text
-    assert "(schedule_timesteps - timestep).abs().argmin()" in text
+    assert "nearest_timestep_indices(schedule_timesteps, timestep)" in text
     # Both schedulers had the line, so both are patched.
     assert text.count(gen.SCHEDULER_REPLACEMENT) == 2
 
@@ -124,61 +124,17 @@ def test_the_scheduler_patch_still_works_when_only_one_scheduler_moved(tmp_path:
         gen.patch(root)
 
 
-def test_attention_is_chunked_and_only_when_asked(checkout: Path):
-    """Unchunked by default, so an NVIDIA run through this checkout is byte-for-byte the
-    upstream maths. The chunk is opt-in because it costs a little speed."""
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    assert "HY3D_SDPA_QUERY_CHUNK" in text
-    # The tokens are dim -2 and are stitched back together there; dim 0 is the batch and
-    # concatenating on it would be a different, wrong operation.
-    assert "torch.cat(parts, dim=-2)" in text
-    # The original call survives as the unchunked branch, so nothing is lost when it is 0.
-    assert text.count("F.scaled_dot_product_attention(") == 2
-
-
-def test_the_chunk_needs_its_own_import(checkout: Path):
-    """Patched code must import what it uses: `os` is not in upstream's header."""
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    assert "import os" in text
-
-
-def test_the_mask_is_sliced_with_the_queries(checkout: Path):
-    """The mask is (batch, heads, q_len, k_len). Slicing the queries and not the mask
-    either fails on shape or, worse, quietly attends to the wrong tokens."""
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    assert "attention_mask[..., i:i + chunk, :]" in text
-
-
-def _chunked_attention(checkout: Path):
-    """The patched attention block, as a callable, lifted out of the real patched file.
-
-    Extracted rather than retyped so that what runs here is the text that ships. The block
-    is wrapped in the same locals its caller supplies, so it needs nothing but torch.
-    """
-
+def _chunked_attention():
     torch = pytest.importorskip("torch")
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    # The replacement runs from its marker comment to the blank line before the
-    # `return hidden_states` upstream already had. Upstream indents it eight spaces (it is
-    # inside a class method); it becomes the body of a plain function here.
-    marker = "        # image-to-3dlab: chunk the sequence axis"
-    block = marker + text.split(marker)[1].split("\n\n")[0]
-    body = "\n".join("    " + line[8:] if line.strip() else "" for line in block.splitlines())
-    source = ("def chunked(query, key, value, attention_mask=None):\n"
-              + body + "\n    return hidden_states\n")
-    namespace: dict = {"os": os, "torch": torch, "F": torch.nn.functional}
-    exec(compile(source, "<patched attn_processor.py>", "exec"), namespace)
-    return namespace["chunked"], torch
+    from scripts.hunyuan_rocm_compat import chunked_attention
+
+    return chunked_attention, torch
 
 
-def test_chunked_attention_is_the_same_answer_as_unchunked(checkout: Path):
+def test_chunked_attention_is_the_same_answer_as_unchunked():
     """The claim this patch makes is "same maths, done in pieces". Check it, for chunk
     sizes around every awkward boundary: smaller than the batch, one, and larger."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, dim = 8, 4, 37, 16
     generator = torch.Generator().manual_seed(7)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -201,10 +157,10 @@ def test_chunked_attention_is_the_same_answer_as_unchunked(checkout: Path):
             os.environ["HY3D_SDPA_QUERY_CHUNK"] = was
 
 
-def test_chunked_attention_matches_with_a_mask_too(checkout: Path):
+def test_chunked_attention_matches_with_a_mask_too():
     """Slicing the queries but not the mask is the failure mode that produces
     plausible-looking but wrong textures, so it gets its own check."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, k_len, dim = 6, 4, 23, 29, 8
     generator = torch.Generator().manual_seed(11)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -225,10 +181,10 @@ def test_chunked_attention_matches_with_a_mask_too(checkout: Path):
     torch.testing.assert_close(chunked_result, whole, rtol=1e-5, atol=1e-6)
 
 
-def test_a_stale_mask_would_actually_have_been_caught(checkout: Path):
+def test_a_stale_mask_would_actually_have_been_caught():
     """Guard against the check above passing for the wrong reason: attending with the
     un-sliced mask really does fail loudly, so the equality above means something."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, k_len, dim = 6, 4, 23, 29, 8
     generator = torch.Generator().manual_seed(11)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -249,11 +205,11 @@ def test_a_stale_mask_would_actually_have_been_caught(checkout: Path):
         os.environ.pop("HY3D_SDPA_QUERY_CHUNK")
 
 
-def test_the_batch_is_left_alone_so_the_pieces_cannot_be_welded_end_to_end(checkout: Path):
+def test_the_batch_is_left_alone_so_the_pieces_cannot_be_welded_end_to_end():
     """query, key and value are (batch, heads, sequence, head_dim). Slicing dim 0 would
     leave key and value at full batch, SDPA would broadcast the output batch back up to
     match, and cat would glue the chunks into one long sequence."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, k_len, dim = 3, 2, 19, 13, 8
     generator = torch.Generator().manual_seed(5)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)

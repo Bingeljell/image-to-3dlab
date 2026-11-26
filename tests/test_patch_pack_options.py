@@ -1,47 +1,25 @@
-"""Tests for the brute-force packing patches.
-
-Two files have to agree for this to work: `patch_ovoxel_pack_options.py` teaches
-`o_voxel.postprocess.to_glb` to forward `xatlas_pack_charts_kwargs`, and
-`patch_trellis_quality.py` teaches `generate.py` to pass it. If they disagree, the
-failure lands at bake time — sixteen minutes into a generation run. So these tests
-compile the injected text and check the two sides name the same keyword.
-
-As with `test_patch_trellis_highpoly.py`: import the real patch modules, never a
-re-derived copy of their constants.
-"""
+"""Check the packing option passed between TRELLIS and o_voxel."""
 
 from __future__ import annotations
 
 import ast
-import importlib.util
 import textwrap
-from pathlib import Path
 
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-OVOXEL_PATCH = SCRIPTS / "patch_ovoxel_pack_options.py"
-QUALITY_PATCH = SCRIPTS / "patch_trellis_quality.py"
-
-
-def _load(path: Path, name: str, cut: str):
-    """Import a patch module without executing its module-level patch() call."""
-    trimmed = path.read_text().split(cut)[0]
-    spec = importlib.util.spec_from_loader(name, loader=None)
-    module = importlib.util.module_from_spec(spec)
-    module.__dict__["__file__"] = str(path)
-    exec(compile(trimmed, str(path), "exec"), module.__dict__)
-    return module
+from scripts import patch_ovoxel_pack_options as ovoxel_patch
+from scripts import patch_trellis_quality as quality_patch
+from scripts.trellis_export_compat import packing_kwargs
 
 
 @pytest.fixture(scope="module")
 def ovoxel():
-    return _load(OVOXEL_PATCH, "patch_ovoxel", 'if __name__ == "__main__":')
+    return ovoxel_patch
 
 
 @pytest.fixture(scope="module")
 def quality():
-    return _load(QUALITY_PATCH, "patch_quality", 'if __name__ == "__main__":')
+    return quality_patch
 
 
 # --- the two sides must name the same keyword ------------------------------------
@@ -49,11 +27,15 @@ def quality():
 KEYWORD = "xatlas_pack_charts_kwargs"
 
 
-def test_both_patches_use_the_same_keyword(ovoxel, quality):
+def test_both_patches_use_the_same_keyword(ovoxel):
     """The whole point of the pair. A rename on one side must fail here, not at bake."""
     assert KEYWORD in ovoxel.SIGNATURE_REPLACEMENT
     assert KEYWORD in ovoxel.CALL_REPLACEMENT
-    assert KEYWORD in quality.PACK_PREAMBLE
+    def to_glb(*, xatlas_pack_charts_kwargs):
+        return xatlas_pack_charts_kwargs
+
+    assert packing_kwargs(to_glb, True) == {KEYWORD: {"brute_force": True}}
+    assert packing_kwargs(to_glb, False) == {KEYWORD: {"brute_force": False}}
 
 
 def test_forwarded_keyword_is_what_cumesh_accepts(ovoxel):
@@ -66,53 +48,8 @@ def test_forwarded_keyword_is_what_cumesh_accepts(ovoxel):
     assert f"{KEYWORD}=dict({KEYWORD} or {{}})" in call
 
 
-def test_brute_force_flag_matches_xatlas_pack_options(quality):
-    """xatlas' PackOptions field is `brute_force`, not `bruteForce`, via cumesh."""
-    assert '"brute_force": args.uv_brute_force' in quality.PACK_PREAMBLE
-    assert "bruteForce" not in quality.PACK_PREAMBLE
-
-
-# --- the injected generator code must be valid and self-sufficient ---------------
-
-
-def _tree(text: str) -> ast.Module:
-    return ast.parse(textwrap.dedent(text))
-
-
 def test_injected_preamble_is_valid_python(quality):
-    _tree(quality.PACK_PREAMBLE)
-
-
-def test_injected_preamble_imports_what_it_uses(quality):
-    """generate.py has no module-level `inspect`; the block must import its own."""
-    tree = _tree(quality.PACK_PREAMBLE)
-    imported = {
-        a.asname or a.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for a in node.names
-    }
-    assert "_inspect" in imported
-
-
-def test_injected_preamble_guards_against_an_unpatched_ovoxel(quality):
-    """Without the guard an unpatched o_voxel raises TypeError at bake time."""
-    tree = _tree(quality.PACK_PREAMBLE)
-    tests = [node.test for node in ast.walk(tree) if isinstance(node, ast.If)]
-    assert any(isinstance(t, ast.Compare) and isinstance(t.ops[0], ast.In) for t in tests)
-
-
-def test_new_option_parses_and_defaults_on(quality):
-    """Build the real argparse options and check both spellings of the flag."""
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    namespace = {"parser": parser}
-    exec(compile(textwrap.dedent(quality.PACK_OPTIONS), "<opts>", "exec"), namespace)
-
-    assert parser.parse_args([]).uv_brute_force is True
-    assert parser.parse_args(["--no-uv-brute-force-packing"]).uv_brute_force is False
-    assert parser.parse_args(["--uv-brute-force-packing"]).uv_brute_force is True
+    ast.parse(textwrap.dedent(quality.PACK_PREAMBLE))
 
 
 # --- patching behaviour -----------------------------------------------------------

@@ -87,9 +87,8 @@ def test_injected_branch_imports_what_it_uses():
     did not import, and the failure only surfaced at the end of a 16-minute run.
     """
     branch = patch.DISPATCH_NEW
-    assert "import sys as _sys" in branch
-    assert "from pathlib import Path as _Path" in branch
-    assert "from image_to_3dlab.mlx_attention import varlen_attention" in branch
+    assert "from trellis2._assetfurnace_attention import mlx_sparse_attention" in branch
+    assert "out = mlx_sparse_attention(" in branch
 
 
 def test_injected_branch_is_syntactically_valid_python():
@@ -100,6 +99,8 @@ def test_injected_branch_is_syntactically_valid_python():
     ast.parse(module)
 
 
-def test_injected_branch_fails_loudly_if_repo_root_is_not_found():
-    assert "could not locate image_to_3dlab" in patch.DISPATCH_NEW
-    assert "RuntimeError" in patch.DISPATCH_NEW
+def test_full_attn_patch_upgrades_exact_legacy_dispatch():
+    legacy = FULL_ATTN_SOURCE.replace(patch.DISPATCH_ANCHOR, patch.LEGACY_DISPATCH)
+    changed, did = patch.patch_full_attn(legacy)
+    assert did
+    assert changed == patch.patch_full_attn(FULL_ATTN_SOURCE)[0]

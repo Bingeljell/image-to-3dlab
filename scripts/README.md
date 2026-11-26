@@ -246,6 +246,7 @@ Numbers about the project itself, not about any asset.
 | `patch_trellis_multiview.py` | Teach the vendored TRELLIS.2 to condition on several views of one subject. |
 | `patch_trellis_enable_cleanup.py` | Re-enable the decode-time mesh cleanup that `mps_compat.py` turns into no-ops. |
 | `patch_trellis_dump_decode.py` | Teach `generate.py` to cache the decoded mesh, so baking can be re-run without sampling. |
+| `pixal3d_compat.py` | Select Pixal3D checkpoints and enforce the background-remover licence guard. |
 | `patch_pixal3d_rembg.py` | Stop Pixal3D loading BRIA RMBG-2.0, before it ever downloads it. |
 | `patch_pixal3d_model_subset.py` | Let Pixal3D load only the checkpoints a run actually needs. |
 | `patch_pixal3d_low_vram.py` | Make Pixal3D's low-VRAM mode reachable, via `PIXAL3D_LOW_VRAM=1`. |
@@ -254,8 +255,17 @@ Numbers about the project itself, not about any asset.
 | `patch_pixal3d_header_read.py` | Fix `post-replay` on Windows: read its dump header in one `fread`, and say what fell short. |
 | `patch_pixal3d_steps.py` | Let Pixal3D (pixal3d.cpp) run fewer sampling steps, via `PIXAL3D_STEPS=N`. |
 | `patch_pixal3d_shape_reuse.py` | Let Pixal3D save a run's shape and later repaint it from new pictures, via `PIXAL3D_SAVE_SHAPE` / `PIXAL3D_LOAD_SHAPE`. |
+| `skintokens_attention_compat.py` | Provide the PyTorch attention fallback copied into SkinTokens. |
 | `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
 | `patch_hunyuan_rocm.py` | Make Tencent's Hunyuan3D-2.1 survive on an AMD card, without touching what NVIDIA runs. |
+| `rignet_voxelize_compat.py` | macOS replacement for the Linux/Windows-only binvox binary. |
+| `trellis_bvh_compat.py` | Chunk MtlBVH distance queries to bound Metal command-buffer work. |
+| `trellis_sparse_hashmap_compat.py` | Sparse coordinate lookup copied into the vendored TRELLIS decoder. |
+| `trellis_attention_compat.py` | Attention and accelerator adapters copied into vendored TRELLIS checkouts. |
+| `trellis_multiview_compat.py` | Keep TRELLIS views separate and fuse their denoiser predictions. |
+| `trellis_export_compat.py` | Write TRELLIS mesh exports and configure optional packing. |
+| `hunyuan_rocm_compat.py` | Find Hunyuan scheduler steps and chunk paint queries for ROCm. |
+| `trellis_rocm_bitcode.py` | Locate the device bitcode directory for the ROCm extension builds. |
 | `photo_paint.py` | Paint a finished model with the real pixels of its source photos, where they can see. |
 | `patch_trellis_no_bria.py` | Disable TRELLIS' configured background model for license-controlled runs. |
 | `patch_trellis_cuda_no_bria.py` | Stop the NVIDIA TRELLIS.2 checkout loading BRIA RMBG-2.0, before it ever downloads it. |

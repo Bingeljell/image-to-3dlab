@@ -36,6 +36,8 @@ REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "hunyuan-rocm" / "Hunyuan3D-2.1"
 
 MARKER = "# image-to-3dlab:"
+HELPER_SOURCE = Path(__file__).with_name("hunyuan_rocm_compat.py")
+HELPER_NAME = "_i2l_rocm_compat.py"
 
 
 @dataclass(frozen=True)
@@ -56,16 +58,22 @@ class Patch:
     # prepends a line to an existing import. "Is the anchor gone?" is the wrong question
     # for those, and asking it anyway made every patched checkout read as unpatched.
     needle_survives: bool = False
+    legacy: str = ""
 
 
 # --- 1. The scheduler's exact float lookup -------------------------------------------------
 
 SCHEDULER_FILE = "hy3dshape/hy3dshape/schedulers.py"
 SCHEDULER_NEEDLE = "        indices = (schedule_timesteps == timestep).nonzero()"
-SCHEDULER_REPLACEMENT = (
+SCHEDULER_LEGACY = (
     f"        {MARKER} nearest match, not float equality: upstream reads indices[pos]\n"
     "        # straight after, which raises IndexError once no entry matches exactly.\n"
     "        indices = (schedule_timesteps - timestep).abs().argmin().reshape(1)"
+)
+
+SCHEDULER_REPLACEMENT = (
+    "        from ._i2l_rocm_compat import nearest_timestep_indices\n\n"
+    "        indices = nearest_timestep_indices(schedule_timesteps, timestep)"
 )
 
 # The same line appears twice, in the flow-matching and the ddim scheduler. Both are patched
@@ -81,7 +89,7 @@ ATTN_NEEDLE = (
     "            query, key, value, attn_mask=attention_mask, dropout_p=0.0, is_causal=False\n"
     "        )"
 )
-ATTN_REPLACEMENT = (
+ATTN_LEGACY = (
     f"        {MARKER} chunk the sequence axis. Upstream attends over every view and every\n"
     "        # PBR channel in one go, so memory goes as the square of the token count and a\n"
     "        # 20 GB card runs out. Same maths, done in pieces.\n"
@@ -107,7 +115,13 @@ ATTN_REPLACEMENT = (
     "            )"
 )
 ATTN_IMPORT_NEEDLE = "import torch.nn.functional as F"
-ATTN_IMPORT_REPLACEMENT = ATTN_IMPORT_NEEDLE + "\nimport os  # image-to-3dlab: the chunk size"
+ATTN_IMPORT_LEGACY = ATTN_IMPORT_NEEDLE + "\nimport os  # image-to-3dlab: the chunk size"
+ATTN_IMPORT_REPLACEMENT = (
+    ATTN_IMPORT_NEEDLE + "\nfrom ._i2l_rocm_compat import chunked_attention"
+)
+ATTN_REPLACEMENT = (
+    "        hidden_states = chunked_attention(query, key, value, attention_mask)"
+)
 
 
 # --- 3. The hardcoded device --------------------------------------------------------------
@@ -128,11 +142,13 @@ PATCHES = (
     # The scheduler line is in two schedulers and only one of them may move, so it is
     # replaced wherever it appears and the count asserted.
     Patch(SCHEDULER_FILE, SCHEDULER_NEEDLE, SCHEDULER_REPLACEMENT,
-          proof="nearest match, not float equality", expected=SCHEDULER_EXPECTED),
+          proof="indices = nearest_timestep_indices(", expected=SCHEDULER_EXPECTED,
+          legacy=SCHEDULER_LEGACY),
     Patch(ATTN_FILE, ATTN_IMPORT_NEEDLE, ATTN_IMPORT_REPLACEMENT,
-          proof="import os  # image-to-3dlab", needle_survives=True),
+          proof="from ._i2l_rocm_compat import chunked_attention", needle_survives=True,
+          legacy=ATTN_IMPORT_LEGACY),
     Patch(ATTN_FILE, ATTN_NEEDLE, ATTN_REPLACEMENT,
-          proof="chunk the sequence axis"),
+          proof="hidden_states = chunked_attention(", legacy=ATTN_LEGACY),
     Patch(ATTN_FILE, DEVICE_NEEDLE, DEVICE_REPLACEMENT,
           proof="follow the tensor rather than naming a device"),
 )
@@ -150,6 +166,8 @@ def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
     """
     if spec.proof in source:
         return source, False
+    if spec.legacy and spec.legacy in source:
+        return source.replace(spec.legacy, spec.replacement), True
     if spec.needle not in source:
         raise RuntimeError(f"{label}: the anchor for this patch is gone; upstream changed, "
                            "re-check the patch before running it")
@@ -159,7 +177,8 @@ def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
 def patch_file(path: Path, spec: Patch) -> bool:
     """Patch one file. Returns whether it changed, and asserts the anchor count."""
     text = path.read_text()
-    found = text.count(spec.needle)
+    anchor = spec.legacy if spec.legacy and spec.legacy in text else spec.needle
+    found = text.count(anchor)
     if found and found != spec.expected:
         raise RuntimeError(f"{path}: expected {spec.expected} occurrence(s) of this patch's "
                            f"anchor, found {found}; re-check the patch before running it")
@@ -177,6 +196,10 @@ def is_patched(root: Path = DEFAULT_ROOT) -> bool:
     keeps its anchor on purpose.
     """
     try:
+        helper = HELPER_SOURCE.read_bytes()
+        for relative in (SCHEDULER_FILE, ATTN_FILE):
+            if (root / relative).with_name(HELPER_NAME).read_bytes() != helper:
+                return False
         for spec in PATCHES:
             text = (root / spec.file).read_text()
             if spec.proof not in text:
@@ -199,6 +222,12 @@ def patch(root: Path = DEFAULT_ROOT) -> int:
             raise SystemExit(f"{path} is missing; this is not a Hunyuan3D-2.1 checkout.")
         if patch_file(path, spec):
             changed.add(spec.file)
+    helper = HELPER_SOURCE.read_bytes()
+    for relative in (SCHEDULER_FILE, ATTN_FILE):
+        destination = (root / relative).with_name(HELPER_NAME)
+        if not destination.is_file() or destination.read_bytes() != helper:
+            destination.write_bytes(helper)
+            changed.add(relative)
     return len(changed)
 
 

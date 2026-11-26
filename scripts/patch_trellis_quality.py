@@ -33,6 +33,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "vendor" / "trellis-mac" / "generate.py"
+HELPER_SOURCE = Path(__file__).with_name("trellis_export_compat.py")
+HELPER_NAME = "_i2l_trellis_export.py"
 
 # The port restricts texture size by argparse alone; to_glb has no such limit.
 SIZE_NEEDLE = '        "--texture-size", type=int, default=1024,\n        choices=[512, 1024, 2048],\n'
@@ -101,7 +103,7 @@ CALL_REPLACEMENT = """                    decimation_target=target_faces,
 # signature check keeps an unpatched o_voxel from raising TypeError sixteen minutes into
 # a run — it warns and packs the old way instead.
 PACK_ANCHOR = "                glb = o_voxel.postprocess.to_glb(\n"
-PACK_PREAMBLE = '''                # image-to-3dlab: brute-force xatlas packing, when o_voxel can
+LEGACY_PACK_PREAMBLE = '''                # image-to-3dlab: brute-force xatlas packing, when o_voxel can
                 # forward it. See scripts/patch_ovoxel_pack_options.py.
                 import inspect as _inspect
                 _pack_kwargs = {}
@@ -119,6 +121,11 @@ PACK_PREAMBLE = '''                # image-to-3dlab: brute-force xatlas packing,
                     )
 '''
 
+PACK_PREAMBLE = """                from _i2l_trellis_export import packing_kwargs
+
+                _pack_kwargs = packing_kwargs(o_voxel.postprocess.to_glb, args.uv_brute_force)
+"""
+
 PACK_NEEDLE = """                    mesh_cluster_smooth_strength=args.uv_smooth_strength,
                     verbose=True,
                 )"""
@@ -130,7 +137,7 @@ PACK_REPLACEMENT = """                    mesh_cluster_smooth_strength=args.uv_s
 
 
 def patch(path: Path) -> None:
-    source = path.read_text()
+    original = source = path.read_text()
 
     if "choices=[512, 1024, 2048]" in source:
         if SIZE_NEEDLE not in source:
@@ -152,13 +159,20 @@ def patch(path: Path) -> None:
             raise RuntimeError(f"expected CLI option anchor not found in {path}")
         source = source.replace(OPTION_ANCHOR, PACK_OPTIONS + OPTION_ANCHOR)
 
-    if "**_pack_kwargs," not in source:
+    if LEGACY_PACK_PREAMBLE in source:
+        source = source.replace(LEGACY_PACK_PREAMBLE, PACK_PREAMBLE)
+    elif "**_pack_kwargs," not in source:
         if PACK_ANCHOR not in source or PACK_NEEDLE not in source:
             raise RuntimeError(f"expected to_glb call not found in {path}")
         source = source.replace(PACK_ANCHOR, PACK_PREAMBLE + PACK_ANCHOR)
         source = source.replace(PACK_NEEDLE, PACK_REPLACEMENT)
 
-    path.write_text(source)
+    helper = path.with_name(HELPER_NAME)
+    payload = HELPER_SOURCE.read_bytes()
+    if not helper.is_file():
+        helper.write_bytes(payload)
+    if source != original:
+        path.write_text(source)
 
 
 def main() -> None:

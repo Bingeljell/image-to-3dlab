@@ -39,78 +39,22 @@ have `vendor/rignet` checked out.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RIGNET = ROOT / "vendor" / "rignet"
 
-VOXELIZE_COMPAT_MODULE = '''"""macOS replacement for the Linux/Windows-only binvox binary.
-
-RigNet's `binvox` executable ships as a Linux x86-64 ELF (plus a `binvox.exe` for
-Windows), with no macOS build, so `quick_start.py` cannot voxelize on darwin. This
-rebuilds the same solid occupancy grid `binvox_rw.read_as_3d_array` would hand back --
-only `.data` / `.dims` / `.translate` / `.scale` are ever read downstream (see
-`utils/mst_utils.py:inside_check` and `utils/vis_utils.py`).
-
-**Do not query `trimesh.Trimesh.contains()` directly on a large point batch** -- it
-was tried first here and used ~9GB RSS for just 20,000 of the 681,472 grid points
-this needs (extrapolates to killing the process well before the full grid, which is
-exactly what happened: two runs died with SIGKILL). `Trimesh.voxelized(pitch).fill()`
-takes <1s and ~600MB for the same mesh: it builds a solid grid once via surface
-rasterization + flood-fill, then `VoxelGrid.is_filled(points)` is a cheap index
-lookup into that already-computed grid, not a fresh raycast per point.
-
-Trimesh's own `voxelized()` sizes its grid to best-fit the bounding box per axis, so
-its shape usually isn't a cube (e.g. (55, 89, 87)) -- `mst_utils.py`'s coordinate
-formula assumes a single uniform scale across all three axes (it indexes `dims[0]`
-for every axis), matching binvox's own convention. So this resamples that fast grid
-onto an explicit `resolution`-cubed grid built from our own translate/scale, via
-`is_filled`, rather than trusting trimesh's native shape.
-
-Written by scripts/patch_rignet_macos_compat.py; re-run that script after any fresh
-`git clone` of vendor/rignet since vendor/ is git-ignored.
-"""
-
-import numpy as np
-import trimesh
-
-from utils.binvox_rw import Voxels
-
-
-def voxelize_normalized_mesh(obj_path: str, resolution: int = 88) -> Voxels:
-    """Solid occupancy grid for a mesh already normalized by quick_start.normalize_obj.
-
-    Cell (i, j, k) is True iff its center -- (i+.5)/resolution etc., scaled and
-    translated by the mesh's own bounding box -- lies inside the mesh surface.
-    """
-    mesh = trimesh.load(obj_path, force="mesh", process=False)
-    bmin, bmax = mesh.bounds
-    scale = float((bmax - bmin).max())
-    translate = bmin.astype(float)
-    pitch = scale / resolution
-
-    filled = mesh.voxelized(pitch=pitch).fill()
-
-    centers = (np.arange(resolution) + 0.5) / resolution
-    xs = scale * centers + translate[0]
-    ys = scale * centers + translate[1]
-    zs = scale * centers + translate[2]
-    gx, gy, gz = np.meshgrid(xs, ys, zs, indexing="ij")
-    points = np.stack([gx, gy, gz], axis=-1).reshape(-1, 3)
-
-    inside = filled.is_filled(points)
-    data = inside.reshape(resolution, resolution, resolution)
-
-    return Voxels(data, [resolution] * 3, translate.tolist(), scale, "xyz")
-'''
+VOXELIZE_COMPAT_SOURCE = Path(__file__).with_name("rignet_voxelize_compat.py")
 
 
 def write_voxelize_compat_module() -> bool:
     """Drop utils/voxelize_compat.py into the vendored tree. Idempotent."""
     target = RIGNET / "utils" / "voxelize_compat.py"
-    if target.exists() and target.read_text() == VOXELIZE_COMPAT_MODULE:
+    source = VOXELIZE_COMPAT_SOURCE.read_bytes()
+    if target.exists() and target.read_bytes() == source:
         return False
-    target.write_text(VOXELIZE_COMPAT_MODULE)
+    target.write_bytes(source)
     return True
 
 
@@ -118,10 +62,6 @@ def patch_binvox_platform_check() -> bool:
     """Route darwin through voxelize_compat instead of the missing binvox binary."""
     path = RIGNET / "quick_start.py"
     source = path.read_text()
-
-    already_patched = 'platform == "darwin"' in source
-    if already_patched:
-        return False
 
     needle = (
         "    # voxel\n"
@@ -136,27 +76,26 @@ def patch_binvox_platform_check() -> bool:
         "    with open(mesh_filaname.replace('_remesh.obj', '_normalized.binvox'), 'rb') as fvox:\n"
         "        vox = binvox_rw.read_as_3d_array(fvox)\n"
     )
-    if needle not in source:
-        raise RuntimeError(f"expected binvox platform-check block not found in {path}")
-
     replacement = (
         "    # voxel\n"
-        '    normalized_obj = mesh_filaname.replace("_remesh.obj", "_normalized.obj")\n'
-        '    if platform == "darwin":\n'
-        "        from utils.voxelize_compat import voxelize_normalized_mesh\n"
-        "        vox = voxelize_normalized_mesh(normalized_obj, resolution=88)\n"
-        "    else:\n"
-        "        if not os.path.exists(mesh_filaname.replace('_remesh.obj', '_normalized.binvox')):\n"
-        '            if platform == "linux" or platform == "linux2":\n'
-        '                os.system("./binvox -d 88 -pb " + normalized_obj)\n'
-        '            elif platform == "win32":\n'
-        '                os.system("binvox.exe -d 88 " + normalized_obj)\n'
-        "            else:\n"
-        "                raise Exception('Sorry, we currently only support windows, linux and macOS.')\n"
-        "\n"
-        "        with open(mesh_filaname.replace('_remesh.obj', '_normalized.binvox'), 'rb') as fvox:\n"
-        "            vox = binvox_rw.read_as_3d_array(fvox)\n"
+        "    from utils.voxelize_compat import load_voxels\n"
+        "    vox = load_voxels(mesh_filaname)\n"
     )
+    if replacement in source:
+        return False
+    if '    if platform == "darwin":\n' in source:
+        legacy_start = '    # voxel\n    normalized_obj = mesh_filaname.replace("_remesh.obj", "_normalized.obj")\n'
+        legacy_end = "            vox = binvox_rw.read_as_3d_array(fvox)\n"
+        start = source.find(legacy_start)
+        end = source.find(legacy_end, start + len(legacy_start))
+        if start >= 0 and end >= 0:
+            needle = source[start:end + len(legacy_end)]
+            if hashlib.sha256(needle.encode()).hexdigest() != (
+                "f12d6a43b69ca97291e5682382120ed744ece5094786ffe0f4feee09ef2b0c63"
+            ):
+                raise RuntimeError(f"previous RigNet voxel patch has changed in {path}")
+    if source.count(needle) != 1:
+        raise RuntimeError(f"expected binvox platform-check block not found exactly once in {path}")
     path.write_text(source.replace(needle, replacement))
     return True
 

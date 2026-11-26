@@ -202,5 +202,5 @@ def test_dump_imports_what_it_uses():
     A missing one-line import once cost a full 16-minute run that crashed on its last
     statement, which is why this is asserted rather than eyeballed.
     """
-    assert "import torch as _torch" in patch.ADDED_DUMP
-    assert "_torch.save" in patch.ADDED_DUMP
+    assert "from _i2l_trellis_export import save_decoded_mesh" in patch.ADDED_DUMP
+    assert "save_decoded_mesh(args.dump_decode, mesh_out)" in patch.ADDED_DUMP

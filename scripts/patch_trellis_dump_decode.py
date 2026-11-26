@@ -31,6 +31,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "vendor/trellis-mac/generate.py"
+HELPER_SOURCE = Path(__file__).with_name("trellis_export_compat.py")
+HELPER_NAME = "_i2l_trellis_export.py"
 
 ANCHOR_ARG = '    parser.add_argument("--remesh-band", type=float, default=1.0)\n'
 ADDED_ARG = (
@@ -42,7 +44,7 @@ ADDED_ARG = (
 )
 
 ANCHOR_MESH = "    mesh_out = outputs[0] if isinstance(outputs, list) else outputs\n"
-ADDED_DUMP = (
+LEGACY_DUMP = (
     "    # i2l: cache the decode so baking can be re-run without the 16-minute sample.\n"
     "    if getattr(args, 'dump_decode', None):\n"
     "        import torch as _torch\n"
@@ -60,6 +62,15 @@ ADDED_DUMP = (
 )
 
 
+ADDED_DUMP = """\
+    # i2l: cache the decode so baking can be re-run without sampling.
+    if getattr(args, 'dump_decode', None):
+        from _i2l_trellis_export import save_decoded_mesh
+
+        save_decoded_mesh(args.dump_decode, mesh_out)
+"""
+
+
 def state(source: str) -> str:
     """'applied', 'absent', or raise if the anchors have moved."""
     for anchor, what in ((ANCHOR_ARG, "--remesh-band argument"), (ANCHOR_MESH, "mesh_out assignment")):
@@ -69,7 +80,7 @@ def state(source: str) -> str:
                 "inspect it before patching."
             )
     has_arg = ADDED_ARG in source
-    has_dump = ADDED_DUMP in source
+    has_dump = ADDED_DUMP in source or LEGACY_DUMP in source
     if has_arg and has_dump:
         return "applied"
     if not has_arg and not has_dump:
@@ -79,12 +90,16 @@ def state(source: str) -> str:
 
 def apply(source: str) -> str:
     """Insert both halves. The argument must import nothing the host file lacks."""
+    if LEGACY_DUMP in source:
+        return source.replace(LEGACY_DUMP, ADDED_DUMP, 1)
+    if ADDED_DUMP in source:
+        return source
     source = source.replace(ANCHOR_ARG, ANCHOR_ARG + ADDED_ARG, 1)
     return source.replace(ANCHOR_MESH, ANCHOR_MESH + ADDED_DUMP, 1)
 
 
 def remove(source: str) -> str:
-    return source.replace(ADDED_ARG, "", 1).replace(ADDED_DUMP, "", 1)
+    return source.replace(ADDED_ARG, "", 1).replace(ADDED_DUMP, "", 1).replace(LEGACY_DUMP, "", 1)
 
 
 def main() -> int:
@@ -101,15 +116,24 @@ def main() -> int:
     source = args.path.read_text()
     current = state(source)
 
+    helper = args.path.with_name(HELPER_NAME)
+    payload = HELPER_SOURCE.read_bytes()
+    helper_current = helper.is_file()
     if args.check:
+        if ADDED_DUMP in source and not helper_current:
+            print(f"ABSENT: missing or outdated helper {helper}")
+            return 2
         print("APPLIED" if current == "applied" else "ABSENT")
         return 0
 
-    want = "absent" if args.revert else "applied"
-    if current == want:
-        print(f"already {want} — no change")
+    patched = remove(source) if args.revert else apply(source)
+    if not args.revert and not helper_current:
+        helper.write_bytes(payload)
+    elif patched == source:
+        print(f"already {current} — no change")
         return 0
-    args.path.write_text((remove if args.revert else apply)(source))
+    if patched != source:
+        args.path.write_text(patched)
     print("reverted" if args.revert else "applied: --dump-decode")
     return 0
 

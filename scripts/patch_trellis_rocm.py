@@ -51,6 +51,12 @@ CHECKOUT = "TRELLIS.2"
 EXTENSIONS = "extensions"
 
 MARKER = "# image-to-3dlab:"
+ATTENTION_HELPER_SOURCE = Path(__file__).with_name("trellis_attention_compat.py")
+ATTENTION_HELPER_TARGET = f"{CHECKOUT}/trellis2/_assetfurnace_attention.py"
+BITCODE_HELPER_SOURCE = Path(__file__).with_name("trellis_rocm_bitcode.py")
+BITCODE_HELPER_NAME = "_assetfurnace_rocm_bitcode.py"
+ATTENTION_IMPORT = "from trellis2._assetfurnace_attention import"
+BITCODE_LINK = f".with_name({BITCODE_HELPER_NAME!r})"
 
 
 @dataclass(frozen=True)
@@ -120,15 +126,9 @@ DENSE_ATTN_REPLACEMENT = (
     f"        # {MARKER} {AULE_PROOF}: it needs no CUDA extension to compile, so it is\n"
     "        # the one backend that also runs on ROCm. q/k/v arrive as [N, L, H, C].\n"
     "        from aule import flash_attention_triton\n"
-    "        if num_all_args == 1:\n"
-    "            q, k, v = qkv.unbind(dim=2)\n"
-    "        elif num_all_args == 2:\n"
-    "            k, v = kv.unbind(dim=2)\n"
-    "        q = q.permute(0, 2, 1, 3)\n"
-    "        k = k.permute(0, 2, 1, 3)\n"
-    "        v = v.permute(0, 2, 1, 3)              # [N, H, L, C]\n"
-    "        out = flash_attention_triton(q, k, v, causal=False)\n"
-    "        out = out.permute(0, 2, 1, 3)           # [N, L, H, C]\n"
+    f"        {ATTENTION_IMPORT} aule_dense, unpack_attention\n"
+    "        q, k, v = unpack_attention(num_all_args, 2, locals())\n"
+    "        out = aule_dense(q, k, v, flash_attention_triton)\n"
     "\n"
     "    else:\n"
     "        raise ValueError(f\"Unknown attention module: {config.BACKEND}\")"
@@ -150,20 +150,9 @@ SPARSE_ATTN_REPLACEMENT = (
     "        # [T, H, C] tensors is attended on its own and the pieces concatenated.\n"
     "        # q_seqlen and kv_seqlen are plain lists by this point (see above).\n"
     "        from aule import flash_attention_triton\n"
-    "        if num_all_args == 1:\n"
-    "            q, k, v = qkv.unbind(dim=1)\n"
-    "        elif num_all_args == 2:\n"
-    "            k, v = kv.unbind(dim=1)\n"
-    "        outs, q_off, kv_off = [], 0, 0\n"
-    "        for qn, kn in zip(q_seqlen, kv_seqlen):\n"
-    "            q_i = q[q_off:q_off + qn].transpose(0, 1).unsqueeze(0)     # [1, H, qn, C]\n"
-    "            k_i = k[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)   # [1, H, kn, C]\n"
-    "            v_i = v[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)   # [1, H, kn, Co]\n"
-    "            out_i = flash_attention_triton(q_i, k_i, v_i, causal=False)[0]  # [H, qn, Co]\n"
-    "            outs.append(out_i.transpose(0, 1))                         # [qn, H, Co]\n"
-    "            q_off += qn\n"
-    "            kv_off += kn\n"
-    "        out = torch.cat(outs, dim=0)   # [T_Q, H, Co]\n"
+    f"        {ATTENTION_IMPORT} aule_packed, unpack_attention\n"
+    "        q, k, v = unpack_attention(num_all_args, 1, locals())\n"
+    "        out = aule_packed(q, k, v, q_seqlen, kv_seqlen, flash_attention_triton)\n"
     "\n"
     "    else:\n"
     "        raise ValueError(f\"Unknown attention module: {config.ATTN}\")"
@@ -172,34 +161,16 @@ SPARSE_ATTN_REPLACEMENT = (
 
 # --- 2. The ROCm device bitcode path -------------------------------------------------------
 #
-# One anchor, identical in all four forks. The replacement stays inside the list literal the
-# anchor sits in, so a statement (and hence a helper function) cannot go here; comments and
-# implicit string concatenation can.
+# Run the sibling helper by file so isolated setuptools builds do not need the
+# extension directory on sys.path. Resolving the path only needs the standard library.
 
 DEVICE_LIB_NEEDLE = (
     "f\"--rocm-device-lib-path={os.path.join(_rocm,'lib','llvm','amdgcn','bitcode')}\",")
-# Plain concatenation rather than an f-string: a `{...}` expression cannot be split across
-# implicitly concatenated f-strings, and the first attempt at this broke all three files.
-# Stays inside the list literal the anchor sits in, so a statement cannot go here either.
 DEVICE_LIB_REPLACEMENT = (
     "%%INDENT%%%%MARK%% ROCm 7.x keeps the device bitcode in <root>/amdgcn/bitcode;\n"
-    "%%INDENT%%# ROCm 10 (TheRock) moved it under lib/llvm. These forks hardcode\n"
-    "%%INDENT%%# the ROCm 10 path, so on 7.x the build stops with \"cannot find ROCm\n"
-    "%%INDENT%%# device library\". HIP_DEVICE_LIB_PATH (hipcc's own variable) wins,\n"
-    "%%INDENT%%# then whichever layout this install actually has.\n"
-    "%%INDENT%%\"--rocm-device-lib-path=\" + (\n"
-    "%%INDENT%%%%DEEP%%os.environ.get('HIP_DEVICE_LIB_PATH') or next(\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%(p for p in (os.path.join(_rocm,'lib','llvm',"
-    "'amdgcn','bitcode'),\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%%%DEEP%%os.path.join(_rocm,'amdgcn','bitcode'))\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%%%DEEP%%if os.path.isdir(p)), None)\n"
-    "%%INDENT%%%%DEEP%%# Neither layout: say so here, not as a bare --rocm-device-lib-path=\n"
-    "%%INDENT%%%%DEEP%%# and a compile error that never mentions the bitcode. A generator's\n"
-    "%%INDENT%%%%DEEP%%# throw() is how an expression raises inside a list literal.\n"
-    "%%INDENT%%%%DEEP%%or (_ for _ in ()).throw(RuntimeError(\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%'ROCm device bitcode not found under ' + repr(_rocm) +\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%' (looked in lib/llvm/amdgcn/bitcode and amdgcn/bitcode). '\n"
-    "%%INDENT%%%%DEEP%%%%DEEP%%'Set HIP_DEVICE_LIB_PATH to the folder holding ocml.bc.'))),\n"
+    '%%INDENT%%"--rocm-device-lib-path=" + __import__("runpy").run_path(\n'
+    f'%%INDENT%%%%DEEP%%str(__import__("pathlib").Path(__file__){BITCODE_LINK})\n'
+    '%%INDENT%%)["device_lib_path"](_rocm),\n'
 )
 DEVICE_LIB_PROOF = "ROCm 7.x keeps the device bitcode"
 
@@ -253,16 +224,8 @@ WINDOW_SELF_REPLACEMENT = (
     "    elif config.ATTN == 'aule':\n"
     f"        # {MARKER} {WINDOW_SELF_PROOF}, as the full sparse branch does.\n"
     "        from aule import flash_attention_triton\n"
-    "        q, k, v = qkv_feats.unbind(dim=1)                                # [M, H, C]\n"
-    "        outs, off = [], 0\n"
-    "        for n in seq_lens.tolist():\n"
-    "            q_i = q[off:off + n].transpose(0, 1).unsqueeze(0)            # [1, H, n, C]\n"
-    "            k_i = k[off:off + n].transpose(0, 1).unsqueeze(0)\n"
-    "            v_i = v[off:off + n].transpose(0, 1).unsqueeze(0)\n"
-    "            out_i = flash_attention_triton(q_i, k_i, v_i, causal=False)[0]  # [H, n, C]\n"
-    "            outs.append(out_i.transpose(0, 1))                           # [n, H, C]\n"
-    "            off += n\n"
-    "        out = torch.cat(outs, dim=0)                                     # [M, H, C]\n"
+    f"        {ATTENTION_IMPORT} aule_window_self\n"
+    "        out = aule_window_self(qkv_feats, seq_lens, flash_attention_triton)\n"
     + UNKNOWN_ATTN +
     "\n"
     "    out = out[bwd_indices]      # [T, H, C]"
@@ -279,17 +242,8 @@ WINDOW_CROSS_REPLACEMENT = (
     "    elif config.ATTN == 'aule':\n"
     f"        # {MARKER} {WINDOW_CROSS_PROOF}.\n"
     "        from aule import flash_attention_triton\n"
-    "        k, v = kv_feats.unbind(dim=1)                                    # [M, H, C]\n"
-    "        outs, q_off, kv_off = [], 0, 0\n"
-    "        for qn, kn in zip(q_seq_lens.tolist(), kv_seq_lens.tolist()):\n"
-    "            q_i = q_feats[q_off:q_off + qn].transpose(0, 1).unsqueeze(0)  # [1, H, qn, C]\n"
-    "            k_i = k[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)      # [1, H, kn, C]\n"
-    "            v_i = v[kv_off:kv_off + kn].transpose(0, 1).unsqueeze(0)\n"
-    "            out_i = flash_attention_triton(q_i, k_i, v_i, causal=False)[0]  # [H, qn, C]\n"
-    "            outs.append(out_i.transpose(0, 1))                           # [qn, H, C]\n"
-    "            q_off += qn\n"
-    "            kv_off += kn\n"
-    "        out = torch.cat(outs, dim=0)                                     # [M, H, C]\n"
+    f"        {ATTENTION_IMPORT} aule_window_cross\n"
+    "        out = aule_window_cross(q_feats, kv_feats, q_seq_lens, kv_seq_lens, flash_attention_triton)\n"
     + UNKNOWN_ATTN +
     "\n"
     "    out = out[q_bwd_indices]      # [T, H, C]"
@@ -376,6 +330,52 @@ def anchor_indent(source: str, needle: str) -> str:
                        "patch before running it")
 
 
+def current_replacement(source: str, spec: Patch) -> str:
+    replacement = spec.replacement
+    if spec.indent_to_anchor:
+        needle = spec.needle if spec.needle in source else spec.proof
+        indent = anchor_indent(source, needle)
+        if needle == spec.proof:
+            indent = indent.removesuffix(f"{MARKER} ")
+        replacement = (replacement.replace("%%MARK%%", MARKER)
+                       .replace("%%INDENT%%", indent)
+                       .replace("%%DEEP%%", "    "))
+    return replacement
+
+
+def upgrade_inline(source: str, spec: Patch, replacement: str, label: str) -> tuple[str, bool]:
+    """Replace an older inline helper only between its audited anchors."""
+    if spec.proof == DEVICE_LIB_PROOF:
+        start = f"{MARKER} {DEVICE_LIB_PROOF}"
+        end = "'Set HIP_DEVICE_LIB_PATH to the folder holding ocml.bc.'))),"
+        if BITCODE_LINK in source:
+            return source, False
+    else:
+        if ATTENTION_IMPORT in replacement and replacement.lstrip() in source:
+            return source, False
+        start = "    elif config." + ("BACKEND" if spec.file == DENSE_ATTN else "ATTN") + " == 'aule':"
+        end = UNKNOWN_ATTN.rstrip() if spec.file == WINDOWED_ATTN else spec.needle
+        if ATTENTION_IMPORT not in replacement:
+            return source, False
+    if source.count(spec.proof) != 1:
+        raise RuntimeError(f"{label}: previous patch marker is ambiguous")
+    marker = source.index(spec.proof)
+    before = source.rfind(start, 0, marker + len(spec.proof))
+    after = source.find(end, marker)
+    if before < 0 or after < 0:
+        raise RuntimeError(f"{label}: previous patch boundaries changed")
+    after += len(end)
+    if spec.proof == DEVICE_LIB_PROOF:
+        before = source.rfind("\n", 0, before) + 1
+        after += 1  # consume the old line's newline
+        updated = replacement
+    else:
+        branch = replacement.index(start)
+        ending = replacement.index(end, branch) + len(end)
+        updated = replacement[branch:ending]
+    return source[:before] + updated + source[after:], True
+
+
 def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
     """Return the patched text and whether it changed.
 
@@ -385,17 +385,14 @@ def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
     moved and the patch wants re-reading before it is trusted again.
     """
     if spec.proof in source:
-        return source, False
+        if spec.proof not in (DEVICE_LIB_PROOF, AULE_PROOF, WINDOW_SELF_PROOF, WINDOW_CROSS_PROOF):
+            return source, False
+        replacement = current_replacement(source, spec)
+        return upgrade_inline(source, spec, replacement, label)
     if spec.needle not in source:
         raise RuntimeError(f"{label}: the anchor for this patch is gone; upstream changed, "
                            "re-check the patch before running it")
-    replacement = spec.replacement
-    if spec.indent_to_anchor:
-        indent = anchor_indent(source, spec.needle)
-        replacement = (replacement.replace("%%MARK%%", MARKER)
-                       .replace("%%INDENT%%", indent)
-                       .replace("%%DEEP%%", "    "))
-    return source.replace(spec.needle, replacement), True
+    return source.replace(spec.needle, current_replacement(source, spec)), True
 
 
 def patch_file(path: Path, spec: Patch) -> bool:
@@ -446,7 +443,18 @@ def apply(root: Path = DEFAULT_ROOT) -> list[tuple[Patch, bool]]:
     if missing:
         raise RuntimeError(f"{root}: cannot patch, these files are not there: "
                            + ", ".join(missing))
-    return [(spec, patch_file(root / spec.file, spec)) for spec in PATCHES]
+    installed = [(spec, patch_file(root / spec.file, spec)) for spec in PATCHES]
+    copy_helper(ATTENTION_HELPER_SOURCE, root / ATTENTION_HELPER_TARGET)
+    for name in DEVICE_LIB_FILES:
+        copy_helper(BITCODE_HELPER_SOURCE, (root / name).with_name(BITCODE_HELPER_NAME))
+    return installed
+
+
+def copy_helper(source: Path, destination: Path) -> None:
+    data = source.read_bytes()
+    if not destination.is_file():
+        destination.write_bytes(data)
+
 
 
 def describe(root: Path = DEFAULT_ROOT) -> str:

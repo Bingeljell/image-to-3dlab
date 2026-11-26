@@ -370,10 +370,18 @@ def main(argv: list[str] | None = None) -> int:
             bone["IK_FK"] = 0.0
 
     action_name = args.name or f"Quad{args.gait.capitalize()}"
-    if action_name in bpy.data.actions:
-        bpy.data.actions.remove(bpy.data.actions[action_name])
-    action = bpy.data.actions.new(action_name)
     animation = rig.animation_data or rig.animation_data_create()
+    previous = animation.action
+    if previous is not None:
+        animation.action = None
+        base, separator, suffix = previous.name.rpartition(".")
+        same_take = previous.name == action_name or (
+            separator and base == action_name and suffix.isdecimal()
+        )
+        # Never unlink another rig's clip, an NLA strip, or a saved action.
+        if same_take and previous.users == 0:
+            bpy.data.actions.remove(previous)
+    action = bpy.data.actions.new(action_name)
     animation.action = action
     try:  # Blender 4.4+ slotted actions need a slot bound before curves land
         slot = action.slots.new(id_type='OBJECT', name=rig.name)
@@ -560,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
             bone.keyframe_insert("rotation_euler", frame=frame)
 
     report = {
-        "action": action_name, "gait": args.gait,
+        "action": action.name, "gait": args.gait,
         "frames": [scene.frame_start, scene.frame_end],
         "sizes": {k: round(v, 4) for k, v in plan["sizes"].items()},
         "body_bob": round(max(b["up"] for b in plan["body"])

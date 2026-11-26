@@ -84,7 +84,7 @@ class Armature(Keyframed):
         self.type = "ARMATURE"
         self.pose = SimpleNamespace(bones=Objects(bones))
         self.animation_data = (
-            SimpleNamespace(action=object()) if animation_data else None
+            SimpleNamespace(action=None) if animation_data else None
         )
         self.action = action
         self.clear_count = 0
@@ -168,7 +168,7 @@ def test_attack_replaces_actions_and_keys_toes_and_undriven_bones(blender, capsy
     }
     assert json.loads(capsys.readouterr().out) == result == expected
     assert arm.animation_data.action.name == "Attack"
-    assert bpy.data.actions == [other]
+    assert bpy.data.actions == [*stale, other]
     assert frames == [1, 2, 1]
     assert modes == ["POSE", "OBJECT"]
     assert (bpy.context.scene.frame_start, bpy.context.scene.frame_end) == (1, 2)
@@ -223,7 +223,7 @@ def test_rigify_warns_about_ik_and_only_keys_sampled_bones(blender, capsys):
         }
     )
     assert arm.animation_data.action.name == "Walk"
-    assert bpy.data.actions == [other]
+    assert bpy.data.actions == [stale, other]
     assert frames == [1, 2, 1]
     assert modes == ["POSE", "OBJECT"]
     assert (bpy.context.scene.frame_start, bpy.context.scene.frame_end) == (1, 2)
@@ -766,3 +766,21 @@ def test_quadruped_walk_checks_explicit_mesh_before_editing_rig(blender, mesh_na
         run({**WALK_ARGS, "mesh_name": mesh_name})
     assert arm.clear_count == 0
     assert modes == []
+
+
+@pytest.mark.parametrize("worker,name", [(attack, "Attack"), (walk, "Walk")])
+@pytest.mark.parametrize("remaining_users", [0, 1, 2])
+@pytest.mark.parametrize("old_name", ["requested", "requested.001", "Idle"])
+def test_animation_replacement_preserves_other_clips(blender, worker, name, remaining_users, old_name):
+    old = SimpleNamespace(name=old_name.replace("requested", name), users=remaining_users)
+    unrelated = SimpleNamespace(name=name + ".002", users=1)
+    bpy, arm, _, _ = blender({"head": Bone()}, items=[old, unrelated])
+    arm.animation_data.action = old
+    other_rig = SimpleNamespace(animation_data=SimpleNamespace(action=unrelated))
+    bpy.data.objects["OtherRig"] = other_rig
+    worker.run({"poses": [{"head": 0}, {"head": 30}], "toe": 0,
+                "action_name": name, "rig_name": arm.name})
+    assert unrelated in bpy.data.actions
+    assert other_rig.animation_data.action is unrelated
+    assert (old in bpy.data.actions) == (remaining_users > 0 or old_name == "Idle")
+    assert arm.animation_data.action is not old

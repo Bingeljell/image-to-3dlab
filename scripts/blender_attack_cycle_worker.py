@@ -25,13 +25,17 @@ def run(arguments: dict) -> dict:
     bpy.context.view_layer.objects.active = arm
     bpy.ops.object.mode_set(mode="POSE")
 
-    # Detaching the old action is not enough: it survives in bpy.data.actions, so the new
-    # one is created as "Attack.001", both get exported, and a viewer plays whichever comes
-    # first -- silently showing the previous take. Delete any same-named action outright.
-    if arm.animation_data and arm.animation_data.action:
+    # Only retire this rig's previous take. Other rigs, NLA strips and fake
+    # users keep their actions; Blender assigns a unique name on collision.
+    previous = arm.animation_data.action if arm.animation_data else None
+    if previous is not None:
         arm.animation_data.action = None
-    for stale in [a for a in bpy.data.actions if a.name.split(".")[0] == action_name]:
-        bpy.data.actions.remove(stale)
+        base, separator, suffix = previous.name.rpartition(".")
+        same_take = previous.name == action_name or (
+            separator and base == action_name and suffix.isdecimal()
+        )
+        if same_take and previous.users == 0:
+            bpy.data.actions.remove(previous)
 
     for pb in arm.pose.bones:
         pb.rotation_mode = "XYZ"

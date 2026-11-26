@@ -76,14 +76,17 @@ def walking_scene(monkeypatch, tmp_path):
              matrix_world=IdentityTransform(), animation_data=None)
 
     def create_animation():
-        rig.animation_data = NS()
+        rig.animation_data = NS(action=None)
         return rig.animation_data
 
     rig.animation_data_create = create_animation
-    old = NS(name="QuadWalk")
+    old = NS(name="QuadWalk", users=0)
+    rig.animation_data = NS(action=old)
 
     class Actions(dict):
         def new(self, name):
+            if name in self:
+                name += ".001"
             action = NS(name=name, slots=NS(new=lambda **kwargs: kwargs))
             self[name] = action
             return action
@@ -201,3 +204,18 @@ def test_walk_preserves_yaw_when_pitch_uses_the_same_axis_and_supports_legacy_ac
         poses = np.asarray([bones[name].keys[frame, "rotation_euler"] for frame in range(1, 14)])
         assert np.ptp(poses[:, 0]) > 0
         assert poses[:, 1:] == pytest.approx(np.zeros((13, 2)))
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_walk_preserves_other_rig_action(walking_scene, capsys, shared):
+    bpy, rig, _, old = walking_scene
+    old.users = 1
+    other_rig = NS(animation_data=NS(action=old))
+    if not shared:
+        rig.animation_data.action = None
+    assert walk.main(["--frames", "12", "--skip-audit"]) == 0
+    assert bpy.data.actions["QuadWalk"] is old
+    assert other_rig.animation_data.action is old
+    assert rig.animation_data.action is not old
+    report = json.loads(capsys.readouterr().out.split("I2L_GAIT_REPORT ")[1])
+    assert report["action"] == rig.animation_data.action.name

@@ -162,6 +162,62 @@ def check_export(workspace, source, assert_restored):
     }
 
 
+
+def check_animation_isolation():
+    from blender_attack_cycle_worker import run as attack
+    from blender_rigify_walk_cycle_worker import run as walk
+
+    def make_rig(name):
+        bpy.ops.object.armature_add()
+        rig = bpy.context.object
+        rig.name = name
+        return rig
+
+    cases = 0
+    for worker, name in ((attack, "IsolationAttack"), (walk, "IsolationWalk")):
+        for usage in ("other", "shared", "nla", "saved", "exclusive"):
+            target = make_rig("Animation target")
+            other = make_rig("Other animation rig")
+            other.pose.bones[0].rotation_mode = "XYZ"
+            other.pose.bones[0].rotation_euler.x = 0.6
+            other.pose.bones[0].keyframe_insert("rotation_euler", frame=1)
+            old = other.animation_data.action
+            old.name = name
+            old_name = old.name
+            target.animation_data_create()
+            if usage != "other":
+                target.animation_data.action = old
+            if usage in ("nla", "saved", "exclusive"):
+                other.animation_data.action = None
+            if usage == "nla":
+                other.animation_data.nla_tracks.new().strips.new("Saved clip", 1, old)
+            if usage == "saved":
+                old.use_fake_user = True
+            result = worker({
+                "poses": [{"Bone": 0}, {"Bone": 30}], "toe": 0,
+                "action_name": old_name, "rig_name": target.name,
+            })
+            new = target.animation_data.action
+            assert new is not None and new.name == result["action"]
+            assert tuple(new.frame_range) == (1, 2)
+            if usage == "exclusive":
+                assert new.name == old_name
+            else:
+                assert bpy.data.actions.get(old_name) == old
+                assert new != old
+                if usage in ("other", "shared"):
+                    assert other.animation_data.action == old
+                    bpy.context.scene.frame_set(1)
+                    assert abs(other.pose.bones[0].rotation_euler.x - 0.6) < 1e-5
+                if usage == "nla":
+                    assert other.animation_data.nla_tracks[0].strips[0].action == old
+                if usage == "saved":
+                    assert old.use_fake_user
+            cases += 1
+    print(f"PASS {cases} animation replacement cases preserved other rigs and saved clips")
+    return cases
+
+
 def main():
     assert bpy.app.background, "Run this check in a separate background Blender process"
     parser = argparse.ArgumentParser(description=__doc__)
@@ -211,6 +267,7 @@ def main():
             )
             summary["failed_export_restored_scene"] = True
             summary["export"] = check_export(workspace, source, assert_restored)
+            summary["animation_isolation_cases"] = check_animation_isolation()
             summary["passed"] = True
         finally:
             if args.output is not None:

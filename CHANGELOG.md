@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- Attack and walk animation commands preserve other rigs’ animations, saved clips, and animation-strip references when replacing a take.
 - Blender normal repair exports only its private scene, keeping unrelated scene objects out of the repaired model.
 - Local coverage merging rejects reports collected before root installers, launchers or other versionable root files changed.
 - Live asset previews, turntables, and mesh baking restore the previous Blender scene after a failure.

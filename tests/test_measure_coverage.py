@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree import ElementTree
 
 import pytest
@@ -168,6 +169,8 @@ def test_python_union_combines_branch_hits_but_counts_untouched_sources(tmp_path
         data = CoverageData(basename=str(folder / ".coverage"))
         data.add_arcs({str(measured_root / "choice.py"): [(2, branch)]})
         data.write()
+        if kind == "portable":
+            (folder / "javascript.json").write_text("{}")
         measure_coverage.write_manifest(folder, kind, measured_root,
                                         measure_coverage.source_fingerprint(tmp_path, files, config), complete=True)
         inputs.append(folder)
@@ -265,12 +268,13 @@ def test_merge_rejects_changed_root_inputs_with_same_code_inventory(tmp_path, mo
         data = CoverageData(basename=str(output / ".coverage"))
         data.add_arcs({str(root / "choose.py"): [(-1, 1), (1, -1), (-1, 2), (2, branch), (branch, -1)]})
         data.write()
+        if kind == "portable":
+            (portable / "javascript.json").write_text(json.dumps({
+                "files": {"choose.js": {}},
+                "totals": {"lines": {"covered": 1, "total": 1}, "branches": {"covered": 2, "total": 2}},
+            }), encoding="utf-8")
         stamp = measure_coverage.source_fingerprint(root, files, root / "pyproject.toml")
         measure_coverage.write_manifest(output, kind, root, stamp, complete=True)
-    (portable / "javascript.json").write_text(json.dumps({
-        "files": {"choose.js": {}},
-        "totals": {"lines": {"covered": 1, "total": 1}, "branches": {"covered": 2, "total": 2}},
-    }), encoding="utf-8")
 
     (checkout / "machine-only").write_text("ignored local data", encoding="utf-8")
     verified = checkout / "arbitrary-combined-report"
@@ -433,3 +437,27 @@ def test_numerical_runner_stamps_only_passing_cases(tmp_path, monkeypatch, statu
     monkeypatch.setattr(subprocess, "run", route)
     assert measure_coverage.run_mlx_unit(output) == expected
     assert (output / "run.json").exists() == (status == expected == 0)
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_fingerprint_tracks_executable_permissions(tmp_path, monkeypatch, windows):
+    if not windows and os.name == "nt":
+        pytest.skip("Windows uses Git executable metadata")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    launcher = tmp_path / "lab"
+    launcher.write_text("#!/bin/sh\nexit 0\n")
+    launcher.chmod(0o644)
+    subprocess.run(["git", "add", "lab"], cwd=tmp_path, check=True)
+    config = tmp_path / "coverage.ini"
+    config.write_text("[run]\nbranch = True\n")
+    files = {"python": [], "javascript": []}
+    if windows:
+        monkeypatch.setattr(measure_coverage, "os", SimpleNamespace(name="nt", fsdecode=os.fsdecode))
+    before = measure_coverage.source_fingerprint(tmp_path, files, config)
+    if windows:
+        subprocess.run(["git", "update-index", "--chmod=+x", "lab"], cwd=tmp_path, check=True)
+    else:
+        # The index is unchanged: local chmod must invalidate the collected run.
+        launcher.chmod(0o755)
+    after = measure_coverage.source_fingerprint(tmp_path, files, config)
+    assert after != before

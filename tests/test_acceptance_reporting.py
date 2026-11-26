@@ -56,6 +56,10 @@ def pytest_addoption(parser):
 """,
         "tests/test_portable.py": """
 from sample import choose
+import subprocess
+
+def test_installer_runs():
+    subprocess.run(["./install.sh"], check=True)
 
 def test_true():
     assert choose(True) == 1
@@ -87,6 +91,7 @@ test('both outcomes', () => {
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(contents, encoding="utf-8")
+    (root / "install.sh").chmod(0o755)
     _run(["git", "init", "-q"], root, env)
     _run(["git", "add", "."], root, env)
     _run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
@@ -173,6 +178,7 @@ def test_coverage_cli_collects_and_merges_exact_counts(tmp_path, artifacts):
     ("missing data", "missing MLX unit coverage"),
     ("checkout", "GitHub checkout differs"),
     ("installer", "coverage sources differ"),
+    ("execute permission", "coverage sources differ"),
 ])
 def test_coverage_cli_rejects_incompatible_artifacts(tmp_path, artifacts, problem, error):
     root, portable, mlx, env, _ = artifacts
@@ -183,6 +189,11 @@ def test_coverage_cli_rejects_incompatible_artifacts(tmp_path, artifacts, proble
         mlx = shutil.copytree(mlx, tmp_path / "incomplete-artifact", ignore=shutil.ignore_patterns(".coverage"))
     elif problem == "checkout":
         env["GITHUB_SHA"] = "0" * 40
+    elif problem == "execute permission":
+        env.pop("GITHUB_SHA")
+        (checkout / "install.sh").chmod(0o644)
+        with pytest.raises(PermissionError):
+            subprocess.run([str(checkout / "install.sh")], check=True, env=env)
     else:
         env.pop("GITHUB_SHA")
         (checkout / "install.sh").write_text("#!/bin/sh\n# New installer\n", encoding="utf-8")
@@ -190,4 +201,55 @@ def test_coverage_cli_rejects_incompatible_artifacts(tmp_path, artifacts, proble
     result = _cli(checkout, env, output, "--merge", portable, mlx, "--enforce", check=False)
     assert result.returncode == 1
     assert error in result.stderr
+    assert not (output / "badges").exists()
+
+
+@pytest.mark.parametrize("artifact", [".coverage", "javascript.json", "missing hashes", "missing JavaScript"])
+def test_coverage_cli_rejects_mixed_or_unbound_reports(tmp_path, artifacts, artifact):
+    root, portable, mlx, env, _ = artifacts
+    mixed = shutil.copytree(portable, tmp_path / "mixed")
+    if artifact == ".coverage":
+        shutil.copy2(mlx / ".coverage", mixed / ".coverage")
+    elif artifact == "javascript.json":
+        # A different, still-passing report with exactly the same filenames.
+        path = mixed / artifact
+        report = json.loads(path.read_text())
+        report["totals"]["branches"] = {"covered": 100, "total": 100}
+        path.write_text(json.dumps(report))
+    elif artifact == "missing JavaScript":
+        (mixed / "javascript.json").unlink()
+    else:
+        path = mixed / "run.json"
+        manifest = json.loads(path.read_text())
+        manifest.pop("artifacts", None)
+        path.write_text(json.dumps(manifest))
+    output = tmp_path / "rejected"
+    result = _cli(root, env, output, "--merge", mixed, mlx, "--enforce", check=False)
+    assert result.returncode == 1
+    assert "coverage artifact" in result.stderr
+    assert not (output / "badges").exists()
+
+
+def test_old_passing_javascript_cannot_replace_a_fresh_failing_report(tmp_path, artifacts):
+    root, portable, _, env, _ = artifacts
+    checkout = tmp_path / "checkout"
+    _run(["git", "clone", "-q", root.as_uri(), str(checkout)], tmp_path, env)
+    (checkout / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
+    test = checkout / "tests/js/sample.test.js"
+    test.write_text(test.read_text().replace("  assert.equal(choose(false), 2);\n", ""))
+    fresh = tmp_path / "fresh-portable"
+    mlx = tmp_path / "fresh-mlx"
+    _cli(checkout, env, fresh, "-q")
+    _cli(checkout, env, mlx, "--mlx-unit")
+    valid = tmp_path / "valid-below-target"
+    result = _cli(checkout, env, valid, "--merge", fresh, mlx, "--enforce", check=False)
+    assert result.returncode == 1
+    assert "JavaScript branches: 1/2 (50.0000%) below target" in result.stdout
+    assert not (valid / "badges").exists()
+
+    shutil.copy2(portable / "javascript.json", fresh / "javascript.json")
+    output = tmp_path / "mixed-rejected"
+    result = _cli(checkout, env, output, "--merge", fresh, mlx, "--enforce", check=False)
+    assert result.returncode == 1
+    assert "coverage artifact differs: javascript.json" in result.stderr
     assert not (output / "badges").exists()

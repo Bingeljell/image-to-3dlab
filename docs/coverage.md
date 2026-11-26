@@ -92,7 +92,16 @@ to run the separate GPU checks. A coverage merge requires both runs to pass, the
 numerical suite to run without skips, and source, tests, runner settings and
 dependency files to match the current checkout. The comparison also includes
 root files that Git tracks or would add, such as the installers, launchers and
-README. Git-ignored local files stay out. CI also checks the checkout commit.
+README. The fingerprint includes executable status from working files on macOS
+and Linux, or Git's tracked file modes on Windows. Git-ignored local files stay
+out. CI also checks the checkout commit.
+
+Each run records SHA-256 hashes of its Python coverage data and, for portable
+runs, its JavaScript report. Merging rejects missing, changed or substituted
+files before creating badges. Older reports without these hashes must be
+collected again. These checks detect accidental mixing; they are not signatures
+against deliberate changes to both the report and its manifest.
+
 Both runs use the same coverage.py version and record their Python
 versions. The merge counts the union of Python execution data and keeps untested
 files, including GPU code, in the denominator. It rejects portable runs that select only some tests.

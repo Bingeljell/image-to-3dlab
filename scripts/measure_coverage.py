@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 from html.parser import HTMLParser
@@ -123,10 +124,31 @@ def source_fingerprint(root: Path, files: dict[str, list[str]], config: Path) ->
         if (len(relative.parts) == 1 or path in NESTED_RUNNER_INPUTS
                 or "tests" in relative.parts[:-1] or relative.parts[0] in RESOURCE_ROOTS):
             inputs.add(path)
+    # Windows does not expose POSIX execute bits. Use the tracked Git mode
+    # there; on POSIX inspect the working file so unstaged chmod is detected.
+    git_executable = set()
+    if os.name == "nt":
+        entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"], cwd=root)
+        for entry in entries.split(b"\0"):
+            if entry:
+                metadata, name = entry.split(b"\t", 1)
+                if metadata.split()[0] == b"100755":
+                    git_executable.add(os.fsdecode(name))
     for path in sorted(inputs):
+        executable = path in git_executable if os.name == "nt" else bool((root / path).stat().st_mode & stat.S_IXUSR)
         digest.update(path.encode("utf-8") + b"\0")
+        digest.update(b"executable\0" if executable else b"nonexecutable\0")
         digest.update(hashlib.sha256((root / path).read_bytes()).digest())
     return digest.hexdigest()
+
+
+def report_artifacts(kind: str) -> tuple[str, ...]:
+    return (".coverage", "javascript.json") if kind == "portable" else (".coverage",)
+
+
+def artifact_hash(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def write_manifest(output: Path, kind: str, root: Path, fingerprint: str, *, complete: bool) -> None:
@@ -138,6 +160,7 @@ def write_manifest(output: Path, kind: str, root: Path, fingerprint: str, *, com
         "python": list(sys.version_info[:2]),
         "coverage": coverage.__version__,
         "ci_checkout": os.environ.get("GITHUB_SHA"),
+        "artifacts": {name: artifact_hash(output / name) for name in report_artifacts(kind)},
     }
     (output / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
@@ -159,6 +182,16 @@ def load_coverage_input(folder: Path, kind: str, fingerprint: str) -> tuple[Path
         raise ValueError(f"GitHub checkout differs for {folder}")
     if manifest["coverage"] != coverage.__version__:
         raise ValueError(f"coverage version differs for {folder}")
+    hashes = manifest.get("artifacts")
+    if not isinstance(hashes, dict) or set(hashes) != set(report_artifacts(kind)):
+        raise ValueError(f"coverage artifact hashes missing or invalid in {folder}; recollect the run")
+    for name in report_artifacts(kind):
+        try:
+            actual = artifact_hash(folder / name)
+        except FileNotFoundError as exc:
+            raise ValueError(f"missing coverage artifact {name} in {folder}") from exc
+        if hashes[name] != actual:
+            raise ValueError(f"coverage artifact differs: {name} in {folder}; recollect the run")
     data = coverage.CoverageData(basename=str(data_path))
     data.read()
     if not data.has_arcs() or not data.measured_files():

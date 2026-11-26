@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import kimodo_retarget as kr
@@ -51,3 +52,26 @@ def test_multi_sample_kimodo_output_uses_the_first_sample(tmp_path):
     np.savez(path, global_rot_mats=g, posed_joints=x)
     _, joints0, _ = kr.load_motion(path)
     assert np.allclose(joints0, 0.0)
+
+
+def test_pack_command_selects_first_sample_and_writes_its_hip_track(tmp_path, monkeypatch):
+    import runpy
+    import sys
+
+    import pack_kimodo_clip as module
+
+    rotations = np.tile(np.eye(3), (2, 2, 77, 1, 1))
+    positions = np.zeros((2, 2, 77, 3))
+    positions[0, 1, 0] = [1, 2, 3]
+    positions[1] = 99
+    source = tmp_path / "samples.npz"
+    output = tmp_path / "packed" / "one.npz"
+    np.savez(source, global_rot_mats=rotations, posed_joints=positions)
+    monkeypatch.setattr(sys, "argv", ["pack", str(source), str(output)])
+    with pytest.raises(SystemExit) as stopped:
+        runpy.run_path(module.__file__, run_name="__main__")
+    assert stopped.value.code == 0
+    with np.load(output) as packed:
+        assert packed["quats"].shape == (2, 77, 4)
+        np.testing.assert_array_equal(packed["hips"], [[0, 0, 0], [1, 2, 3]])
+        np.testing.assert_array_equal(packed["joints0"], np.zeros((77, 3)))

@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import discord_release_card as card
@@ -102,3 +104,61 @@ def test_a_release_is_posted_only_by_hand():
     triggers = workflow.split("on:")[1].split("permissions:")[0]
     assert "workflow_dispatch:" in triggers
     assert "release:" not in triggers
+
+
+def test_release_without_publication_date_omits_timestamp():
+    embed = card.build_payload(release(published_at=None))["embeds"][0]
+    assert "timestamp" not in embed
+
+
+def test_release_url_parser_rejects_issue_link():
+    with pytest.raises(ValueError, match="not a GitHub release URL"):
+        card.repo_from_release_url("https://github.com/example/repo/issues/42")
+
+
+def test_fit_cuts_at_limit_when_notes_have_no_paragraph_break():
+    url = "https://example.invalid/notes"
+    tail = f"\n\n… [Read the full notes]({url})"
+    limit = len(tail) + 17
+    assert card.fit("x" * 200, url, limit) == "x" * 17 + tail
+
+
+@pytest.mark.parametrize("status", [204, 302])
+def test_send_builds_post_and_handles_webhook_status(monkeypatch, status):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    payload = card.build_payload(release())
+    destination = "https://example.invalid/webhooks/test"
+    requests = []
+
+    @contextmanager
+    def urlopen(request, *, timeout):
+        assert request.get_method() == "POST"
+        assert request.full_url == destination and timeout == 30
+        assert request.get_header("Content-type") == "application/json"
+        assert request.get_header("User-agent") == "assetfurnace-release-card"
+        assert json.loads(request.data) == payload
+        requests.append(request)
+        yield SimpleNamespace(status=status)
+
+    monkeypatch.setattr(card.urllib.request, "urlopen", urlopen)
+    if status == 204:
+        assert card.send(payload, destination) is None
+    else:
+        with pytest.raises(SystemExit, match="Discord answered 302"):
+            card.send(payload, destination)
+    assert len(requests) == 1
+
+
+def test_release_script_entrypoint_prints_preview(tmp_path, monkeypatch, capsys):
+    import runpy
+
+    script = Path(card.__file__)
+    path = tmp_path / "release.json"
+    path.write_text(json.dumps(release()))
+    monkeypatch.setattr(sys, "argv", [str(script), str(path), "--dry-run"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(str(script), run_name="__main__")
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["embeds"][0]["url"] == URL

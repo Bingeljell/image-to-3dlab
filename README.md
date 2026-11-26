@@ -15,6 +15,13 @@ NVIDIA PC, with the licence of every asset written down.</p>
 </p>
 
 <p align="center">
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/python-lines.svg" alt="Python line coverage"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/python-branches.svg" alt="Python branch coverage"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/javascript-lines.svg" alt="JavaScript line coverage"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/javascript-branches.svg" alt="JavaScript branch coverage"></a>
+</p>
+
+<p align="center">
   <a href="https://assetfurnace.com"><b>assetfurnace.com</b></a> ·
   <a href="https://assetfurnace.com/blog/how-to-use-assetfurnace"><b>Step-by-step guide</b></a> ·
   <a href="https://discord.gg/EuY9cQTRUt"><b>Join the Discord</b></a> ·

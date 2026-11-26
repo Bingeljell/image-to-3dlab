@@ -1,9 +1,19 @@
-# Real Blender and browser checks
+# Real Blender and browser tests
 
-These checks run in a separate background process using tiny generated models.
-They do not load model weights or interact with an existing Blender window.
+These checks run the actual applications with tiny generated models. They are
+separate from the offline unit suite and its coverage totals. They never load
+model weights or use an existing Blender window or Studio server.
 
-Use Blender 5.2.2 and run from the repository root:
+Both jobs run on pull requests, merge-queue checks and pushes to `main`. The
+Merge gate requires them to succeed, along with the unit and coverage jobs.
+GitHub still needs an administrator to require that gate in the main ruleset.
+
+## Blender
+
+CI installs Blender 5.2.2 with the community
+[setup-blender action](https://github.com/BradyAJohnston/setup-blender), pinned
+to a specific action commit. It uses Ubuntu, Xvfb and software graphics.
+Locally, use the same Blender version and run from the repository root:
 
 ```sh
 blender --background --factory-startup --threads 2 --python-exit-code 1 \
@@ -66,3 +76,6 @@ They verify real rendering and application behavior on small fixtures. They
 do not establish graphics-driver compatibility on every device, model-generation
 quality, GPU backend correctness, or acceptable performance on large assets.
 Those remain separate release checks.
+
+GitHub uploads the real-tool results even when a test fails. Inspect the job
+log when installation or startup fails before artifacts can be written.

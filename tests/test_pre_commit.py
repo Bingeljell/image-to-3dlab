@@ -71,31 +71,51 @@ def test_pull_requests_run_the_file_checks():
     assert "action-semantic-pull-request" not in workflow
 
 
-def test_the_suite_also_runs_on_windows_report_only():
-    """#243: a Windows job runs the suite on every pull request. Report-only until the last
-    POSIX-path tests are fixed; then drop continue-on-error so it blocks a merge."""
+def test_the_suite_also_runs_on_windows_and_blocks_merges():
     workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text(encoding="utf-8")
     job = workflow.split("\n  pytest-windows:", 1)[1]
     assert "\n    name: Tests (Windows)\n" in job
     assert "\n    runs-on: windows-latest\n" in job
     assert "\n    needs: pre-commit\n" in job
-    assert "\n    continue-on-error: true\n" in job
+    assert "\n    continue-on-error:" not in job
     assert "uv run pytest --tb=short -ra --color=yes" in job
     assert "PYTHONUTF8: " not in job   # a read without an encoding must fail here, as on a user's machine
 
 
 def test_the_suite_also_runs_on_a_mac_and_a_failure_there_fails_the_run():
-    """The Mac routes (MLX Hunyuan, the Apple TRELLIS.2 wrapper, the Xcode and memory checks) are
-    the ones most of this code is written for, and nothing ran the suite on a Mac before a merge.
-    Not report-only like Windows: the suite passed on a Mac from a fresh clone with an empty home
-    folder before this job was added."""
+    """Apple-specific paths must pass on macOS before a merge."""
     workflow = (REPO / ".github" / "workflows" / "pre-commit.yml").read_text(encoding="utf-8")
     job = workflow.split("\n  pytest-macos:", 1)[1].split("\n  pytest-windows:", 1)[0]
     assert "\n    name: Tests (macOS)\n" in job
     assert "\n    runs-on: macos-latest\n" in job
     assert "\n    needs: pre-commit\n" in job
-    assert "\n    continue-on-error:" not in job      # the setting itself; the Windows note below names it
+    assert "\n    continue-on-error:" not in job
     assert "uv sync --frozen" in job
-    assert "uv run pytest --tb=short -ra --color=yes" in job
+    assert "uv run --frozen python scripts/measure_coverage.py coverage-report -- --tb=short -ra --color=yes" in job
+    assert "name: unit-coverage-macos" in job
     assert "path: ~/.cache/uv" in job and "hashFiles('uv.lock')" in job
     assert 'version: "0.13.7"' in job       # the same uv as the other two jobs
+
+
+def test_only_successful_main_runs_publish_coverage_badges():
+    import yaml
+
+    path = REPO / ".github/workflows/pre-commit.yml"
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert workflow["permissions"] == {"contents": "read"}
+    jobs = workflow["jobs"]
+    publish = jobs["publish-coverage-badges"]
+    assert publish["needs"] == ["merge-gate"]
+    assert "success()" in publish["if"]
+    assert "github.event_name == 'push'" in publish["if"]
+    assert "github.ref == 'refs/heads/main'" in publish["if"]
+    assert publish["permissions"] == {"contents": "write"}
+    assert all(not job.get("permissions") for name, job in jobs.items() if name != "publish-coverage-badges")
+    assert publish["concurrency"]["cancel-in-progress"] is False
+    shell = next(step["run"] for step in publish["steps"] if "run" in step)
+    assert "git push origin HEAD:refs/heads/coverage-badges" in shell and "--force" not in shell
+
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    for language in ("python", "javascript"):
+        for metric in ("lines", "branches"):
+            assert f"/coverage-badges/{language}-{metric}.svg" in readme

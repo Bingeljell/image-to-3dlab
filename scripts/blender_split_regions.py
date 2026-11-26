@@ -39,16 +39,18 @@ REGION_NAMES = worker.REGION_NAMES
 classify_faces = worker.classify_faces
 region_counts = worker.region_counts
 texel_density = worker.texel_density
+DEFAULT_OUTPUT_PREFIX = "moss_fox"
 
 
 def blender_code(
     asset: Path, out_dir: Path, size: int, head_cut: float, tail_cut: float,
+    output_prefix: str = DEFAULT_OUTPUT_PREFIX,
 ) -> str:
     return build_worker_code(
         Path(__file__).with_name("blender_split_regions_worker.py"),
         {
             "asset_path": str(asset), "out_dir": str(out_dir), "size": size,
-            "head_cut": head_cut, "tail_cut": tail_cut,
+            "head_cut": head_cut, "tail_cut": tail_cut, "output_prefix": output_prefix,
         },
     )
 
@@ -68,16 +70,23 @@ def main() -> int:
         "--tail-cut", type=float, default=-0.10,
         help="Position below which faces are tail",
     )
+    parser.add_argument(
+        "--output-prefix", default=DEFAULT_OUTPUT_PREFIX,
+        help="Prefix for the exported GLB and its material names",
+    )
     args = parser.parse_args()
 
     if args.head_cut <= args.tail_cut:
         raise SystemExit("--head-cut must be greater than --tail-cut")
 
+    if not args.output_prefix or "/" in args.output_prefix or "\\" in args.output_prefix:
+        parser.error("--output-prefix must be a filename prefix")
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     code = blender_code(
         args.asset.expanduser().resolve(),
         args.out_dir.expanduser().resolve(),
-        args.size, args.head_cut, args.tail_cut,
+        args.size, args.head_cut, args.tail_cut, args.output_prefix,
     )
     print(send(code, args.host, args.port))
     return 0

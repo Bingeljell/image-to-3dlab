@@ -79,9 +79,9 @@ def run(arguments: dict[str, object], *, bpy=None, vector=None) -> dict:
 
 def bake_regions(
     bpy, Vector, render_scene, t0: float, *, asset_path: str, out_dir: str,
-    size: int, head_cut: float, tail_cut: float,
+    size: int, head_cut: float, tail_cut: float, output_prefix: str,
 ) -> dict:
-    output_path = f"{out_dir}/moss_fox_regions.glb"
+    output_path = f"{out_dir}/{output_prefix}_regions.glb"
     bpy.ops.import_scene.gltf(filepath=asset_path)
     mesh = [o for o in render_scene.objects if o.type == "MESH" and not o.name.startswith("JOINT_")][0]  # noqa: RUF015 - preserve missing-mesh error
     bpy.context.view_layer.objects.active = mesh
@@ -106,7 +106,7 @@ def bake_regions(
     targets = {}
     me.materials.clear()
     for region in REGION_NAMES:
-        mat = bpy.data.materials.new(f"moss_fox_{region}")
+        mat = bpy.data.materials.new(f"{output_prefix}_{region}")
         mat.use_nodes = True
         nt = mat.node_tree
         for n in list(nt.nodes):

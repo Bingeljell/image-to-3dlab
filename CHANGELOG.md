@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- Region exports include the output prefix in standalone texture filenames, so separate exports do not overwrite each other.
 - Retargeting preserves every pose when no loop is found, including two-frame clips.
 - Coverage merging rejects results after executable permissions change and rejects missing or substituted report files.
 - Attack and walk animation commands preserve other rigs’ animations, saved clips, and animation-strip references when replacing a take.

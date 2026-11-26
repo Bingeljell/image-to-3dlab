@@ -72,7 +72,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--output-prefix", default=DEFAULT_OUTPUT_PREFIX,
-        help="Prefix for the exported GLB and its material names",
+        help="Prefix for the exported model, textures, and material names",
     )
     args = parser.parse_args()
 

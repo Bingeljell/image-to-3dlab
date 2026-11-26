@@ -269,8 +269,10 @@ def main():
             summary["failed_export_restored_scene"] = True
             summary["export"] = check_export(workspace, source, assert_restored)
             summary["animation_isolation_cases"] = check_animation_isolation()
+            from region_check import check_region_outputs
             from retarget_check import check_short_retarget
 
+            summary["region_outputs"] = check_region_outputs(workspace)
             summary["short_retarget"] = check_short_retarget(workspace)
             summary["passed"] = True
         finally:

@@ -265,7 +265,7 @@ def test_split_worker_packs_and_bakes_only_in_private_scene(private_scene, tmp_p
             if scenario == "success":
                 assert mat.name == f"{expected_prefix}_{region}"
                 assert uv_node.uv_map == "region_uv"
-                assert Path(result["written"][region]) == tmp_path / f"albedo_{region}.png"
+                assert Path(result["written"][region]) == tmp_path / f"{expected_prefix}_albedo_{region}.png"
                 assert Path(result["written"][region]).read_bytes() == b"png"
             else:
                 assert uv_node.uv_map == "original UV"

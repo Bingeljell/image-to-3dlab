@@ -181,7 +181,7 @@ def bake_regions(
     written = {}
     if err is None:
         for region, img in targets.items():
-            path = out_dir + "/albedo_" + region + ".png"
+            path = f"{out_dir}/{output_prefix}_albedo_{region}.png"
             img.filepath_raw = path
             img.file_format = "PNG"
             img.save()

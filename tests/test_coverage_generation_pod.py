@@ -11,7 +11,12 @@ from scripts import pod_smoke_test as smoke
 
 
 @pytest.mark.posix
-@pytest.mark.parametrize("mode", ["interrupt"])
+@pytest.mark.parametrize("mode", [
+    "clean", "over-budget", "interrupt", "keep", "bad-result",
+    "slow", "install-error", "sign-in-error", "setup-error", "generate-error",
+    "pixal3d", "finish-fails", "no-photo", "classic", "never-ready", "blender-present",
+    "installer-error", "installer-invisible",
+])
 def test_pod_cli_rents_later_gpu_and_cleans_up(
     mode, tmp_path, monkeypatch, capsys
 ):
@@ -190,3 +195,95 @@ def test_pod_cli_rents_later_gpu_and_cleans_up(
     out = capsys.readouterr().out
     assert "not available" in out
     assert ("Kept pod" if mode == "keep" else "Deleted pod test-id.") in out
+
+
+def test_pod_viewer_reports_busy_deadline_and_unstructured_http_response(monkeypatch):
+    monkeypatch.setenv("I3D_STUDIO_TOKEN", "fixture-token")
+    client = smoke.Viewer("https://fixture.invalid")
+    times = iter([0.0, 3.0, 10.0, 11.0])
+    monkeypatch.setattr(smoke.time, "time", lambda: next(times))
+    waited = []
+    monkeypatch.setattr(smoke.time, "sleep", waited.append)
+
+    def response(request, timeout):
+        assert request.get_header("Authorization") == "Bearer fixture-token"
+        if request.method == "POST":
+            assert request.selector == "/api/create"
+            raise urllib.error.HTTPError(request.full_url, 409, "busy", hdrs=None,
+                                         fp=io.BytesIO(b'{"error": "wait for setup"}'))
+        assert request.selector == "/api/job"
+        stream = io.BytesIO(b"temporarily unavailable")
+        stream.status = 503
+        return stream
+
+    monkeypatch.setattr(smoke.urllib.request, "urlopen", response)
+    with pytest.raises(RuntimeError, match="POST /api/create: HTTP 409"):
+        client.start("/api/create", patience=2)
+    with pytest.raises(RuntimeError, match="/api/job still running"):
+        client.wait("/api/job", limit=1, poll=0.5)
+    assert not waited
+    assert client.json("GET", "/api/job") == (503, {"raw": "temporarily unavailable"})
+
+
+def test_pod_delete_retries_three_times_and_reports_manual_cleanup(monkeypatch, capsys):
+    attempts = []
+    waited = []
+
+    def run(argv, **kwargs):
+        assert argv == ["runpodctl", "pod", "delete", "fixture-id"]
+        attempts.append(argv)
+        return subprocess.CompletedProcess(argv, 1, stdout="fixture error", stderr="")
+
+    monkeypatch.setattr(smoke.subprocess, "run", run)
+    monkeypatch.setattr(smoke.time, "sleep", waited.append)
+    smoke.delete("fixture-id")
+    assert len(attempts) == 3 and waited == [10, 10, 10]
+    assert "Could not delete pod fixture-id" in capsys.readouterr().out
+
+
+def test_pod_viewer_waits_for_completion_and_prints_event_once(monkeypatch, capsys):
+    viewer = smoke.Viewer("https://fixture.invalid")
+    polls = iter([
+        (200, {"status": "running", "last_event": {"message": "preparing"}}),
+        (200, {"status": "running", "last_event": {"message": "preparing"}}),
+        (200, {"status": "done"}),
+    ])
+    monkeypatch.setattr(viewer, "json", lambda method, route: next(polls))
+    sleeps = []
+    monkeypatch.setattr(smoke.time, "sleep", sleeps.append)
+    assert viewer.wait("/status", limit=10, poll=.25) == {"status": "done"}
+    assert sleeps == [.25, .25]
+    assert capsys.readouterr().out.count("preparing") == 1
+
+
+def test_pod_rejects_unknown_route_before_any_commands(monkeypatch):
+    monkeypatch.setattr(smoke.subprocess, "run", lambda *args, **kwargs: pytest.fail("unexpected process"))
+    with pytest.raises(SystemExit) as status:
+        smoke.main(["--routes", "unsupported"])
+    assert status.value.code == 2
+
+
+def test_empty_gpu_list_declines_rent_before_any_commands(monkeypatch):
+    monkeypatch.setattr(smoke.subprocess, "run", lambda *args, **kwargs: pytest.fail("unexpected process"))
+    with pytest.raises(SystemExit, match="No GPU from the list"):
+        smoke.rent([], .5, 1)
+
+
+def test_ssh_without_a_private_key_uses_agent_authentication(monkeypatch, tmp_path):
+    monkeypatch.setattr(smoke.Path, "home", lambda: tmp_path)
+    commands = []
+
+    def run(args, **kwargs):
+        commands.append(args)
+        if args[0] == "runpodctl":
+            info = {"ssh_command": "ssh -p 22 user@fixture-host"} if args[2] == "info" else {"keys": []}
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps(info), stderr="")
+        assert args[:1] == ["ssh"] and "-i" not in args
+        assert args[-2:] == ["user@fixture-host", "ls"]
+        return subprocess.CompletedProcess(args, 0, stdout="fixture", stderr="")
+
+    monkeypatch.setattr(smoke.subprocess, "run", run)
+    assert smoke.Pod({"id": "fixture-pod"}).ssh("ls") == "fixture"
+    assert [command[:3] for command in commands[:2]] == [
+        ["runpodctl", "ssh", "info"], ["runpodctl", "ssh", "list-keys"],
+    ]

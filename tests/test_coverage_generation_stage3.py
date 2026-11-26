@@ -14,7 +14,7 @@ from PIL import Image
 from scripts import trellis_stage3 as stage
 
 
-@pytest.mark.parametrize("mode", ["missing-flex"])
+@pytest.mark.parametrize("mode", ["dry", "sample", "full", "missing-flex", "missing-geometry", "missing-image"])
 def test_stage3_reports_progress_and_writes_compatible_cache(mode, tmp_path, monkeypatch, capsys):
     vendor = tmp_path / "vendor"
     loader = stage.space_patch.pipeline_path(vendor / "TRELLIS.2")

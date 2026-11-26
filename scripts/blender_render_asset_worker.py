@@ -5,6 +5,11 @@ Run (internal): bundled and sent to Blender by blender_render_asset.py.
 
 from __future__ import annotations
 
+if __package__:
+    from .blender_scene import clear_private_scene
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import clear_private_scene
+
 
 def run(arguments: dict[str, object]) -> dict[str, object]:
     """Render previews and hand back the previous scene."""
@@ -16,11 +21,7 @@ def run(arguments: dict[str, object]) -> dict[str, object]:
     render_scene = bpy.data.scenes.get(scene_name) or bpy.data.scenes.new(scene_name)
     bpy.context.window.scene = render_scene
     try:
-        for obj in list(render_scene.objects):
-            bpy.data.objects.remove(obj, do_unlink=True)
-        for prior in list(render_scene.collection.children):
-            if prior.name.startswith("IMG3D_"):
-                bpy.data.collections.remove(prior)
+        clear_private_scene(bpy, render_scene)
         return render_views(bpy, Vector, **arguments)
     finally:
         bpy.context.window.scene = previous_scene

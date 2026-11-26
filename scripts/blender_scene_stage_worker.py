@@ -9,16 +9,18 @@ import json
 import math
 import os
 
+if __package__:
+    from .blender_scene import clear_private_scene
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import clear_private_scene
+
 
 def _enter_private_scene(bpy, name):
     scene = bpy.data.scenes.get(name) or bpy.data.scenes.new(name)
     bpy.context.window.scene = scene
     if scene.world is None:
         scene.world = bpy.data.worlds.new(scene.name + " World")
-    for obj in list(scene.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for child in list(scene.collection.children):
-        bpy.data.collections.remove(child)
+    clear_private_scene(bpy, scene)
     return scene
 
 
@@ -38,6 +40,7 @@ def _import_staged_asset(bpy, Vector, scene, item, culled):
     if not meshes:
         return
 
+    bpy.context.view_layer.update()
     corners = [
         obj.matrix_world @ Vector(corner) for obj in meshes for corner in obj.bound_box
     ]
@@ -47,8 +50,8 @@ def _import_staged_asset(bpy, Vector, scene, item, culled):
     size = max(high.x - low.x, high.y - low.y, high.z - low.z) or 1.0
     for obj in fresh:
         if obj.parent is None:
-            obj.scale = (1.0 / size,) * 3
-            obj.location = -Vector((centre.x, centre.y, low.z)) / size
+            obj.scale = tuple(axis / size for axis in obj.scale)
+            obj.location = (obj.location - Vector((centre.x, centre.y, low.z))) / size
             obj.location.y += item["dy"]
     for obj in meshes:
         for slot in obj.material_slots:
@@ -57,6 +60,15 @@ def _import_staged_asset(bpy, Vector, scene, item, culled):
 
 
 def stage_assets(bpy, items, culled):
+    previous_scene = bpy.context.window.scene
+    try:
+        return _stage_assets(bpy, items, culled)
+    except Exception:
+        bpy.context.window.scene = previous_scene
+        raise
+
+
+def _stage_assets(bpy, items, culled):
     from mathutils import Vector
 
     scene = _enter_private_scene(bpy, "IMG3D stage")
@@ -176,14 +188,24 @@ def stage_bake(
         )
 
     scene = bpy.context.scene
-    previous_action = arm.animation_data.action
+    animation = arm.animation_data
+    previous_action = animation.action
+    previous_slot = getattr(animation, "action_slot", None)
     previous_target_rotation = tuple(target.rotation_euler)
     previous_camera = scene.camera
+    previous_ortho_scale = camera.data.ortho_scale
     previous_resolution = (scene.render.resolution_x, scene.render.resolution_y)
     previous_film = scene.render.film_transparent
     previous_view = scene.view_settings.view_transform
+    image_settings = scene.render.image_settings
+    previous_media_type = getattr(image_settings, "media_type", None)
+    previous_format = image_settings.file_format
+    previous_color = image_settings.color_mode
+    previous_depth = image_settings.color_depth
+    previous_path = scene.render.filepath
+    previous_frame, previous_subframe = scene.frame_current, scene.frame_subframe
     try:
-        arm.animation_data.action = action
+        animation.action = action
         target.rotation_euler = (math.radians(el), 0.0, math.radians(az))
         if ortho_scale is not None:
             camera.data.ortho_scale = ortho_scale
@@ -191,8 +213,10 @@ def stage_bake(
         scene.render.resolution_x = scene.render.resolution_y = resolution
         scene.render.film_transparent = True
         scene.view_settings.view_transform = "Standard"
-        scene.render.image_settings.file_format = "PNG"
-        scene.render.image_settings.color_mode = "RGBA"
+        if previous_media_type == "VIDEO":
+            image_settings.media_type = "IMAGE"
+        image_settings.file_format = "PNG"
+        image_settings.color_mode = "RGBA"
         os.makedirs(output_dir, exist_ok=True)
 
         native_start, native_end = (
@@ -222,12 +246,22 @@ def stage_bake(
         print("STAGE_BAKE " + json.dumps(payload))
         return payload
     finally:
-        arm.animation_data.action = previous_action
+        animation.action = previous_action
+        if previous_action is not None and hasattr(animation, "action_slot"):
+            animation.action_slot = previous_slot
+        scene.frame_set(previous_frame, subframe=previous_subframe)
         target.rotation_euler = previous_target_rotation
         scene.camera = previous_camera
+        camera.data.ortho_scale = previous_ortho_scale
         scene.render.resolution_x, scene.render.resolution_y = previous_resolution
         scene.render.film_transparent = previous_film
         scene.view_settings.view_transform = previous_view
+        if previous_media_type == "VIDEO":
+            image_settings.media_type = previous_media_type
+        image_settings.file_format = previous_format
+        image_settings.color_mode = previous_color
+        image_settings.color_depth = previous_depth
+        scene.render.filepath = previous_path
 
 
 def inward_area_percentage(normals, centres, areas):

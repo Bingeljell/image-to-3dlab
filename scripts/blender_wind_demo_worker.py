@@ -5,6 +5,11 @@ Run (internal): bundled and sent to Blender by blender_wind_demo.py.
 
 import math
 
+if __package__:
+    from .blender_scene import clear_private_scene
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import clear_private_scene
+
 
 def run(arguments: dict) -> dict:
     import bpy
@@ -19,10 +24,7 @@ def run(arguments: dict) -> dict:
     try:
         if scene.world is None:
             scene.world = bpy.data.worlds.new(scene.name + " World")
-        for obj in list(scene.objects):
-            bpy.data.objects.remove(obj, do_unlink=True)
-        for prior in list(scene.collection.children):
-            bpy.data.collections.remove(prior)
+        clear_private_scene(bpy, scene)
         return render_wind(bpy, np, Vector, KDTree, scene, arguments)
     finally:
         bpy.context.window.scene = previous_scene

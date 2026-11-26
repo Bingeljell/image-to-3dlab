@@ -269,11 +269,19 @@ def main():
             summary["failed_export_restored_scene"] = True
             summary["export"] = check_export(workspace, source, assert_restored)
             summary["animation_isolation_cases"] = check_animation_isolation()
+            from preview_check import check_preview_wrapper
             from region_check import check_region_outputs
+            from replacement_check import check_replacement
             from retarget_check import check_short_retarget
+            from scene_safety_check import check_scene_safety
 
+            summary["scene_safety"] = check_scene_safety(workspace)
+            summary["replacement_safety"] = check_replacement(workspace)
             summary["region_outputs"] = check_region_outputs(workspace)
             summary["short_retarget"] = check_short_retarget(workspace)
+            summary["preview"] = check_preview_wrapper(
+                workspace, workspace / "short-retargeted.glb", assert_not_blank,
+            )
             summary["passed"] = True
         finally:
             if args.output is not None:

@@ -191,9 +191,13 @@ def test_object_details_include_material_and_animation_when_present():
 class MarkerObject:
     def __init__(self, name, data=None):
         self.name = name
+        self.users = 0
         self.type = "EMPTY" if data is None else "MESH"
         self.location = (0, 0, 0)
         self.bound_box = [(-1, -2, 0), (1, 2, 8)]
+
+    def get(self, key):
+        return None
 
     @property
     def matrix_world(self):
@@ -213,7 +217,7 @@ class NamedItems(list):
         self.append(item)
         return item
 
-    def remove(self, obj, *, do_unlink):
+    def remove(self, obj, *, do_unlink=True):
         assert do_unlink
         super().remove(obj)
 
@@ -229,17 +233,27 @@ def markers(monkeypatch):
     view = NS(type="VIEW_3D", shading=NS(type="SOLID"))
     linked = []
     imported = []
+    root = type("Collection", (), {"children_recursive": ()})()
+    root.children = NS(link=linked.append)
+    root.objects = NS(unlink=lambda _: None)
+    scene = NS(collection=root, objects=items)
+    for obj in items:
+        obj.users_collection = [root]
 
     def gltf(*, filepath):
         imported.append(filepath)
         if filepath != "bad.glb":
             mesh = items.new("new mesh", object())
             mesh.location = (10, -5, 2)
+        return {"FINISHED"}
 
     bpy = NS(
-        data=NS(objects=items, collections=collections),
+        data=NS(
+            objects=items, collections=collections, scenes=[scene],
+            user_map=lambda *, subset: {item: set() for item in subset},
+        ),
         context=NS(
-            scene=NS(collection=NS(children=NS(link=linked.append))),
+            scene=scene,
             screen=NS(
                 areas=[
                     NS(type="PROPERTIES"),
@@ -304,9 +318,10 @@ def test_markers_load_updates_existing_and_creates_missing(
 
 def test_marker_spawn_rejects_import_with_no_mesh(markers):
     bpy, items, linked, imported, _ = markers
-    items.remove(items.get("JOINT_old"), do_unlink=True)
+    original = items.get("JOINT_old")
     with pytest.raises(RuntimeError, match="no mesh imported"):
-        worker.spawn_markers(bpy, "bad.glb", {}, "JOINT_", False)
+        worker.spawn_markers(bpy, "bad.glb", {}, "JOINT_", True)
+    assert items.get("JOINT_old") is original
     assert imported == ["bad.glb"] and not linked
 
 

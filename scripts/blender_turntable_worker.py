@@ -7,6 +7,11 @@ from __future__ import annotations
 
 import math
 
+if __package__:
+    from .blender_scene import clear_private_scene
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import clear_private_scene
+
 
 def run(arguments: dict[str, object]) -> dict[str, object]:
     """Render in the turntable scene and restore the window even on failure."""
@@ -20,10 +25,7 @@ def run(arguments: dict[str, object]) -> dict[str, object]:
     try:
         if render_scene.world is None:
             render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
-        for obj in list(render_scene.objects):
-            bpy.data.objects.remove(obj, do_unlink=True)
-        for prior in list(render_scene.collection.children):
-            bpy.data.collections.remove(prior)
+        clear_private_scene(bpy, render_scene)
         return render_frames(bpy, Vector, render_scene, **arguments)
     finally:
         bpy.context.window.scene = previous_scene

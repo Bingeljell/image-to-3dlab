@@ -73,6 +73,7 @@ class Mesh:
 class Object:
     def __init__(self, name, kind, data):
         self.name, self.type, self.data = name, kind, data
+        self.users = 0
         self.location = (0, 0, 0)
         self.scale = (1, 1, 1)
         self.rotation_euler = (0, 0, 0)
@@ -140,7 +141,7 @@ class Objects(list):
     def new(self, name, data):
         return Object(name, data.kind, data)
 
-    def remove(self, obj, *, do_unlink):
+    def remove(self, obj, *, do_unlink=True):
         assert do_unlink
         super().remove(obj)
 
@@ -179,8 +180,10 @@ def app(monkeypatch):
             engine="CYCLES",
             image_settings=NS(file_format="JPEG"),
         ),
-        collection=NS(objects=NS(link=objects.append)),
+        objects=objects,
+        collection=type("Collection", (), {"children_recursive": ()})(),
     )
+    scene.collection.objects = NS(link=objects.append, unlink=lambda _: None)
     context = NS(scene=scene, active_object=None)
     audit = NS(renders=[], primitives=[], updates=[])
 
@@ -212,6 +215,8 @@ def app(monkeypatch):
         context=context,
         data=NS(
             objects=objects,
+            scenes=[scene],
+            user_map=lambda *, subset: {item: set() for item in subset},
             materials=Materials(),
             cameras=NS(new=lambda _: NS(kind="CAMERA")),
             lights=NS(new=lambda _, *, type: NS(kind="LIGHT", type=type)),
@@ -335,17 +340,36 @@ def test_import_only_clears_meshes_and_reports_new_objects(app, clear):
 
     def gltf(*, filepath):
         assert filepath == "creature.glb"
-        assert ("old shell" in objects) is not clear
+        assert "old shell" in objects
         objects.extend(
             [Object("skin", "MESH", Mesh()), Object("new rig", "ARMATURE", NS())]
         )
 
+        return {"FINISHED"}
+
+    objects["old shell"].users_collection = [bpy.context.scene.collection]
     bpy.ops.import_scene.gltf = gltf
     assert worker.import_asset(bpy, "creature.glb", clear) == {
         "imported": ["skin", "new rig"],
         "meshes": ["skin"],
     }
+    assert ("old shell" in objects) is not clear
     assert "past rig" in objects and "marker" in objects
+
+
+def test_cancelled_import_keeps_previous_mesh_and_discards_partial_objects(app):
+    bpy, _, objects, _ = app
+    original = Object("original", "MESH", Mesh())
+    objects.append(original)
+
+    def gltf(*, filepath):
+        objects.append(Object("partial", "MESH", Mesh()))
+        return {"CANCELLED"}
+
+    bpy.ops.import_scene.gltf = gltf
+    with pytest.raises(RuntimeError, match="could not import"):
+        worker.import_asset(bpy, "broken.glb", clear_scene=True)
+    assert objects == [original]
 
 
 @pytest.mark.parametrize("keep_lights", [False, True])
@@ -359,6 +383,8 @@ def test_clear_scene_preserves_cameras_rigs_and_markers(app, keep_lights):
         "marker": "EMPTY",
     }
     objects.extend(Object(name, kind, None) for name, kind in types.items())
+    for obj in objects:
+        obj.users_collection = [bpy.context.scene.collection]
     removed = ["shell"] if keep_lights else ["shell", "key"]
     assert worker.clear_scene(bpy, keep_lights) == {
         "removed": removed,

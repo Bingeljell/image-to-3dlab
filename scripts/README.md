@@ -163,6 +163,8 @@ Most of these drive the user's open Blender (BlenderMCP add-on, port 9876); each
 | `blender_orbit_camera.py` | Point an orbit camera at a target and (optionally) render. |
 | `blender_inspect.py` | Inspect a Blender scene or an unopened .blend file's contents. |
 | `blender_worker_source.py` | Pack a Python worker and its arguments for a live Blender connection. |
+| `blender_socket.py` | Send a command and check the BlenderMCP reply. |
+| `blender_video.py` | Check a Blender frame sequence and encode it to MP4. |
 | `blender_scene_query_worker.py` | Inspect live Blender scenes, place joint markers, and position preview cameras. |
 | `blender_scene_stage_worker.py` | Stage assets, render scene previews, and recalculate mesh normals inside Blender. |
 | `blender_agent_worker.py` | Execute the Blender scene agent's actions inside the live Blender session. |

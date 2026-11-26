@@ -47,6 +47,10 @@ class SceneObject:
         self.matrix_world = self
         self.material_slots = []
 
+    @property
+    def users(self):
+        return len(self.users_collection)
+
     def __matmul__(self, point):
         return point + self.parent.location if self.parent else point
 
@@ -56,6 +60,9 @@ class CollectionObjects:
         self.collection = collection
         self.scene = scene
 
+    def __iter__(self):
+        return (obj for obj in self.scene.objects if self.collection in obj.users_collection)
+
     def link(self, obj):
         if obj not in self.scene.objects:
             self.scene.objects.append(obj)
@@ -63,6 +70,8 @@ class CollectionObjects:
 
     def unlink(self, obj):
         obj.users_collection.remove(self.collection)
+        if not obj.users_collection:
+            self.scene.objects.remove(obj)
 
 
 class RenderSettings(NS):
@@ -143,13 +152,16 @@ class TurntableScene:
         if existing:
             scene = self.new_scene("IMG3D turntable")
             scene.world = self.existing_world
-            scene.objects.append(SceneObject("stale"))
-            scene.collection.children.link(NS(name="prior"))
+            scene.collection.objects.link(SceneObject("stale"))
+            prior = NS(name="prior", users=0, children=[])
+            prior.objects = CollectionObjects(prior, scene)
+            scene.collection.children.link(prior)
         self.bpy = NS(
             context=self,
             data=NS(
                 scenes=NS(get=self.scenes.get, new=self.new_scene),
                 worlds=NS(new=lambda name: NS(name=name)),
+                user_map=lambda subset: {},
                 collections=NS(new=self.new_collection, remove=self.remove_collection),
                 objects=self,
                 cameras=NS(new=lambda name: NS(name=name)),
@@ -170,9 +182,8 @@ class TurntableScene:
         return SceneObject(name, data)
 
     def remove(self, obj, *, do_unlink):
-        assert do_unlink
+        assert not do_unlink and not obj.users
         self.removed_objects.append(obj.name)
-        self.scene.objects.remove(obj)
 
     def new_scene(self, name):
         scene = NS(
@@ -187,8 +198,10 @@ class TurntableScene:
 
         class Children(list):
             link = list.append
+            unlink = list.remove
 
         scene.collection.children = Children(children)
+        scene.collection.objects = CollectionObjects(scene.collection, scene)
         if not self.legacy:
             scene.eevee = NS()
         self.scenes[name] = scene
@@ -199,9 +212,9 @@ class TurntableScene:
         collection.objects = CollectionObjects(collection, self.scene)
         return collection
 
-    def remove_collection(self, collection):
+    def remove_collection(self, collection, *, do_unlink):
+        assert not do_unlink
         self.removed_collections.append(collection.name)
-        self.scene.collection.children.remove(collection)
 
     def load(self, *, filepath):
         assert filepath == "/remote input/creature.glb"
@@ -288,7 +301,7 @@ def test_turntable_worker_renders_and_restores_private_scene(
         ("FILL", 420),
         ("RIM", 600),
     ]
-    assert app.updates == 6
+    assert app.updates == (7 if legacy else 6)
     assert [rotation[2] for _, rotation in app.frames] == pytest.approx(
         [0, math.pi / 2, math.pi, 3 * math.pi / 2]
     )

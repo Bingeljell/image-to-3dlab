@@ -5,6 +5,11 @@ Run (internal): bundled by blender_solidify_bake.py.
 
 from __future__ import annotations
 
+if __package__:
+    from .blender_scene import clear_private_scene
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import clear_private_scene
+
 
 def component_filter(vertex_count: int, neighbours, min_vertices: int) -> tuple[list[int], int, int]:
     """Return debris vertex indexes and counts of retained and removed components."""
@@ -49,10 +54,7 @@ def run(arguments: dict[str, object], *, bpy=None, vector=None, bmesh=None) -> d
     try:
         if render_scene.world is None:
             render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
-        for obj in list(render_scene.objects):
-            bpy.data.objects.remove(obj, do_unlink=True)
-        for collection in list(render_scene.collection.children):
-            bpy.data.collections.remove(collection)
+        clear_private_scene(bpy, render_scene)
         return bake_mesh(bpy, vector, render_scene, bmesh, **arguments)
     finally:
         window.scene = previous_scene

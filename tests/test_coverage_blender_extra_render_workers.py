@@ -53,6 +53,10 @@ class Object:
         self.users_collection = []
 
     @property
+    def users(self):
+        return len(self.users_collection)
+
+    @property
     def location(self):
         return self._location
 
@@ -77,12 +81,18 @@ class Object:
 
 class Names(list):
     link = list.append
+    unlink = list.remove
 
 
 class Collection:
     def __init__(self, name, scene):
         self.name, self.scene = name, scene
         self.objects = self
+        self.children = Names()
+        self.users = 0
+
+    def __iter__(self):
+        return (obj for obj in self.scene.objects if self in obj.users_collection)
 
     def link(self, obj):
         assert self not in obj.users_collection
@@ -92,6 +102,8 @@ class Collection:
 
     def unlink(self, obj):
         obj.users_collection.remove(self)
+        if not obj.users_collection:
+            self.scene.objects.remove(obj)
 
 
 class Render(NS):
@@ -141,6 +153,7 @@ class App:
             context=self,
             data=NS(
                 scenes=NS(new=self.new_scene, get=self.scenes.get),
+                user_map=lambda subset: {},
                 collections=NS(new=self.new_collection, remove=self.remove_collection),
                 objects=self,
                 cameras=NS(new=lambda name: NS(name=name, angle_x=1.0, angle_y=0.6)),
@@ -200,16 +213,15 @@ class App:
     def new_collection(self, name):
         return Collection(name, self.scene)
 
-    def remove_collection(self, collection):
-        self.scene.collection.children.remove(collection)
+    def remove_collection(self, collection, *, do_unlink):
+        assert not do_unlink
         self.removed.append(collection.name)
 
     def new(self, name, data):
         return Object(name, data)
 
     def remove(self, obj, *, do_unlink):
-        assert do_unlink
-        self.scene.objects.remove(obj)
+        assert not do_unlink and not obj.users
         self.removed.append(obj.name)
 
     def new_material(self, name):
@@ -279,17 +291,17 @@ def test_preview_camera_material_and_normals_are_applied(culled, recalc, monkeyp
     old_render = app.new_scene("IMG3D render") if recalc else None
     if old_render:
         old_render.world = app.new_world("existing")
-        old_render.objects.append(Object("stale render mesh"))
-        old_render.collection.children.extend(
-            [NS(name="IMG3D_old"), NS(name="keep collection")]
-        )
+        old_render.collection.objects.link(Object("stale render mesh"))
+        shared = Collection("keep collection", old_render)
+        shared.users = 1  # Still linked elsewhere after removal from this scene.
+        old_render.collection.children.extend([Collection("IMG3D_old", old_render), shared])
 
     result = preview_worker.run(preview_arguments(culled, recalc))
 
     scene = app.scenes["IMG3D render"]
     assert app.window.scene is app.original
     assert [obj.name for obj in app.original.objects] == ["user mesh"]
-    assert app.removed == (["stale render mesh", "IMG3D_old"] if recalc else [])
+    assert app.removed == (["IMG3D_old", "stale render mesh"] if recalc else [])
     assert scene.world.name == ("existing" if recalc else "World")
     assert scene.world.color == pytest.approx(
         preview.ENVIRONMENTS["studio"]["world_color"]

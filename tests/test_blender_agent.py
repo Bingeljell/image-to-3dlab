@@ -37,6 +37,7 @@ def worker_request(code):
         node for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         and node.func.id == "compile"
+        and ast.literal_eval(node.args[1]) == agent.WORKER_PATH.name
     ]
     decoder, = [
         node for node in ast.walk(tree)

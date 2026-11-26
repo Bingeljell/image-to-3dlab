@@ -8,8 +8,11 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 
-def scene_object(name, position):
-    return SimpleNamespace(name=name, matrix_world=SimpleNamespace(translation=position))
+def scene_object(name, position, kind="EMPTY"):
+    return SimpleNamespace(
+        name=name, type=kind, get=lambda _key: None,
+        matrix_world=SimpleNamespace(translation=position),
+    )
 
 
 def read_request(connection):
@@ -26,13 +29,18 @@ def read_request(connection):
 def execute(code, mode):
     bpy = ModuleType("bpy")
     objects = [
-        scene_object("Camera", (9, 9, 9)),
+        scene_object("Camera", (9, 9, 9), "CAMERA"),
         scene_object("JOINT_head", (1.234567, -2.5, 0.125)),
         scene_object("JOINT_patère", (-3, 0.000007, 4)),
     ]
     if mode == "error":
-        objects.append(SimpleNamespace(name="JOINT_unreadable"))
-    bpy.data = SimpleNamespace(objects=objects)
+        broken = scene_object("JOINT_unreadable", (0, 0, 0))
+        del broken.matrix_world
+        objects.append(broken)
+    scene = SimpleNamespace(objects=objects)
+    other = SimpleNamespace(objects=[scene_object("JOINT_hidden_scene", (8, 8, 8))])
+    bpy.context = SimpleNamespace(scene=scene)
+    bpy.data = SimpleNamespace(scenes=[scene, other], objects=[*scene.objects, *other.objects])
     sys.modules["bpy"] = bpy
 
     output = io.StringIO()

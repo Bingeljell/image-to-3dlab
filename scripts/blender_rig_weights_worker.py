@@ -7,6 +7,19 @@ from __future__ import annotations
 
 import json
 
+if __package__:
+    from .blender_scene import (
+        private_scene_collections,
+        remove_scene_objects,
+        scene_marker_objects,
+    )
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import (
+        private_scene_collections,
+        remove_scene_objects,
+        scene_marker_objects,
+    )
+
 # (bone, head marker, tail marker, parent bone, connected)
 #
 # The foot is two segments, not one. A single wrist->paw bone pivots the whole foot as a
@@ -94,103 +107,172 @@ def flagged_groups(report: dict) -> tuple[list[str], list[str]]:
     return contaminated, empty
 
 
+def _build_bones(bpy, Vector, arm, markers, ear_length):
+    arm_data = arm.data
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="EDIT")
+    try:
+        eb = arm_data.edit_bones
+        for name, head_m, tail_m, parent, connect in SKELETON:
+            bone = eb.new(name)
+            bone.head = markers[head_m]
+            bone.tail = markers[tail_m]
+            if (bone.tail - bone.head).length < 1e-5:
+                bone.tail = bone.head + Vector((0, 0, 1e-3))
+        head_c = markers["head"]
+        for name, marker in EAR_BONES:
+            bone = eb.new(name)
+            base = markers[marker]
+            bone.head = base
+            bone.tail = ear_tip(base, head_c, ear_length, Vector)
+        for name, _h, _t, parent, connect in SKELETON:
+            if parent:
+                eb[name].parent = eb[parent]
+                eb[name].use_connect = connect
+        for name, _m in EAR_BONES:
+            eb[name].parent = eb["head"]
+    finally:
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
 def build_rig(bpy, Vector, *, ear_length: float, weight_threshold: float) -> dict:
-    skeleton = SKELETON
-    ear_bones = EAR_BONES
-    markers = {o.name[6:]: o.matrix_world.translation.copy()
-               for o in bpy.data.objects if o.name.startswith("JOINT_")}
-    missing = sorted({m for b in skeleton for m in (b[1], b[2])} - set(markers))
+    scene = bpy.context.scene
+    markers = {name: obj.matrix_world.translation.copy()
+               for name, obj in scene_marker_objects(scene, "JOINT_").items()}
+    missing = sorted(({m for b in SKELETON for m in (b[1], b[2])}
+                      | {m for _, m in EAR_BONES}) - set(markers))
     if missing:
         raise RuntimeError("missing markers: " + ", ".join(missing))
 
-    mesh_objs = [o for o in bpy.data.objects if o.type == "MESH"]
+    mesh_objs = [o for o in scene.objects if o.type == "MESH"]
     if len(mesh_objs) != 1:
         raise RuntimeError(f"expected exactly one mesh, found {len(mesh_objs)}")
     mesh = mesh_objs[0]
-    mesh.hide_select = False
+    local_collections = private_scene_collections(bpy, scene)
+    if set(mesh.users_collection) - local_collections:
+        raise RuntimeError("the mesh is shared with another scene")
 
-    for o in list(bpy.data.objects):
-        if o.type == "ARMATURE":
-            bpy.data.objects.remove(o, do_unlink=True)
-    for vg in list(mesh.vertex_groups):
-        mesh.vertex_groups.remove(vg)
-    if mesh.parent is not None:
-        mesh.parent = None
-    for mod in list(mesh.modifiers):
-        if mod.type == "ARMATURE":
-            mesh.modifiers.remove(mod)
+    old_modifiers = [mod for mod in mesh.modifiers if mod.type == "ARMATURE"]
+    old_rigs = {mod.object for mod in old_modifiers if mod.object is not None}
+    if mesh.parent is not None and mesh.parent.type == "ARMATURE":
+        old_rigs.add(mesh.parent)
+    existing_binding = bool(old_rigs or old_modifiers or mesh.vertex_groups)
 
+    view_layer = bpy.context.view_layer
+    previous_active = view_layer.objects.active
+    previous_selected = list(bpy.context.selected_objects)
     arm_data = bpy.data.armatures.new("QuadRig")
     arm = bpy.data.objects.new("QuadRig", arm_data)
-    bpy.context.scene.collection.objects.link(arm)
-
-    bpy.context.view_layer.objects.active = arm
-    bpy.ops.object.mode_set(mode="EDIT")
-    eb = arm_data.edit_bones
-    for name, head_m, tail_m, parent, connect in skeleton:
-        bone = eb.new(name)
-        bone.head = markers[head_m]
-        bone.tail = markers[tail_m]
-        if (bone.tail - bone.head).length < 1e-5:
-            bone.tail = bone.head + Vector((0, 0, 1e-3))
-    head_c = markers["head"]
-    for name, marker in ear_bones:
-        bone = eb.new(name)
-        base = markers[marker]
-        bone.head = base
-        bone.tail = ear_tip(base, head_c, ear_length, Vector)
-    for name, _h, _t, parent, connect in skeleton:
-        if parent:
-            eb[name].parent = eb[parent]
-            eb[name].use_connect = connect
-    for name, _m in ear_bones:
-        eb[name].parent = eb["head"]
-    bpy.ops.object.mode_set(mode="OBJECT")
-
-    bpy.ops.object.select_all(action="DESELECT")
-    mesh.select_set(True)
-    arm.select_set(True)
-    bpy.context.view_layer.objects.active = arm
-    heat_error = None
+    candidate = mesh.copy()
+    candidate.data = mesh.data.copy()
+    candidate_data = candidate.data
+    applied = False
     try:
-        bpy.ops.object.parent_set(type="ARMATURE_AUTO")
-    except RuntimeError as exc:
-        heat_error = str(exc)
+        scene.collection.objects.link(arm)
+        scene.collection.objects.link(candidate)
+        world = mesh.matrix_world.copy()
+        candidate.parent = None
+        candidate.matrix_world = world
+        candidate.hide_select = False
+        for group in list(candidate.vertex_groups):
+            candidate.vertex_groups.remove(group)
+        for mod in list(candidate.modifiers):
+            if mod.type == "ARMATURE":
+                candidate.modifiers.remove(mod)
 
-    groups = {group.index: group.name for group in mesh.vertex_groups}
-    names = [bone[0] for bone in skeleton] + [ear[0] for ear in ear_bones]
-    report = weight_report(mesh.data.vertices, groups, names, markers["head"].z, weight_threshold)
-    contaminated, empty = flagged_groups(report)
+        _build_bones(bpy, Vector, arm, markers, ear_length)
+        bpy.ops.object.select_all(action="DESELECT")
+        candidate.select_set(True)
+        arm.select_set(True)
+        view_layer.objects.active = arm
+        heat_error = None
+        try:
+            if "FINISHED" not in bpy.ops.object.parent_set(type="ARMATURE_AUTO"):
+                heat_error = "automatic weighting was cancelled"
+        except RuntimeError as exc:
+            heat_error = str(exc)
 
-    # Heat weighting is *expected* to fail on this mesh — that is why the voxel-proxy
-    # transfer exists. Leaving the scene in this state means the armature animates and
-    # the mesh does not follow, which looks like a broken rig rather than a missing step.
-    if empty:
-        print("!!! MESH IS NOT USABLY WEIGHTED — run scripts/blender_voxel_weights.py now")
+        groups = {group.index: group.name for group in candidate.vertex_groups}
+        names = [bone[0] for bone in SKELETON] + [ear[0] for ear in EAR_BONES]
+        report = weight_report(candidate.data.vertices, groups, names, markers["head"].z, weight_threshold)
+        contaminated, empty = flagged_groups(report)
+        result = {
+            "bones": len(arm_data.bones),
+            "heat_error": heat_error,
+            "vertex_groups": len(candidate.vertex_groups),
+            "empty_groups": empty,
+            "legs_reaching_head": contaminated,
+            "verdict": "ENVELOPE FALLBACK" if contaminated else ("EMPTY GROUPS" if empty else "CLEAN"),
+            "report": report,
+        }
 
-    result = {
-        "bones": len(arm_data.bones),
-        "heat_error": heat_error,
-        "vertex_groups": len(mesh.vertex_groups),
-        "empty_groups": empty,
-        "legs_reaching_head": contaminated,
-        "verdict": "ENVELOPE FALLBACK" if contaminated else ("EMPTY GROUPS" if empty else "CLEAN"),
-        "report": report,
-    }
+        if existing_binding and (heat_error is not None or empty or contaminated):
+            print("!!! RIG REPLACEMENT FAILED. Previous binding kept.")
+        else:
+            mesh.data = candidate_data
+            mesh.hide_select = False
+            mesh.parent = arm
+            mesh.matrix_parent_inverse = candidate.matrix_parent_inverse
+            mesh.matrix_world = world
+            for mod in old_modifiers:
+                mesh.modifiers.remove(mod)
+            binding = next(
+                (mod for mod in candidate.modifiers if mod.type == "ARMATURE" and mod.object == arm),
+                None,
+            )
+            mesh.modifiers.new(binding.name if binding else "Armature", "ARMATURE").object = arm
+            mesh.select_set(True)
+            applied = True
+
+            # A prior rig can still drive another mesh or be linked into another scene.
+            for old in old_rigs:
+                if set(old.users_scene) != {scene}:
+                    continue
+                users = bpy.data.user_map(subset={old})[old]
+                if users <= local_collections | {scene}:
+                    remove_scene_objects(bpy, [old])
+            arm.name = "QuadRig"
+            if empty:
+                print("!!! MESH IS NOT USABLY WEIGHTED — run scripts/blender_voxel_weights.py now")
+    finally:
+        bpy.data.objects.remove(candidate, do_unlink=True)
+        if not applied:
+            bpy.data.meshes.remove(candidate_data)
+            bpy.data.objects.remove(arm, do_unlink=True)
+            bpy.data.armatures.remove(arm_data)
+            bpy.ops.object.select_all(action="DESELECT")
+            for selected in previous_selected:
+                selected.select_set(True)
+            view_layer.objects.active = previous_active
+
+    result["applied"] = applied
     print(json.dumps(result, indent=2))
     return result
 
 
 def voxel_weights(bpy, *, voxel_size: float, weight_threshold: float, keep_proxy: bool) -> dict:
-    mesh_objs = [o for o in bpy.data.objects if o.type == "MESH" and not o.name.startswith("PROXY_")]
-    arms = [o for o in bpy.data.objects if o.type == "ARMATURE"]
+    scene = bpy.context.scene
+    mesh_objs = [o for o in scene.objects if o.type == "MESH" and not o.name.startswith("PROXY_")]
+    arms = [o for o in scene.objects if o.type == "ARMATURE"]
+    if len(mesh_objs) == 1:
+        mesh = mesh_objs[0]
+        if mesh.parent in arms:
+            arms = [mesh.parent]
+        else:
+            bindings = {
+                mod.object for mod in mesh.modifiers
+                if mod.type == "ARMATURE" and mod.object is not None
+            }
+            if bindings:
+                arms = [arm for arm in arms if arm in bindings]
     if len(mesh_objs) != 1 or len(arms) != 1:
         raise RuntimeError(f"need exactly one mesh and one armature, found {len(mesh_objs)} and {len(arms)}")
     mesh, arm = mesh_objs[0], arms[0]
     mesh.hide_select = False
 
-    for stale in [o for o in bpy.data.objects if o.name.startswith("PROXY_")]:
-        bpy.data.objects.remove(stale, do_unlink=True)
+    remove_scene_objects(
+        bpy, [o for o in scene.objects if o.type == "MESH" and o.name.startswith("PROXY_")]
+    )
 
     # --- 1. voxel proxy -------------------------------------------------------------
     proxy = mesh.copy()

@@ -3,10 +3,12 @@
 import json
 import socket
 import sys
+from pathlib import Path
 
 import blender_light_orbit as light
 import blender_stage as stage
 import blender_turntable as turntable
+import blender_wind_demo as wind
 import pytest
 
 
@@ -37,13 +39,24 @@ class Reply:
         return fragment
 
 
-@pytest.mark.parametrize("mode", ["complete", "empty", "timeout"])
-@pytest.mark.parametrize("tool", ["stage", "turntable"])
+@pytest.mark.parametrize(
+    ("fragments", "success", "message"),
+    [
+        ([b'{"status":"suc', b'cess","result":{"executed":true,"result":""}}'], True, ""),
+        ([b'{"status":"error","message":"Import failed"}'], False, "Import failed"),
+        ([b'{"status":', b""], False, "closed before sending a complete reply"),
+        ([b'{"status":', TimeoutError()], False, "timed out before sending a complete reply"),
+        ([b'{"result":200}'], False, "unexpected Blender reply"),
+        ([b'{"status":"success","result":{"executed":false,"error":"Import failed"}}'],
+         False, "Import failed"),
+        ([b""], False, "closed before sending a complete reply"),
+    ],
+)
+@pytest.mark.parametrize("tool", ["stage", "turntable", "wind"])
 def test_render_requests_join_partial_replies_and_close_the_connection(
-    mode, tool, monkeypatch, tmp_path, capsys
+    fragments, success, message, tool, monkeypatch, tmp_path, capsys
 ):
-    end = {"complete": b"200}", "empty": b"", "timeout": TimeoutError()}[mode]
-    reply = Reply([b'{"result":', end])
+    reply = Reply(fragments)
 
     def connect(address, *, timeout):
         assert address == ("workstation", 4201)
@@ -51,7 +64,7 @@ def test_render_requests_join_partial_replies_and_close_the_connection(
         return reply
 
     monkeypatch.setattr(socket, "create_connection", connect)
-    result = '{"result":200}' if mode == "complete" else '{"result":'
+    result = '{"status":"success","result":{"executed":true,"result":""}}'
     if tool == "stage":
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
@@ -73,15 +86,26 @@ def test_render_requests_join_partial_replies_and_close_the_connection(
                 "2",
             ],
         )
-        assert stage.main() == 0
-        assert capsys.readouterr().out.strip() == result
+        assert stage.main() == (0 if success else 1)
+        output = capsys.readouterr()
+        if success:
+            assert output.out.strip() == result
+            assert not output.err
+        else:
+            assert not output.out
+            assert message in output.err
         assert reply.timeout == 300
         expected = stage.build_code(
             ["a.glb", "b.glb"], ["A_The_first", "B_The_second"], [-1.0, 1.0], False
         )
     else:
         expected = "print('render complete')"
-        assert turntable.send("workstation", 4201, expected, 1800) == result
+        launcher = turntable if tool == "turntable" else wind
+        if success:
+            assert launcher.send("workstation", 4201, expected, 1800) == result
+        else:
+            with pytest.raises(RuntimeError, match=message):
+                launcher.send("workstation", 4201, expected, 1800)
         assert reply.timeout == 1800
     assert reply.closed
     assert reply.request == {"type": "execute_code", "params": {"code": expected}}
@@ -134,8 +158,7 @@ def test_light_orbit_plans_frames_and_creates_output_parent(
 
 def test_turntable_creates_frames_directory_on_first_run(tmp_path, monkeypatch):
     output = tmp_path / "renders" / "result.mp4"
-    frame_dir = output.parent / ".frames_turntable"
-    frame = frame_dir / "turntable_0001.png"
+    frame = None
     argv = [
         "turntable",
         str(tmp_path / "source.glb"),
@@ -145,23 +168,26 @@ def test_turntable_creates_frames_directory_on_first_run(tmp_path, monkeypatch):
         "--keep-frames",
     ]
     monkeypatch.setattr(sys, "argv", argv)
-    assert not frame_dir.exists()
+    assert not output.parent.exists()
 
     def send(host, port, code, *, timeout):
+        nonlocal frame
         assert (host, port, timeout) == ("127.0.0.1", 9876, 1800)
-        assert frame_dir.is_dir() and list(frame_dir.iterdir()) == []
+        frame_dir, = output.parent.iterdir()
+        assert frame_dir.is_dir() and not list(frame_dir.iterdir())
+        frame = frame_dir / "turntable_0000.png"
         frame.write_bytes(b"rendered frame")
         return "rendered"
 
     def encode(command, *, check):
         assert check
         assert command[0] == "ffmpeg"
-        assert command[command.index("-i") + 1] == str(frame_dir / "turntable_%04d.png")
-        assert command[-1] == str(output)
-        output.write_bytes(frame.read_bytes())
+        assert command[command.index("-i") + 1] == str(frame.parent / "turntable_%04d.png")
+        assert Path(command[-1]).name == output.name
+        Path(command[-1]).write_bytes(frame.read_bytes())
 
     monkeypatch.setattr(turntable, "send", send)
-    monkeypatch.setattr(turntable.subprocess, "run", encode)
+    monkeypatch.setattr("subprocess.run", encode)
     assert turntable.main() == 0
     assert output.read_bytes() == b"rendered frame"
     assert frame.exists()

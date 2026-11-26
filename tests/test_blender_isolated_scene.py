@@ -128,6 +128,5 @@ def test_scene_tools_bundle_the_dispatched_worker(command, builder, args, action
 def test_prelude_only_clears_its_own_scene():
     code = isolated_scene_prelude("IMG3D turntable")
     assert "bpy.data.scenes.new" in code or "bpy.data.scenes.get" in code
-    assert "for obj in list(render_scene.objects)" in code
-    assert "bpy.data.objects)" not in code.split("render_scene.objects")[0]
+    assert "clear_private_scene(bpy, render_scene)" in code
     assert restore_previous_scene() == "bpy.context.window.scene = previous_scene\n"

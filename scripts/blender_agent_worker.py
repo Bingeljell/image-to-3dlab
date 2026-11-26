@@ -8,6 +8,12 @@ from __future__ import annotations
 import json
 import math
 
+if __package__:
+    from .blender_scene import import_gltf_objects, remove_scene_objects
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import import_gltf_objects, remove_scene_objects
+
+
 RESULT_SENTINEL = "AGENT_RESULT "
 
 
@@ -88,23 +94,15 @@ def render_view(bpy, output_path, resolution, samples):
     }
 
 
-def _remove_objects(bpy, types):
-    removed = []
-    for obj in list(bpy.data.objects):
-        if obj.type in types:
-            removed.append(obj.name)
-            bpy.data.objects.remove(obj, do_unlink=True)
-    return removed
-
-
 def import_asset(bpy, path, clear_scene):
+    previous = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+    imported = import_gltf_objects(bpy, path, require_mesh=clear_scene)
     if clear_scene:
-        _remove_objects(bpy, {"MESH"})
-    before = set(bpy.data.objects.keys())
-    bpy.ops.import_scene.gltf(filepath=path)
-    imported = [obj.name for obj in bpy.data.objects if obj.name not in before]
-    meshes = [name for name in imported if bpy.data.objects[name].type == "MESH"]
-    return {"imported": imported, "meshes": meshes}
+        remove_scene_objects(bpy, previous)
+    return {
+        "imported": [obj.name for obj in imported],
+        "meshes": [obj.name for obj in imported if obj.type == "MESH"],
+    }
 
 
 def _flat(obj):
@@ -241,7 +239,9 @@ def set_render_settings(bpy, engine, film_transparent, exposure):
 
 
 def clear_scene(bpy, keep_lights):
-    removed = _remove_objects(bpy, {"MESH"} if keep_lights else {"MESH", "LIGHT"})
+    types = {"MESH"} if keep_lights else {"MESH", "LIGHT"}
+    objects = [obj for obj in bpy.context.scene.objects if obj.type in types]
+    removed = remove_scene_objects(bpy, objects)
     return {"removed": removed, "count": len(removed)}
 
 

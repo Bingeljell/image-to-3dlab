@@ -30,15 +30,15 @@ scene so you can look at it.
 from __future__ import annotations
 
 import argparse
-import json
-import socket
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 if __package__:
+    from .blender_socket import execute_code
     from .blender_worker_source import build_worker_code
 else:
+    from blender_socket import execute_code
     from blender_worker_source import build_worker_code
 
 WORKER_PATH = Path(__file__).with_name("blender_scene_stage_worker.py")
@@ -84,25 +84,7 @@ def build_code(assets: list[str], names: list[str], offsets: list[float], culled
 
 
 def send(code: str, host: str, port: int) -> str:
-    request = {"type": "execute_code", "params": {"code": code}}
-    with socket.create_connection((host, port), timeout=10) as connection:
-        connection.settimeout(300)
-        connection.sendall(json.dumps(request).encode("utf-8"))
-        chunks: list[bytes] = []
-        while True:
-            try:
-                chunk = connection.recv(65536)
-            except TimeoutError:
-                break
-            if not chunk:
-                break
-            chunks.append(chunk)
-            try:
-                json.loads(b"".join(chunks))
-                break
-            except json.JSONDecodeError:
-                continue
-    return b"".join(chunks).decode("utf-8", errors="replace")
+    return execute_code(code, host, port, timeout=300)
 
 
 def main() -> int:
@@ -122,7 +104,12 @@ def main() -> int:
 
     names = labels_for(args.assets, args.labels)
     offsets = spread_offsets(len(args.assets), args.gap)
-    print(send(build_code(args.assets, names, offsets, not args.double_sided), args.host, args.port))
+    code = build_code(args.assets, names, offsets, not args.double_sided)
+    try:
+        print(send(code, args.host, args.port))
+    except (OSError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

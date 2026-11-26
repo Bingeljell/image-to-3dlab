@@ -8,6 +8,20 @@ from __future__ import annotations
 import json
 import math
 
+if __package__:
+    from .blender_scene import (
+        import_gltf_objects,
+        remove_scene_objects,
+        scene_marker_objects,
+    )
+elif __name__ != "_assetfurnace_worker":
+    from blender_scene import (
+        import_gltf_objects,
+        remove_scene_objects,
+        scene_marker_objects,
+    )
+
+
 VIEW_OFFSETS = {
     "front_xneg": (-1, 0),
     "front_three_quarter": (-0.9, -0.45),
@@ -97,46 +111,60 @@ def _new_marker(bpy, collection, name, radius):
 def spawn_markers(bpy, asset_path, markers, prefix, confirm):
     from mathutils import Vector
 
-    existing = [obj for obj in bpy.data.objects if obj.name.startswith(prefix)]
+    scene = bpy.context.scene
+    existing = [
+        obj for obj in scene.objects if obj.type == "EMPTY" and obj.name.startswith(prefix)
+    ]
     if existing and not confirm:
         names = ", ".join(obj.name for obj in existing)
         raise RuntimeError(
-            f"joint markers already in this file ({names}). Re-run with --yes to replace the markers only."
+            f"joint markers already in this scene ({names}). Re-run with --yes to replace the markers only."
         )
-    if confirm:
-        for obj in existing:
+
+    imported = import_gltf_objects(bpy, asset_path, require_mesh=True)
+    collection = None
+    staged = []
+    try:
+        meshes = [obj for obj in imported if obj.type == "MESH"]
+        low = Vector((1e9, 1e9, 1e9))
+        high = Vector((-1e9, -1e9, -1e9))
+        for obj in meshes:
+            obj.hide_select = True
+            for corner in obj.bound_box:
+                point = obj.matrix_world @ Vector(corner)
+                for axis in range(3):
+                    low[axis] = min(low[axis], point[axis])
+                    high[axis] = max(high[axis], point[axis])
+        size = high - low
+        positions = {
+            prefix + name: marker_position(low, size, fraction)
+            for name, fraction in markers.items()
+        }
+        collection = bpy.data.collections.new("JOINT_MARKERS")
+        scene.collection.children.link(collection)
+        for name, position in positions.items():
+            obj = _new_marker(bpy, collection, name, max(size) * 0.018)
+            staged.append((obj, name))
+            obj.location = position
+    except Exception:
+        for obj in imported + [obj for obj, _ in staged]:
             bpy.data.objects.remove(obj, do_unlink=True)
+        if collection is not None:
+            bpy.data.collections.remove(collection)
+        raise
 
-    before = set(bpy.data.objects)
-    bpy.ops.import_scene.gltf(filepath=asset_path)
-    meshes = [
-        obj for obj in bpy.data.objects if obj not in before and obj.type == "MESH"
-    ]
-    if not meshes:
-        raise RuntimeError("no mesh imported")
+    remove_scene_objects(bpy, existing)
+    for obj, name in staged:
+        obj.name = name
+        if obj.name != name:
+            obj["assetfurnace_marker_name"] = name
 
-    low = Vector((1e9, 1e9, 1e9))
-    high = Vector((-1e9, -1e9, -1e9))
-    for obj in meshes:
-        for corner in obj.bound_box:
-            point = obj.matrix_world @ Vector(corner)
-            for axis in range(3):
-                low[axis] = min(low[axis], point[axis])
-                high[axis] = max(high[axis], point[axis])
-    for obj in meshes:
-        obj.hide_select = True
-    size = high - low
-    collection = bpy.data.collections.new("JOINT_MARKERS")
-    bpy.context.scene.collection.children.link(collection)
-    for name, fraction in markers.items():
-        obj = _new_marker(bpy, collection, prefix + name, max(size) * 0.018)
-        obj.location = marker_position(low, size, fraction)
-
-    for area in bpy.context.screen.areas:
-        if area.type == "VIEW_3D":
-            for space in area.spaces:
-                if space.type == "VIEW_3D":
-                    space.shading.type = "MATERIAL"
+    if bpy.context.screen is not None:
+        for area in bpy.context.screen.areas:
+            if area.type == "VIEW_3D":
+                for space in area.spaces:
+                    if space.type == "VIEW_3D":
+                        space.shading.type = "MATERIAL"
     return {
         "spawned": len(markers),
         "bbox_min": [round(v, 4) for v in low],
@@ -146,9 +174,8 @@ def spawn_markers(bpy, asset_path, markers, prefix, confirm):
 
 def read_markers(bpy, prefix):
     return {
-        obj.name[len(prefix) :]: [round(v, 5) for v in obj.matrix_world.translation]
-        for obj in bpy.data.objects
-        if obj.name.startswith(prefix)
+        name: [round(v, 5) for v in obj.matrix_world.translation]
+        for name, obj in scene_marker_objects(bpy.context.scene, prefix).items()
     }
 
 

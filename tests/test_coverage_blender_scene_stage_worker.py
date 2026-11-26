@@ -45,6 +45,10 @@ class SceneObject:
             NS(material=None),
         ]
 
+    @property
+    def users(self):
+        return len(self.users_collection)
+
     def select_set(self, value):
         self.selected = value
 
@@ -53,20 +57,24 @@ class Links(list):
     def link(self, item):
         self.append(item)
 
+    unlink = list.remove
+
 
 class Collection:
     def __init__(self, name):
         self.name = name
         self.children = Links()
-        self.members = []
-        self.objects = NS(link=self.link, unlink=self.unlink)
+        self.objects = Links()
+        self.objects.link = self.link
+        self.objects.unlink = self.unlink
+        self.users = 0
 
     def link(self, obj):
-        self.members.append(obj)
+        self.objects.append(obj)
         obj.users_collection.append(self)
 
     def unlink(self, obj):
-        self.members.remove(obj)
+        self.objects.remove(obj)
         obj.users_collection.remove(self)
 
 
@@ -80,19 +88,22 @@ class Scene:
             resolution_x=640,
             resolution_y=480,
             film_transparent=False,
-            image_settings=NS(file_format="JPEG", color_mode="RGB"),
+            image_settings=NS(file_format="JPEG", color_mode="RGB", color_depth="8"),
+            filepath="original.jpg",
         )
         self.view_settings = NS(view_transform="Filmic")
         self.frames = []
+        self.frame_current, self.frame_subframe = 19, 0.25
 
     @property
     def objects(self):
-        return self.collection.members + [
-            obj for child in self.collection.children for obj in child.members
+        return self.collection.objects + [
+            obj for child in self.collection.children for obj in child.objects
         ]
 
-    def frame_set(self, frame):
+    def frame_set(self, frame, *, subframe=0):
         self.frames.append(frame)
+        self.frame_current, self.frame_subframe = frame, subframe
 
 
 class Collections(NamedItems):
@@ -100,11 +111,12 @@ class Collections(NamedItems):
         super().__init__(Collection)
         self.scenes = scenes
 
-    def remove(self, collection):
+    def remove(self, collection, *, do_unlink):
         for scene in self.scenes:
             if collection in scene.collection.children:
                 scene.collection.children.remove(collection)
-        super().remove(collection, do_unlink=True)
+        assert not do_unlink
+        list.remove(self, collection)
 
 
 class Context:
@@ -117,7 +129,8 @@ class Datablocks(NamedItems):
     def remove(self, obj, *, do_unlink):
         for collection in list(obj.users_collection):
             collection.unlink(obj)
-        super().remove(obj, do_unlink=do_unlink)
+        assert not do_unlink
+        list.remove(self, obj)
 
 
 @pytest.fixture
@@ -132,7 +145,7 @@ def scene_state(monkeypatch):
     origin.collection.link(keep)
     context = Context()
     context.window = NS(scene=origin)
-    context.view_layer = NS(objects=NS(active=keep))
+    context.view_layer = NS(objects=NS(active=keep), update=lambda: None)
     area = NS(
         type="VIEW_3D",
         spaces=[NS(shading=NS(type="SOLID"))],
@@ -169,6 +182,7 @@ def scene_state(monkeypatch):
         data=NS(
             scenes=scenes,
             objects=objects,
+            user_map=lambda subset: {},
             collections=Collections(scenes),
             cameras=NS(new=lambda name: NS(name=name, kind="CAMERA")),
             lights=NS(new=lambda name, type: NS(name=name, type=type, kind="LIGHT")),
@@ -239,7 +253,7 @@ def test_stage_clears_only_its_scene_and_centres_the_mesh(scene_state, culled, c
     assert all(
         o.material_slots[0].material.use_backface_culling is culled for o in imported
     )
-    assert {obj.name for obj in private.collection.members} == {"KEY", "FILL", "RIM"}
+    assert {obj.name for obj in private.collection.objects} == {"KEY", "FILL", "RIM"}
     assert all(not obj.selected for obj in private.objects)
     assert audit.selection == ["DESELECT"] and audit.framed == [True]
     assert bpy.context.view_layer.objects.active is None
@@ -359,13 +373,18 @@ def test_stage_bake_restores_the_live_scene_after_rendering(
             "frames": frames,
         }
         assert worker.stage_bake(bpy, **args) == expected
-        assert origin.frames == wanted
+        assert origin.frames == [*wanted, 19]
         assert audit.renders == [(str(directory / file), None) for file in frames]
         assert (
             json.loads(capsys.readouterr().out.removeprefix("STAGE_BAKE ")) == expected
         )
-        assert camera.data.ortho_scale == (20 if mode == "override" else 10)
     assert directory.is_dir()
+    assert camera.data.ortho_scale == 10
+    assert origin.render.image_settings.file_format == "JPEG"
+    assert origin.render.image_settings.color_mode == "RGB"
+    assert origin.render.image_settings.color_depth == "8"
+    assert origin.render.filepath == "original.jpg"
+    assert (origin.frame_current, origin.frame_subframe) == (19, 0.25)
     assert arm.animation_data.action is old_action
     assert origin.camera is previous and target.rotation_euler == (0, 0, 2)
     assert (

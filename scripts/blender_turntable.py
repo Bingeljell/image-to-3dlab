@@ -11,16 +11,16 @@ a full turn, so frame N wraps onto frame 0 without a duplicate.
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
-import socket
-import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Reuse the render environments from the still-preview helper so a turntable and a
 # preview of the same asset are lit identically.
 from blender_render_asset import ENVIRONMENTS
+from blender_socket import execute_code
+from blender_video import encode_frames
 from blender_worker_source import build_worker_code
 
 
@@ -50,25 +50,7 @@ def blender_code(
 
 
 def send(host: str, port: int, code: str, timeout: float) -> str:
-    request = {"type": "execute_code", "params": {"code": code}}
-    with socket.create_connection((host, port), timeout=10) as connection:
-        connection.settimeout(timeout)
-        connection.sendall(json.dumps(request).encode("utf-8"))
-        chunks: list[bytes] = []
-        while True:
-            try:
-                chunk = connection.recv(65536)
-            except TimeoutError:
-                break
-            if not chunk:
-                break
-            chunks.append(chunk)
-            try:
-                json.loads(b"".join(chunks))
-                break
-            except json.JSONDecodeError:
-                continue
-    return b"".join(chunks).decode("utf-8", errors="replace")
+    return execute_code(code, host, port, timeout)
 
 
 def main() -> int:
@@ -103,14 +85,13 @@ def main() -> int:
         help="keep the intermediate PNG sequence instead of deleting it",
     )
     args = parser.parse_args()
+    if args.frames < 1:
+        parser.error("--frames must be at least 1")
 
     asset = args.asset.expanduser().resolve()
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    frame_dir = output.parent / f".frames_{args.label}"
-    if frame_dir.exists():
-        shutil.rmtree(frame_dir)
-    frame_dir.mkdir(parents=True)
+    frame_dir = Path(tempfile.mkdtemp(prefix=f"{output.stem}_frames_", dir=output.parent))
 
     code = blender_code(
         asset,
@@ -123,41 +104,16 @@ def main() -> int:
         args.darken_backfaces,
     )
     # Rendering the whole sequence happens inside one blocking call, so allow for it.
-    print(send(args.host, args.port, code, timeout=1800))
-
-    rendered = sorted(frame_dir.glob(f"{args.label}_*.png"))
-    if len(rendered) != args.frames:
-        print(
-            f"error: expected {args.frames} frames, found {len(rendered)}",
-            file=sys.stderr,
-        )
+    try:
+        print(send(args.host, args.port, code, timeout=1800))
+        encode_frames(frame_dir, args.label, args.frames, args.fps, output)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}. Frames kept in {frame_dir}", file=sys.stderr)
         return 1
 
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-framerate",
-            str(args.fps),
-            "-i",
-            str(frame_dir / f"{args.label}_%04d.png"),
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            # x264 needs even dimensions; scale defensively for odd --resolution values.
-            "-vf",
-            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-            "-crf",
-            "18",
-            "-movflags",
-            "+faststart",
-            str(output),
-        ],
-        check=True,
-    )
-
-    if not args.keep_frames:
+    if args.keep_frames:
+        print(f"Frames kept in {frame_dir}")
+    else:
         shutil.rmtree(frame_dir)
 
     print(f"wrote {output}")

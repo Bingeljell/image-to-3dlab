@@ -2,6 +2,7 @@
 
 import json
 import sys
+from copy import deepcopy
 from itertools import product
 from pathlib import Path
 from runpy import run_path
@@ -147,7 +148,7 @@ class ObjectLibrary(Items):
         obj.type = "ARMATURE"
         return obj
 
-    def remove(self, obj, *, do_unlink):
+    def remove(self, obj, *, do_unlink=True):
         assert do_unlink
         super().remove(obj)
 
@@ -168,10 +169,23 @@ def rig_scene(monkeypatch):
         bones = Bones()
         return Obj(name=name, edit_bones=bones, bones=bones)
 
+    collection = type("Collection", (), {"children_recursive": ()})()
+    collection.objects = Obj(link=objects.append, unlink=lambda _: None)
+    scene = type("Scene", (), {})()
+    scene.collection = collection
+    scene.objects = objects
     bpy = Obj(
-        data=Obj(objects=objects, armatures=Obj(new=armature)),
+        data=Obj(
+            objects=objects,
+            scenes=[scene],
+            armatures=Obj(new=armature, remove=lambda _: None),
+            meshes=Obj(remove=lambda _: None),
+            user_map=lambda *, subset: {obj: {collection} for obj in subset},
+        ),
         context=Obj(
-            scene=Obj(collection=Obj(objects=Obj(link=objects.append))),
+            scene=scene,
+            selected_objects=[],
+
             view_layer=Obj(objects=active),
         ),
         ops=Obj(object=Obj(
@@ -190,17 +204,29 @@ def point(z, *weights):
     return Obj(co=Vector((0, 0, z)), groups=[Obj(group=group, weight=weight) for group, weight in weights])
 
 
-@pytest.mark.parametrize("heat", ["fail", "empty", "clean", "contaminated"])
-def test_build_worker_links_bones_and_reports_heat_weighting(rig_scene, capsys, heat):
+@pytest.mark.parametrize("heat,replacement", [
+    ("fail", True), ("empty", True), ("clean", True), ("contaminated", True),
+    ("fail", False), ("empty", False), ("contaminated", False),
+])
+def test_build_worker_links_bones_and_reports_heat_weighting(rig_scene, capsys, heat, replacement):
     from scripts import blender_rig_weights_worker as worker
 
     bpy, active, modes, _operations = rig_scene
     mesh = MeshObject("mesh", Obj(vertices=[point(0), point(1)]))
     old_armature = MeshObject("old rig")
     old_armature.type = "ARMATURE"
-    mesh.parent = old_armature if heat != "clean" else None
-    mesh.vertex_groups = [Obj(name="stale")]
-    mesh.modifiers = Modifiers([Obj(name="old armature", type="ARMATURE"), Obj(name="mirror", type="MIRROR")])
+    mesh.parent = old_armature if replacement else None
+    mesh.vertex_groups = [Obj(name="stale")] if replacement else []
+    mesh.modifiers = Modifiers([Obj(name="mirror", type="MIRROR")])
+    if replacement:
+        mesh.modifiers.append(Obj(name="old armature", type="ARMATURE", object=old_armature))
+    mesh.users_collection = old_armature.users_collection = [bpy.context.scene.collection]
+    old_armature.users_scene = [bpy.context.scene]
+    old_armature.users = 0
+    mesh.matrix_world = Vector((0, 0, 0))
+    mesh.matrix_parent_inverse = Vector((0, 0, 0))
+    mesh.data.copy = lambda: Obj(vertices=deepcopy(mesh.data.vertices))
+    mesh.copy = lambda: deepcopy(mesh)
     bpy.data.objects.extend([mesh, old_armature])
     marker_names = sorted({name for bone in worker.SKELETON for name in bone[1:3]})
     markers = {name: Vector((index / 10, 0, .2)) for index, name in enumerate(marker_names)}
@@ -211,21 +237,28 @@ def test_build_worker_links_bones_and_reports_heat_weighting(rig_scene, capsys, 
     for name, xyz in markers.items():
         obj = MeshObject(f"JOINT_{name}")
         obj.matrix_world = Obj(translation=xyz)
+        obj.get = lambda _key: None
         bpy.data.objects.append(obj)
 
+    created = []
+
     def parent_set(type):
-        assert type == "ARMATURE_AUTO" and active.active.selected and mesh.selected
-        assert mesh.vertex_groups == []
+        candidate = next(obj for obj in bpy.data.objects if obj.selected and obj.type == "MESH")
+        assert type == "ARMATURE_AUTO" and active.active.selected and candidate is not mesh
+        assert candidate.vertex_groups == []
+        created.append(active.active)
         if heat == "fail":
             raise RuntimeError("heat unavailable")
-        mesh.parent = active.active
+        candidate.parent = active.active
+        candidate.modifiers.new("New bind", "ARMATURE").object = active.active
         names = list(active.active.data.bones)
         if heat == "empty":
             names = ["head"]
-        mesh.vertex_groups = [Obj(index=index, name=name) for index, name in enumerate(names)]
+        candidate.vertex_groups = [Obj(index=index, name=name) for index, name in enumerate(names)]
         for index, name in enumerate(names):
-            vertex = mesh.data.vertices[int(name == "head" or (heat == "contaminated" and name == "frontL_paw"))]
+            vertex = candidate.data.vertices[int(name == "head" or (heat == "contaminated" and name == "frontL_paw"))]
             vertex.groups.append(Obj(group=index, weight=.9))
+        return {"FINISHED"}
 
     bpy.ops.object.parent_set = parent_set
     args = {"operation": "build", "ear_length": .2, "weight_threshold": .15}
@@ -236,9 +269,20 @@ def test_build_worker_links_bones_and_reports_heat_weighting(rig_scene, capsys, 
     output = capsys.readouterr().out
     assert json.loads(output[output.index("{"):]) == result
     assert modes == ["EDIT", "OBJECT"]
-    assert old_armature not in bpy.data.objects
-    assert [modifier.name for modifier in mesh.modifiers] == ["mirror"]
-    rig = active.active
+    expected_applied = not replacement or heat == "clean"
+    assert result["applied"] is expected_applied
+    if replacement and not expected_applied:
+        assert mesh.parent is old_armature
+        assert [mod.name for mod in mesh.modifiers] == ["mirror", "old armature"]
+        assert [group.name for group in mesh.vertex_groups] == ["stale"]
+        assert active.active is None
+    else:
+        assert [mod.name for mod in mesh.modifiers] == (
+            ["mirror", "Armature"] if heat == "fail" else ["mirror", "New bind"]
+        )
+    assert (old_armature in bpy.data.objects) is (not replacement or not expected_applied)
+    rig = created[0]
+    assert (rig in bpy.data.objects) is expected_applied
     bones = rig.data.bones
     assert rig.name == "QuadRig"
     assert result["bones"] == len(worker.SKELETON) + 2
@@ -260,10 +304,11 @@ def test_rig_worker_validates_scene_before_touching_meshes(rig_scene):
     bpy, _active, _modes, _operations = rig_scene
     with pytest.raises(RuntimeError, match="missing markers: "):
         worker.run({"operation": "build", "ear_length": .1, "weight_threshold": .15})
-    names = {name for bone in worker.SKELETON for name in bone[1:3]}
+    names = {name for bone in worker.SKELETON for name in bone[1:3]} | {"ear_L", "ear_R"}
     for name in names:
         obj = MeshObject(f"JOINT_{name}")
         obj.matrix_world = Obj(translation=Vector((0, 0, 0)))
+        obj.get = lambda _key: None
         bpy.data.objects.append(obj)
     with pytest.raises(RuntimeError, match="expected exactly one mesh, found 0"):
         worker.run({"operation": "build", "ear_length": .1, "weight_threshold": .15})
@@ -289,7 +334,11 @@ def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scen
     mesh.modifiers = Modifiers([Obj(name="old bind", type="ARMATURE"), Obj(name="old transfer", type="DATA_TRANSFER"),
                                Obj(name="mirror", type="MIRROR")])
     stale_proxy = MeshObject("PROXY_stale", data)
-    bpy.data.objects.extend([mesh, armature, stale_proxy])
+    stale_proxy.users_collection = [bpy.context.scene.collection]
+    stale_proxy.users = 0
+    unrelated_rig = MeshObject("Unrelated rig")
+    unrelated_rig.type = "ARMATURE"
+    bpy.data.objects.extend([mesh, unrelated_rig, armature, stale_proxy])
     proxy = MeshObject("copy", data)
     proxy.vertex_groups = mesh.vertex_groups.copy()
     proxy.modifiers = Modifiers(mesh.modifiers)
@@ -297,6 +346,7 @@ def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scen
     if keep:
         marker = MeshObject("JOINT_head")
         marker.matrix_world = Obj(translation=Vector((0, 0, .6)))
+        marker.get = lambda _key: None
         bpy.data.objects.append(marker)
 
     def parent_set(type):
@@ -336,6 +386,7 @@ def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scen
         ("apply", "WeightTransfer"), ("parent", "ARMATURE_NAME"),
     ]
     assert stale_proxy not in bpy.data.objects
+    assert unrelated_rig in bpy.data.objects
     assert (proxy in bpy.data.objects) is keep
     assert mesh.parent is armature
     assert mesh.modifiers.get("mirror") is not None

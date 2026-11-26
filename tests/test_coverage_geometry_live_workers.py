@@ -74,7 +74,14 @@ class Links(list):
         self.append((source.name, target.name))
 
 
+class SceneLinks(list):
+    link = list.append
+    unlink = list.remove
+
+
 class MeshObject:
+    users = 0
+
     def __init__(self, name, data=None):
         self.name = name
         self.type = "MESH" if data else "EMPTY"
@@ -108,8 +115,8 @@ def private_scene():
             return render_scene
 
     def new_scene(name):
-        scene = Obj(name=name, world=None, objects=[], cycles=Obj(), render=Obj(bake=Obj()))
-        scene.collection = Obj(objects=Obj(link=scene.objects.append), children=[])
+        scene = Obj(name=name, world=None, objects=SceneLinks(), cycles=Obj(), render=Obj(bake=Obj()))
+        scene.collection = Obj(objects=scene.objects, children=SceneLinks())
         return scene
 
     def build(name, *, existing=True, fail=False, shader=True):
@@ -119,20 +126,24 @@ def private_scene():
         if existing:
             scene = scenes.new(name)
             scene.objects.append(MeshObject("stale"))
-            scene.collection.children.append("stale collection")
+            scene.collection.children.append(
+                Obj(name="stale collection", users=0, objects=SceneLinks(), children=SceneLinks())
+            )
             scene.world = Obj(name="existing world")
         if not shader:
             scenes.new(name).cycles = CpuOnly()
         events = []
-        view_layer = Obj(objects=Obj(active=None))
+        view_layer = Obj(objects=Obj(active=None), update=lambda: None)
         context = Obj(window=window, view_layer=view_layer)
         class Context:
             def __getattr__(self, name):
                 return window.scene if name == "scene" else getattr(context, name)
 
         def remove(obj, *, do_unlink):
-            assert do_unlink and obj in window.scene.objects
-            window.scene.objects.remove(obj)
+            if do_unlink:
+                window.scene.objects.remove(obj)
+            else:
+                assert obj not in window.scene.objects
             events.append(("remove", obj.name))
 
         def material(name):
@@ -159,9 +170,9 @@ def private_scene():
             Path(kwargs["filepath"]).write_bytes(b"glb")
             events.append(("export", Path(kwargs["filepath"]).name))
 
-        def collection_remove(child):
-            window.scene.collection.children.remove(child)
-            events.append(("collection", child))
+        def collection_remove(child, *, do_unlink):
+            assert not do_unlink and child not in window.scene.collection.children
+            events.append(("collection", child.name))
 
         def deselect(**kwargs):
             assert kwargs == {"action": "DESELECT"}
@@ -172,6 +183,7 @@ def private_scene():
             context=Context(),
             data=Obj(
                 scenes=scenes, worlds=Obj(new=lambda name: Obj(name=name)),
+                user_map=lambda subset: {},
                 collections=Obj(remove=collection_remove),
                 images=Obj(new=image), materials=Obj(new=material),
             ),

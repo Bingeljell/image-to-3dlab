@@ -1,6 +1,5 @@
 """Exercise wind labelling, deformation and rendering with tiny imported meshes."""
 
-import json
 import math
 import sys
 from types import ModuleType, SimpleNamespace
@@ -51,14 +50,19 @@ class Vector(np.ndarray):
         return SimpleNamespace(to_euler=lambda: tuple(self))
 
 
+class SceneLinks(list):
+    link = list.append
+    unlink = list.remove
+
+
 class Scene:
     def __init__(self, name, world=None, render=None, view_settings=None):
         self.name = name
-        self.objects = []
+        self.objects = SceneLinks()
         self.world = world
         self.collection = SimpleNamespace(
-            children=[],
-            objects=SimpleNamespace(link=self.objects.append),
+            children=SceneLinks(),
+            objects=self.objects,
         )
         self.render = render or SimpleNamespace(image_settings=SimpleNamespace())
         self.view_settings = view_settings or SimpleNamespace()
@@ -78,6 +82,7 @@ class LegacySettings:
 
 class MeshObject:
     type = "MESH"
+    users = 0
 
     def __init__(self, coords):
         self.data = SimpleNamespace(
@@ -112,7 +117,7 @@ def wind_scene(monkeypatch):
         if legacy:
             del private.eevee
         stale = MeshObject([[9, 9, 9]])
-        child = object()
+        child = SimpleNamespace(users=0, children=SceneLinks(), objects=SceneLinks())
         private.objects.append(stale)
         private.collection.children.append(child)
         objects = [previous_object, stale]
@@ -147,8 +152,11 @@ def wind_scene(monkeypatch):
             return private
 
         def remove(obj, *, do_unlink):
-            assert do_unlink and window.scene is private
-            private.objects.remove(obj)
+            assert window.scene is private
+            if do_unlink:
+                private.objects.remove(obj)
+            else:
+                assert obj not in private.objects
             objects.remove(obj)
 
         def import_asset(*, filepath):
@@ -177,6 +185,9 @@ def wind_scene(monkeypatch):
             if failure == "render":
                 raise RuntimeError("render stopped")
 
+        def remove_collection(collection, *, do_unlink):
+            assert not do_unlink and collection not in private.collection.children
+
         object_store = SimpleNamespace(
             new=lambda name, data: SimpleNamespace(name=name, data=data), remove=remove
         )
@@ -195,7 +206,7 @@ def wind_scene(monkeypatch):
 
         context = Context()
         context.window = window
-        context.view_layer = SimpleNamespace(objects=active)
+        context.view_layer = SimpleNamespace(objects=active, update=lambda: None)
         bpy = SimpleNamespace(
             context=context,
             data=SimpleNamespace(
@@ -204,7 +215,8 @@ def wind_scene(monkeypatch):
                     get=lambda _: private if reuse else None, new=new_scene
                 ),
                 worlds=SimpleNamespace(new=lambda name: SimpleNamespace(name=name)),
-                collections=SimpleNamespace(remove=private.collection.children.remove),
+                user_map=lambda subset: {},
+                collections=SimpleNamespace(remove=remove_collection),
                 cameras=SimpleNamespace(new=lambda name: SimpleNamespace(name=name)),
                 lights=SimpleNamespace(
                     new=lambda name, kind: SimpleNamespace(name=name, type=kind)
@@ -365,50 +377,4 @@ def test_wind_gust_scales_tip_flutter(wind_scene):
     flutter = 0.3 * math.sin(3.1 * math.pi / 2)
     np.testing.assert_allclose(
         positions, [[0, 0, 0], [1, flutter / 2, 0], [2, flutter, 0]], atol=1e-6
-    )
-
-
-@pytest.mark.parametrize("ending", [b'"success"}', b"", TimeoutError(), b"bad"])
-def test_wind_client_sends_the_request_and_handles_split_replies(monkeypatch, ending):
-    import blender_wind_demo as cli
-
-    class Connection:
-        def __init__(self):
-            self.chunks = iter([b'{"status":', ending, b""])
-            self.closed = False
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            self.closed = True
-
-        def settimeout(self, timeout):
-            assert timeout == 321
-
-        def sendall(self, data):
-            assert json.loads(data) == {
-                "type": "execute_code",
-                "params": {"code": "pass"},
-            }
-
-        def recv(self, amount):
-            assert amount == 65536
-            chunk = next(self.chunks)
-            if isinstance(chunk, Exception):
-                raise chunk
-            return chunk
-
-    connection = Connection()
-
-    def connect(address, *, timeout):
-        assert address == ("studio.local", 4444)
-        assert timeout == 10
-        return connection
-
-    monkeypatch.setattr(cli.socket, "create_connection", connect)
-    result = cli.send("studio.local", 4444, "pass", 321)
-    assert connection.closed
-    assert result == '{"status":' + (
-        ending.decode("utf-8", errors="replace") if isinstance(ending, bytes) else ""
     )

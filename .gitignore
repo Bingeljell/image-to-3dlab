@@ -81,3 +81,6 @@ manifests/*.json
 # Private agent rules: never committed (AGENTS.md says to read them first)
 AGENTS.local.md
 CLAUDE.local.md
+
+# JavaScript test dependencies
+/node_modules/

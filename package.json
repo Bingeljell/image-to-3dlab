@@ -1,0 +1,15 @@
+{
+  "name": "assetfurnace-tests",
+  "private": true,
+  "engines": {
+    "node": "26.13.0"
+  },
+  "scripts": {
+    "test": "node --import ./tests/support/offline.mjs --import ./tests/support/browser-imports.mjs --test \"tests/js/**/*.test.js\""
+  },
+  "devDependencies": {
+    "istanbul-lib-coverage": "3.2.2",
+    "istanbul-lib-instrument": "6.0.3",
+    "jsdom": "31.0.1"
+  }
+}

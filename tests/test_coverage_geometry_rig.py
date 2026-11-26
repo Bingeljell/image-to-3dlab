@@ -1,4 +1,4 @@
-"""Exercise geometry helpers with small local fixtures."""
+"""Test shared rig decisions without loading Blender."""
 
 import numpy as np
 import pytest
@@ -44,6 +44,61 @@ def test_retarget_parser_accepts_paths_and_animation_options(tmp_path):
     assert args.speed == 1.5
     assert not args.no_align
     assert not args.no_ground
+
+
+@pytest.fixture
+def cleanable_mesh():
+    from types import SimpleNamespace as Obj
+
+    class Identity:
+        def inverted(self):
+            return self
+
+        def __matmul__(self, value):
+            return value
+
+    class Group:
+        def __init__(self, name, index):
+            self.name = name
+            self.index = index
+            self.assignments = {}
+            self.removals = []
+
+        def add(self, vertices, weight, mode):
+            assert mode == "REPLACE"
+            self.assignments.update(dict.fromkeys(vertices, weight))
+
+        def remove(self, vertices):
+            self.removals.extend(vertices)
+
+    class Groups(list):
+        def get(self, name):
+            return next((group for group in self if group.name == name), None)
+
+        def new(self, *, name):
+            group = Group(name, len(self))
+            self.append(group)
+            return group
+
+    upper = Obj(name="upper", parent=None, head_local=[0, 0, 0], tail_local=[0, 1, 0])
+    lower = Obj(name="lower", parent=upper, head_local=[0, 1, 0], tail_local=[0, 2, 0])
+    arm = Obj(matrix_world=Identity(), data=Obj(bones=[upper, lower]))
+    lower_group = Group("lower", 0)
+    unrelated = Group("mask", 1)
+    vertex = Obj(index=5, co=[0, .5, 0], groups=[Obj(group=0, weight=.75), Obj(group=1, weight=.25)])
+    unchanged = Obj(index=6, co=[0, 1.5, 0], groups=[Obj(group=0, weight=1), Obj(group=1, weight=0)])
+    mesh = Obj(matrix_world=Identity(), vertex_groups=Groups([lower_group, unrelated]),
+               data=Obj(vertices=[vertex, unchanged]))
+
+    return mesh, arm, lower_group, unrelated
+
+
+def test_clean_mesh_moves_remote_weight_to_nearby_bone(cleanable_mesh):
+    mesh, arm, lower_group, unrelated = cleanable_mesh
+    assert clean_skin_weights.clean_mesh(mesh, arm, max_hops=0) == 1
+    assert mesh.vertex_groups.get("upper").assignments == {5: .75}
+    assert lower_group.removals == [5]
+    assert unrelated.removals == []
 
 
 @pytest.fixture
@@ -138,6 +193,10 @@ def rig_scene(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("flags,frame_count,with_skin", [
     (["--loop", "--in-place", "--no-align", "--no-clearance"], 3, False),
+    (["--loop", "--keep-whole", "--stiff-fingers"], 12, True),
+    (["--loop", "--no-ground"], 12, False),
+    (["--loop", "--no-ground", "--arm-spread", "10"], 9, False),
+    ([], 4, False),
 ])
 def test_retarget_cli_keys_motion_and_exports_without_blender(
     rig_scene, tmp_path, monkeypatch, capsys, flags, frame_count, with_skin
@@ -199,3 +258,194 @@ def test_retarget_cli_keys_motion_and_exports_without_blender(
         assert root.keys[-1][2][1, 3] == pytest.approx(0)
     else:
         assert root.keys[-1][2][1, 3] > 0
+
+
+def test_clean_cli_filters_meshes_and_exports_rebalanced_weights(cleanable_mesh, tmp_path, monkeypatch, capsys):
+    import sys
+    from runpy import run_path
+    from types import SimpleNamespace as Obj
+
+    mesh, arm, _lower_group, _unrelated = cleanable_mesh
+    mesh.type, mesh.name = "MESH", "Body"
+    mesh.find_armature = lambda: arm
+    arm.type = "ARMATURE"
+
+    class Objects(list):
+        def remove(self, obj, *, do_unlink):
+            assert do_unlink
+            super().remove(obj)
+
+    helper = Obj(type="MESH", name="Icosphere_hidden")
+    other_mesh = Obj(type="MESH", name="Unrigged", find_armature=lambda: None)
+    objects = Objects([mesh, helper, other_mesh, arm])
+    source, output = tmp_path / "rig.glb", tmp_path / "output" / "clean.glb"
+    calls = []
+
+    def reset(*, use_empty):
+        assert use_empty
+        calls.append("reset")
+
+    def import_gltf(*, filepath):
+        assert filepath == str(source)
+        calls.append("import")
+
+    def export_gltf(*, filepath, export_format):
+        assert filepath == str(output)
+        assert export_format == "GLB"
+        assert helper not in objects and other_mesh in objects
+        assert mesh.vertex_groups.get("upper").assignments == {5: .75}
+        assert output.parent.is_dir()
+        output.write_bytes(b"fixture")
+        calls.append("export")
+
+    bpy = Obj(data=Obj(objects=objects), ops=Obj(
+        wm=Obj(read_factory_settings=reset), import_scene=Obj(gltf=import_gltf),
+        export_scene=Obj(gltf=export_gltf),
+    ))
+    monkeypatch.setitem(sys.modules, "bpy", bpy)
+    monkeypatch.setattr(sys, "argv", [
+        "clean_skin_weights", "--in", str(source), "--out", str(output), "--max-hops", "0",
+    ])
+    run_path(clean_skin_weights.__file__, run_name="__main__")
+    assert calls == ["reset", "import", "export"]
+    assert output.read_bytes() == b"fixture"
+    assert "cleaned skin weights on 1 vertices" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("packed", [False, True])
+def test_motion_reader_keeps_same_joints_and_tracks_across_formats(tmp_path, packed):
+    path = tmp_path / "motion.npz"
+    joints = np.zeros((2, 77, 3))
+    joints[:, 0] = [[0, 1, 0], [0, 1, 2]]
+    rotations = np.broadcast_to(np.eye(3), (2, 77, 3, 3))
+    if packed:
+        np.savez(path, quats=kimodo_retarget.matrices_to_quaternions(rotations),
+                 joints0=joints[0], hips=joints[:, 0])
+    else:
+        np.savez(path, global_rot_mats=np.stack([rotations, rotations]),
+                 posed_joints=np.stack([joints, joints + 10]))
+    read_rotations, read_joints, read_hips = kimodo_retarget.load_motion(path)
+    np.testing.assert_allclose(read_rotations, rotations)
+    np.testing.assert_allclose(read_joints, joints[0])
+    np.testing.assert_allclose(read_hips, joints[:, 0])
+
+
+@pytest.mark.parametrize(
+    "parents,heights,error",
+    [
+        ({"hips": None, "spine": "hips"}, {"hips": 1, "spine": 2}, "expected 2 legs"),
+        (
+            {"hips": None, "spine": "hips", "left": "hips", "right": "hips"},
+            {"hips": 1, "spine": 2, "left": 0, "right": 0},
+            "legs too short",
+        ),
+    ],
+)
+def test_mapping_rejects_incomplete_skeletons(parents, heights, error):
+    heads = {name: np.array([0, 0, z]) for name, z in heights.items()}
+    with pytest.raises(ValueError, match=error):
+        kimodo_retarget.map_skintokens_to_soma(parents, heads)
+
+
+def test_mapping_requires_a_chest_with_two_arms():
+    from test_kimodo_retarget import _humanoid
+
+    parents, heads, roles = _humanoid(fingers=False)
+    for side in ("L", "R"):
+        for part in ("sh", "arm", "fa", "hand"):
+            key = roles[side + part]
+            parents.pop(key)
+            heads.pop(key)
+    with pytest.raises(ValueError, match="no bone above the hips forks"):
+        kimodo_retarget.map_skintokens_to_soma(parents, heads)
+
+
+def test_vertical_foot_cannot_be_tilted_by_pitch():
+    assert kimodo_retarget.foot_pitch([0, 0, 0], [0, 0, 0]) == 0
+    assert kimodo_retarget.foot_pitch([0, 0, 0], [0, 0, 1]) == pytest.approx(np.pi / 2)
+    np.testing.assert_array_equal(
+        kimodo_retarget.tilt_to_pitch([0, 0, 0], [0, 0, 1], .3), np.eye(3)
+    )
+
+
+def test_quaternion_blend_does_not_turn_between_equivalent_orientations():
+    orientation = np.array([.6, .8, 0, 0])
+    np.testing.assert_allclose(kimodo_retarget._slerp(orientation, -orientation, .5), orientation)
+
+
+def test_mixed_clip_grounds_planted_foot_and_leaves_airborne_toe_unchanged():
+    from test_kimodo_retarget import _booted_rig
+
+    parents, _heads, roles, rest, tails, order, mapping, up, planted, floor = _booted_rig()
+    world, root = planted[0]
+    airborne = (world, root + .6 * up)
+    frames = [planted[0], airborne]
+    out = kimodo_retarget.plant_feet(frames, rest, parents, order, tails, mapping, floor, 1.6, up)
+    toe = roles["Ltoe"]
+    np.testing.assert_allclose(out[1][0][toe], world[toe])
+    np.testing.assert_allclose(out[1][1], airborne[1])
+    before = kimodo_retarget.planted_tilt(frames, rest, parents, order, tails, mapping, floor, 1.6, up)
+    after = kimodo_retarget.planted_tilt(out, rest, parents, order, tails, mapping, floor, 1.6, up)
+    assert after < before / 2
+
+
+def test_mapping_rejects_a_third_floor_reaching_limb():
+    from test_kimodo_retarget import _humanoid
+
+    parents, heads, roles = _humanoid(fingers=False)
+    parent = roles["hips"]
+    for i, z in enumerate([.95, .5, .02]):
+        name = f"extra_leg_{i}"
+        parents[name] = parent
+        heads[name] = np.array([0, -.2, z])
+        parent = name
+    with pytest.raises(ValueError, match="expected 2 legs"):
+        kimodo_retarget.map_skintokens_to_soma(parents, heads)
+
+
+def test_loop_metrics_reject_invalid_height_and_keep_a_single_frame():
+    frame = ({}, np.zeros(3))
+    with pytest.raises(ValueError, match="height must be positive"):
+        kimodo_retarget.loop_gap([frame], {}, {}, [], 0)
+    assert kimodo_retarget.blend_loop([frame], 0, 1)[0] is frame
+    assert kimodo_retarget.trim_duplicate_tail([frame], {}, {}, [], 1)[0] is frame
+    assert kimodo_retarget.horizontal_travel([]) == 0
+    assert kimodo_retarget.in_place_frames([]) == []
+    assert kimodo_retarget.seam_blend_frames(.1, 0) == kimodo_retarget.LOOP_BLEND_FRAMES
+
+
+@pytest.mark.parametrize("defect", ["short arms", "neck below chest"])
+def test_mapping_rejects_false_chest_forks(defect):
+    from test_kimodo_retarget import _humanoid
+
+    parents, heads, roles = _humanoid(fingers=False)
+    if defect == "short arms":
+        for side in ("L", "R"):
+            for suffix in ("hand", "fa"):
+                name = roles[side + suffix]
+                parents.pop(name)
+                heads.pop(name)
+    else:
+        heads[roles["neck"]][2] = 1.23
+        heads[roles["head"]][2] = 1.24
+    with pytest.raises(ValueError, match="no bone above the hips forks"):
+        kimodo_retarget.map_skintokens_to_soma(parents, heads)
+
+
+def test_foot_measurement_rejects_rig_without_mapped_feet():
+    mapping = {"head": "Head"}
+    with pytest.raises(ValueError, match="rig maps no foot joints"):
+        kimodo_retarget._foot_track([], {}, {}, [], {}, mapping)
+    with pytest.raises(ValueError, match="rig maps no foot joints"):
+        kimodo_retarget._rest_floor({}, {}, mapping)
+
+
+def test_single_planted_frame_can_be_leveled():
+    from test_kimodo_retarget import _booted_rig
+
+    parents, _heads, _roles, rest, tails, order, mapping, up, frames, floor = _booted_rig(frames=1)
+    before = kimodo_retarget.planted_tilt(frames, rest, parents, order, tails, mapping, floor, 1.6, up)
+    out = kimodo_retarget.plant_feet(frames, rest, parents, order, tails, mapping, floor, 1.6, up)
+    after = kimodo_retarget.planted_tilt(out, rest, parents, order, tails, mapping, floor, 1.6, up)
+    assert before > .01
+    assert after < .005

@@ -1,0 +1,12 @@
+coverage==7.17.2
+matplotlib==3.11.0
+mlx==0.31.2
+numpy==2.5.5
+opencv-python-headless==4.13.0.92
+Pillow==12.2.0
+pytest==9.2.0
+PyYAML==6.0.3
+safetensors==0.8.0
+scikit-image==0.26.0
+scipy==1.18.0
+trimesh==4.12.2

@@ -135,6 +135,7 @@ needs_mps = pytest.mark.skipif(
 def _run_main(monkeypatch, tmp_path: Path, *, preprocessed: bool = False, transparent: bool = False):
     _FakePipeline.recorded = {}
     _install_fake_trellis(monkeypatch)
+    monkeypatch.setitem(sys.modules, "flex_gemm", types.ModuleType("flex_gemm"))
     fake_matte = _FakeMatte(is_matted=transparent)
     monkeypatch.setattr(stage3, "matte", fake_matte, raising=False)
 

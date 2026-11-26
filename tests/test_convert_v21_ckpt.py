@@ -211,3 +211,35 @@ def test_cli_positional_args_override_defaults(tmp_path):
 def test_cli_allow_pickle_flag():
     args = CVT.build_parser().parse_args(["in.ckpt", "out.safetensors", "--allow-pickle"])
     assert args.allow_pickle is True
+
+
+def test_checkpoint_command_preserves_integer_tensors_and_skips_metadata(tmp_path, monkeypatch):
+    import runpy
+    from types import ModuleType
+
+    import torch
+
+    src = tmp_path / "example.ckpt"
+    dst = tmp_path / "converted" / "example.safetensors"
+    torch.save({"state_dict": {
+        "model.gain": torch.tensor([[1.0, 2], [3, 4]]).T,
+        "vae.indices": torch.tensor([2, 5]),
+        "metadata": "sample",
+    }}, src)
+    pkg, serializer = ModuleType("safetensors"), ModuleType("safetensors.torch")
+    saved = {}
+    serializer.save_file = lambda tensors, path: saved.update(tensors=tensors, path=path)
+    pkg.torch = serializer
+    monkeypatch.setitem(sys.modules, "safetensors", pkg)
+    monkeypatch.setitem(sys.modules, "safetensors.torch", serializer)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), str(src), str(dst)])
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(SCRIPT), run_name="__main__")
+    assert result.value.code == 0
+    assert saved["path"] == str(dst)
+    assert dst.parent.is_dir()
+    tensors = saved["tensors"]
+    assert set(tensors) == {"model.gain", "vae.indices"}
+    assert tensors["model.gain"].is_contiguous()
+    torch.testing.assert_close(tensors["model.gain"], torch.tensor([[1, 3], [2, 4]], dtype=torch.float16))
+    torch.testing.assert_close(tensors["vae.indices"], torch.tensor([2, 5]))

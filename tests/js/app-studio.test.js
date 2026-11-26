@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import { browser, change, click, replaceGlobal, requests, waitFor } from './app-helpers.js';
 
 const studioUrl = new URL('../../viewer/studio/app.js', import.meta.url);
@@ -188,13 +189,25 @@ test('studio opens a linked asset and switches models, pictures, library filters
   window.dispatchEvent(new window.HashChangeEvent('hashchange'));
   await waitFor(() => asset(robot.id));
   const pending = Promise.withResolvers();
+  const bodyRead = Promise.withResolvers();
   nextInfo = pending.promise;
   asset(robot.id).click();
+  assert.equal(nextInfo, null, 'the Robot info request is waiting for its response');
   asset('prop').click();
-  await waitFor(() => document.querySelector('#fileActions').dataset.file === 'vase_full.glb');
-  pending.resolve({ file: 'robot_rigged.glb', path: '/stale' });
-  await waitFor(() => stageTitle() === 'Vase');
-  assert.equal(document.querySelector('#fileActions').dataset.file, 'vase_full.glb');
+  const actions = document.querySelector('#fileActions');
+  await waitFor(() => actions.dataset.file === 'vase_full.glb');
+  const oldResponse = Response.json({ file: 'robot_rigged.glb', path: '/stale' });
+  const read = oldResponse.json.bind(oldResponse);
+  oldResponse.json = async () => {
+    const body = await read();
+    bodyRead.resolve();
+    return body;
+  };
+  pending.resolve(oldResponse);
+  await bodyRead.promise;
+  await nextTurn(); // Let Studio apply or discard the parsed response.
+  assert.equal(actions.dataset.file, 'vase_full.glb');
+  assert.equal(actions.dataset.path, '/local/vase_full.glb');
 });
 
 test('studio actions honor failures and confirmation before changing files', async (t) => {

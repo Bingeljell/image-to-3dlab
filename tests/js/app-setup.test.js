@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 import { browser, click, replaceGlobal, requests, waitFor } from './app-helpers.js';
 
 const bad = (message, status = 400) => Response.json(message ? { error: message } : {}, { status });
@@ -65,6 +66,7 @@ test('setup confirms downloads and removals, follows streamed events and reconne
   ] };
   let hfError = bad('Bad token');
   let folder = { default: '/default', saved: '/extra', restart_needed: true };
+  let pendingFolder;
   let saveFolder = { saved: '/other', restart_needed: true };
   let blender = { blender_installable: true };
   let gltfpack = { gltfpack_installable: true };
@@ -79,7 +81,7 @@ test('setup confirms downloads and removals, follows streamed events and reconne
     'GET /api/finish/capabilities': () => response(blender),
     'GET /api/props/tools': () => response(gltfpack),
     'GET /api/hf/status': () => response(hf),
-    'GET /api/models-folder': () => response(folder),
+    'GET /api/models-folder': () => pendingFolder ?? response(folder),
     'POST /api/hf/sign-in': () => hfError ?? {},
     'POST /api/models-folder': () => saveFolder,
     'POST /api/blender/install': () => blenderInstall,
@@ -126,9 +128,28 @@ test('setup confirms downloads and removals, follows streamed events and reconne
   assert.doesNotMatch(card('metal').textContent, /Runs on Metal/);
   tab('Future');
   assert.match(document.querySelector('#setup-backends').textContent, /support is coming/);
+  const lateFolder = Promise.withResolvers();
+  const bodyRead = Promise.withResolvers();
+  pendingFolder = lateFolder.promise;
+  const folderRequests = () => calls.filter(({ path }) => path === '/api/models-folder').length;
+  const requestsBeforeSwitch = folderRequests();
   tab('Mac');
+  await waitFor(() => folderRequests() > requestsBeforeSwitch);
   tab('Linux'); // a tab change supersedes the pending local tool queries
-  await waitFor(() => calls.some(({ path }) => path === '/api/models-folder'));
+  const oldResponse = Response.json(folder);
+  const read = oldResponse.json.bind(oldResponse);
+  oldResponse.json = async () => {
+    const body = await read();
+    bodyRead.resolve();
+    return body;
+  };
+  lateFolder.resolve(oldResponse);
+  await bodyRead.promise;
+  await setImmediate(); // Let Setup apply or discard the parsed response.
+  pendingFolder = null;
+  assert.match(summary(), /Showing what runs on Linux/);
+  assert.equal(document.querySelector('.setup-tab[aria-selected="true"]').textContent, 'Linux');
+  for (const tool of ['blender', 'gltfpack', 'hf', 'models-folder']) assert.equal(card(tool), null, tool);
   assert.equal(document.querySelectorAll('#setup-backends .elsewhere').length, 1);
   tab('Mac');
   await waitFor(() => card('models-folder'));

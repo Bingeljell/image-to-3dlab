@@ -90,6 +90,9 @@ test('Studio loads and draws a library model, toggles wireframe, and reports a b
     page.on('response', (response) => {
       if (response.status() >= 400) errors.push(`HTTP ${response.status()} ${response.url()}`);
     });
+    page.on('requestfailed', (request) => {
+      errors.push(`${request.failure().errorText} ${request.url()}`);
+    });
 
     const releaseModel = Promise.withResolvers();
     await page.route('**/*', async (route) => {
@@ -112,10 +115,14 @@ test('Studio loads and draws a library model, toggles wireframe, and reports a b
 
     const loading = page.getByText('Loading model…', { exact: true });
     const canvas = page.locator('.sv-pane canvas');
-    const model = page.waitForResponse((response) => new URL(response.url()).pathname === modelPath);
+    let model;
     try {
       await page.goto(`${origin}/viewer/studio.html#asset=${encodeURIComponent(assets[0].id)}`, { waitUntil: 'domcontentloaded' });
       await expect(loading).toBeVisible();
+      model = page.waitForResponse((response) => new URL(response.url()).pathname === modelPath);
+    } catch (error) {
+      if (errors.length) await info.attach('studio-browser-errors.log', { body: errors.join('\n'), contentType: 'text/plain' });
+      throw error;
     } finally {
       releaseModel.resolve();
     }
@@ -153,6 +160,85 @@ test('Studio loads and draws a library model, toggles wireframe, and reports a b
     await expect(page.getByText(/^This model didn't load:/)).toBeVisible();
     await expect(loading).toBeHidden();
     await saveScreenshot(page, info, 'studio-model-error');
+    expect(errors).toEqual([]);
+  });
+});
+
+test('the winding demo boots from its shipped page and reverses a triangle', async ({ page }, info) => {
+  await runStudio(info, async (origin) => {
+    const errors = [];
+    const imports = new Map([
+      ['https://unpkg.com/three@0.170.0/build/three.module.js',
+        path.join(repo, 'viewer/vendor/three.module.js')],
+      ['https://unpkg.com/three@0.170.0/examples/jsm/controls/OrbitControls.js',
+        path.join(repo, 'viewer/vendor/controls/OrbitControls.js')],
+      ['https://unpkg.com/three@0.170.0/examples/jsm/renderers/CSS2DRenderer.js',
+        path.join(__dirname, 'fixtures/CSS2DRenderer.js')],
+    ]);
+    const loadedImports = new Set();
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.route('**/*', (route) => {
+      const url = route.request().url();
+      if (new URL(url).origin === origin) return route.continue();
+      if (!imports.has(url)) {
+        errors.push(`Unexpected winding demo request: ${url}`);
+        return route.abort();
+      }
+      loadedImports.add(url);
+      return route.fulfill({
+        path: imports.get(url),
+        contentType: 'text/javascript',
+        headers: { 'access-control-allow-origin': '*' },
+      });
+    });
+    await page.goto(`${origin}/understanding_3d/mesh-winding-demo.html`);
+    await expect(page.locator('#canvas-container canvas')).toBeVisible();
+    const index = page.locator('#index-display');
+    const status = page.locator('#status');
+    const flip = page.getByRole('button', { name: 'Flip Winding of Highlighted Face' });
+    await expect(index).toHaveText('0, 1, 2');
+    await flip.click();
+    await expect(index).toHaveText('0, 2, 1');
+    await expect(status).toContainText('Clockwise (back');
+    await flip.click();
+    await expect(index).toHaveText('0, 1, 2');
+    await expect(status).toContainText('Counter-clockwise (front');
+    expect([...loadedImports].sort()).toEqual([...imports.keys()].sort());
+    expect(errors).toEqual([]);
+  });
+});
+
+test('Studio lets the user choose among saved animations in an opened model', async ({ page, request }, info) => {
+  await runStudio(info, async (origin) => {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const { assets } = await (await request.get(`${origin}/api/assets`)).json();
+    await page.goto(`${origin}/viewer/studio.html#asset=${encodeURIComponent(assets[0].id)}`);
+    await expect(page.locator('.sv-pane canvas')).toBeVisible();
+    await expect(page.getByText('Loading model…', { exact: true })).toBeHidden();
+    const animated = await request.get(`${origin}/browser-moves.glb`);
+    expect(animated.ok()).toBe(true);
+    const input = page.locator('#openFile');
+    await input.setInputFiles({
+      name: 'browser-moves.glb', mimeType: 'model/gltf-binary', buffer: await animated.body(),
+    });
+    const picker = page.getByRole('combobox', { name: 'Choose a move' });
+    const frame = page.locator('[data-frame]');
+    const play = page.getByRole('button', { name: 'Play or pause' });
+    await expect(picker.locator('option')).toHaveText(['Choose a move', 'Attack', 'Attack.001', 'Idle']);
+    await expect(picker).toHaveValue('Choose a move');
+    await expect(play).toBeDisabled();
+    await picker.selectOption({ label: 'Attack.001' });
+    await expect(frame).toHaveText(/^frame \d+ \/ 60$/);
+    await expect(play).toHaveAttribute('data-tip', 'Pause');
+    await picker.selectOption({ label: 'Attack' });
+    await expect(frame).toHaveText(/^frame \d+ \/ 30$/);
+    await input.setInputFiles({
+      name: 'browser-triangle.glb', mimeType: 'model/gltf-binary',
+      buffer: await (await request.get(`${origin}${modelPath}`)).body(),
+    });
+    await expect(picker).toHaveCount(0);
+    await expect(page.locator('.sv-pane canvas')).toBeVisible();
     expect(errors).toEqual([]);
   });
 });

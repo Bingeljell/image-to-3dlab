@@ -10,7 +10,7 @@ const { createModelViewport, disposeModelViewport } = await import('../../viewer
 const { createThumbnailRenderer } = await import('../../viewer/studio/model-thumb-renderer.js');
 hooks.deregister();
 
-function gltf({ animated = false, indexed = false, rigged = false } = {}) {
+function gltf({ animated = false, animationNames = ['shift'], indexed = false, rigged = false } = {}) {
   const buffers = [
     new Float32Array([-2, 0, 0, 2, 0, 0, 0, 4, 0]),
     new Float32Array([0, 2]),
@@ -42,11 +42,11 @@ function gltf({ animated = false, indexed = false, rigged = false } = {}) {
       { bufferView: 5, type: 'VEC4', componentType: 5126, count: 3 },
     ],
     ...(animated ? {
-      animations: [{
-        name: 'shift',
+      animations: animationNames.map((name) => ({
+        name,
         samplers: [{ input: 1, output: 2, interpolation: 'LINEAR' }],
         channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }],
-      }],
+      })),
     } : {}),
   };
 }
@@ -111,6 +111,70 @@ test('model viewport loads both supported formats, normalizes bounds and release
   assert.match(failure.message, /404/);
   assert.equal(pane.querySelector('.stats').textContent, 'FAILED');
   assert.deepEqual(requests, ['obj', 'glb', 'unknown']);
+});
+
+test('studio lets the user choose which saved move to play in a model', async (t) => {
+  const { document, window, frame } = installViewerBrowser(t, '<main></main>');
+  const response = Promise.withResolvers();
+  const started = Promise.withResolvers();
+  const requests = serveModels(t, {
+    saved: { animated: true, animationNames: ['Attack', 'Attack.001', 'Idle'] },
+    solo: { animated: true },
+    older: () => { started.resolve(); return response.promise; },
+  });
+  const stage = document.querySelector('main');
+  const controller = createStudioViewer({ stage, logoUrl: '/logo.svg' });
+  const find = (selector) => stage.querySelector(selector);
+  const picker = () => find('select[aria-label="Choose a move"]');
+  const play = () => find('[data-clip-act="play"]');
+  controller.load(local('saved'), { autoplay: true });
+  await waitFor(() => find('.sv-overlay').hidden);
+  assert.deepEqual([...picker().options].map(({ textContent }) => textContent), [
+    'Choose a move', 'Attack', 'Attack.001', 'Idle',
+  ]);
+  assert.equal(picker().selectedIndex, 0);
+  assert.equal(play().disabled, true);
+  const choose = (index) => {
+    picker().selectedIndex = index;
+    picker().dispatchEvent(new window.Event('change', { bubbles: true }));
+  };
+  choose(2);
+  assert.equal(picker().selectedOptions[0].textContent, 'Attack.001');
+  assert.equal(play().disabled, false);
+  assert.equal(play().dataset.tip, 'Pause');
+  frame(0);
+  frame(500);
+  assert.equal(find('[data-frame]').textContent, 'frame 15 / 60');
+  choose(1);
+  assert.equal(picker().selectedOptions[0].textContent, 'Attack');
+  assert.equal(find('[data-frame]').textContent, 'frame 0 / 60');
+
+  controller.setClips([{ name: 'Solo', url: local('solo') }]);
+  await waitFor(() => find('.sv-overlay').hidden);
+  assert.equal(picker(), null);
+  assert.equal(play().dataset.tip, 'Pause');
+  controller.setClips([]);
+  controller.load(local('saved'));
+  await waitFor(() => find('.sv-overlay').hidden);
+  assert.equal(picker().selectedIndex, 0);
+
+  controller.load(local('older'));
+  await started.promise;
+  controller.load(local('saved'));
+  await waitFor(() => find('.sv-overlay').hidden);
+  choose(2);
+  const settled = Promise.withResolvers();
+  const manager = THREE.DefaultLoadingManager;
+  const onLoad = manager.onLoad;
+  manager.onLoad = settled.resolve;
+  t.after(() => { manager.onLoad = onLoad; });
+  response.resolve(Response.json(gltf({ animated: true, animationNames: ['Old move', 'Another move'] })));
+  await settled.promise;
+  assert.equal(picker().selectedOptions[0].textContent, 'Attack.001');
+  assert.deepEqual(requests, ['saved', 'solo', 'saved', 'older', 'saved']);
+  controller.showEmpty('Pick a model');
+  assert.equal(picker(), null);
+  assert.equal(find('.sv-clips').hidden, true);
 });
 
 test('studio switches between loading, error, pictures and animated model controls', async (t) => {

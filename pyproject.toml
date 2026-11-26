@@ -23,6 +23,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "coverage==7.17.2",
     "pytest>=8.2",
     "pytest-cov>=7",
     "ruff==0.16.1",
@@ -33,12 +34,18 @@ package = false
 
 [tool.coverage.run]
 branch = true
-source = ["image_to_3dlab", "viewer"]
-relative_files = true
+patch = ["subprocess", "_exit"]
+omit = ["*/tests/*", "*/site-packages/*"]
 
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+# Keep structural omissions, and count executable code marked "no cover".
+exclude_lines = [
+    '^\s*(((async )?def .*?)?[\])]+(\s*->.*?)?:\s*)?\.\.\.\s*(#|$)',
+    '^\s*if (typing\.)?TYPE_CHECKING:',
+]
+partial_branches = []
 
 [tool.coverage.html]
 directory = "htmlcov"

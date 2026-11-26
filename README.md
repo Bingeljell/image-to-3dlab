@@ -527,12 +527,14 @@ here. Model weights keep their own licences, listed above.
 ```bash
 uv sync
 uv tool install pre-commit --with pre-commit-uv && pre-commit install
-uv run pytest -q        # backends that load real models stay manual
-uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html  # package and viewer; writes htmlcov/
+npm ci
+uv run pytest -q
+npm test
 ruff check .
 ```
 
 Conventions: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), test-first.
+See [coverage and unit tests](docs/coverage.md) for setup and combined coverage reports.
 
 ## Credits
 

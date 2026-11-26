@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Contributors can run one command to report separate Python and JavaScript line and branch coverage, including files the tests never load.
 - The region split command accepts `--output-prefix` for the exported model and its materials.
 - Animation commands accept rig names and bone maps for different characters.
 - **Pixel Match: `--keep-top-paint`** leaves surfaces that face up and that no picture sees (a hat's brim, shoulders,
@@ -35,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- Local coverage merging rejects reports collected before root installers, launchers or other versionable root files changed.
 - TRELLIS material sampling on Mac reports when the required sparse convolution backend is missing.
 - TRELLIS on Mac retries mesh simplification when it returns an empty mesh.
 - Interrupted pod smoke tests report an incomplete run and preserve finished steps.

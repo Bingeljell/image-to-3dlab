@@ -230,13 +230,13 @@ tuning checklist. Manual fitting and visual weight/deformation review remain req
 | `name_bones.py` | Give a rigged humanoid GLB's bones an engine's names (Unity Humanoid), without Blender. |
 | `attack_pose.py` | Pose curves for a quadruped slam attack, as pure functions. |
 | `rigify_walk_pose.py` | Pose curves for a quadruped trot on a Rigify-generated rig, as pure functions. |
+| `blender_walk_cycle.py` | Author a looping gait on a quadruped armature in the live Blender scene. |
 | `blender_walk_cycle_worker.py` | Write a looping quadruped gait and keep the paws on the rest floor. |
+| `blender_rigify_walk_cycle.py` | Author a gait on a Rigify armature in the live Blender scene. |
 | `blender_rigify_walk_cycle_worker.py` | Write a sampled gait to a Rigify armature. |
+| `blender_idle_cycle.py` | Author a looping idle for a rigged character. |
 | `animation_cli.py` | Read name maps for the animation commands. |
 | `blender_idle_cycle_worker.py` | Write idle motion and interpolation to an armature. |
-| `blender_walk_cycle.py` | Author a looping gait on a quadruped armature in the live Blender scene. |
-| `blender_rigify_walk_cycle.py` | Author a gait on a Rigify armature in the live Blender scene. |
-| `blender_idle_cycle.py` | Author a looping idle for a rigged character. |
 | `blender_attack_cycle.py` | Author a slam-attack clip on a rigged quadruped in the live Blender scene. |
 | `blender_attack_cycle_worker.py` | Write a sampled slam attack to an armature. |
 
@@ -249,6 +249,7 @@ Numbers about the project itself, not about any asset.
 | `addon.py` | Install and run add-ons: someone else's repo with an `addon.json`. |
 | `discord_release_card.py` | Post a GitHub release to Discord as a tidy card instead of a bare link. |
 | `discord_pr_card.py` | Post a GitHub pull request to Discord as a tidy card, like the release cards. |
+| `measure_coverage.py` | Run the offline unit suites and report line and branch coverage separately. |
 | `repo_traffic.py` | Save a repo's GitHub traffic and its one-line install counts into one CSV, a row per day. |
 
 ## Vendor patches

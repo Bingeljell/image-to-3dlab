@@ -82,5 +82,6 @@ manifests/*.json
 AGENTS.local.md
 CLAUDE.local.md
 
-# JavaScript test dependencies
+# Coverage reports and JavaScript test dependencies
+/coverage-report/
 /node_modules/

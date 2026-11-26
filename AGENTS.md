@@ -81,14 +81,13 @@ Follow **[Keep a Changelog](https://keepachangelog.com)** in `CHANGELOG.md`.
 ```bash
 uv sync
 uv run pytest -q
-uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html
 ruff check .
 python pipeline.py --help
 ```
 
 - Target Python 3.11 (installers pin 3.11; not 3.14 — SF3D's native deps don't fit yet).
 - Commit checks live in `.pre-commit-config.yaml`. Install them with `uv tool install pre-commit --with pre-commit-uv`, then `pre-commit install`. They do not run pytest or the formatter. A pull request runs the file checks and the test suite.
-- Line coverage is opt-in. It measures `image_to_3dlab/` and `viewer/`, and writes `htmlcov/`. `--cov` takes no path, so that list in `pyproject.toml` is the one that is measured.
+- For JavaScript tests, coverage reports, or coverage thresholds, see [Coverage and unit tests](docs/coverage.md).
 - Backends that load real models are exercised manually; keep them out of the unit suite.
 - Prefer running via a manifest (`--run-manifest manifests/...json`) so runs stay traceable.
 

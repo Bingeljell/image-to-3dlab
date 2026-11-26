@@ -29,8 +29,9 @@ import sys
 from pathlib import Path, PureWindowsPath
 
 REPO = Path(__file__).resolve().parents[1]
+MLX_TESTS = REPO / "tests/mlx"
 
-for directory in ("viewer", "scripts"):
+for directory in ("viewer", "scripts", "tests/support"):
     path = str(REPO / directory)
     if path not in sys.path:
         sys.path.insert(0, path)
@@ -40,6 +41,9 @@ os.environ["I3D_NO_USAGE"] = "1"
 
 
 import pytest
+import unit_isolation
+
+unit_isolation.install()
 
 
 def _waitid_peek(pid: int) -> None:
@@ -211,9 +215,63 @@ def symlinks_allowed() -> bool:
 NO_SYMLINKS = "this machine refuses symlinks (Windows without admin rights or Developer Mode)"
 
 
+def pytest_addoption(parser):
+    parser.addoption("--run-integration", action="store_true", help="Run tests that need Blender or an installed backend")
+    parser.addoption("--run-mlx-unit", action="store_true", help="Collect tiny numerical tests that use Apple MLX")
+    parser.addoption("--run-mlx-metal", action="store_true", help="Include numerical tests that need a Metal GPU")
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "blender_integration: launches a real Blender")
+    config.addinivalue_line("markers", "integration: needs a separately installed runtime")
+    config.addinivalue_line("markers", "mlx_unit: tests tiny synthetic tensors with Apple MLX")
+    config.addinivalue_line("markers", "mlx_metal: numerical test that requires a Metal GPU")
+    if not config.getoption("--run-mlx-unit"):
+        if config.getoption("--run-mlx-metal"):
+            raise pytest.UsageError("--run-mlx-metal also requires --run-mlx-unit")
+        for argument in config.args:
+            if Path(argument.split("::", 1)[0]).resolve().is_relative_to(MLX_TESTS):
+                raise pytest.UsageError("Use --run-mlx-unit to select tests/mlx")
+
+
+def pytest_ignore_collect(collection_path, config):
+    return collection_path.is_relative_to(MLX_TESTS) and not config.getoption("--run-mlx-unit")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fixture_program_root(tmp_path_factory):
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("AF_TEST_FIXTURE_ROOT", str(tmp_path_factory.getbasetemp()))
+        yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    kind = None
+    if "blender_integration" in item.keywords:
+        kind = "blender"
+    elif "integration" in item.keywords:
+        kind = "runtime"
+    unit_isolation.set_integration(kind)
+    try:
+        yield
+    finally:
+        unit_isolation.set_integration(None)
+
+
 def pytest_collection_modifyitems(config, items):
     """Skip `@pytest.mark.symlinks` where links are refused and `@pytest.mark.posix` on Windows."""
+    if not config.getoption("--run-mlx-metal"):
+        metal = [item for item in items if "mlx_metal" in item.keywords]
+        if metal:
+            items[:] = [item for item in items if "mlx_metal" not in item.keywords]
+            config.hook.pytest_deselected(items=metal)
+
     for item in items:
+        if not config.getoption("--run-integration") and (
+            "blender_integration" in item.keywords or "integration" in item.keywords
+        ):
+            item.add_marker(pytest.mark.skip(reason="requires --run-integration"))
         if "symlinks" in item.keywords and not symlinks_allowed():
             item.add_marker(pytest.mark.skip(reason=NO_SYMLINKS))
         if "posix" in item.keywords and sys.platform == "win32":

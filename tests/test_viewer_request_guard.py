@@ -196,7 +196,7 @@ def test_the_studio_pages_load_the_request_marker_before_their_modules():
 
 @pytest.mark.skipif(NODE is None, reason="Node runs the browser script")
 def test_the_request_marker_tags_same_origin_writes_only():
-    script = (REPO / "viewer" / "request-header.js").read_text(encoding="utf-8")
+    module_url = (REPO / "viewer" / "request-header.js").as_uri()
     program = """
       const sent = [];
       globalThis.window = globalThis;
@@ -205,14 +205,14 @@ def test_the_request_marker_tags_same_origin_writes_only():
         sent.push(new Headers(init.headers || (input instanceof Request ? input.headers : undefined))
                     .get('X-AssetFurnace-Request'));
       };
-      eval(SCRIPT);
+      await import(MODULE_URL);
       await fetch('/api/image', { method: 'POST', body: '{}' });
       await fetch('/api/catalog');
       await fetch('https://huggingface.co/x', { method: 'POST' });
       await fetch('/api/x', { method: 'POST', headers: { 'X-AssetFurnace-Request': 'own' } });
       await fetch(new Request('http://127.0.0.1:8777/api/chains', { method: 'POST', body: 'x' }));
       console.log(JSON.stringify(sent));
-    """.replace("SCRIPT", json.dumps(script))
+    """.replace("MODULE_URL", json.dumps(module_url))
     result = subprocess.run([NODE, "--input-type=module", "--eval", program], check=True,
                             capture_output=True, text=True, encoding="utf-8")
     assert json.loads(result.stdout) == ["studio", None, None, "own", "studio"]

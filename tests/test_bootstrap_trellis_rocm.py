@@ -265,7 +265,7 @@ def test_the_build_environment_names_the_card_the_toolkit_and_the_jobs():
 @pytest.mark.posix
 def test_the_build_environment_without_a_toolkit_still_names_the_card():
     """So the failure is hipcc's, not a missing GPU_ARCHS."""
-    env = boot.build_env(["gfx1100"], None, {})
+    env = boot.build_env(["gfx1100"], None, {}, format_workaround=False)
     assert env["GPU_ARCHS"] == "gfx1100"
     assert "ROCM_PATH" not in env
 
@@ -497,6 +497,7 @@ def test_a_build_that_died_halfway_leaves_no_marker(monkeypatch, tmp_path):
 
 # --- ROCm's empty __noinline__ against a 2026 libstdc++ -------------------------------------
 
+@pytest.mark.integration
 def test_the_probe_reproduces_the_collision_it_guards():
     """The probe has to fail on a machine that has the collision, or it guards nothing."""
     if shutil.which("c++") is None:

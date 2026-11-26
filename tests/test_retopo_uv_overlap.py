@@ -104,6 +104,7 @@ def _full_version(blender: Path) -> tuple[int, ...] | None:
     return tuple(int(n) for n in found.groups()) if found else None
 
 
+@pytest.mark.blender_integration
 @pytest.mark.skipif(find_blender() is None, reason="needs Blender")
 def test_the_finish_unwraps_without_painting_a_texel_twice(tmp_path):
     version = _full_version(find_blender())

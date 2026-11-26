@@ -114,6 +114,7 @@ def test_onnxruntime_is_replaced_not_skipped():
     assert "onnxruntime==1.16.3" in cuda.filter_requirements(_UPSTREAM_REQUIREMENTS)
 
 
+@pytest.mark.integration
 def test_the_replacement_actually_loads_rather_than_being_believed():
     """A pin nobody has run is a guess. onnxruntime 1.31 is what this resolves to, it imports,
     and rembg imports through it — checked against this repo's own venv, not a comment."""

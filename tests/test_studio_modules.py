@@ -718,8 +718,8 @@ def test_the_starting_camera_looks_at_the_middle_of_a_model_on_the_floor():
     three = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
     # floor.js imports 'three' by bare name (the page maps it); map it the same way here
     program = f"""
-      import {{ register }} from 'node:module';
-      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{ return s === 'three' ? {{ url: {json.dumps(three)}, shortCircuit: true }} : n(s, c); }}`));
+      import {{ registerHooks }} from 'node:module';
+      registerHooks({{ resolve(s, c, n) {{ return n(s === 'three' ? {json.dumps(three)} : s, c); }} }});
       const m = await import({json.dumps(url)});
       const h = m.homeView(2);
       console.log(JSON.stringify(h));"""
@@ -781,8 +781,8 @@ def test_a_character_is_turned_to_face_the_camera_whichever_way_its_feet_point()
     url = (REPO / "viewer" / "studio" / "floor.js").as_uri()
     three = (REPO / "viewer" / "vendor" / "three.module.js").as_uri()
     program = f"""
-      import {{ register }} from 'node:module';
-      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{ return s === 'three' ? {{ url: {json.dumps(three)}, shortCircuit: true }} : n(s, c); }}`));
+      import {{ registerHooks }} from 'node:module';
+      registerHooks({{ resolve(s, c, n) {{ return n(s === 'three' ? {json.dumps(three)} : s, c); }} }});
       const m = await import({json.dumps(url)});
       // turn each forward by the angle (about +Y) and report where it ends up
       const turned = [[0, 0, 1], [0, 0, -1], [1, 0, 0], [-0.03, 0, -1]].map(([x, y, z]) => {{

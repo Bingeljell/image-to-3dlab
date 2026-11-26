@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Author a looping quadruped gait cycle on the rigged fox in the live Blender scene.
+"""Author a looping gait on a quadruped armature in the live Blender scene.
 
 Run (live): python scripts/blender_walk_cycle.py --help
 
@@ -52,6 +52,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from animation_cli import read_name_map
 from blender_joint_markers import send
 from blender_worker_source import build_worker_code
 
@@ -67,6 +68,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
+    parser.add_argument("--rig-name", help="armature object to animate")
+    parser.add_argument(
+        "--bone-map",
+        dest="bone_names",
+        type=read_name_map,
+        help="JSON file mapping default bone names to your rig's bone names",
+    )
+    parser.add_argument(
+        "--marker-map",
+        dest="marker_names",
+        type=read_name_map,
+        help="JSON file mapping paw roles to marker object names",
+    )
+    parser.add_argument("--mesh-name", help="mesh object to use for paw planting")
     parser.add_argument(
         "--frames", type=int, default=20, help="length of one full stride"
     )

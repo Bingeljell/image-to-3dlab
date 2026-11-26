@@ -14,10 +14,12 @@ def run(arguments: dict) -> dict:
     action_name = arguments["action_name"]
     toe_follow = arguments["toe"]
 
+    bone_names = arguments.get("bone_names") or {}
+    rig_name = arguments.get("rig_name")
     armatures = (
         o
         for o in bpy.data.objects
-        if o.type == "ARMATURE"
+        if o.type == "ARMATURE" and (rig_name is None or o.name == rig_name)
     )
     arm = next(armatures)
     bpy.context.view_layer.objects.active = arm
@@ -46,7 +48,7 @@ def run(arguments: dict) -> dict:
         for pb in arm.pose.bones:
             pb.rotation_euler = (0.0, 0.0, 0.0)
         for role, degrees in pose.items():
-            bone = role
+            bone = bone_names.get(role, role)
             pb = arm.pose.bones.get(bone)
             if pb is None:
                 missing.append(bone)
@@ -57,7 +59,7 @@ def run(arguments: dict) -> dict:
         for side in ("L", "R"):
             paw = pose.get("front" + side + "_paw", 0.0)
             toe_role = f"front{side}_toe"
-            toe_name = toe_role
+            toe_name = bone_names.get(toe_role, toe_role)
             toe = arm.pose.bones.get(toe_name)
             if toe is not None:
                 toe.rotation_euler = (math.radians(paw * toe_follow), 0.0, 0.0)

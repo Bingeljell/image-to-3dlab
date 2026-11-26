@@ -13,9 +13,11 @@ def run(arguments: dict) -> dict:
     poses = arguments["poses"]
     action_name = arguments["action_name"]
 
-    arm = bpy.data.objects.get("rig")
+    rig_name = arguments.get("rig_name", "rig")
+    bone_names = arguments.get("bone_names") or {}
+    arm = bpy.data.objects.get(rig_name)
     if arm is None:
-        raise RuntimeError("no object named 'rig' in the scene")
+        raise RuntimeError(f"no object named {rig_name!r} in the scene")
 
     ik_fk_bones = [
         "front_thigh_parent.L",
@@ -25,7 +27,7 @@ def run(arguments: dict) -> dict:
     ]
     not_fk = [
         b
-        for b in ik_fk_bones
+        for b in (bone_names.get(role, role) for role in ik_fk_bones)
         if arm.pose.bones.get(b) and arm.pose.bones[b].get("IK_FK", 1.0) < 0.99
     ]
     if not_fk:
@@ -62,7 +64,7 @@ def run(arguments: dict) -> dict:
     for frame, pose in enumerate(poses, start=1):
         scene.frame_set(frame)
         for role in driven_names:
-            name = role
+            name = bone_names.get(role, role)
             pb = arm.pose.bones.get(name)
             if pb is None:
                 missing.append(name)
@@ -79,7 +81,7 @@ def run(arguments: dict) -> dict:
     summary = {
         "frames": len(poses),
         "action": action.name,
-        "driven_bones": sorted(driven_names),
+        "driven_bones": sorted(bone_names.get(role, role) for role in driven_names),
         "missing_bones": sorted(set(missing)),
     }
     print(json.dumps(summary, indent=2))

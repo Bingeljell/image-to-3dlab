@@ -1,4 +1,4 @@
-"""Author a trot cycle on the Rigify-generated 'rig' armature in the live Blender scene.
+"""Author a gait on a Rigify armature in the live Blender scene.
 
 Run (live): python scripts/blender_rigify_walk_cycle.py --help
 
@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from animation_cli import read_name_map
 from blender_joint_markers import send
 from blender_worker_source import build_worker_code
 from rigify_walk_pose import sample
@@ -31,6 +32,9 @@ def build_code(
     base_bend: float,
     spine_sway: float,
     action_name: str,
+    *,
+    rig_name: str = "rig",
+    bone_names: dict[str, str] | None = None,
 ) -> str:
     poses = sample(
         frames,
@@ -48,6 +52,8 @@ def build_code(
         {
             "poses": poses,
             "action_name": action_name,
+            "rig_name": rig_name,
+            "bone_names": bone_names,
         },
     )
 
@@ -56,6 +62,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
+    parser.add_argument("--rig-name", default="rig", help="armature object to animate")
+    parser.add_argument(
+        "--bone-map",
+        dest="bone_names",
+        type=read_name_map,
+        help="JSON file mapping default bone names to your rig's bone names",
+    )
     parser.add_argument("--frames", type=int, default=28)
     parser.add_argument("--gait", choices=("trot", "walk"), default="trot")
     parser.add_argument("--swing-front", type=float, default=30.0)
@@ -79,6 +92,8 @@ def main() -> int:
         args.base_bend,
         args.spine_sway,
         args.name,
+        rig_name=args.rig_name,
+        bone_names=args.bone_names,
     )
     print(send(code, args.host, args.port))
     return 0

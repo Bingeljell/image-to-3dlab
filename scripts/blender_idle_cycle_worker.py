@@ -37,10 +37,12 @@ def run(arguments: dict) -> dict:
     turn_at = arguments["ear_turn_at"]
     turn_hold = arguments["ear_turn_hold"]
 
+    bone_names = arguments.get("bone_names") or {}
+    rig_name = arguments.get("rig_name")
     armatures = (
         o
         for o in bpy.data.objects
-        if o.type == "ARMATURE"
+        if o.type == "ARMATURE" and (rig_name is None or o.name == rig_name)
     )
     arm = next(armatures, None)
     if arm is None:
@@ -62,7 +64,7 @@ def run(arguments: dict) -> dict:
     missing = []
 
     def put(role, axis, value, frame):
-        name = role
+        name = bone_names.get(role, role)
         pb = arm.pose.bones.get(name)
         if pb is None:
             missing.append(name)
@@ -95,7 +97,7 @@ def run(arguments: dict) -> dict:
 
         # The neck carries the static yaw correction for a head generated turned; applied as
         # a world rotation expressed in bone space, since a bone's axes run along the bone.
-        neck = arm.pose.bones.get("neck")
+        neck = arm.pose.bones.get(bone_names.get("neck", "neck"))
         if neck is not None:
             rest = neck.bone.matrix_local.to_3x3()
             world = Matrix.Rotation(head_yaw, 3, "Z")
@@ -136,7 +138,7 @@ def run(arguments: dict) -> dict:
                 env = max(0.0, (1.0 - progress) / 0.3)
         else:
             env = 0.0
-        ear_r_name = "ear_R"
+        ear_r_name = bone_names.get("ear_R", "ear_R")
         ear_r = arm.pose.bones.get(ear_r_name)
         if ear_r is not None:
             base = (

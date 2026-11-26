@@ -232,10 +232,11 @@ tuning checklist. Manual fitting and visual weight/deformation review remain req
 | `rigify_walk_pose.py` | Pose curves for a quadruped trot on a Rigify-generated rig, as pure functions. |
 | `blender_walk_cycle_worker.py` | Write a looping quadruped gait and keep the paws on the rest floor. |
 | `blender_rigify_walk_cycle_worker.py` | Write a sampled gait to a Rigify armature. |
+| `animation_cli.py` | Read name maps for the animation commands. |
 | `blender_idle_cycle_worker.py` | Write idle motion and interpolation to an armature. |
-| `blender_walk_cycle.py` | Author a looping quadruped gait cycle on the rigged fox in the live Blender scene. |
-| `blender_rigify_walk_cycle.py` | Author a trot cycle on the Rigify-generated 'rig' armature in the live Blender scene. |
-| `blender_idle_cycle.py` | Author a looping idle for the rigged fox. |
+| `blender_walk_cycle.py` | Author a looping gait on a quadruped armature in the live Blender scene. |
+| `blender_rigify_walk_cycle.py` | Author a gait on a Rigify armature in the live Blender scene. |
+| `blender_idle_cycle.py` | Author a looping idle for a rigged character. |
 | `blender_attack_cycle.py` | Author a slam-attack clip on a rigged quadruped in the live Blender scene. |
 | `blender_attack_cycle_worker.py` | Write a sampled slam attack to an armature. |
 

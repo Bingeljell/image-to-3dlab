@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Animation commands accept rig names and bone maps for different characters.
 - **Pixel Match: `--keep-top-paint`** leaves surfaces that face up and that no picture sees (a hat's brim, shoulders,
   the top of the hair) in the generator's own paint. The pictures' cameras stand level with the subject, so they never
   see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet

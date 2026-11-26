@@ -58,19 +58,28 @@ def run(arguments: dict) -> dict:
     front_fold_sign = arguments["front_fold_sign"]
     toe = math.radians(arguments["toe"])
     auto_plant = arguments["auto_plant"]
+    bone_names = arguments.get("bone_names", {})
+    marker_names = arguments.get("marker_names", {})
 
+    rig_name = arguments.get("rig_name")
     armatures = (
         o
         for o in bpy.data.objects
-        if o.type == "ARMATURE"
+        if o.type == "ARMATURE" and (rig_name is None or o.name == rig_name)
     )
     arm = next(armatures, None)
     if arm is None:
         raise RuntimeError("no armature in the scene — build the rig first")
-    mesh = None
-    for o in bpy.data.objects:
-        if o.type == "MESH" and not o.name.startswith("PROXY_"):
-            mesh = o
+    mesh_name = arguments.get("mesh_name")
+    if mesh_name is None:
+        mesh = None
+        for o in bpy.data.objects:
+            if o.type == "MESH" and not o.name.startswith("PROXY_"):
+                mesh = o
+    else:
+        mesh = bpy.data.objects.get(mesh_name)
+        if mesh is None or mesh.type != "MESH":
+            raise RuntimeError(f"no mesh named {mesh_name!r} in the scene")
 
     arm.hide_viewport = False
     arm.hide_render = False
@@ -143,7 +152,7 @@ def run(arguments: dict) -> dict:
     if mesh is not None:
         rest_co = [v.co.copy() for v in mesh.data.vertices]
         for role in ("frontL_paw", "frontR_paw", "backL_paw", "backR_paw"):
-            marker = bpy.data.objects.get(f"JOINT_{role}")
+            marker = bpy.data.objects.get(marker_names.get(role, f"JOINT_{role}"))
             if marker is not None:
                 target = marker.matrix_world.translation
                 paw_probe.append(
@@ -210,7 +219,7 @@ def run(arguments: dict) -> dict:
                 (low, low_fold),
                 (leg + "_toe", toe_fold),
             ):
-                name = role
+                name = bone_names.get(role, role)
                 pb = arm.pose.bones.get(name)
                 if pb is None:
                     missing.append(name)
@@ -237,7 +246,7 @@ def run(arguments: dict) -> dict:
         # its head low and reaching ahead; an upright head reads as a stationary animal
         # whose legs happen to be moving, which is most of the uncanniness.
         if abs(head_yaw) > 1e-6 or abs(head_pitch) > 1e-6:
-            neck = arm.pose.bones.get("neck")
+            neck = arm.pose.bones.get(bone_names.get("neck", "neck"))
             if neck is not None:
                 rest = neck.bone.matrix_local.to_3x3()
                 world = Matrix.Rotation(head_pitch, 3, "X") @ Matrix.Rotation(
@@ -249,7 +258,7 @@ def run(arguments: dict) -> dict:
         # Pitching the chest down is what actually lowers the shoulders, and the neck
         # and head ride down with it. Rotating the neck alone only pivots the muzzle.
         if abs(chest_drop) > 1e-6:
-            chest = arm.pose.bones.get("spine_02")
+            chest = arm.pose.bones.get(bone_names.get("spine_02", "spine_02"))
             if chest is not None:
                 crest = chest.bone.matrix_local.to_3x3()
                 cworld = Matrix.Rotation(chest_drop, 3, "X")
@@ -267,7 +276,7 @@ def run(arguments: dict) -> dict:
             "ear_R": ("x", sway * 0.8 * math.cos(4.0 * math.pi * t + 0.9)),
         }
         for role, (axis, value) in body.items():
-            name = role
+            name = bone_names.get(role, role)
             pb = arm.pose.bones.get(name)
             if pb is None:
                 missing.append(name)
@@ -293,8 +302,9 @@ def run(arguments: dict) -> dict:
     # removes an object from the viewport dependency graph entirely — on the armature that
     # silently stops the mesh deforming, so playback looks frozen while renders still
     # animate. Keep the rig live and visible; use hide_render to keep previews clean.
+    custom_markers = set(marker_names.values())
     for o in bpy.data.objects:
-        if o.name.startswith("JOINT_"):
+        if o.name.startswith("JOINT_") or o.name in custom_markers:
             o.hide_render = True
     arm.hide_viewport = False
     arm.hide_render = True

@@ -79,15 +79,16 @@ def run(arguments: dict[str, object], *, bpy=None, vector=None) -> dict:
     previous_scene = window.scene
     render_scene = bpy.data.scenes.get(name) or bpy.data.scenes.new(name)
     window.scene = render_scene
-    if render_scene.world is None:
-        render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
-    for obj in list(render_scene.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for collection in list(render_scene.collection.children):
-        bpy.data.collections.remove(collection)
-    result = bake_normals(bpy, vector, render_scene, t0, **arguments)
-    window.scene = previous_scene
-    return result
+    try:
+        if render_scene.world is None:
+            render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
+        for obj in list(render_scene.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        for collection in list(render_scene.collection.children):
+            bpy.data.collections.remove(collection)
+        return bake_normals(bpy, vector, render_scene, t0, **arguments)
+    finally:
+        window.scene = previous_scene
 
 
 def bbox(o, Vector):

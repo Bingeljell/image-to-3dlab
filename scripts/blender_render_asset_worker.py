@@ -15,14 +15,15 @@ def run(arguments: dict[str, object]) -> dict[str, object]:
     previous_scene = bpy.context.window.scene
     render_scene = bpy.data.scenes.get(scene_name) or bpy.data.scenes.new(scene_name)
     bpy.context.window.scene = render_scene
-    for obj in list(render_scene.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for prior in list(render_scene.collection.children):
-        if prior.name.startswith("IMG3D_"):
-            bpy.data.collections.remove(prior)
-    result = render_views(bpy, Vector, **arguments)
-    bpy.context.window.scene = previous_scene
-    return result
+    try:
+        for obj in list(render_scene.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        for prior in list(render_scene.collection.children):
+            if prior.name.startswith("IMG3D_"):
+                bpy.data.collections.remove(prior)
+        return render_views(bpy, Vector, **arguments)
+    finally:
+        bpy.context.window.scene = previous_scene
 
 
 def render_views(

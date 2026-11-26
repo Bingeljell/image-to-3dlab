@@ -16,15 +16,16 @@ def run(arguments: dict) -> dict:
     previous_scene = bpy.context.window.scene
     scene = bpy.data.scenes.get(scene_name) or bpy.data.scenes.new(scene_name)
     bpy.context.window.scene = scene
-    if scene.world is None:
-        scene.world = bpy.data.worlds.new(scene.name + " World")
-    for obj in list(scene.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for prior in list(scene.collection.children):
-        bpy.data.collections.remove(prior)
-    result = render_wind(bpy, np, Vector, KDTree, scene, arguments)
-    bpy.context.window.scene = previous_scene
-    return result
+    try:
+        if scene.world is None:
+            scene.world = bpy.data.worlds.new(scene.name + " World")
+        for obj in list(scene.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        for prior in list(scene.collection.children):
+            bpy.data.collections.remove(prior)
+        return render_wind(bpy, np, Vector, KDTree, scene, arguments)
+    finally:
+        bpy.context.window.scene = previous_scene
 
 
 def load_mesh(bpy, render_scene, path):

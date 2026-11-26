@@ -17,15 +17,16 @@ def run(arguments: dict[str, object]) -> dict[str, object]:
     previous_scene = bpy.context.window.scene
     render_scene = bpy.data.scenes.get(scene_name) or bpy.data.scenes.new(scene_name)
     bpy.context.window.scene = render_scene
-    if render_scene.world is None:
-        render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
-    for obj in list(render_scene.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for prior in list(render_scene.collection.children):
-        bpy.data.collections.remove(prior)
-    result = render_frames(bpy, Vector, render_scene, **arguments)
-    bpy.context.window.scene = previous_scene
-    return result
+    try:
+        if render_scene.world is None:
+            render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
+        for obj in list(render_scene.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        for prior in list(render_scene.collection.children):
+            bpy.data.collections.remove(prior)
+        return render_frames(bpy, Vector, render_scene, **arguments)
+    finally:
+        bpy.context.window.scene = previous_scene
 
 
 def render_frames(

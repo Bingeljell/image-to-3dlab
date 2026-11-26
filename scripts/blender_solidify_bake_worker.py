@@ -46,15 +46,16 @@ def run(arguments: dict[str, object], *, bpy=None, vector=None, bmesh=None) -> d
     previous_scene = window.scene
     render_scene = bpy.data.scenes.get(scene_name) or bpy.data.scenes.new(scene_name)
     window.scene = render_scene
-    if render_scene.world is None:
-        render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
-    for obj in list(render_scene.objects):
-        bpy.data.objects.remove(obj, do_unlink=True)
-    for collection in list(render_scene.collection.children):
-        bpy.data.collections.remove(collection)
-    result = bake_mesh(bpy, vector, render_scene, bmesh, **arguments)
-    window.scene = previous_scene
-    return result
+    try:
+        if render_scene.world is None:
+            render_scene.world = bpy.data.worlds.new(render_scene.name + " World")
+        for obj in list(render_scene.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+        for collection in list(render_scene.collection.children):
+            bpy.data.collections.remove(collection)
+        return bake_mesh(bpy, vector, render_scene, bmesh, **arguments)
+    finally:
+        window.scene = previous_scene
 
 
 def bake_mesh(
@@ -108,19 +109,21 @@ def bake_mesh(
     # component and drop only the specks. Each survivor is closed, which is what kills the
     # see-through artefact; the pieces do not need to be welded to each other for that.
     bm = bmesh.new()
-    bm.from_mesh(target.data)
-    bm.verts.ensure_lookup_table()
-    def neighbours(index):
-        vertex = bm.verts[index]
-        return (edge.other_vert(vertex).index for edge in vertex.link_edges)
+    try:
+        bm.from_mesh(target.data)
+        bm.verts.ensure_lookup_table()
+        def neighbours(index):
+            vertex = bm.verts[index]
+            return (edge.other_vert(vertex).index for edge in vertex.link_edges)
 
-    debris, components_kept, components_removed = component_filter(
-        len(bm.verts), neighbours, min_component_verts
-    )
-    if debris:
-        bmesh.ops.delete(bm, geom=[bm.verts[index] for index in debris], context="VERTS")
-    bm.to_mesh(target.data)
-    bm.free()
+        debris, components_kept, components_removed = component_filter(
+            len(bm.verts), neighbours, min_component_verts
+        )
+        if debris:
+            bmesh.ops.delete(bm, geom=[bm.verts[index] for index in debris], context="VERTS")
+        bm.to_mesh(target.data)
+    finally:
+        bm.free()
     target.data.update()
 
     # The remeshed surface carries no usable UVs, so make a fresh atlas to bake into.

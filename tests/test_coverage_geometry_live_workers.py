@@ -211,7 +211,7 @@ class Layers(Items):
 
 
 @pytest.mark.parametrize(
-    "scenario,prefix", [("success", None), ("success", "alternate"), ("bake error", None)]
+    "scenario,prefix", [("success", None), ("success", "alternate"), ("bake error", None), ("source missing", None)]
 )
 def test_split_worker_packs_and_bakes_only_in_private_scene(private_scene, tmp_path, monkeypatch, capsys, scenario, prefix):
     from scripts import blender_split_regions_worker as worker
@@ -283,7 +283,7 @@ def test_split_worker_packs_and_bakes_only_in_private_scene(private_scene, tmp_p
     assert not user.objects[0].selected
 
 
-@pytest.mark.parametrize("derive,fail", [(True, False), (False, False)])
+@pytest.mark.parametrize("derive,fail", [(True, False), (False, False), (False, True)])
 def test_solidify_worker_remeshes_culls_specks_and_restores_scene(private_scene, tmp_path, monkeypatch, derive, fail):
     from scripts import blender_solidify_bake_worker as worker
 

@@ -1296,11 +1296,16 @@ def main() -> None:
     after_gap = loop_gap(frames, rest, parents, order, height, up)
     after_travel = horizontal_travel(frames, up)
     detail = ""
+    loop_mode = "kept whole" if args.keep_whole else "off"
     if args.loop:
         start, end, candidates = trim
         if args.keep_whole:
             detail = f"; kept whole, blend {blend}"
+        elif not candidates:
+            loop_mode = "full clip"
+            detail = f"; no cycle found, blend {blend}"
         else:
+            loop_mode = "trimmed"
             runner = ""
             if len(candidates) > 1:
                 length = candidates[1][1] - candidates[1][0]
@@ -1312,7 +1317,7 @@ def main() -> None:
     print(f"feet: planted toe tip {100 * after_tilt:.2f}% of height off its rest height "
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
-          f"({'kept whole' if args.keep_whole else 'trimmed' if args.loop else 'off'}, "
+          f"({loop_mode}, "
           f"{len(frames)} frames){detail}")
     print(f"in place: root travel {100 * before_travel / height:.1f}% -> "
           f"{100 * after_travel / height:.1f}% of height "

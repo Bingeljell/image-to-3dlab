@@ -5,11 +5,16 @@ Mirrors reference preprocessors.py + the in-conditioner torchvision transform:
   DINO transform:   [-1,1] -> [0,1] -> resize(518, bilinear) -> ImageNet-normalize -> NHWC
 All on CPU/numpy (the irreducible host part); output feeds the MLX DINO.
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
 from PIL import Image
 
-import mlx.core as mx
+if TYPE_CHECKING:
+    import mlx.core as mx
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
@@ -59,10 +64,17 @@ def load_image(path_or_pil, size: int = 512, border_ratio: float = 0.15) -> np.n
     return t
 
 
-def dino_transform(img_chw_m1p1: np.ndarray, image_size: int = 518) -> mx.array:
-    """[3, H, W] in [-1,1] -> NHWC [1, 518, 518, 3] ImageNet-normalized (mx.array float32)."""
+def dino_pixels(img_chw_m1p1: np.ndarray, image_size: int = 518) -> np.ndarray:
+    """Resize and normalize channels-first pixels for the DINO image encoder."""
     img01 = (img_chw_m1p1 + 1.0) / 2.0          # [0,1]
     hwc = np.transpose(img01, (1, 2, 0))         # HWC
     resized = cv2.resize(hwc, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
     norm = (resized - IMAGENET_MEAN) / IMAGENET_STD
-    return mx.array(norm[None].astype(np.float32))  # NHWC
+    return norm[None].astype(np.float32)  # NHWC
+
+
+def dino_transform(img_chw_m1p1: np.ndarray, image_size: int = 518) -> mx.array:
+    """Convert the normalized DINO pixels to an MLX tensor."""
+    import mlx.core as mx
+
+    return mx.array(dino_pixels(img_chw_m1p1, image_size))

@@ -7,7 +7,6 @@ timestep_spacing='trailing', steps_offset=1). Deterministic — good for a repro
 from __future__ import annotations
 
 import numpy as np
-import mlx.core as mx
 
 
 def _rescale_zero_terminal_snr(alphas_cumprod):

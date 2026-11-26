@@ -9,7 +9,6 @@ normalized timestep sigma_i in [0,1]; the Euler update is
 CFG: model is run on cat([x, x]) -> (v_cond, v_uncond); v = v_uncond + s*(v_cond - v_uncond).
 """
 import numpy as np
-import mlx.core as mx
 
 
 def flow_match_sigmas(num_inference_steps: int, shift: float = 1.0):
@@ -37,6 +36,21 @@ def consistency_sigmas(num_inference_steps: int, pcm_timesteps: int = 100,
     return sigmas, sigmas_full
 
 
+def euler_steps(latents, velocity_fn, sigmas, *, materialize, progress=None):
+    """Integrate the velocity over each nonzero interval in the sigma schedule."""
+    sig, sig_full = sigmas
+    n = len(sig)
+    for i in range(n):
+        dt = float(sig_full[i + 1] - sig[i])
+        if dt == 0.0:
+            continue
+        latents = latents + dt * velocity_fn(latents, float(sig[i]))
+        materialize(latents)
+        if progress is not None:
+            progress(i + 1, n)
+    return latents
+
+
 def denoise(
     velocity_fn,
     latent_shape,
@@ -45,7 +59,7 @@ def denoise(
     cfg: bool = True,
     shift: float = 1.0,
     seed: int = 0,
-    dtype=mx.float32,
+    dtype=None,
     sigmas=None,
     progress=None,
 ):
@@ -56,25 +70,20 @@ def denoise(
                velocity_fn applies the guidance embedding internally).
     sigmas: optional (sigmas[N], sigmas_full[N+1]) override (e.g. consistency schedule).
     """
+    import mlx.core as mx
+
+    if dtype is None:
+        dtype = mx.float32
     if sigmas is None:
         sigmas = flow_match_sigmas(num_inference_steps, shift)
-    sig, sig_full = sigmas
-    n = len(sig)
     latents = mx.random.normal(latent_shape, dtype=mx.float32, key=mx.random.key(seed)).astype(dtype)
 
-    for i in range(n):
-        dt = float(sig_full[i + 1] - sig[i])
-        if dt == 0.0:
-            continue
-        t = mx.array(float(sig[i]), dtype=dtype)
+    def model_velocity(x, sigma):
+        t = mx.array(sigma, dtype=dtype)
         if cfg:
-            v = velocity_fn(mx.concatenate([latents, latents], axis=0), t)
+            v = velocity_fn(mx.concatenate([x, x], axis=0), t)
             v_cond, v_uncond = mx.split(v, 2, axis=0)
-            v = v_uncond + guidance_scale * (v_cond - v_uncond)
-        else:
-            v = velocity_fn(latents, t)
-        latents = latents + dt * v
-        mx.eval(latents)
-        if progress is not None:
-            progress(i + 1, n)
-    return latents
+            return v_uncond + guidance_scale * (v_cond - v_uncond)
+        return velocity_fn(x, t)
+
+    return euler_steps(latents, model_velocity, sigmas, materialize=mx.eval, progress=progress)

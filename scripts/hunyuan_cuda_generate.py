@@ -73,13 +73,16 @@ def checkout(vendor_root: Path) -> Path:
     return vendor_root / bootstrap.CHECKOUT.name
 
 
+def models_dir(vendor_root: Path) -> Path:
+    return bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
+
+
 def configure_environment(vendor_root: Path,
                           environ: dict[str, str] | None = None) -> dict[str, str]:
     """Point upstream's shape loader at the weights the bootstrap fetched. Before import."""
     environ = os.environ if environ is None else environ
     # the installed route follows the chosen models folder; any other checkout keeps its own
-    models = bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
-    environ["HY3DGEN_MODELS"] = str(models)
+    environ["HY3DGEN_MODELS"] = str(models_dir(vendor_root))
     environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     return environ
 

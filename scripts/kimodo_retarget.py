@@ -1279,8 +1279,8 @@ def main() -> None:
     if not args.no_ground:
         frames = ground_frames(frames, rest, parents, order, tails, mapping, floor, up,
                                track=track(frames))
-    blend = LOOP_BLEND_FRAMES
-    if args.loop:
+    blend = 0
+    if args.loop and (args.keep_whole or trim[2]):
         seam_gap = loop_gap(frames, rest, parents, order, height, up)
         blend = seam_blend_frames(seam_gap, height)
         frames = blend_loop(frames, 0, len(frames), blend, up=up)
@@ -1303,7 +1303,7 @@ def main() -> None:
             detail = f"; kept whole, blend {blend}"
         elif not candidates:
             loop_mode = "full clip"
-            detail = f"; no cycle found, blend {blend}"
+            detail = "; no cycle found, all frames preserved without seam blending"
         else:
             loop_mode = "trimmed"
             runner = ""

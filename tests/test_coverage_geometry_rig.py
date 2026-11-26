@@ -193,6 +193,7 @@ def rig_scene(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("flags,frame_count,with_skin", [
     (["--loop", "--in-place", "--no-align", "--no-clearance"], 3, False),
+    (["--loop", "--no-ground", "--no-align", "--no-clearance"], 2, False),
     (["--loop", "--keep-whole", "--stiff-fingers"], 12, True),
     (["--loop", "--no-ground"], 12, False),
     (["--loop", "--no-ground", "--arm-spread", "10"], 9, False),
@@ -252,9 +253,13 @@ def test_retarget_cli_keys_motion_and_exports_without_blender(
     assert root.keys[0][:2] == ("rotation_quaternion", 1)
     assert root.keys[1][:2] == ("location", 1)
     assert head.keys[1][:2] == ("rotation_quaternion", pytest.approx(1 + 1 / 1.5))
+    if frame_count <= 3 and "--loop" in flags:
+        assert len(head.keys) == frame_count
+        assert bpy.context.scene.frame_end >= 2
+        assert "no cycle found" in reported
     if "--in-place" in flags:
         assert "no cycle found" in reported
-        assert len(head.keys) == frame_count - 1
+        assert len(head.keys) == frame_count
         assert root.keys[-1][2][1, 3] == pytest.approx(0)
     else:
         assert root.keys[-1][2][1, 3] > 0

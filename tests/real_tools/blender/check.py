@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from blender_scene_stage_worker import run
 
@@ -268,6 +269,9 @@ def main():
             summary["failed_export_restored_scene"] = True
             summary["export"] = check_export(workspace, source, assert_restored)
             summary["animation_isolation_cases"] = check_animation_isolation()
+            from retarget_check import check_short_retarget
+
+            summary["short_retarget"] = check_short_retarget(workspace)
             summary["passed"] = True
         finally:
             if args.output is not None:

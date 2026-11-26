@@ -6,6 +6,7 @@ from io import BytesIO
 
 import blender_agent as agent
 import pytest
+from test_blender_agent import worker_request
 
 
 def tool(name, arguments=None):
@@ -15,10 +16,11 @@ def tool(name, arguments=None):
     }
 
 
-def test_agent_logs_tool_errors_and_images_across_rounds(tmp_path, monkeypatch):
+@pytest.mark.parametrize("directory", ["renders", "renders'quoted"])
+def test_agent_logs_tool_errors_and_images_across_rounds(tmp_path, monkeypatch, directory):
     reference = tmp_path / "reference.png"
     reference.write_bytes(b"reference")
-    out = tmp_path / "renders"
+    out = tmp_path / directory
     explicit = out / "round01.png"
     auto = out / "round00-auto.png"
     replies = iter(
@@ -57,7 +59,8 @@ def test_agent_logs_tool_errors_and_images_across_rounds(tmp_path, monkeypatch):
             assert "Cube" in code
             return response({"moved": "Cube"})
         path = auto if len(sent) == 2 else explicit
-        assert str(path.resolve()) in code
+        _, request = worker_request(code)
+        assert request["parameters"]["output_path"] == str(path.resolve())
         path.write_bytes(b"render")
         return response({"rendered": str(path)})
 

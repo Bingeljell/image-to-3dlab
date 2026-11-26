@@ -84,6 +84,19 @@ def test_patch_recomputes_normal_and_repaints_only_its_texture_square(tmp_path, 
     assert ((normal_map[..., :3] == (115, 177, 90)).all(2)).any()
     assert ((base_map[..., :3] == (180, 120, 90)).all(2)).any()
     assert (base_map[..., :3] > 245).all(2).any()
+    original_doc, original_binary = parse_glb(source.read_bytes())
+    height, width = base_map.shape[:2]
+    cap_pixels = attributes["TEXCOORD_0"][len(before):] * [width, height]
+    # Cap UVs fit inside the reserved square with two texels of padding.
+    x, y = np.rint(cap_pixels.min(axis=0)).astype(int) - 2
+    cell = round(np.ptp(cap_pixels, axis=0).max()) + 4
+    outside = np.ones((height, width), dtype=bool)
+    outside[y:y + cell, x:x + cell] = False
+    for image_index, picture in enumerate((base_map, normal_map)):
+        original = spot_fix._decode(original_doc, original_binary, image_index)
+        extra_rows = height - original.shape[0]
+        expected = np.pad(original, ((0, extra_rows), (0, 0), (0, 0)), mode="edge")
+        np.testing.assert_array_equal(picture[outside], expected[outside])
 
 
 def test_smooth_updates_nearby_normals_but_keeps_distant_normals(tmp_path, painted_mesh):

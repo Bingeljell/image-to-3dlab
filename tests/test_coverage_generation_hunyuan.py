@@ -205,7 +205,12 @@ def test_hunyuan_run_records_real_artifacts_or_refuses_failed_backend(
         return
 
     assert module.main(argv) == 0
-    assert destination.is_file()
+    delivered = trimesh.load_mesh(destination)
+    expected = (
+        trimesh.creation.box() if shape_only else trimesh.creation.icosphere(subdivisions=1)
+    )
+    assert len(delivered.vertices) == len(expected.vertices)
+    assert len(delivered.faces) == len(expected.faces)
     manifest = json.loads(destination.with_suffix(".json").read_text())
     assert manifest["params"]["seed"] == seed
     assert manifest["shape_only"] is shape_only

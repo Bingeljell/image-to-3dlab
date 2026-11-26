@@ -102,14 +102,17 @@ def model_job(request, studio, tmp_path):
 def test_model_jobs_report_status_and_only_serve_completed_artifacts(studio, model_job):
     route, job, artifacts = model_job
     assert studio(route + "/status")[2]["status"] == "queued"
-    assert studio(route + "/result.glb")[0] == 404
-    job.status = "done"
-    assert studio(route + "/result.glb")[0] == 404
+    job.status = "running"
 
     for action, path in artifacts.items():
         path.parent.mkdir(parents=True, exist_ok=True)
         data = b"{}" if action.endswith(".json") else b"fixture bytes"
         path.write_bytes(data)
+        assert studio(route + "/" + action)[0] == 404
+
+    job.status = "done"
+    for action, path in artifacts.items():
+        data = path.read_bytes()
         status, headers, body = studio(route + "/" + action)
         assert status == 200
         assert headers["Content-Length"] == str(len(data))
@@ -118,6 +121,8 @@ def test_model_jobs_report_status_and_only_serve_completed_artifacts(studio, mod
         assert body == ({} if headers.get_content_type() == "application/json" else data)
     job.emit({"phase": "done", "message": "ready"})
     assert studio(route + "/status")[2]["last_event"]["message"] == "ready"
+    artifacts["result.glb"].unlink()
+    assert studio(route + "/result.glb")[0] == 404
 
     missing = route.replace(JOB_ID, "f" * 32)
     for action in ("status", "events", "result.glb"):
@@ -150,6 +155,8 @@ def test_images_report_progress_and_hide_results_until_ready(studio, monkeypatch
     manager.jobs[job.id] = job
     route = f"/api/image/{job.id}"
     assert studio("/api/image/invalid/status")[0] == 404
+    job.set_status("running")
+    path.write_bytes(b"png bytes")
     assert studio(route + "/status")[2]["result_url"] is None
     assert studio(route + "/result.png")[0] == 404
     assert studio(route + "/unknown")[0] == 404
@@ -160,11 +167,11 @@ def test_images_report_progress_and_hide_results_until_ready(studio, monkeypatch
 
     job.set_status("done")
     assert studio(route + "/cancel", {})[0] == 409
-    assert studio(route + "/result.png")[0] == 404
-    path.write_bytes(b"png bytes")
     assert studio(route + "/status")[2]["result_url"] == route + "/result.png"
     status, headers, body = studio(route + "/result.png")
     assert (status, headers.get_content_type(), body) == (200, "image/png", b"png bytes")
+    path.unlink()
+    assert studio(route + "/result.png")[0] == 404
     monkeypatch.setattr(job.condition, "wait", lambda timeout: None)
     status, headers, body = studio(route + "/events")
     assert (status, headers.get_content_type()) == (200, "text/event-stream")

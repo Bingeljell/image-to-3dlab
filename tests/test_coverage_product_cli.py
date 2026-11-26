@@ -11,6 +11,7 @@ import pytest
 from glb_fixtures import valid_glb
 
 from image_to_3dlab import cli, models_home, sf3d_backend, trellis_backend
+from image_to_3dlab.comfyui_backend import ComfyUIClient
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -54,7 +55,7 @@ def test_invalid_flags_report_usage_error(source, tmp_path, capsys, opts, messag
     assert message in capsys.readouterr().err
 
 
-def test_quality_mode_requires_workflow_for_existing_image(source, tmp_path, capsys):
+def test_quality_mode_refuses_unknown_license_without_opt_in(source, tmp_path, capsys):
     assert cli.main([str(source), "--quality", "--output-dir", str(tmp_path / "out")]) == 2
     assert "license policy" in capsys.readouterr().err
 
@@ -91,6 +92,21 @@ def write_manifest(tmp_path, backend, parameters, **extra):
         "input": {"path": "in.png"}, "output": {"directory": str(tmp_path / "out")}, **extra,
     }))
     return manifest
+
+
+def test_quality_mode_requires_workflow_after_license_validation(source, tmp_path, capsys, monkeypatch):
+    manifest = write_manifest(
+        tmp_path, "hunyuan-comfyui", {},
+        use_case="showcase", distribution="private", commercial_intent=False,
+        license_policy={"allow_unverified": True},
+    )
+
+    def unexpected_generation(*args, **kwargs):
+        pytest.fail("A missing workflow reached the generation backend")
+
+    monkeypatch.setattr(ComfyUIClient, "generate", unexpected_generation)
+    assert cli.main(["--run-manifest", str(manifest)]) == 1
+    assert "--quality requires --workflow (ComfyUI API-format JSON)" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("backend", "extra", "message"), [

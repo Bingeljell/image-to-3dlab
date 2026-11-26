@@ -35,4 +35,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- Model previews report a framing error for meshes without vertices.
 - Live asset previews, turntables, and mesh baking restore the previous Blender scene after a failure.

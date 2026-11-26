@@ -38,13 +38,17 @@ def shot_frames(shots: Sequence[Shot], first: float, last: float) -> dict[str, f
 
 def bounding_sphere(points: Iterable[Point]) -> tuple[Point, float]:
     """Enclose all sampled world-space vertices in one sphere."""
-    low, high = [math.inf] * 3, [-math.inf] * 3
-    for point in points:
+    remaining = iter(points)
+    first = next(remaining, None)
+    if first is None:
+        raise ValueError("no mesh vertices to frame")
+    low, high = list(first), list(first)
+    for point in remaining:
         for axis in range(3):
             low[axis] = min(low[axis], point[axis])
             high[axis] = max(high[axis], point[axis])
     centre = tuple((lo + hi) / 2 for lo, hi in zip(low, high, strict=True))
-    radius = math.sqrt(sum(((high[i] - low[i]) / 2) ** 2 for i in range(3))) or 1.0
+    radius = math.dist(low, high) / 2 or 1.0
     return centre, radius
 
 

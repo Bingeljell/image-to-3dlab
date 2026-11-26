@@ -1,4 +1,4 @@
-# Real Blender checks
+# Real Blender and browser checks
 
 These checks run in a separate background process using tiny generated models.
 They do not load model weights or interact with an existing Blender window.
@@ -28,3 +28,41 @@ The test imports the production scene worker and checks:
 Images, input and output models, and a JSON result are saved in
 `real-tool-results/blender/`. A Python assertion or exception fails the Blender
 process through `--python-exit-code 1`.
+
+## Studio browser
+
+Install the project dependencies and the pinned Playwright browser:
+
+```sh
+uv sync --frozen
+npm ci
+npx playwright install --with-deps chromium
+npm run test:browser
+```
+
+Use the Node version in `.node-version`. The test uses `.venv/bin/python` on
+Unix or `.venv/Scripts/python.exe` on Windows; set `PYTHON` to override it.
+
+The test starts the shipped Studio HTTP handler on a private loopback port,
+with a temporary library containing a generated magenta triangle. It runs
+the shipped JavaScript and bundled Three.js in real Chromium. The fixture
+refuses write requests; this suite checks library loading and viewing, not
+generation or installation.
+
+The checks require a visible loading state, a successful model request,
+working WebGL, and actual magenta pixels in the rendered canvas. Switching
+to wireframe must visibly reduce the filled area. Opening a malformed local
+model must show the Studio's error message. Unexpected browser errors or
+network requests fail the test.
+
+Chromium explicitly uses SwiftShader, a CPU graphics implementation, for this
+trusted local test content. Missing WebGL fails the test rather than skipping
+it. Screenshots, a trace and an HTML report are saved under
+`real-tool-results/browser/`.
+
+## What these checks establish
+
+They verify real rendering and application behavior on small fixtures. They
+do not establish graphics-driver compatibility on every device, model-generation
+quality, GPU backend correctness, or acceptable performance on large assets.
+Those remain separate release checks.

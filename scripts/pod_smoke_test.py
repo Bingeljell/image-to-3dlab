@@ -576,9 +576,11 @@ def main(argv: list[str] | None = None) -> int:
     interrupt_on_hangup()
     pod_json = rent(gpus, args.max_price, args.max_hours, args.cloud, args.country)
     results: list[dict] = []
+    interrupted = False
     try:
         run_smoke(Pod(pod_json), args, token, out, results)
     except KeyboardInterrupt:
+        interrupted = True
         print("\nInterrupted.")
     finally:
         if args.keep:
@@ -596,7 +598,7 @@ def main(argv: list[str] | None = None) -> int:
         for r in results:
             print(f"{r['step']:45} {'ok' if r['ok'] else 'FAILED':8} {r['minutes']}")
         print(f"~${summary['cost']:.2f} over {hours:.1f} h. Results in {out.relative_to(REPO)}")
-    clean = bool(results) and all(r["ok"] for r in results)
+    clean = not interrupted and bool(results) and all(r["ok"] for r in results)
     print("ONE-SHOT: CLEAN" if clean else "ONE-SHOT: NOT CLEAN")
     return 0 if clean else 1
 

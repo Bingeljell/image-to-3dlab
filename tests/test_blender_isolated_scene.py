@@ -11,7 +11,7 @@ import ast
 import importlib.util
 import json
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -30,9 +30,13 @@ def _load(name: str):
     return module
 
 
-def test_wind_demo_ships_the_private_scene_worker():
+@pytest.mark.parametrize("path_type", [Path, PureWindowsPath])
+def test_wind_demo_ships_the_private_scene_worker(tmp_path, path_type):
+    mesh = path_type(tmp_path / "m.glb")
+    labels = path_type(tmp_path / "l.glb")
+    frames = path_type(tmp_path / "frames")
     code = _load("blender_wind_demo").blender_code(
-        Path("/tmp/m.glb"), Path("/tmp/l.glb"), Path("/tmp/frames"), "fox", "dark",
+        mesh, labels, frames, "fox", "dark",
         256, 12, 1.0, 25.0, 1.0, 1.0, 0.2, 22.0, 1.0, 0.35, 0.2, 0.1, 0.05,
         body_name="Fern", labels_name="Fern Labels",
     )
@@ -48,9 +52,9 @@ def test_wind_demo_ships_the_private_scene_worker():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         and node.func.attr == "loads"
     )
-    assert arguments["mesh_path"] == "/tmp/m.glb"
-    assert arguments["labels_path"] == "/tmp/l.glb"
-    assert arguments["frame_dir"] == "/tmp/frames"
+    assert arguments["mesh_path"] == str(mesh)
+    assert arguments["labels_path"] == str(labels)
+    assert arguments["frame_dir"] == str(frames)
     assert arguments["body_name"] == "Fern"
     assert arguments["labels_name"] == "Fern Labels"
     assert arguments["label"] == "fox"
@@ -90,7 +94,10 @@ def test_stage_request_bundles_its_worker_and_culling_choice(culled, tmp_path):
     ("command", "builder", "args", "action", "parameter", "expected"),
     [
         ("fix_normals", "blender_code", (Path("/tmp/a.glb"), Path("/tmp/out.glb")),
-         "fix_normals", "output", "/tmp/out.glb"),
+         "fix_normals", "output", str(Path("/tmp/out.glb"))),
+        ("fix_normals", "blender_code",
+         (PureWindowsPath("C:/assets/a.glb"), PureWindowsPath("C:/assets/out.glb")),
+         "fix_normals", "output", r"C:\assets\out.glb"),
         ("light_orbit", "blender_code", (Path("/tmp/a.glb"), Path("/tmp/f_"), 1, 52.0, 64, "[[0,0,0]]"),
          "light_orbit", "rotations", [[0, 0, 0]]),
         ("stage_bake", "build_code", ("Walk", 0.0, 0.0, None, None, None, 1, 256, "/tmp/out", "test"),

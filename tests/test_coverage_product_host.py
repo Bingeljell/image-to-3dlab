@@ -4,6 +4,7 @@ import os
 import runpy
 import subprocess
 import sys
+from pathlib import PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
@@ -33,19 +34,23 @@ def test_unknown_linux_graphics_keeps_existing_platform():
                               amd=lambda: False) == host.OTHER
 
 
+@pytest.mark.parametrize(("path_type", "fallback"), [
+    (PurePosixPath, "/usr/local/cuda/bin/nvcc"),
+    (PureWindowsPath, r"\usr\local\cuda\bin\nvcc"),
+])
 @pytest.mark.parametrize(("found", "default", "result"), [
     ("/tools/nvcc", False, "/tools/nvcc"),
-    (None, True, "/usr/local/cuda/bin/nvcc"),
+    (None, True, "fallback"),
     (None, False, None),
 ])
-def test_find_compiler_falls_back_to_toolkit_path(monkeypatch, found, default, result):
+def test_find_compiler_falls_back_to_toolkit_path(monkeypatch, found, default, result, path_type, fallback):
     monkeypatch.setattr(host.shutil, "which", lambda name: found if name == "nvcc" else None)
-    class ToolkitPath(type(host.CGROUP)):
+    class ToolkitPath(path_type):
         def exists(self):
             return default
 
     monkeypatch.setattr(host, "Path", ToolkitPath)
-    assert host.find_nvcc() == result
+    assert host.find_nvcc() == (fallback if result == "fallback" else result)
 
 
 @pytest.mark.parametrize("version", [None, SimpleNamespace(cuda="13.0", hip="7.1")])

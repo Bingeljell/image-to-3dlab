@@ -457,6 +457,7 @@ def test_normal_fix_measures_before_and_after_and_exports_only_private_scene(
             "filepath": "fixed.glb",
             "export_format": "GLB",
             "use_selection": False,
+            "use_active_scene": True,
         }
         assert not any(
             obj is keep or (obj.type == "LIGHT" and obj.selected)

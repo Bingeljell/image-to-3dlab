@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- Blender normal repair exports only its private scene, keeping unrelated scene objects out of the repaired model.
 - Local coverage merging rejects reports collected before root installers, launchers or other versionable root files changed.
 - TRELLIS material sampling on Mac reports when the required sparse convolution backend is missing.
 - TRELLIS on Mac retries mesh simplification when it returns an empty mesh.

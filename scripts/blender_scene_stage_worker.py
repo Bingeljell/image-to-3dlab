@@ -278,7 +278,7 @@ def fix_normals(bpy, asset, output):
         after = _inward_mesh_area(mesh)
 
         bpy.ops.export_scene.gltf(
-            filepath=output, export_format="GLB", use_selection=False
+            filepath=output, export_format="GLB", use_selection=False, use_active_scene=True
         )
         print(f"NORMALS:: inward area {before:.1f}% -> {after:.1f}%")
         return {"before": before, "after": after}

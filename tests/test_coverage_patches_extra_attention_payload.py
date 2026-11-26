@@ -22,10 +22,22 @@ def packed():
 
 def test_mac_sdpa_chunks_queries_and_keeps_distinct_key_offsets(monkeypatch, packed):
     q, k, v = packed
+    calls = []
+    kernel = attention.scaled_dot_product_attention
+
+    def record(q_part, k_part, v_part):
+        calls.append(tuple(part.squeeze(0).transpose(0, 1) for part in (q_part, k_part, v_part)))
+        return kernel(q_part, k_part, v_part)
+
     monkeypatch.setenv("SDPA_Q_CHUNK", "2")
+    monkeypatch.setattr(attention, "scaled_dot_product_attention", record)
     result = attention.chunked_sdpa(q, k, v, [2, 0, 3], [1, 2, 4])
     expected = torch.cat([oracle(q[:2], k[:1], v[:1]), oracle(q[2:], k[3:], v[3:])])
     torch.testing.assert_close(result, expected)
+    expected_calls = [(q[:2], k[:1], v[:1]), (q[2:4], k[3:], v[3:]), (q[4:], k[3:], v[3:])]
+    for actual, slices in zip(calls, expected_calls, strict=True):
+        for actual_slice, expected_slice in zip(actual, slices, strict=True):
+            torch.testing.assert_close(actual_slice, expected_slice)
 
 
 @pytest.mark.parametrize("arg_count", [1, 2, 3])
@@ -108,17 +120,20 @@ def use_vendor_package(monkeypatch, path):
     sys.modules.pop("trellis2._assetfurnace_attention")
 
 
-def test_mac_patch_migrates_inline_attention_and_invokes_copied_helper(tmp_path, monkeypatch, packed):
+@pytest.mark.parametrize("mlx_order", ["after-core", "before-core", "legacy"])
+def test_mac_patch_migrates_inline_attention_and_invokes_copied_helper(tmp_path, monkeypatch, packed, mlx_order):
     import runpy
+    import sys
 
+    import patch_trellis_mlx_attention as mlx
     import patch_trellis_space_core as space
 
     path = tmp_path / "trellis2/modules/sparse/attention/full_attn.py"
     path.parent.mkdir(parents=True)
     path.write_text('''from types import SimpleNamespace
 
-def run(q, k, v, q_seqlen, kv_seqlen):
-    config = SimpleNamespace(ATTN="sdpa")
+def run(q, k, v, q_seqlen, kv_seqlen, backend):
+    config = SimpleNamespace(ATTN=backend)
     num_all_args = 3
     if config.ATTN == "flash_attn":
         raise AssertionError("wrong backend")
@@ -131,15 +146,43 @@ def run(q, k, v, q_seqlen, kv_seqlen):
         raise ValueError(f"Unknown attention module: {config.ATTN}")
     return out
 ''')
+    config = path.parent.parent / "config.py"
+    config.write_text(f"from typing import Literal\nATTN: Literal{mlx.BACKEND_LIST_OLD}\n"
+                      f"BACKENDS = {mlx.BACKEND_LIST_OLD}\n")
+    if mlx_order == "before-core":
+        assert mlx.apply(tmp_path) == 2
+    elif mlx_order == "legacy":
+        config.write_text(config.read_text().replace(mlx.BACKEND_LIST_OLD, mlx.BACKEND_LIST_NEW))
+        path.write_text(path.read_text().replace(mlx.DISPATCH_ANCHOR, mlx.LEGACY_DISPATCH))
     assert space.patch_sparse_attention(tmp_path)
+    if mlx_order == "after-core":
+        assert mlx.apply(tmp_path) == 2
+    elif mlx_order == "legacy":
+        assert mlx.LEGACY_DISPATCH in path.read_text()
+        assert mlx.apply(tmp_path) == 1
     copied = tmp_path / space.ATTENTION_HELPER_TARGET
     assert copied.read_bytes() == space.ATTENTION_HELPER_SOURCE.read_bytes()
     assert not space.patch_sparse_attention(tmp_path)
+    assert not space.patch_sparse_config(tmp_path)
+    assert mlx.apply(tmp_path) == 0
     use_vendor_package(monkeypatch, copied.parent)
+    fake_model = tmp_path / "image_to_3dlab" / "mlx_attention.py"
+    fake_model.parent.mkdir()
+    fake_model.touch()
+    monkeypatch.syspath_prepend(str(tmp_path))
+    calls = []
+
+    def varlen_attention(q, k, v, q_seqlen, kv_seqlen):
+        calls.append((q_seqlen, kv_seqlen))
+        return v
+
+    monkeypatch.setitem(sys.modules, "image_to_3dlab.mlx_attention", SimpleNamespace(varlen_attention=varlen_attention))
     dispatch = runpy.run_path(str(path))["run"]
     q, k, v = packed
-    result = dispatch(q, k, v, [2, 3], [3, 4])
+    result = dispatch(q, k, v, [2, 3], [3, 4], "sdpa")
     torch.testing.assert_close(result, torch.cat([oracle(q[:2], k[:3], v[:3]), oracle(q[2:], k[3:], v[3:])]))
+    assert dispatch(q, k, v, [2, 3], [3, 4], "mlx") is v
+    assert calls == [([2, 3], [3, 4])]
 
 
 def test_rocm_patch_installs_helpers_and_dispatch_calls_actual_copied_code(tmp_path, monkeypatch, packed):
@@ -329,6 +372,28 @@ def test_mac_legacy_attention_upgrade_leaves_ambiguous_file_untouched(tmp_path):
     source = "        # image-to-3dlab: evaluate each packed sequence independently with\n"
     path.write_text(source)
     with pytest.raises(RuntimeError, match="older patch is ambiguous"):
+        space.patch_sparse_attention(tmp_path)
+    assert path.read_text() == source
+    assert not (tmp_path / space.ATTENTION_HELPER_TARGET).exists()
+
+
+def test_mac_legacy_attention_upgrade_refuses_unknown_adjacent_branch(tmp_path):
+    import patch_trellis_space_core as space
+
+    path = tmp_path / space.SPARSE_ATTENTION_TARGET
+    path.parent.mkdir(parents=True)
+    source = """    elif config.ATTN == 'sdpa':
+        # image-to-3dlab: evaluate each packed sequence independently with
+        out = old_sdpa()
+    elif config.ATTN == 'metal_flash':
+        out = old_metal()
+    elif config.ATTN == 'local_backend':
+        out = local_attention()
+    else:
+        raise ValueError(f"Unknown attention module: {config.ATTN}")
+"""
+    path.write_text(source)
+    with pytest.raises(RuntimeError, match="older patch boundaries changed"):
         space.patch_sparse_attention(tmp_path)
     assert path.read_text() == source
     assert not (tmp_path / space.ATTENTION_HELPER_TARGET).exists()

@@ -41,6 +41,12 @@ def metal_kernel(q, k, v, q_prefix, kv_prefix, q_max, kv_max, scale):
     return v
 
 
+def mlx_kernel(q, k, v, q_seqlen, kv_seqlen):
+    assert [x.label for x in (q, k, v)] == ["q@1", "k@1", "v@1"]
+    assert (q_seqlen, kv_seqlen) == ([2, 3], [4, 1])
+    return v
+
+
 def install_native_fakes():
     torch = ModuleType("torch")
     torch.int32 = "int32"
@@ -75,7 +81,11 @@ def main():
             from trellis2.modules.sparse import config
             from trellis2.modules.sparse.attention import full_attn
 
-            config.set_attn_backend("metal_flash")
+            if route == "space-mlx":
+                sys.modules["image_to_3dlab.mlx_attention"] = SimpleNamespace(varlen_attention=mlx_kernel)
+                config.set_attn_backend("mlx")
+            else:
+                config.set_attn_backend("metal_flash")
             output = full_attn.scaled_dot_product_attention(
                 Packed(), q_seqlen=[2, 3], kv_seqlen=[4, 1],
             )

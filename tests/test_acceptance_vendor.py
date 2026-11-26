@@ -212,7 +212,7 @@ def test_space_patch_installs_working_attention_and_disables_bria(
         space_launcher.load_pipeline(vendor, "sdpa", load_rembg=False)
 
 
-def test_legacy_mlx_upgrade_with_space_patch_and_space_reapply_refusal(tmp_path, external_cwd):
+def test_legacy_mlx_upgrade_survives_space_patch_reapplication(tmp_path, external_cwd):
     checkout = tmp_path / "TRELLIS.2"
     space_script = "patch_trellis_space_core.py"
     mlx_script = "patch_trellis_mlx_attention.py"
@@ -230,18 +230,28 @@ def test_legacy_mlx_upgrade_with_space_patch_and_space_reapply_refusal(tmp_path,
     )
     dispatcher.write_text(legacy_dispatcher, encoding="utf-8")
 
-    before_refusal = hashes(checkout)
-    process = python(external_cwd, SCRIPTS / space_script, "--root", checkout)
-    assert process.returncode != 0
-    assert "sparse attention environment allow-list: expected 1 source anchors, found 0" in process.stderr
-    assert hashes(checkout) == before_refusal
+    legacy = hashes(checkout)
+    patch(external_cwd, space_script, "--root", checkout)
+    assert hashes(checkout) == legacy
 
     patch(external_cwd, mlx_script, "--root", checkout)
     assert config.read_text(encoding="utf-8").count(mlx.BACKEND_LIST_NEW) == 2
     dispatcher_text = dispatcher.read_text(encoding="utf-8")
     assert mlx.LEGACY_DISPATCH not in dispatcher_text
     assert 'from trellis2._assetfurnace_attention import mlx_sparse_attention' in dispatcher_text
-    assert_dispatch(external_cwd, "space", checkout, ATTENTION_HELPER, ["v@1", []])
     upgraded = hashes(checkout)
+    helper = checkout / ATTENTION_HELPER
+    helper.write_text("# stale helper\n", encoding="utf-8")
+    patch(external_cwd, space_script, "--root", checkout)
+    assert hashes(checkout) == upgraded
+    patch(external_cwd, space_script, "--root", checkout)
     patch(external_cwd, mlx_script, "--root", checkout)
     assert hashes(checkout) == upgraded
+    assert space_launcher.bria_refusal(tmp_path) is None
+
+    # The helper locates its Python package via an ancestor of the vendor checkout.
+    mlx_module = tmp_path / "image_to_3dlab" / "mlx_attention.py"
+    mlx_module.parent.mkdir()
+    mlx_module.touch()
+    assert_dispatch(external_cwd, "space", checkout, ATTENTION_HELPER, ["v@1", []])
+    assert_dispatch(external_cwd, "space-mlx", checkout, ATTENTION_HELPER, ["v@1", []])

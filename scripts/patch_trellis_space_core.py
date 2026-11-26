@@ -59,13 +59,21 @@ def patch_file(path: Path, transform) -> bool:
 
 def patch_sparse_config(root: Path) -> bool:
     path = root / "trellis2/modules/sparse/config.py"
+    backends = "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']"
+    mlx_backends = backends[:-1] + ", 'mlx']"
 
     def transform(source: str) -> tuple[str, bool]:
+        if mlx_backends in source:
+            if (source.count(mlx_backends) != 2 or source.count("Literal" + mlx_backends) != 1
+                    or backends in source or "['xformers', 'flash_attn', 'flash_attn_3']" in source
+                    or "Literal['xformers', 'flash_attn']" in source):
+                raise RuntimeError("sparse attention allow-lists: inconsistent MLX patch")
+            return source, False
         changed = False
         source, did = replace_exact(
             source,
             "['xformers', 'flash_attn', 'flash_attn_3']",
-            "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']",
+            backends,
             count=1,
             label="sparse attention environment allow-list",
         )
@@ -73,7 +81,7 @@ def patch_sparse_config(root: Path) -> bool:
         source, did = replace_exact(
             source,
             "Literal['xformers', 'flash_attn']",
-            "Literal['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']",
+            "Literal" + backends,
             count=1,
             label="sparse attention type allow-list",
         )
@@ -87,6 +95,8 @@ def patch_sparse_attention(root: Path) -> bool:
     anchor = '''    else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")'''
     start = "    elif config.ATTN == 'sdpa':\n"
+    metal_branch = "    elif config.ATTN == 'metal_flash':"
+    mlx_branch = "    elif config.ATTN == 'mlx':"
     legacy = "        # image-to-3dlab: evaluate each packed sequence independently with"
     replacement = start + """\
         from trellis2._assetfurnace_attention import chunked_sdpa, unpack_attention
@@ -96,7 +106,7 @@ def patch_sparse_attention(root: Path) -> bool:
         from trellis2._assetfurnace_attention import metal_attention, unpack_attention
         q, k, v = unpack_attention(num_all_args, 1, locals())
         out = metal_attention(q, k, v, q_seqlen, kv_seqlen, device)
-""" + anchor
+"""
 
     def transform(source: str) -> tuple[str, bool]:
         if legacy in source:
@@ -104,11 +114,27 @@ def patch_sparse_attention(root: Path) -> bool:
             if source.count(previous) != 1 or source.count(anchor) != 1:
                 raise RuntimeError("fused Metal sparse-attention dispatch: older patch is ambiguous")
             before, _, patched = source.partition(previous)
-            _, found, after = patched.partition(anchor)
+            old_branches, found, after = patched.partition(anchor)
             if not found:
                 raise RuntimeError("fused Metal sparse-attention dispatch: older patch end is missing")
-            return before + replacement + after, True
-        return replace_exact(source, anchor, replacement, count=1,
+            branches = [
+                line for line in old_branches.splitlines()[1:]
+                if line.strip() and not line.startswith("        ")
+            ]
+            if branches not in ([metal_branch], [metal_branch, mlx_branch]):
+                raise RuntimeError("fused Metal sparse-attention dispatch: older patch boundaries changed")
+            mlx_position = (
+                old_branches.index("\n" + mlx_branch + "\n") + 1
+                if mlx_branch in branches else len(old_branches)
+            )
+            return before + replacement + old_branches[mlx_position:] + found + after, True
+        installed_with_mlx = replacement + mlx_branch + "\n"
+        if installed_with_mlx in source:
+            _, _, mlx_body = source.partition(installed_with_mlx)
+            if source.count(installed_with_mlx) != 1 or source.count(anchor) != 1 or anchor not in mlx_body:
+                raise RuntimeError("fused Metal sparse-attention dispatch: MLX patch boundaries changed")
+            return source, False
+        return replace_exact(source, anchor, replacement + anchor, count=1,
                              label="fused Metal sparse-attention dispatch")
 
     changed = patch_file(path, transform)

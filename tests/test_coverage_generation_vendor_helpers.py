@@ -107,9 +107,11 @@ def test_hunyuan_helper_nearest_scheduler_index_for_inexact_match():
         assert result.shape == (1,) and result.item() == index
 
 
-@pytest.mark.parametrize("chunk", ["", "0", "1", "2", "6"])
+@pytest.mark.parametrize(("chunk", "expected_sizes"), [
+    ("", [5]), ("0", [5]), ("1", [1, 1, 1, 1, 1]), ("2", [2, 2, 1]), ("6", [5]),
+])
 @pytest.mark.parametrize("masked", [False, True])
-def test_hunyuan_helper_chunks_queries_without_changing_attention(chunk, masked, monkeypatch):
+def test_hunyuan_helper_chunks_queries_without_changing_attention(chunk, expected_sizes, masked, monkeypatch):
     torch = pytest.importorskip("torch")
     from scripts.hunyuan_rocm_compat import chunked_attention
 
@@ -119,8 +121,23 @@ def test_hunyuan_helper_chunks_queries_without_changing_attention(chunk, masked,
     key = torch.randn(2, 3, 7, 4, generator=generator)
     value = torch.randn(2, 3, 7, 4, generator=generator)
     mask = torch.randn(2, 1, 5, 7, generator=generator) if masked else None
-    expected = torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=mask)
+    kernel = torch.nn.functional.scaled_dot_product_attention
+    expected = kernel(query, key, value, attn_mask=mask)
+    calls = []
+
+    def record(q_part, k_part, v_part, *, attn_mask, **options):
+        assert k_part is key and v_part is value
+        calls.append((q_part, attn_mask))
+        return kernel(q_part, k_part, v_part, attn_mask=attn_mask, **options)
+
+    monkeypatch.setattr(torch.nn.functional, "scaled_dot_product_attention", record)
     torch.testing.assert_close(chunked_attention(query, key, value, mask), expected)
+    assert [part.shape[-2] for part, _ in calls] == expected_sizes
+    torch.testing.assert_close(torch.cat([part for part, _ in calls], dim=-2), query)
+    if masked:
+        torch.testing.assert_close(torch.cat([part_mask for _, part_mask in calls], dim=-2), mask)
+    else:
+        assert all(part_mask is None for _, part_mask in calls)
 
 
 def test_installed_hunyuan_imports_the_exact_helper(tmp_path, monkeypatch):

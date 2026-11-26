@@ -172,6 +172,47 @@ def test_space_patch_application_is_repeatable_and_keeps_guard(tmp_path, space_t
     assert {name: path.read_text() for name, path in space_tree.items()} == transformed
 
 
+def test_space_patch_reapplies_after_optional_mlx_patch(tmp_path, space_tree):
+    import patch_trellis_mlx_attention as mlx
+
+    patcher.apply(tmp_path)
+    assert mlx.apply(tmp_path) == 2
+    helper = tmp_path / patcher.ATTENTION_HELPER_TARGET
+    sources = {name: path.read_bytes() for name, path in space_tree.items()}
+    helper.write_bytes(b"# stale helper\n")
+
+    assert patcher.apply(tmp_path) == ["fused Metal sparse attention"]
+    assert patcher.bria_refusal(tmp_path) is None
+    assert {name: path.read_bytes() for name, path in space_tree.items()} == sources
+    assert helper.read_bytes() == patcher.ATTENTION_HELPER_SOURCE.read_bytes()
+    assert patcher.apply(tmp_path) == []
+    assert mlx.apply(tmp_path) == 0
+
+
+@pytest.mark.parametrize("damage", ["partial-allow-list", "missing-dispatch-anchor"])
+def test_space_patch_refuses_unrecognized_mlx_patch_before_writing(tmp_path, space_tree, damage):
+    import patch_trellis_mlx_attention as mlx
+
+    patcher.apply(tmp_path)
+    mlx.apply(tmp_path)
+    if damage == "partial-allow-list":
+        config = space_tree["config"]
+        config.write_text(config.read_text().replace(mlx.BACKEND_LIST_NEW, mlx.BACKEND_LIST_OLD, 1))
+        diagnostic = "inconsistent MLX patch"
+    else:
+        dispatch = space_tree["attention"]
+        dispatch.write_text(dispatch.read_text().replace("Unknown attention module", "Unknown backend"))
+        diagnostic = "MLX patch boundaries changed"
+    helper = tmp_path / patcher.ATTENTION_HELPER_TARGET
+    helper.write_bytes(b"# stale helper\n")
+    paths = [*space_tree.values(), helper]
+    before = {path: path.read_bytes() for path in paths}
+
+    with pytest.raises(RuntimeError, match=diagnostic):
+        patcher.apply(tmp_path)
+    assert {path: path.read_bytes() for path in paths} == before
+
+
 @pytest.mark.parametrize(("script", "anchor", "apply", "message"), [
     ("dino", "torch.stack(image).cuda()", patcher.patch_image_feature_extractor, "DINO list input"),
     ("dino", "self.transform(image).cuda()", patcher.patch_image_feature_extractor, "DINO transform"),

@@ -230,6 +230,7 @@ def prepare_image(image_path: Path, output: Path, *, force_matte: bool) -> tuple
 
 
 def _enter_upstream(vendor_root: Path) -> None:
+    os.environ["HF_HUB_OFFLINE"] = "1"
     configure_environment(vendor_root)
     for path in reversed(import_paths(vendor_root)):
         if str(path) not in sys.path:
@@ -339,7 +340,7 @@ def missing_weights(vendor_root: Path, hub: Path | None = None,
     """Weights the run would otherwise fetch. Same idea as the AMD route's check."""
     from image_to_3dlab.weight_gate import snapshot_dir
 
-    shape = bootstrap.MODELS / bootstrap.HUNYUAN_REPO
+    shape = models_dir(vendor_root) / bootstrap.HUNYUAN_REPO
     checks = {
         "Hunyuan3D-2.1 shape model": (shape / "hunyuan3d-dit-v2-1").is_dir(),
         "Hunyuan3D-2.1 shape VAE": (shape / "hunyuan3d-vae-v2-1").is_dir(),

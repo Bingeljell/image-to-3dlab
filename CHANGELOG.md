@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- Hunyuan generation stays offline and checks for weights in the selected checkout.
 - The add-on command reports filesystem errors when removal fails.
 - **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
   one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first

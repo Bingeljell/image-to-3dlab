@@ -437,6 +437,7 @@ def prepare_image(image_path: Path, output: Path, *, force_matte: bool) -> tuple
 
 
 def _enter_upstream(vendor_root: Path, chunk: int = 0) -> None:
+    os.environ["HF_HUB_OFFLINE"] = "1"
     configure_environment(vendor_root, chunk)
     for path in reversed(import_paths(vendor_root)):
         if str(path) not in sys.path:

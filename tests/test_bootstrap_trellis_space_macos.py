@@ -61,12 +61,27 @@ def test_every_card_it_can_redirect_names_a_real_bootstrap():
         assert (ROOT / script).is_file(), f"{card} is pointed at {script}, which is not there"
 
 
-def test_it_checks_the_machine_before_cloning_anything(tmp_path, monkeypatch):
+def test_help_does_not_probe_the_machine(monkeypatch, capsys):
+    monkeypatch.setattr(bootstrap.host, "build_target", lambda: pytest.fail("help probed the host"))
+
+    with pytest.raises(SystemExit) as stopped:
+        bootstrap.main(["--help"])
+    assert stopped.value.code == 0
+    assert "--weights-only" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("args", [[], ["--weights-only", "--yes"]])
+def test_it_checks_the_machine_before_setup(args, monkeypatch, capsys):
     """The whole point: nothing is fetched, and nothing is built."""
-    monkeypatch.setattr(bootstrap.host, "build_target", lambda *a, **k: "linux-amd")
+    monkeypatch.setattr(bootstrap.host, "build_target", lambda: "linux-amd")
+    monkeypatch.setattr(bootstrap.host, "host_platform", lambda: bootstrap.host.AMD)
     monkeypatch.setattr(bootstrap, "bootstrap", lambda *a, **k: pytest.fail(
         "it cloned repositories before checking the machine"))
-    assert bootstrap.main() == 1
+    monkeypatch.setattr(bootstrap, "fetch_weights", lambda **k: pytest.fail(
+        "it tried to fetch weights before checking the machine"))
+
+    assert bootstrap.main(args) == 1
+    assert "bootstrap_trellis_rocm.py" in capsys.readouterr().out
 
 
 def test_bootstrap_does_not_clone_or_execute_shiv_tree():

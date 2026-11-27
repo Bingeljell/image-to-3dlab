@@ -428,10 +428,13 @@ def test_broken_run_folder_returns_json_error(studio, monkeypatch, route, functi
     assert (status, body) == (500, {"error": "bad run folder"})
 
 
-def test_bug_report_routes_supply_a_draft_without_sending_it(studio):
+def test_bug_report_routes_supply_a_draft_without_sending_it(studio, monkeypatch):
+    monkeypatch.setattr(api.bug_report_api, "os_family", lambda _: "linux")
+    monkeypatch.setattr(api.bug_report_api, "_chip", lambda _: "Fixture graphics card")
     info = studio("/api/bug-report?chain=unknown&step=model&prompt=1")[2]
     assert info["failure"] is False
     assert info["has_prompt"] is False
+    assert "Linux · Fixture graphics card" in info["details"]
     assert studio("/api/bug-report", {})[0] == 422
     assert studio("/api/bug-report", b"{malformed")[0] == 422
     status, _, result = studio("/api/bug-report", {"message": "  Missing texture ", "details": "fixture"})

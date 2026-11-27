@@ -231,11 +231,6 @@ def fetch_weights(*, yes: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    problem = wrong_machine()
-    if problem:
-        print(problem)
-        return 1
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--python", default="python3.11")
@@ -245,6 +240,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--weights-only", action="store_true",
                         help="Fetch the weights only. Does not clone or compile.")
     args = parser.parse_args(argv)
+
+    problem = wrong_machine()
+    if problem:
+        print(problem)
+        return 1
+
     if args.weights_only:
         return fetch_weights(yes=args.yes)
     bootstrap(args.root.resolve(), skip_install=args.skip_install, python=args.python)

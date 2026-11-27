@@ -42,6 +42,7 @@ sys.path.insert(0, str(REPO))
 
 import numpy as np
 
+from image_to_3dlab import glb_views
 from image_to_3dlab.glb_turn import turn_cameras, turn_glb
 from image_to_3dlab.host import executable
 from image_to_3dlab.matte import cut_out, fallback_note, is_matted, matte_model
@@ -322,6 +323,25 @@ def face_front(output: Path) -> None:
     if cameras.is_file():
         cameras.write_text(json.dumps(turn_cameras(json.loads(cameras.read_text())),
                                       indent=2) + "\n")
+
+
+def store_views(output: Path) -> float | None:
+    """Keep the run's cameras and pictures (`<output>.svviews/`) inside the GLB too, so the model
+    carries what Pixel Match needs when it is shared or uploaded on its own. The folder stays.
+    Returns the MB added, or None when there is nothing to store; never fails the run."""
+    views = output.with_suffix(".svviews")
+    if not (views / "transforms.json").is_file():
+        return None
+    before = output.stat().st_size
+    try:
+        stored = glb_views.embed(output.read_bytes(), views)
+    except (ValueError, OSError, KeyError) as error:
+        print(f"[pixal3d] note: cameras not stored in the GLB ({error}); they stay in {views.name}", flush=True)
+        return None
+    partial = output.with_name(output.name + ".views")
+    partial.write_bytes(stored)
+    partial.replace(output)
+    return (output.stat().st_size - before) / 1048576
 
 
 def has_alpha(image: Path) -> bool:
@@ -807,6 +827,9 @@ def main() -> int:
         raise SystemExit(f"trellis-cli exited 0 without writing {args.output}")
     set_glb_generator(args.output)   # the manifest below hashes the file that ships
     face_front(args.output)
+    added = store_views(args.output)   # after the turn, so the stored cameras are the turned ones
+    if added is not None:
+        print(f"[pixal3d] cameras and pictures stored in the GLB (+{added:.1f} MB)", flush=True)
 
     seconds = time.time() - started
     record = manifest(args.image, args.output, res=args.res, seed=args.seed, fov=args.fov,

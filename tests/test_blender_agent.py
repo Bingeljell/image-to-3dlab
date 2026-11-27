@@ -479,3 +479,33 @@ def test_mirror_gives_the_copy_its_own_mesh():
 def test_mirror_refuses_a_name_already_in_use():
     code = agent.build_call("mirror_object", {"name": "a", "new_name": "b"})
     assert "already exists" in code
+
+
+def test_every_tool_result_comes_before_the_render_picture(tmp_path, monkeypatch):
+    """Old bug: the render picture (a user message) was appended inside the tool loop, so
+    it landed between two tool results. The model API wants all tool results first."""
+    picture = tmp_path / "shot.png"
+    picture.write_bytes(b"\x89PNG\r\n")
+    seen: list[list[str]] = []
+    replies = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "a", "function": {"name": "render_view", "arguments": "{}"}},
+            {"id": "b", "function": {"name": "describe_scene", "arguments": "{}"}},
+        ]},
+        {"role": "assistant", "content": "done", "tool_calls": []},
+    ]
+
+    def fake_chat(api, model, messages, tools, timeout=600):
+        seen.append([m["role"] for m in messages])
+        return {"choices": [{"message": replies[len(seen) - 1]}]}
+
+    monkeypatch.setattr(agent, "chat", fake_chat)
+    monkeypatch.setattr(agent, "build_call", lambda name, arguments, injected: name)
+    monkeypatch.setattr(
+        agent, "send",
+        lambda code, *a, **k: json.dumps({"rendered": str(picture)} if code == "render_view" else {"ok": True}),
+    )
+    monkeypatch.setattr(agent, "parse_response", json.loads)
+    agent.run("x", None, "m", "http://localhost", tmp_path / "out", 3,
+              "127.0.0.1", 9876, 256, auto_render=False)
+    assert seen[1][-3:] == ["tool", "tool", "user"], seen[1]

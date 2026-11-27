@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The Blender agent sends tool results before the render picture.** A render in the middle of several tool calls put
+  its picture between the results, an order the model's API does not accept. Pictures now follow all of a round's results.
 - **The wind demo says when nothing is marked rigid.** With every labelled vertex foliage or flower, it built an empty
   anchor set and carried on. It now stops and says no rigid vertices were found.
 - **The light orbit works on Blender versions whose Eevee has a new name.** It set the engine to `BLENDER_EEVEE`, which

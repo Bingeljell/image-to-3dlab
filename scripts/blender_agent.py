@@ -1094,6 +1094,7 @@ def run(task: str, asset: Path | None, model: str, api: str, out_dir: Path,
             break
 
         called: list[str] = []
+        pictures: list[dict[str, Any]] = []
         for call in calls:
             name = call["function"]["name"]
             called.append(name)
@@ -1124,7 +1125,10 @@ def run(task: str, asset: Path | None, model: str, api: str, out_dir: Path,
                 path = Path(result["rendered"])
                 if path.exists():
                     log.renders.append(str(path))
-                    messages.append(image_message(path, "Here is that render. What is wrong with it?"))
+                    pictures.append(image_message(path, "Here is that render. What is wrong with it?"))
+
+        # Every tool result first; the model API rejects a user turn between them.
+        messages.extend(pictures)
 
         if auto_render and needs_forced_render(called):
             forced = out_dir / f"round{round_index:02d}-auto.png"

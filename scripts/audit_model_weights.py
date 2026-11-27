@@ -59,6 +59,10 @@ LOCAL_WEIGHT_ROOTS = (
 SOURCE_PATHS = ("scripts", "viewer", "hunyuan_mlx", "image_to_3dlab", "workflows",
                 "pipeline.py")
 
+# Files at least this large must have a byte-identical local copy before an entry is
+# deletable (capped at GB so scaled-down tests stay meaningful); smaller ones (README, config) may be missing locally and are only listed.
+BIG_FILE_BYTES = 1 << 20
+
 RULES = ("ckpt", "cached", "unreferenced")
 
 
@@ -184,6 +188,7 @@ def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], list[Path]]:
 
 
 def _sha256(path: Path) -> str | None:
+    """Uncached sha256 of `path`; None when unreadable."""
     digest = hashlib.sha256()
     try:
         with path.open("rb") as handle:
@@ -194,13 +199,29 @@ def _sha256(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+_HASHES: dict[tuple[str, int, int], str | None] = {}
+
+
+def _hash_once(path: Path) -> str | None:
+    """`_sha256` memoised by resolved path, size and mtime, so each file hashes once."""
+    try:
+        resolved = path.resolve()
+        st = resolved.stat()
+    except OSError:
+        return None
+    key = (str(resolved), st.st_size, st.st_mtime_ns)
+    if key not in _HASHES:
+        _HASHES[key] = _sha256(resolved)
+    return _HASHES[key]
+
+
 def _identical_copy(cached: Path, candidates: list[Path]) -> Path | None:
     """A candidate whose bytes equal `cached`'s, or None. Unreadable means not identical."""
-    want = _sha256(cached)
+    want = _hash_once(cached)
     if want is None:
         return None
     for candidate in candidates:
-        if _sha256(candidate) == want:
+        if _hash_once(candidate) == want:
             return candidate
     return None
 
@@ -253,13 +274,21 @@ def find_cached_duplicates(hub: Path = HF_HUB_DIR, roots=LOCAL_WEIGHT_ROOTS) -> 
             continue
         biggest = max(matched, key=_resolved_size)
         example = _short(examples[biggest])
-        # Deletable only when every file is duplicated byte for byte; anything else
-        # leaves bytes in the cache that exist nowhere else.
-        complete = len(matched) == len(names)
+        # Deletable when every big file is duplicated byte for byte; small files may be
+        # missing locally (they are listed in the reason) but big ones never.
+        matched_set = set(matched)
+        unmatched = [f for f in names if f not in matched_set]
+        big_missing = [f for f in unmatched if _resolved_size(f) >= min(BIG_FILE_BYTES, GB)]
+        small_missing = sorted(f.name for f in unmatched if f not in big_missing)
+        complete = not big_missing
+        note = ""
+        if small_missing:
+            note = f"; small files not in the repo: {', '.join(small_missing)}"
         found.append(Candidate(
             "cached", path, total,
             f"{human_bytes(matched_bytes)} of {human_bytes(total)} also real in the repo"
             f" ({len(matched)} files, e.g. {example})"
+            + note
             + ("" if complete else "; PARTIAL, review before deleting"),
             deletable=complete,
         ))

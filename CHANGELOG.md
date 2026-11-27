@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The weights audit offers real duplicates again.** Requiring an identical copy of every file, down to the README,
+  meant almost no cached model was offered for deletion. Files of 1 MB or more must still match byte for byte; smaller
+  ones may be missing and are listed. Each file is now read once per run.
 - **The o_voxel weld patch also works on an install outside this checkout.** Its patched code found the checkout only
   by looking above its own file, so `--repo` did nothing and an install elsewhere failed on its first run. It now falls
   back to the checkout given when patching, recorded relative to the patched file where it can be.

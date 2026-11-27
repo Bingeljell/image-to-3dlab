@@ -5,6 +5,7 @@ import json
 import runpy
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
@@ -65,7 +66,7 @@ def test_all_routes_convert_only_when_needed(hub, monkeypatch, preconverted):
         if args[1:] == ["-c", "import torch"]:
             assert kwargs == {"capture_output": True, "check": False}
             return subprocess.CompletedProcess(args, 0)
-        assert args[1].endswith("/convert_v21_ckpt.py")
+        assert Path(args[1]).name == "convert_v21_ckpt.py"
         assert args[2] == str(target.with_suffix(".ckpt"))
         assert args[3] == str(target)
         assert kwargs == {"check": True}

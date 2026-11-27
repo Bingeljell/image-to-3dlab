@@ -133,9 +133,9 @@ def test_rignet_selects_device_and_passes_normalized_mesh_across_stages(rig_runt
     stages = [(kind, args, kw) for kind, args, kw in events
               if kind in ("data", "joints", "skeleton", "skinning", "normalize", "transfer")]
     assert [kind for kind, _, _ in stages] == ["data", "joints", "skeleton", "skinning", "normalize", "transfer"]
-    normalized = str(Path("quick_start") / "owl_normalized.obj")
-    original = str(Path("quick_start") / "owl_ori.obj")
-    remeshed = str(Path("quick_start") / "owl_remesh.obj")
+    normalized = "quick_start/owl_normalized.obj"
+    original = "quick_start/owl_ori.obj"
+    remeshed = "quick_start/owl_remesh.obj"
     assert stages[0][1] == (remeshed,)
     assert stages[1][1][-1] == 0.03
     assert stages[1][2] == {"bandwidth": 0.05, "mesh_filename": normalized}

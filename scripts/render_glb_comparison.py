@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from os.path import splitdrive
 from pathlib import Path
 
 if __package__:
@@ -59,8 +60,10 @@ def shared_crop_box(boxes, size, pad: int = 18):
 
 def parse_asset(spec: str) -> tuple[Path, str]:
     """``path.glb:Label`` -> (path, label). The label defaults to the file stem."""
-    if ":" in spec:
-        head, _, label = spec.rpartition(":")
+    drive, tail = splitdrive(spec)
+    if ":" in tail:
+        head, _, label = tail.rpartition(":")
+        head = drive + head
         if head and not head.endswith(".glb") and Path(spec).exists():
             return Path(spec), Path(spec).stem
         return Path(head), label

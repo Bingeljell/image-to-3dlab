@@ -198,9 +198,11 @@ def test_worker_centres_model_and_renders_each_angle(scene_fixture, tmp_path, gr
     else:
         assert mesh.data.materials == ["original"]
         assert materials == []
-    paths = [str(tmp_path / f"label_{mode}_az{angle}.png") for angle in (0, 90)]
-    assert result == {"renders": paths, "size": 4}
-    assert [path for path, _ in rendered] == paths
+    paths = [tmp_path / f"label_{mode}_az{angle}.png" for angle in (0, 90)]
+    assert {**result, "renders": [Path(path) for path in result["renders"]]} == {
+        "renders": paths, "size": 4,
+    }
+    assert [Path(path) for path, _ in rendered] == paths
     np.testing.assert_allclose([position for _, position in rendered], [(-9.6, 0, 1.62), (0, -9.6, 1.62)], atol=1e-10)
 
 

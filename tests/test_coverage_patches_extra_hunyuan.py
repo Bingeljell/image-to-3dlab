@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 from types import SimpleNamespace
 
 import bootstrap_hunyuan_cuda as cuda
@@ -189,7 +190,7 @@ def test_hunyuan_code_build_marks_completion_after_all_commands(
     assert all(args[:5] == ["uv", "pip", "install", "--python", str(python)]
                and kw == {"env": {"BUILD": "1"}} for args, kw in commands)
     assert "timm" in commands[-2][0]
-    assert commands[-1][0][-1].endswith("hy3dpaint/custom_rasterizer")
+    assert Path(commands[-1][0][-1]).parts[-2:] == ("hy3dpaint", "custom_rasterizer")
     assert events[-1] == "compiled"
     assert json.loads(marker.read_text())["route"] == route
     assert installer.build_present()

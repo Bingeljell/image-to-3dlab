@@ -3,6 +3,7 @@
 import importlib
 import io
 import sys
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -151,7 +152,7 @@ def test_mac_setup_pins_all_checkouts_then_applies_patches(build, monkeypatch, t
     flags = [] if build else ["--skip-install"]
     assert mac.main(["--root", str(root), "--python", "python-test", *flags]) == 0
     patches = [argv for argv in seen if argv[0] == sys.executable]
-    assert [argv[1].split("/")[-1] for argv in patches] == [
+    assert [Path(argv[1]).name for argv in patches] == [
         "patch_trellis_space_core.py", "patch_trellis_metal_backends.py",
     ]
     assert [argv[-1] for argv in patches] == [str(root / "TRELLIS.2"), str(root)]

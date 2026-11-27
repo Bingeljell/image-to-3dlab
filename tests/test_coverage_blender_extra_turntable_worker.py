@@ -341,10 +341,13 @@ def test_turntable_restores_previous_scene_after_render_error(arguments, monkeyp
 def test_turntable_bundles_shipped_worker_with_remote_arguments(arguments, monkeypatch):
     from pathlib import Path
 
+    asset_path = Path(arguments["asset_path"])
+
     def bundle(path, payload):
         assert path.samefile(worker.__file__)
         assert payload == {
             **arguments,
+            "asset_path": str(asset_path),
             **turntable.ENVIRONMENTS["dark"],
         }
         return "packed worker"
@@ -352,7 +355,7 @@ def test_turntable_bundles_shipped_worker_with_remote_arguments(arguments, monke
     monkeypatch.setattr(turntable, "build_worker_code", bundle)
     assert (
         turntable.blender_code(
-            Path(arguments["asset_path"]),
+            asset_path,
             Path(arguments["frame_dir"]),
             "model",
             "dark",

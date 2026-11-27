@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import math
-from pathlib import Path
+import ntpath
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -68,6 +69,18 @@ def test_asset_spec_without_a_label_uses_the_file_stem():
     path, label = mod.parse_asset("output/storm_ram.glb")
     assert path == Path("output/storm_ram.glb")
     assert label == "storm_ram"
+
+
+@pytest.mark.parametrize(("suffix", "label"), [("", "storm_ram"), (":MLX fp16", "MLX fp16")])
+def test_asset_spec_with_windows_drive(monkeypatch, suffix, label):
+    class MissingWindowsPath(PureWindowsPath):
+        def exists(self):
+            return False
+
+    monkeypatch.setattr(mod, "Path", MissingWindowsPath)
+    monkeypatch.setattr(mod, "splitdrive", ntpath.splitdrive, raising=False)
+    path = r"C:\models\storm_ram.glb"
+    assert mod.parse_asset(path + suffix) == (PureWindowsPath(path), label)
 
 
 def test_blender_render_code_returns_the_shipped_worker():

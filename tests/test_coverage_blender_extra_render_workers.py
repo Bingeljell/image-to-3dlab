@@ -363,16 +363,21 @@ def test_preview_restores_window_on_render_failure(monkeypatch):
 
 
 def test_preview_bundles_flags_and_environment_for_remote_blender(monkeypatch):
+    expected = preview_arguments(True, False)
+    asset_path = Path(expected["asset_path"])
+    output_dir = Path(expected["output_dir"])
+    expected.update(asset_path=str(asset_path), output_dir=str(output_dir))
+
     def bundle(path, arguments):
         assert path.samefile(preview_worker.__file__)
-        assert arguments == preview_arguments(True, False)
+        assert arguments == expected
         return "bundled"
 
     monkeypatch.setattr(preview, "build_worker_code", bundle)
     assert (
         preview.blender_code(
-            Path("/remote/input.glb"),
-            Path("/remote/output"),
+            asset_path,
+            output_dir,
             "preview",
             "studio",
             culled=True,
@@ -493,23 +498,25 @@ def test_comparison_detects_when_discovered_blender_has_disappeared(
         )
 
 
-def test_comparison_refuses_to_render_when_any_input_is_missing(tmp_path):
+@pytest.mark.parametrize("label", ["", ":Missing panel"])
+def test_comparison_refuses_to_render_when_any_input_is_missing(tmp_path, label):
     blender = tmp_path / "blender"
     blender.touch()
     valid = tmp_path / "one.glb"
     valid.touch()
     missing = tmp_path / "two.glb"
 
-    with pytest.raises(SystemExit, match=r"missing GLB\(s\).*two.glb"):
+    with pytest.raises(SystemExit) as exc:
         comparison.main(
             [
                 str(tmp_path / "out.jpg"),
                 str(valid),
-                str(missing),
+                str(missing) + label,
                 "--blender",
                 str(blender),
             ]
         )
+    assert str(exc.value) == f"missing GLB(s): {missing}"
 
 
 @pytest.mark.skipif(

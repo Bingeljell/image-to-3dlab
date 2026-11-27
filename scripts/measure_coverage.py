@@ -371,6 +371,10 @@ def run_mlx_unit(output: Path) -> int:
     junit = output / "pytest.xml"
     env = offline_environment(output, config)
     env.pop("PYTEST_ADDOPTS", None)
+    font_config = output / "matplotlib"
+    font_config.mkdir()
+    env["MPLCONFIGDIR"] = str(font_config)
+    env["MPL_IGNORE_SYSTEM_FONTS"] = "1"
     status = subprocess.run([
         sys.executable, "-m", "coverage", "run", "-m", "pytest", "tests/mlx",
         "--run-mlx-unit", "-q", "--junitxml", str(junit),

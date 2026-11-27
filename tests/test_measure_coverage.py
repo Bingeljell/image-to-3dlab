@@ -415,6 +415,8 @@ def test_numerical_runner_stamps_only_passing_cases(tmp_path, monkeypatch, statu
     subprocess.run(["git", "init", "-q"], check=True, cwd=tmp_path)
     monkeypatch.setattr(measure_coverage, "REPO", tmp_path)
     monkeypatch.setenv("PYTEST_ADDOPTS", "-k deliberate_filter")
+    monkeypatch.setenv("MPLCONFIGDIR", str(tmp_path / "user-font-config"))
+    monkeypatch.setenv("MPL_IGNORE_SYSTEM_FONTS", "")
     (tmp_path / "pyproject.toml").write_text("[tool.coverage.run]\nbranch = true\n")
     source = tmp_path / "example.py"
     source.write_text("value = 1\n")
@@ -424,6 +426,10 @@ def test_numerical_runner_stamps_only_passing_cases(tmp_path, monkeypatch, statu
         assert "--run-mlx-unit" in command and "--run-mlx-metal" not in command
         assert env["AF_OFFLINE_TESTS"] == "1"
         assert "PYTEST_ADDOPTS" not in env
+        assert env["MPL_IGNORE_SYSTEM_FONTS"] == "1"
+        font_config = Path(env["MPLCONFIGDIR"])
+        assert font_config.parent == output
+        assert font_config.is_dir() and not list(font_config.iterdir())
         assert not check
         Path(command[-1]).write_text(f"<testsuite>{case}</testsuite>")
         data = CoverageData(basename=env["COVERAGE_FILE"], suffix="fixture")

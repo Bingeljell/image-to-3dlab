@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Studio asks which move to play when a model contains multiple saved animations.
 
 ### Fixed
+- Coverage checks keep their offline safeguards while allowing Linux library discovery, Windows version detection and Apple MLX font setup.
 - Blender scene cleanup and replacement preserve shared objects, saved bindings, and references used by other scenes.
 - Staging centers models with transformed roots, and baking restores camera, frame and output settings after success or failure.
 - Video commands reject missing frames and failed Blender replies, preserve prior frames on retries, and replace videos only after successful encoding.

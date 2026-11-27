@@ -126,6 +126,16 @@ def _check_program(executable, args, env):
         return
     if isinstance(args, str):  # Windows passes a command line to the audit hook.
         args = [quoted or bare for quoted, bare in re.findall(r'"([^"]+)"|(\S+)', args)]
+    if name == "ldconfig" or (args and _program_name(args[0]) == "ldconfig"):
+        # CPython's ctypes reads the glibc cache via this absolute path.
+        # The OS follows the system's /sbin symlink on merged-/usr installs.
+        if (
+            sys.platform == "linux"
+            and executable == "/sbin/ldconfig"
+            and tuple(map(os.fsdecode, args)) == ("/sbin/ldconfig", "-p")
+        ):
+            return
+        _blocked("process", executable)
     if name in {"bash", "sh"} and _fixture_shell(args, env):
         return
     if re.fullmatch(r"python(?:3(?:\.\d+)?)?", name):
@@ -190,6 +200,20 @@ def _child_environment(env):
     return result
 
 
+def _use_native_windows_version():
+    if sys.platform != "win32":
+        return
+    import platform
+
+    if hasattr(platform, "_syscmd_ver"):
+        # Python 3.11 tries the shell's ver command first. Returning these
+        # defaults lets win32_ver use its own sys.getwindowsversion fallback.
+        def native_defaults(system="", release="", version="", supported_platforms=()):
+            return system, release, version
+
+        platform._syscmd_ver = native_defaults
+
+
 def install():
     global _installed
     if _installed:
@@ -197,6 +221,7 @@ def install():
     _installed = True
     os.environ.update(OFFLINE_ENV)
     sys.addaudithook(_audit)
+    _use_native_windows_version()
 
     real_init = subprocess.Popen.__init__
     signature = inspect.signature(real_init)

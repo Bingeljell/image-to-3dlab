@@ -1,12 +1,15 @@
 """Exercise the guards through real socket and process calls."""
 
 import os
+import platform
 import shutil
 import socket
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
+import unit_isolation
 
 
 def _windows_root():
@@ -20,6 +23,11 @@ def _windows_root():
     lambda: subprocess.run(["curl", "https://external.invalid/weights"], check=True),
     lambda: subprocess.run(["bash", "-c", "printf unexpected"], check=True),
     lambda: subprocess.run("printf unexpected", shell=True, check=True),
+    lambda: subprocess.run(["/sbin/ldconfig", "-p"], shell=True, check=True),
+    lambda: subprocess.run("ver", shell=True, check=True),
+    lambda: subprocess.run(["fc-list", "--help"], check=True),
+    lambda: subprocess.run(["/usr/sbin/system_profiler", "SPFontsDataType"], check=True),
+    lambda: subprocess.run([sys.executable, "download_weights.py"], check=True),
     lambda: subprocess.run([sys.executable, "scripts/bootstrap_pixal3d.py"], check=True),
     lambda: subprocess.run([sys.executable, "scripts/pixal3d_generate.py"], check=True),
     lambda: socket.create_connection(("127.0.0.1", 9876)),
@@ -91,3 +99,77 @@ server.close();
 """
     subprocess.run([node, "--input-type=module", "--eval", program], cwd=tmp_path,
                    env={"NODE_OPTIONS": "", **_windows_root()}, check=True, timeout=15)
+
+
+@pytest.mark.parametrize("system", ["linux", "darwin"])
+def test_only_linux_allows_the_exact_glibc_cache_query(monkeypatch, system):
+    monkeypatch.setattr(unit_isolation, "sys", SimpleNamespace(platform=system))
+    command = ["/sbin/ldconfig", "-p"]
+    if system == "linux":
+        unit_isolation._audit("subprocess.Popen", (command[0], command, None, None))
+    else:
+        with pytest.raises(RuntimeError, match="Offline tests block process"):
+            unit_isolation._audit("subprocess.Popen", (command[0], command, None, None))
+    for executable, args in [
+        ("/sbin/ldconfig", ["/sbin/ldconfig"]),
+        ("/sbin/ldconfig", [*command, "-i"]),
+        ("/sbin/ldconfig", ["git", "-p"]),
+        ("ldconfig", command),
+        ("/usr/sbin/ldconfig", command),
+        ("git", command),
+        ("/tmp/ldconfig", command),
+    ]:
+        with pytest.raises(RuntimeError, match="Offline tests block process"):
+            unit_isolation._audit("subprocess.Popen", (executable, args, None, None))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="glibc library cache on Linux")
+def test_linux_child_reads_glibc_cache_before_torch_import():
+    subprocess.run(
+        [sys.executable, "-c", """
+import ctypes.util
+import subprocess
+
+subprocess.run(['/sbin/ldconfig', '-p'], check=True, stdout=subprocess.DEVNULL)
+ctypes.util.find_library('dl')
+import torch
+assert torch.ones(1).item() == 1
+"""],
+        check=True, timeout=30,
+    )
+
+
+@pytest.mark.parametrize("system", ["win32", "darwin"])
+def test_native_windows_version_fallback_is_platform_specific(monkeypatch, system):
+    def unexpected_shell(*args, **kwargs):
+        pytest.fail("legacy Windows version probe reached")
+
+    monkeypatch.setattr(unit_isolation, "sys", SimpleNamespace(platform=system))
+    monkeypatch.setattr(platform, "_syscmd_ver", unexpected_shell, raising=False)
+    unit_isolation._use_native_windows_version()
+    if system == "win32":
+        assert platform._syscmd_ver("foo", version="bar") == ("foo", "", "bar")
+    else:
+        assert platform._syscmd_ver is unexpected_shell
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows version lookup")
+def test_windows_child_checks_native_version_and_imports_dependencies():
+    subprocess.run(
+        [sys.executable, "-c", """
+import platform
+import sys
+
+native = sys.getwindowsversion()
+release, version, _, _ = platform.win32_ver()
+assert release
+assert version == '.'.join(map(str, native.platform_version or native[:3]))
+assert platform.system() == 'Windows'
+assert platform.machine()
+import numpy
+import trimesh
+import torch
+assert torch.ones(1).item() == 1
+"""],
+        check=True, timeout=30,
+    )

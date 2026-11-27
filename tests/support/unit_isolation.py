@@ -22,6 +22,7 @@ COVERAGE_ENV = {
 REPO = SUPPORT.parents[1]
 # These tools support local repositories, JavaScript fixtures and process/host checks.
 LOCAL_TOOLS = {"git", "lscpu", "node", "ps", "sleep", "sysctl", "taskkill", "true", "uname"}
+WINDOWS_EXECUTABLE = re.compile(r'"([^"]+)"(?=[ \t]|$)|([^"\s]+)(?=[ \t]|$)')
 OFFLINE_ENV = {
     "AF_OFFLINE_TESTS": "1",
     "HF_HUB_OFFLINE": "1",
@@ -115,6 +116,17 @@ def _fixture_shell(args, env):
 
 def _check_program(executable, args, env):
     env = os.environ if env is None else env
+    if executable is None:
+        if sys.platform != "win32" or not isinstance(args, str):
+            _blocked("process without executable")
+        if args == "lscpu":
+            # NumPy treats a missing Linux CPU probe as lack of SVE support.
+            # Report it as unavailable without searching Windows PATH.
+            raise FileNotFoundError("lscpu is unavailable on Windows")
+        first = WINDOWS_EXECUTABLE.match(args)
+        if first is None:
+            _blocked("Windows command line without a clear executable")
+        executable = first.group(1) or first.group(2)
     executable = os.fsdecode(executable)
     name = _program_name(executable)
     if _integration == "blender" and (
@@ -126,6 +138,10 @@ def _check_program(executable, args, env):
         return
     if isinstance(args, str):  # Windows passes a command line to the audit hook.
         args = [quoted or bare for quoted, bare in re.findall(r'"([^"]+)"|(\S+)', args)]
+    if sys.platform == "win32" and (
+        name == "lscpu" or (args and _program_name(args[0]) == "lscpu")
+    ):
+        _blocked("process", executable)
     if name == "ldconfig" or (args and _program_name(args[0]) == "ldconfig"):
         # CPython's ctypes reads the glibc cache via this absolute path.
         # The OS follows the system's /sbin symlink on merged-/usr installs.
@@ -231,7 +247,16 @@ def install():
         if bound.arguments.get("shell"):
             _blocked("implicit shell command")
         env = bound.arguments.get("env")
-        bound.arguments["env"] = _child_environment(os.environ if env is None else env)
+        child_env = _child_environment(os.environ if env is None else env)
+        if sys.platform == "win32":
+            command = bound.arguments["args"]
+            executable = bound.arguments.get("executable")
+            if isinstance(command, str) and not WINDOWS_EXECUTABLE.fullmatch(command):
+                _blocked("raw Windows command line; pass arguments as a sequence")
+            if isinstance(command, (tuple, list)) and command:
+                # Validate Python script paths before CPython flattens argv.
+                _check_program(command[0] if executable is None else executable, command, child_env)
+        bound.arguments["env"] = child_env
         real_init(*bound.args, **bound.kwargs)
 
     subprocess.Popen.__init__ = guarded_init

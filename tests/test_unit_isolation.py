@@ -153,11 +153,51 @@ def test_native_windows_version_fallback_is_platform_specific(monkeypatch, syste
         assert platform._syscmd_ver is unexpected_shell
 
 
+def test_windows_optional_lscpu_probe_is_unavailable_without_starting_a_process(monkeypatch):
+    monkeypatch.setattr(unit_isolation, "sys", SimpleNamespace(platform="win32"))
+    with pytest.raises(FileNotFoundError, match="lscpu"):
+        unit_isolation._audit("subprocess.Popen", (None, "lscpu", None, None))
+
+
+@pytest.mark.parametrize(("executable", "command"), [
+    (None, "lscpu --help"),
+    (None, r"C:\fake\lscpu.exe"),
+    ("git.exe", "lscpu"),
+    ("lscpu.exe", "lscpu"),
+    (None, '"git.exe"malformed'),
+    (None, "cmd.exe /c ver"),
+    (None, "blender --background"),
+    (None, "curl.exe https://external.invalid/weights"),
+    (None, r'python.exe "C:\test data\download_weights.py"'),
+])
+def test_windows_command_line_still_obeys_process_policy(monkeypatch, executable, command):
+    monkeypatch.setattr(unit_isolation, "sys", SimpleNamespace(platform="win32"))
+    with pytest.raises(RuntimeError, match="Offline tests"):
+        unit_isolation._audit("subprocess.Popen", (executable, command, None, None))
+
+
+@pytest.mark.parametrize("command", [
+    "git --version",
+    r'"C:\Program Files\Git\cmd\git.exe" --version',
+    r'"C:\Python\python.exe" -c "print(1)"',
+])
+def test_windows_command_line_recovers_ordinary_fixture_tools(monkeypatch, command):
+    monkeypatch.setattr(unit_isolation, "sys", SimpleNamespace(platform="win32"))
+    unit_isolation._audit("subprocess.Popen", (None, command, None, None))
+
+
+def test_windows_rejects_unstructured_arguments_before_starting_process(monkeypatch):
+    monkeypatch.setattr(unit_isolation, "sys", SimpleNamespace(platform="win32"))
+    with pytest.raises(RuntimeError, match="Offline tests block raw Windows command line"):
+        subprocess.run('python.exe download_"weights.py"', check=True)
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows version lookup")
 def test_windows_child_checks_native_version_and_imports_dependencies():
     subprocess.run(
         [sys.executable, "-c", """
 import platform
+import subprocess
 import sys
 
 native = sys.getwindowsversion()
@@ -166,7 +206,14 @@ assert release
 assert version == '.'.join(map(str, native.platform_version or native[:3]))
 assert platform.system() == 'Windows'
 assert platform.machine()
-import numpy
+try:
+    subprocess.run('lscpu', capture_output=True, text=True)
+except FileNotFoundError:
+    pass
+else:
+    raise AssertionError('Windows should treat lscpu as unavailable')
+import numpy.testing
+import scipy.linalg
 import trimesh
 import torch
 assert torch.ones(1).item() == 1

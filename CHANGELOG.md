@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **An uploaded model asked for as a prop is finished.** Create with your own GLB and "a prop" planned no steps at
   all, so nothing ran. It now runs Finish, which is all a prop needs; an uploaded character still makes Finish a choice.
+- **The NVIDIA TRELLIS.2 background-model patch no longer passes a checkout that can still load BRIA.** It looked for
+  one exact line, so a constructor spaced differently counted as patched, and its command always reported success. It
+  now refuses any BRIA RMBG-2.0 constructor left in the pipeline and exits with an error when the checkout is not safe.
 - **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
   one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
   rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",

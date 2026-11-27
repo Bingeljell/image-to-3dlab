@@ -17,6 +17,7 @@ this is a guardrail, not a suggestion. Safe to run twice.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -29,6 +30,8 @@ NEEDLE = (
     "        pipeline.rembg_model = getattr(rembg, "
     "args['rembg_model']['name'])(**args['rembg_model']['args'])"
 )
+# Any live constructor of the remover, however it is spaced or wrapped.
+CONSTRUCTOR = "getattr(rembg"
 MARKER = "# image-to-3dlab: BRIA RMBG-2.0 is never loaded"
 REPLACEMENT = (
     f"        {MARKER} (licence guardrail).\n"
@@ -44,9 +47,16 @@ def pipeline_files(root: Path) -> list[Path]:
 def patch_source(source: str, label: str = "source") -> tuple[str, bool]:
     """Return the patched text and whether it changed. Raises if the anchor is missing."""
     if NEEDLE in source:
-        return source.replace(NEEDLE, REPLACEMENT), True
-    if REPLACEMENT in source:
-        return source, False
+        patched, did = source.replace(NEEDLE, REPLACEMENT), True
+    elif REPLACEMENT in source:
+        patched, did = source, False
+    else:
+        patched = None
+    if patched is not None:
+        if CONSTRUCTOR in patched:
+            raise RuntimeError(f"a BRIA constructor still present in {label} "
+                               f"({CONSTRUCTOR!r} remains); refusing to treat it as patched")
+        return patched, did
     raise RuntimeError(f"TRELLIS background-model hook not found in {label}; "
                        "upstream changed, re-check the patch before running")
 
@@ -58,7 +68,7 @@ def is_patched(root: Path) -> bool:
             text = path.read_text()
         except OSError:
             return False
-        if NEEDLE in text or REPLACEMENT not in text:
+        if CONSTRUCTOR in text or NEEDLE in text or REPLACEMENT not in text:
             return False
     return True
 
@@ -81,7 +91,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
                         help="the TRELLIS.2 checkout (default: %(default)s)")
     args = parser.parse_args(argv)
-    changed = apply(args.root.resolve())
+    try:
+        changed = apply(args.root.resolve())
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if not is_patched(args.root.resolve()):
+        print("error: BRIA RMBG-2.0 is not safely patched out of this checkout", file=sys.stderr)
+        return 1
     print(f"patched {len(changed)} file(s)" if changed else "already patched",
           "- BRIA RMBG-2.0 will not load.")
     return 0

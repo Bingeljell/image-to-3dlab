@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **An auto-rigged ear no longer follows the hand.** When the rig tied part of an ear or the head to a hand, finger
+  or forearm bone, the ear was dragged out whenever the arm moved. That weight now goes back to the head; real shoulder
+  weight stays, and a body that is not two-legged is left as it was.
 - **Hunyuan paint no longer hides an OpenCV failure behind a rough fill.** Any OpenCV error while filling texture
   holes fell back to the nearest-colour fill without a word. Only a missing OpenCV falls back now; a real error stops
   the run with its reason.

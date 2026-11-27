@@ -97,3 +97,38 @@ def test_the_toe_is_still_dropped_from_a_fingertip_when_it_is_far_away():
     close = cw.close_bones(point, segments, slack=0.05)
     cleaned = cw.prune_weights({"finger2": 0.6, "finger1": 0.2, "toe": 0.2}, hops, "finger2", close=close)
     assert set(cleaned) == {"finger2", "finger1"}
+
+
+# --- Ear weight tied to an arm: the old fixes e23cbde and b8abb4c, still missing on main. ---
+
+def test_an_ear_above_the_head_tied_to_a_hand_goes_to_the_head():
+    """A fingertip parked inside an ear sits above the head joint. A real hand sits
+    below it. Without the retie, a walk drags the ear out with the arm."""
+    import numpy as np
+    up = np.array([0.0, 0.0, 1.0])
+    head_at = np.array([0.0, 0.0, 0.4])
+    hands = {"finger", "hand"}
+    ear = cw.retie_head_weight(
+        {"finger": 0.7, "hand": 0.3}, np.array([0.3, 0.0, 0.72]), "head", head_at, hands, up)
+    assert ear == {"head": pytest.approx(1.0)}
+    held = {"finger": 1.0}
+    hand = cw.retie_head_weight(held, np.array([0.3, 0.0, 0.37]), "head", head_at, hands, up)
+    assert hand is held
+    neck = {"neck": 1.0}
+    same = cw.retie_head_weight(neck, np.array([0.3, 0.0, 0.72]), "head", head_at, hands, up)
+    assert same is neck
+
+
+def test_an_ear_tied_to_the_forearm_goes_to_the_head_but_the_shoulder_stays():
+    assert cw.arm_below_shoulder("RightForeArm")
+    assert cw.arm_below_shoulder("LeftArm")
+    assert cw.arm_below_shoulder("LeftHandMiddle4")
+    assert not cw.arm_below_shoulder("LeftShoulder")
+    assert not cw.arm_below_shoulder("Head")
+
+
+def test_a_body_that_is_not_two_legged_is_not_retied():
+    import numpy as np
+    parents = {"root": None, "a": "root", "b": "root", "c": "root"}
+    heads = {name: np.zeros(3) for name in parents}
+    assert cw.head_and_hands(parents, heads, np.array([0.0, 0.0, 1.0])) == (None, set())

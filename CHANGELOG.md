@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **A skin made for the body leaves the head alone.** Dressing a model in a body-only skin, and the file with every
+  skin, copied the new paint onto every material, so the head took the body's colours too. Each material now takes
+  only its own repaint.
 - **An uploaded model asked for as a prop is finished.** Create with your own GLB and "a prop" planned no steps at
   all, so nothing ran. It now runs Finish, which is all a prop needs; an uploaded character still makes Finish a choice.
 - **The NVIDIA TRELLIS.2 background-model patch no longer passes a checkout that can still load BRIA.** It looked for

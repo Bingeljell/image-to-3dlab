@@ -103,7 +103,7 @@ def main() -> int:
 
     if args.check:
         print("APPLIED" if current == "applied" else "ABSENT")
-        return 0
+        return 0 if current == "applied" else 1
 
     want = "absent" if args.revert else "applied"
     if current == want:

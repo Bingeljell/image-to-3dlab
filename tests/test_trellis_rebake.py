@@ -204,3 +204,19 @@ def test_dump_imports_what_it_uses():
     """
     assert "import torch as _torch" in patch.ADDED_DUMP
     assert "_torch.save" in patch.ADDED_DUMP
+
+
+def _check(tmp_path, monkeypatch, capsys, source):
+    target = tmp_path / "generate.py"
+    target.write_text(source)
+    monkeypatch.setattr("sys.argv", ["patch", "--check", "--path", str(target)])
+    code = patch.main()
+    return code, capsys.readouterr().out.strip()
+
+
+def test_check_exits_zero_when_the_patch_is_applied(tmp_path, monkeypatch, capsys):
+    assert _check(tmp_path, monkeypatch, capsys, patch.apply(GENERATE)) == (0, "APPLIED")
+
+
+def test_check_exits_nonzero_when_the_patch_is_absent(tmp_path, monkeypatch, capsys):
+    assert _check(tmp_path, monkeypatch, capsys, GENERATE) == (1, "ABSENT")

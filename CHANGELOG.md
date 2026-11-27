@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The o_voxel weld patch also works on an install outside this checkout.** Its patched code found the checkout only
+  by looking above its own file, so `--repo` did nothing and an install elsewhere failed on its first run. It now falls
+  back to the checkout given when patching, recorded relative to the patched file where it can be.
 - **Putting a skin on a rigged model shows the studio's reason when it fails.** Any failure read "Could not put this
   skin on the rigged model". The studio's own error text is shown now, with that line kept as the fallback.
 - **Reset pose also returns the move to its start.** The pose went back to rest but the playhead stayed where it was.

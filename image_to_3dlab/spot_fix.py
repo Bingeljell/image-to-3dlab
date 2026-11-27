@@ -149,6 +149,15 @@ def _fair(positions: np.ndarray, faces: np.ndarray, free: np.ndarray) -> np.ndar
         (1 / np.maximum(degree[np.concatenate([a, b])], 1), (np.concatenate([a, b]), np.concatenate([b, a]))),
         shape=(count, count)).tocsr())
     free_w = np.unique(key[free])
+    # A connected piece with nothing fixed in it has nothing to hold it: the solve drifts it to
+    # the origin. Leave such pieces where they are.
+    from scipy.sparse.csgraph import connected_components
+
+    _n, piece = connected_components(adjacency, directed=False)
+    anchored = np.unique(piece[np.setdiff1d(np.arange(count), free_w)])
+    free_w = free_w[np.isin(piece[free_w], anchored)]
+    if not len(free_w):
+        return positions.copy()
     rows = np.unique(np.concatenate([free_w, adjacency[free_w].indices]))
     system = laplacian[rows]
     fixed = np.setdiff1d(np.arange(count), free_w)
@@ -156,7 +165,9 @@ def _fair(positions: np.ndarray, faces: np.ndarray, free: np.ndarray) -> np.ndar
     lhs = (a_free.T @ a_free).tocsc()
     for axis in range(3):
         rhs = -(a_free.T @ (a_fixed @ welded[fixed, axis]))
-        welded[free_w, axis] = spsolve(lhs, rhs)
+        solved = np.asarray(spsolve(lhs, rhs), dtype=np.float64).reshape(-1)
+        # never write NaN or inf: a vertex the solve cannot place keeps its place
+        welded[free_w, axis] = np.where(np.isfinite(solved), solved, welded[free_w, axis])
     return welded[key]
 
 

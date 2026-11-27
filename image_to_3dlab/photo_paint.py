@@ -490,8 +490,8 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
                                            outward)
         if any(view is s for s in safe):
             before = int((weight > 0.05).sum())
-            # Drawn side views may add paint only where the side trust rules allow it.
-            outside = 0.0
+            # Drawn side outlines cannot trigger a fill outside the trusted paint.
+            outside.fill(0.0)
             if layout is None:
                 weight = np.zeros_like(weight)   # no front picture to read the figure from: shape only
             else:

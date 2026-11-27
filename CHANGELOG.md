@@ -158,6 +158,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Finish had been made. The studio now names everything the chosen steps still need in one answer ("Before this
   can start, set up: a picture engine (for Picture); the auto-rig (for Rig and Animate)…") and starts nothing
   until they are set up. Agents get the same answer.
+- Pixel Match no longer leaves Pixal3D's pale filler grey where a model sticks out past its picture (a tail built longer than drawn): where that pale neutral grey lies far past the cut-out, and where it joins on up to the outline with no picture trusted, the surface takes the colour around it. Real paint past the outline (a black coat, a boot's stripes) stays. `Settings.outside_fill = 0` turns it off.
 
 ### Security
 - **Add-ons page: links from the add-on list are checked.** The author, Source and Site links were put on the page as
@@ -194,7 +195,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An add-on you installed without review is no longer shown as reviewed just because a listed add-on has the same name.
 - A model made by an add-on now keeps the licence of the model that went into it, including restrictions such as "not licensed in the EU, UK or South Korea". A model with no licence record counts as unverified. The record also holds a fingerprint of the result file.
 - Prop finishing writes file paths with forward slashes on every system, so its manifest reads the same on Windows.
-- Pixel Match no longer leaves Pixal3D's pale filler grey where a model sticks out past its picture (a tail built longer than drawn): where that pale neutral grey lies far past the cut-out, and where it joins on up to the outline with no picture trusted, the surface takes the colour around it. Real paint past the outline (a black coat, a boot's stripes) stays. `Settings.outside_fill = 0` turns it off.
 
 ## [0.5.11] - 2026-11-17
 

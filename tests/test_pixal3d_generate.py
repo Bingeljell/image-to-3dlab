@@ -420,6 +420,14 @@ def test_a_successful_run_writes_its_manifest_beside_the_glb(tmp_path, monkeypat
     camera = json.loads((views / "transforms.json").read_text())
     assert camera["frames"][0]["transform_matrix"][0][0] == pytest.approx(-1.0)
     assert record["output"]["sha256"] == px.sha256_file(output)
+    # Built from pictures it keeps (front + back, four views): the GLB carries the turned cameras too.
+    from image_to_3dlab import glb_views
+    assert glb_views.has_views(output.read_bytes()) == bool(sides)
+    if sides:
+        glb_views.extract(output.read_bytes(), tmp_path / "back_out")
+        stored = json.loads((tmp_path / "back_out" / "transforms.json").read_text())
+        assert [f["transform_matrix"] for f in stored["frames"]] == \
+            [f["transform_matrix"] for f in json.loads((views / "transforms.json").read_text())["frames"]]
 
 
 def test_a_run_without_a_saved_camera_still_turns_the_model(tmp_path):

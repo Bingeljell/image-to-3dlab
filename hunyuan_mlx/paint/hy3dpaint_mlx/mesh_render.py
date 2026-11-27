@@ -227,11 +227,12 @@ class MeshRender:
             out = out[tuple(idx)]
             try:
                 import cv2
+            except ImportError:
+                cv2 = None  # OpenCV is optional: keep the nearest fill
+            if cv2 is not None:
                 m8 = (holes.astype(np.uint8)) * 255
                 sm = cv2.inpaint((out * 255).astype(np.uint8), m8, 3, cv2.INPAINT_NS)
                 out = sm.astype(np.float32) / 255.0
-            except Exception:
-                pass
         return np.clip(out, 0, 1)
 
     # --- image-to-3dlab: i2l_occlusion_fill -----------------------------------------------------

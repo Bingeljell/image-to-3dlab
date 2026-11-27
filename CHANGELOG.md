@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Hunyuan paint no longer hides an OpenCV failure behind a rough fill.** Any OpenCV error while filling texture
+  holes fell back to the nearest-colour fill without a word. Only a missing OpenCV falls back now; a real error stops
+  the run with its reason.
 - **A TRELLIS run with a mistyped setting is refused before it starts.** A wrong pipeline type, texture size or
   material mode from the studio or an agent tool was only caught after the long run, or not at all. It is now refused
   at once, with the allowed values, as the command line already did for a run file.

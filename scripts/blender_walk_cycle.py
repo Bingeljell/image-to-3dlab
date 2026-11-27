@@ -342,9 +342,9 @@ def main() -> int:
         help="Lateral body roll. Too much reads as a waddle rather than a walk",
     )
     parser.add_argument(
-        "--head-yaw", type=float, default=-32.0,
+        "--head-yaw", type=float, default=0.0,
         help="Static counter-yaw on the neck, to straighten a head the subject was "
-             "generated with turned. Negative turns toward the character's right",
+             "generated with turned. Default 0 (no correction). Negative turns toward the character's right",
     )
     parser.add_argument(
         "--head-pitch", type=float, default=0.0,

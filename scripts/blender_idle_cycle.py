@@ -198,12 +198,15 @@ def main() -> int:
     parser.add_argument("--tail", type=float, default=3.5)
     parser.add_argument("--flick", type=float, default=13.0, help="ear flick amplitude")
     parser.add_argument("--flick-at", type=float, default=0.62, help="0-1 position in the loop")
-    parser.add_argument("--head-yaw", type=float, default=-32.0)
+    parser.add_argument(
+        "--head-yaw", type=float, default=0.0,
+        help="Static counter-yaw on the neck, in degrees. Default 0 (no correction)",
+    )
     parser.add_argument("--shift", type=float, default=0.004, help="vertical weight shift")
     parser.add_argument(
-        "--ear-turn", type=float, default=-62.0,
-        help="How far one ear swivels back to track a sound behind the fox. Negative "
-             "turns the ear rearward given this subject faces -Y; positive swings it "
+        "--ear-turn", type=float, default=0.0,
+        help="Degrees one ear swivels back to track a sound behind the fox. Default 0 "
+             "(no turn). Negative turns the ear rearward given this subject faces -Y; positive swings it "
              "forward across the face, which is wrong. Kept inside anatomical range",
     )
     parser.add_argument("--ear-turn-at", type=float, default=0.30, help="0-1 position in the loop")

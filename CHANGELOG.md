@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Walk and idle no longer turn the head and an ear by default.** Their defaults (-32 degrees of head turn, and a -62
+  degree ear swivel in the idle) were tuned for one fox and turned every other character's head. Both now default to 0;
+  pass `--head-yaw` or `--ear-turn` to turn them.
 - **The walk plants its feet on the floor of a moved model.** The walk cycle found the paws and the floor from local
   vertex positions and matched them against world-space markers, so a model not sitting at the origin picked the wrong
   vertices and lifted or sank the body. Both now use world positions.

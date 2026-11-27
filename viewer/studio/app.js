@@ -232,7 +232,12 @@ const skinCtx = {
     viewingPictures = false;
     if (asset.rigged && asset.clips.length) {
       // a character: its rest pose and every move, each wearing the skin (made once, then kept)
-      const dress = async (file) => (await (await fetch(`/api/skins/${skin.id}/dressed?file=${encodeURIComponent(file)}`)).json()).file;
+      const dress = async (file) => {
+        const response = await fetch(`/api/skins/${skin.id}/dressed?file=${encodeURIComponent(file)}`);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || body.error) throw new Error(body.error || 'Could not put this skin on the rigged model.');
+        return body.file;
+      };
       try {
         const rest = await dress(asset.rigged);
         const clips = [];
@@ -240,7 +245,7 @@ const skinCtx = {
         if (current !== asset || viewingSkin !== skin.id) return;   // moved on while dressing
         viewer.setFacing(asset.facing);
         viewer.setClips(clips.map((c) => ({ ...c, url: url(c.file) })), { restUrl: url(rest) });
-      } catch { viewer.showEmpty('Could not put this skin on the rigged model.'); }
+      } catch (error) { viewer.showEmpty(error.message || 'Could not put this skin on the rigged model.'); }
     } else {
       viewer.setFacing(null);
       viewer.setClips([]);

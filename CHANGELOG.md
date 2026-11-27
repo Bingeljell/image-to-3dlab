@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Putting a skin on a rigged model shows the studio's reason when it fails.** Any failure read "Could not put this
+  skin on the rigged model". The studio's own error text is shown now, with that line kept as the fallback.
 - **Reset pose also returns the move to its start.** The pose went back to rest but the playhead stayed where it was.
 - **Today and Yesterday follow your own clock.** The studio grouped items by the UTC day, so around midnight they landed
   under the wrong day. It now uses the local day.

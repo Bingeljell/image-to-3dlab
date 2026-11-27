@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Outline check** (`scripts/outline_check.py`): lays a model over the pictures it was made from, with the generator's own cameras, and says which parts stick out past the figure's outline, how far, which way and where on the model; it can mark them in red over the pictures. Such a part is the generator's guess: a tail built longer than the picture, a second sole glued under a boot. It only reports. Works on a Finish run folder, on a Pixal3D model with its saved pictures, or on any model with `--views`.
 - **Pixel Match: `--keep-top-paint`** leaves surfaces that face up and that no picture sees (a hat's brim, shoulders,
   the top of the hair) in the generator's own paint. The pictures' cameras stand level with the subject, so they never
   see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet

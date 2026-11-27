@@ -97,7 +97,8 @@ if not KEEP_PROXY:
 markers = {{o.name[6:]: o.matrix_world.translation.copy()
            for o in bpy.data.objects if o.name.startswith("JOINT_")}}
 groups = {{vg.index: vg.name for vg in mesh.vertex_groups}}
-zs = [v.co.z for v in mesh.data.vertices]
+mw = mesh.matrix_world
+zs = [(mw @ v.co).z for v in mesh.data.vertices]
 span = max(zs) - min(zs)
 head_z = markers["head"].z if "head" in markers else max(zs)
 
@@ -109,7 +110,7 @@ for v in mesh.data.vertices:
             if name:
                 rec = influence.setdefault(name, [0, -1e9])
                 rec[0] += 1
-                rec[1] = max(rec[1], v.co.z)
+                rec[1] = max(rec[1], (mw @ v.co).z)
 
 report = {{}}
 for name in groups.values():

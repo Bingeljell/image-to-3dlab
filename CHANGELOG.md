@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The leg weight check reads heights in world space.** The voxel-weight and build-rig checks compared a vertex's own
+  local height with the head marker's world height, so a model that had been moved or turned showed a leg bleeding into
+  the head that was not, or hid one that was. Heights are now taken in world space.
 - **The Blender agent sends tool results before the render picture.** A render in the middle of several tool calls put
   its picture between the results, an order the model's API does not accept. Pictures now follow all of a round's results.
 - **The wind demo says when nothing is marked rigid.** With every labelled vertex foliage or flower, it built an empty

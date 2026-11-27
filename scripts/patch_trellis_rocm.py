@@ -45,6 +45,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+if __package__:
+    from .patch_transaction import helper_needs_update, install_files
+else:
+    from patch_transaction import helper_needs_update, install_files
+
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "trellis-rocm"
 CHECKOUT = "TRELLIS.2"
@@ -395,17 +400,13 @@ def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
     return source.replace(spec.needle, current_replacement(source, spec)), True
 
 
-def patch_file(path: Path, spec: Patch) -> bool:
-    """Patch one file. Returns whether it changed, and asserts the anchor count."""
-    text = path.read_text()
+def checked_patch_text(text: str, path: Path, spec: Patch) -> tuple[str, bool]:
+    """Check the anchor count before applying the patch in memory."""
     found = text.count(spec.needle)
     if found and found != spec.expected:
         raise RuntimeError(f"{path}: expected {spec.expected} occurrence(s) of this patch's "
                            f"anchor, found {found}; re-check the patch before running it")
-    patched, changed = patch_text(text, spec, str(path))
-    if changed:
-        path.write_text(patched)
-    return changed
+    return patch_text(text, spec, str(path))
 
 
 def missing_targets(root: Path = DEFAULT_ROOT) -> list[str]:
@@ -458,18 +459,30 @@ def apply(root: Path = DEFAULT_ROOT) -> list[tuple[Patch, bool]]:
     if missing:
         raise RuntimeError(f"{root}: cannot patch, these files are not there: "
                            + ", ".join(missing))
-    installed = [(spec, patch_file(root / spec.file, spec)) for spec in PATCHES]
-    copy_helper(ATTENTION_HELPER_SOURCE, root / ATTENTION_HELPER_TARGET)
-    for name in DEVICE_LIB_FILES:
-        copy_helper(BITCODE_HELPER_SOURCE, (root / name).with_name(BITCODE_HELPER_NAME))
+    installed: list[tuple[Patch, bool]] = []
+    texts: dict[Path, str] = {}
+    updates: dict[Path, str | bytes] = {}
+    for spec in PATCHES:
+        path = root / spec.file
+        if path not in texts:
+            texts[path] = path.read_text()
+        texts[path], changed = checked_patch_text(texts[path], path, spec)
+        if changed:
+            updates[path] = texts[path]
+        installed.append((spec, changed))
+
+    attention_helper = ATTENTION_HELPER_SOURCE.read_bytes()
+    bitcode_helper = BITCODE_HELPER_SOURCE.read_bytes()
+    helpers = [(root / ATTENTION_HELPER_TARGET, attention_helper)]
+    helpers.extend(
+        ((root / name).with_name(BITCODE_HELPER_NAME), bitcode_helper)
+        for name in DEVICE_LIB_FILES
+    )
+    for destination, data in helpers:
+        if helper_needs_update(destination, data):
+            updates[destination] = data
+    install_files(updates)
     return installed
-
-
-def copy_helper(source: Path, destination: Path) -> None:
-    data = source.read_bytes()
-    if not destination.is_file() or destination.read_bytes() != data:
-        destination.write_bytes(data)
-
 
 
 def describe(root: Path = DEFAULT_ROOT) -> str:

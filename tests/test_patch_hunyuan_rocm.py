@@ -8,6 +8,7 @@ the two failure modes that matter: an anchor that has moved, and a second run.
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -92,6 +93,20 @@ def test_patching_ten_times_does_not_stack_the_imports(checkout: Path):
     # The attention call now goes through the shared helper.
     assert gen.ATTN_NEEDLE not in text
     assert text.count("hidden_states = chunked_attention(") == 1
+
+
+@pytest.mark.posix
+def test_patch_preserves_a_symlink_and_target_mode(checkout: Path):
+    scheduler = checkout / gen.SCHEDULER_FILE
+    real_source = scheduler.with_name("linked_scheduler.py")
+    scheduler.rename(real_source)
+    scheduler.symlink_to(real_source.name)
+    real_source.chmod(0o751)
+
+    assert gen.patch(checkout) == 2
+    assert gen.is_patched(checkout)
+    assert scheduler.is_symlink()
+    assert stat.S_IMODE(real_source.stat().st_mode) == 0o751
 
 
 def test_the_patched_file_is_still_valid_python(checkout: Path):
@@ -236,21 +251,61 @@ def test_the_hardcoded_device_follows_the_tensor_instead(checkout: Path):
     assert 'l c")' in text
 
 
+def snapshot(root: Path) -> dict[Path, bytes]:
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
 def test_an_anchor_that_moved_fails_loudly_instead_of_half_applying(checkout: Path):
-    """A patch that cannot find its anchor must not leave a checkout that looks done."""
     path = checkout / gen.ATTN_FILE
     path.write_text(path.read_text().replace(
         "F.scaled_dot_product_attention(", "F._sdpa_renamed("))
+    before = snapshot(checkout)
     with pytest.raises(RuntimeError, match="anchor for this patch is gone"):
         gen.patch(checkout)
-    assert gen.is_patched(checkout) is False
+    assert snapshot(checkout) == before
 
 
-def test_a_missing_file_is_reported_rather_than_skipped(tmp_path: Path):
-    root = tmp_path / "Hunyuan3D-2.1"
-    root.mkdir()
+def test_a_missing_later_file_leaves_the_checkout_unchanged(checkout: Path):
+    (checkout / gen.ATTN_FILE).unlink()
+    before = snapshot(checkout)
     with pytest.raises(SystemExit, match="is missing"):
-        gen.patch(root)
+        gen.patch(checkout)
+    assert snapshot(checkout) == before
+
+
+def test_a_missing_helper_source_leaves_the_checkout_unchanged(checkout: Path, monkeypatch):
+    before = snapshot(checkout)
+    monkeypatch.setattr(gen, "HELPER_SOURCE", checkout / "missing-helper.py")
+    with pytest.raises(FileNotFoundError, match="missing-helper.py"):
+        gen.patch(checkout)
+    assert snapshot(checkout) == before
+
+
+@pytest.mark.parametrize("stale_helper", [False, True])
+def test_a_failed_helper_write_restores_the_checkout(checkout: Path, monkeypatch, stale_helper):
+    scheduler = checkout / gen.SCHEDULER_FILE
+    scheduler.chmod(0o751)
+    original_mode = stat.S_IMODE(scheduler.stat().st_mode)
+    scheduler_helper = scheduler.with_name(gen.HELPER_NAME)
+    attention_helper = (checkout / gen.ATTN_FILE).with_name(gen.HELPER_NAME)
+    if stale_helper:
+        scheduler_helper.write_bytes(b"# previous helper\r\n")
+    before = snapshot(checkout)
+
+    replace = Path.replace
+
+    def refuse_replace(path, destination):
+        if destination == attention_helper:
+            assert scheduler_helper.read_bytes() != before.get(scheduler_helper.relative_to(checkout))
+            raise OSError("helper write failed")
+        return replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", refuse_replace)
+    with pytest.raises(OSError, match="helper write failed"):
+        gen.patch(checkout)
+    assert snapshot(checkout) == before
+    assert stat.S_IMODE(scheduler.stat().st_mode) == original_mode
 
 
 def test_a_folder_that_is_not_a_checkout_says_so(tmp_path: Path):

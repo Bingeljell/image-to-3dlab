@@ -602,6 +602,58 @@ def test_missing_files_are_named_rather_than_silently_skipped(tmp_path: Path):
         trellis_rocm.apply(empty)
 
 
+def snapshot(root: Path) -> dict[Path, bytes]:
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
+def test_a_missing_later_file_leaves_the_checkout_unchanged(root: Path):
+    (root / "extensions/FlexGEMM/setup.py").unlink()
+    before = snapshot(root)
+    with pytest.raises(RuntimeError, match="cannot patch"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
+def test_a_moved_late_anchor_leaves_the_checkout_unchanged(root: Path):
+    path = root / "extensions/FlexGEMM/setup.py"
+    path.write_text(path.read_text().replace("-std=c++17", "-std=c++14"))
+    before = snapshot(root)
+    with pytest.raises(RuntimeError, match="anchor for this patch is gone"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
+def test_a_missing_helper_source_leaves_the_checkout_unchanged(root: Path, monkeypatch):
+    before = snapshot(root)
+    monkeypatch.setattr(trellis_rocm, "BITCODE_HELPER_SOURCE", root / "missing-helper.py")
+    with pytest.raises(FileNotFoundError, match="missing-helper.py"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize("stale_helper", [False, True])
+def test_a_failed_helper_write_restores_the_checkout(root: Path, monkeypatch, stale_helper):
+    attention_helper = root / trellis_rocm.ATTENTION_HELPER_TARGET
+    bitcode_helper = root / "extensions/CuMesh" / trellis_rocm.BITCODE_HELPER_NAME
+    if stale_helper:
+        attention_helper.write_bytes(b"# previous helper\r\n")
+    before = snapshot(root)
+
+    replace = Path.replace
+
+    def refuse_replace(path, destination):
+        if destination == bitcode_helper:
+            assert attention_helper.read_bytes() != before.get(attention_helper.relative_to(root))
+            raise OSError("helper write failed")
+        return replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", refuse_replace)
+    with pytest.raises(OSError, match="helper write failed"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
 def test_is_patched_is_false_when_one_file_is_reverted(root: Path):
     trellis_rocm.apply(root)
     name = "extensions/nvdiffrast/setup.py"

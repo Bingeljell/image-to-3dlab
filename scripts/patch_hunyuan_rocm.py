@@ -32,6 +32,11 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
+if __package__:
+    from .patch_transaction import helper_needs_update, install_files
+else:
+    from patch_transaction import helper_needs_update, install_files
+
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "hunyuan-rocm" / "Hunyuan3D-2.1"
 
@@ -174,18 +179,14 @@ def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
     return source.replace(spec.needle, spec.replacement), True
 
 
-def patch_file(path: Path, spec: Patch) -> bool:
-    """Patch one file. Returns whether it changed, and asserts the anchor count."""
-    text = path.read_text()
+def checked_patch_text(text: str, path: Path, spec: Patch) -> tuple[str, bool]:
+    """Check the anchor count before applying the patch in memory."""
     anchor = spec.legacy if spec.legacy and spec.legacy in text else spec.needle
     found = text.count(anchor)
     if found and found != spec.expected:
         raise RuntimeError(f"{path}: expected {spec.expected} occurrence(s) of this patch's "
                            f"anchor, found {found}; re-check the patch before running it")
-    patched, changed = patch_text(text, spec, str(path))
-    if changed:
-        path.write_text(patched)
-    return changed
+    return patch_text(text, spec, str(path))
 
 
 def is_patched(root: Path = DEFAULT_ROOT) -> bool:
@@ -216,18 +217,25 @@ def patch(root: Path = DEFAULT_ROOT) -> int:
     if not root.is_dir():
         raise SystemExit(f"No Hunyuan3D-2.1 checkout at {root}. Run the bootstrap first.")
     changed: set[str] = set()
+    texts: dict[Path, str] = {}
+    updates: dict[Path, str | bytes] = {}
     for spec in PATCHES:
         path = root / spec.file
-        if not path.is_file():
-            raise SystemExit(f"{path} is missing; this is not a Hunyuan3D-2.1 checkout.")
-        if patch_file(path, spec):
+        if path not in texts:
+            if not path.is_file():
+                raise SystemExit(f"{path} is missing; this is not a Hunyuan3D-2.1 checkout.")
+            texts[path] = path.read_text()
+        texts[path], applied = checked_patch_text(texts[path], path, spec)
+        if applied:
+            updates[path] = texts[path]
             changed.add(spec.file)
     helper = HELPER_SOURCE.read_bytes()
     for relative in (SCHEDULER_FILE, ATTN_FILE):
         destination = (root / relative).with_name(HELPER_NAME)
-        if not destination.is_file() or destination.read_bytes() != helper:
-            destination.write_bytes(helper)
+        if helper_needs_update(destination, helper):
+            updates[destination] = helper
             changed.add(relative)
+    install_files(updates)
     return len(changed)
 
 

@@ -279,6 +279,7 @@ Numbers about the project itself, not about any asset.
 | `patch_pixal3d_shape_reuse.py` | Let Pixal3D save a run's shape and later repaint it from new pictures, via `PIXAL3D_SAVE_SHAPE` / `PIXAL3D_LOAD_SHAPE`. |
 | `skintokens_attention_compat.py` | Provide the PyTorch attention fallback copied into SkinTokens. |
 | `patch_skintokens_portable.py` | Let SkinTokens (the auto-rigger) run on an Apple Silicon Mac, and on NVIDIA without flash-attn. |
+| `patch_transaction.py` | Stage vendor patches and restore earlier files if installation fails. |
 | `patch_hunyuan_rocm.py` | Make Tencent's Hunyuan3D-2.1 survive on an AMD card, without touching what NVIDIA runs. |
 | `rignet_voxelize_compat.py` | macOS replacement for the Linux/Windows-only binvox binary. |
 | `trellis_bvh_compat.py` | Chunk MtlBVH distance queries to bound Metal command-buffer work. |

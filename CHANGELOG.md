@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The line-up keeps an asset's parts in proportion.** Each part was scaled to the same height on its own, so an eye
+  came out as tall as the body. One scale from the whole asset's bounds now applies to every part.
 - **Region split cuts are fractions of the model, not one creature's coordinates.** `blender_split_regions` cut head,
   body and tail at fixed positions taken from one model, so any other size or placement split in the wrong place. The
   cuts are now fractions of the model's own length (defaults 2/3 and 1/3).

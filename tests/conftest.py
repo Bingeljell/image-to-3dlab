@@ -46,6 +46,19 @@ import unit_isolation
 unit_isolation.install()
 
 
+@pytest.fixture
+def windows_text_encoding(tmp_path, monkeypatch):
+    """Use the Windows code page for implicit text encoding under this test's temp folder."""
+    original_open = Path.open
+
+    def open_with_windows_encoding(self, mode="r", buffering=-1, encoding=None, errors=None, newline=None):
+        if "b" not in mode and encoding in (None, "locale") and self.is_relative_to(tmp_path):
+            encoding = "cp1252"
+        return original_open(self, mode, buffering, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "open", open_with_windows_encoding)
+
+
 def _waitid_peek(pid: int) -> None:
     """`waitid(P_PID, pid, WEXITED | WNOHANG | WNOWAIT)`; raises ChildProcessError if not ours.
 

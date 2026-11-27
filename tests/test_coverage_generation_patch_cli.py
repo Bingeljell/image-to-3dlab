@@ -240,7 +240,9 @@ def test_metal_hashmap_refuses_unknown_or_half_patched_shader():
         patch.state(first[0] + first[2] + second[0] + second[1])
 
 
-def test_mtlbvh_patch_updates_shader_and_native_source_together(tmp_path, monkeypatch, capsys):
+def test_mtlbvh_patch_updates_shader_and_native_source_together(
+    tmp_path, monkeypatch, capsys, windows_text_encoding,
+):
     from scripts import patch_mtlbvh_production_traversal as patch
 
     metal = tmp_path / "bvh.metal"
@@ -263,33 +265,35 @@ def test_mtlbvh_patch_updates_shader_and_native_source_together(tmp_path, monkey
         return patch.main()
 
     assert run("--check") == 2
-    metal.write_text(original)
+    metal.write_text(original, encoding="utf-8")
     assert run("--check") == 2
-    native.write_text(patch.CPU_OLD)
+    native.write_text(patch.CPU_OLD, encoding="utf-8")
+    original_files = (metal.read_bytes(), native.read_bytes())
     capsys.readouterr()
     assert run("--check") == 0
     assert capsys.readouterr().out == "ABSENT\n"
     assert run() == 0
-    after = metal.read_text()
+    after = metal.read_text(encoding="utf-8")
     assert "int elems[48]" in after
     assert "node.escape_idx" in after
     assert patch.UNSIGNED_NEW in after
-    assert "@autoreleasepool" in native.read_text()
+    assert "@autoreleasepool" in native.read_text(encoding="utf-8")
     capsys.readouterr()
     assert run("--check") == 0
     assert capsys.readouterr().out == "APPLIED\n"
     assert run() == 0
-    assert metal.read_text() == after
+    assert metal.read_text(encoding="utf-8") == after
     assert run("--revert") == 0
-    assert metal.read_text() == original
-    assert native.read_text() == patch.CPU_OLD
+    assert metal.read_text(encoding="utf-8") == original
+    assert native.read_text(encoding="utf-8") == patch.CPU_OLD
     assert run("--revert") == 0
+    assert (metal.read_bytes(), native.read_bytes()) == original_files
 
-    metal.write_text(after)
+    metal.write_text(after, encoding="utf-8")
     with pytest.raises(RuntimeError, match="partially patched"):
         run()
-    assert metal.read_text() == after
-    assert native.read_text() == patch.CPU_OLD
+    assert metal.read_text(encoding="utf-8") == after
+    assert native.read_text(encoding="utf-8") == patch.CPU_OLD
 
 
 def test_mtlbvh_patch_refuses_missing_anchors_and_modified_patch():

@@ -30,10 +30,10 @@ def replace_once(source: str, old: str, new: str, label: str) -> tuple[str, bool
 
 
 def patch_file(path: Path, transform) -> bool:
-    source = path.read_text()
+    source = path.read_text(encoding="utf-8")
     patched, changed = transform(source)
     if changed:
-        path.write_text(patched)
+        path.write_text(patched, encoding="utf-8")
     return changed
 
 
@@ -58,7 +58,7 @@ def patch_mtlbvh_python(root: Path) -> bool:
             return source[:start] + chunked + source[end + len(legacy_end):], True
         return replace_once(source, return_anchor, chunked, "chunked BVH queries")
 
-    source = path.read_text()
+    source = path.read_text(encoding="utf-8")
     patched, changed = transform(source)
     helper = path.with_name("_assetfurnace_bvh.py")
     expected = BVH_HELPER_SOURCE.read_bytes()
@@ -66,7 +66,7 @@ def patch_mtlbvh_python(root: Path) -> bool:
     if helper_changed:
         helper.write_bytes(expected)
     if changed:
-        path.write_text(patched)
+        path.write_text(patched, encoding="utf-8")
     return changed or helper_changed
 
 
@@ -267,7 +267,7 @@ def patch_ovoxel_sparse_hashmap(root: Path) -> bool:
         return result
 '''
     replacement = "from .trellis_sparse_hashmap_compat import CPUHashMap as _CPUHashMap\n"
-    source = path.read_text()
+    source = path.read_text(encoding="utf-8")
     if replacement in source:
         patched = source
     elif '"""Sparse coordinate lookup for non-CUDA decoders.' in source:
@@ -295,7 +295,7 @@ def patch_ovoxel_sparse_hashmap(root: Path) -> bool:
     if helper_changed:
         helper.write_bytes(desired)
     if patched != source:
-        path.write_text(patched)
+        path.write_text(patched, encoding="utf-8")
     return helper_changed or patched != source
 
 

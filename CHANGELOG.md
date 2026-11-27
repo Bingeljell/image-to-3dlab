@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Live asset previews, turntables, and mesh baking restore the previous Blender scene after a failure.
 - Model previews report a framing error for meshes without vertices.
 - TRELLIS setup detects stale compatibility helpers and refreshes them when patches are reapplied.
+- Metal backend patches preserve Unicode in Python and shader source files.
 - TRELLIS on Mac refuses to run if its background remover is assigned anywhere else in the pipeline.
 - TRELLIS material sampling on Mac reports when the required sparse convolution backend is missing.
 - The add-on command reports filesystem errors when removal fails.

@@ -7,6 +7,7 @@ import patch_trellis_metal_backends as patch
 import pytest
 
 BVH_WRAPPER = '''"""Python wrapper for MtlBVH — Metal-accelerated BVH queries."""
+# Á is encoded with a byte that Windows code page 1252 cannot decode.
 import torch
 
 class BVH:
@@ -76,7 +77,7 @@ PREVIOUS_LOOKUP = '''class _CPUHashMap:
 
 
 @pytest.fixture
-def checkout(tmp_path):
+def checkout(tmp_path, windows_text_encoding):
     layout = {
         "deps/mtlbvh/mtlbvh/bvh.py": BVH_WRAPPER,
         "deps/mtlbvh/src/metal/bvh.metal": BVH_STACK + "FixedStack24 stack;\n" * 3 + BVH_DISTANCE,
@@ -88,7 +89,7 @@ def checkout(tmp_path):
     for name, source in layout.items():
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source)
+        path.write_text(source, encoding="utf-8")
     return tmp_path
 
 
@@ -104,12 +105,12 @@ def test_metal_apply_writes_all_production_fixes_and_is_idempotent(checkout, mon
     assert capsys.readouterr().out.count("present :") == 6
     assert {p: p.read_bytes() for p in paths} == snapshot
 
-    bvh = (checkout / "deps/mtlbvh/src/metal/bvh.metal").read_text()
+    bvh = (checkout / "deps/mtlbvh/src/metal/bvh.metal").read_text(encoding="utf-8")
     assert bvh.count("FixedStack48 stack;") == 3
     assert "closest_triangle_stackless(" in bvh
-    native = (checkout / "deps/mtlbvh/src/metal_bvh.mm").read_text()
+    native = (checkout / "deps/mtlbvh/src/metal_bvh.mm").read_text(encoding="utf-8")
     assert "@autoreleasepool" in native and "[cmdBuf waitUntilCompleted];" in native
-    remesh = (checkout / "deps/mtlmesh/src/metal/remesh.metal").read_text()
+    remesh = (checkout / "deps/mtlmesh/src/metal/remesh.metal").read_text(encoding="utf-8")
     assert remesh.count("if (idx == 0xFFFFFFFFu) return 1.0e30f;") == 2
     output = checkout / "deps/trellis2-apple/o-voxel/o_voxel/postprocess.py"
     assert runpy.run_path(str(output))["to_glb"](None, 1000, False, None, None) == {
@@ -121,24 +122,37 @@ def test_metal_rejects_missing_dependencies_or_different_stack_layout(checkout, 
     with pytest.raises(RuntimeError, match="missing Metal source trees"):
         patch.apply(tmp_path / "absent")
     bvh = checkout / "deps/mtlbvh/src/metal/bvh.metal"
-    changed = bvh.read_text().replace("FixedStack24 stack;", "using revised_stack = int;", 1)
-    bvh.write_text(changed)
+    changed = bvh.read_text(encoding="utf-8").replace("FixedStack24 stack;", "using revised_stack = int;", 1)
+    bvh.write_text(changed, encoding="utf-8")
+    snapshot = bvh.read_bytes()
     with pytest.raises(RuntimeError, match="expected three source anchors"):
         patch.patch_mtlbvh_metal(checkout)
-    assert bvh.read_text() == changed
+    assert bvh.read_bytes() == snapshot
 
 
 def test_metal_bvh_keeps_an_existing_import_and_rejects_repeated_anchor(checkout):
     path = checkout / "deps/mtlbvh/mtlbvh/bvh.py"
-    path.write_text("import os\n" + BVH_WRAPPER)
+    path.write_text("import os\n" + BVH_WRAPPER, encoding="utf-8")
     assert patch.patch_mtlbvh_python(checkout)
-    assert path.read_text().count("import os\n") == 1
+    assert path.read_text(encoding="utf-8").count("import os\n") == 1
     assert not patch.patch_mtlbvh_python(checkout)
     source = BVH_WRAPPER + BVH_WRAPPER
-    path.write_text(source)
+    path.write_text(source, encoding="utf-8")
     with pytest.raises(RuntimeError, match="expected one source anchor, found 2"):
         patch.patch_mtlbvh_python(checkout)
-    assert path.read_text() == source
+    assert path.read_text(encoding="utf-8") == source
+
+
+def test_metal_bvh_rejects_invalid_utf8_without_rewriting(checkout):
+    path = checkout / "deps/mtlbvh/mtlbvh/bvh.py"
+    original = BVH_WRAPPER.encode("cp1252")
+    path.write_bytes(original)
+
+    with pytest.raises(UnicodeDecodeError):
+        patch.patch_mtlbvh_python(checkout)
+
+    assert path.read_bytes() == original
+    assert not (path.parent / "_assetfurnace_bvh.py").exists()
 
 
 @pytest.mark.parametrize(("text", "message"), [
@@ -147,10 +161,10 @@ def test_metal_bvh_keeps_an_existing_import_and_rejects_repeated_anchor(checkout
 ])
 def test_metal_refuses_unknown_previous_lookup(checkout, text, message):
     path = checkout / "deps/trellis2-apple/o-voxel/o_voxel/convert/flexible_dual_grid.py"
-    path.write_text(text)
+    path.write_text(text, encoding="utf-8")
     with pytest.raises(RuntimeError, match=message):
         patch.patch_ovoxel_sparse_hashmap(checkout)
-    assert path.read_text() == text
+    assert path.read_text(encoding="utf-8") == text
 
 
 @pytest.mark.parametrize(("chunk", "return_uvw", "sizes"), [
@@ -182,7 +196,9 @@ def test_chunked_bvh_uses_copied_helper_on_cpu(checkout, monkeypatch, chunk, ret
     from types import SimpleNamespace
 
     try:
-        cls = importlib.import_module("mtlbvh.bvh").BVH
+        module = importlib.import_module("mtlbvh.bvh")
+        assert module.__doc__ == "Python wrapper for MtlBVH — Metal-accelerated BVH queries."
+        cls = module.BVH
         bvh = cls()
         bvh._impl = SimpleNamespace(unsigned_distance=query)
         actual = bvh.unsigned_distance(positions, return_uvw, "face-id", torch.float64)

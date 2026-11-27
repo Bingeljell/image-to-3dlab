@@ -165,8 +165,8 @@ def main() -> int:
         print("mtlbvh source not found; bootstrap vendor/trellis-mac first", file=sys.stderr)
         return 2
 
-    metal = METAL.read_text()
-    native = NATIVE.read_text()
+    metal = METAL.read_text(encoding="utf-8")
+    native = NATIVE.read_text(encoding="utf-8")
     applied = "closest_triangle_stackless" in metal and CPU_NEW in native
     absent = "closest_triangle_stackless" not in metal and CPU_OLD in native
     if not (applied or absent):
@@ -177,12 +177,12 @@ def main() -> int:
         return 0
 
     if args.revert:
-        METAL.write_text(revert_metal(metal))
-        NATIVE.write_text(native.replace(CPU_NEW, CPU_OLD, 1))
+        METAL.write_text(revert_metal(metal), encoding="utf-8")
+        NATIVE.write_text(native.replace(CPU_NEW, CPU_OLD, 1), encoding="utf-8")
         print("reverted MtlBVH production traversal fixes")
     else:
-        METAL.write_text(apply_metal(metal))
-        NATIVE.write_text(native.replace(CPU_OLD, CPU_NEW, 1) if absent else native)
+        METAL.write_text(apply_metal(metal), encoding="utf-8")
+        NATIVE.write_text(native.replace(CPU_OLD, CPU_NEW, 1) if absent else native, encoding="utf-8")
         print("applied MtlBVH production traversal fixes")
     return 0
 

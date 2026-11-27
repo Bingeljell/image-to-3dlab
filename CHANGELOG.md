@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Studio asks which move to play when a model contains multiple saved animations.
 
 ### Fixed
+- Loading joint markers and checking rig weights use the active Blender scene, so markers in another scene cannot change the result.
 - The Hunyuan and TRELLIS patches for AMD graphics stage their edits before installation and restore earlier files if a later write fails.
 - Coverage checks keep their offline safeguards while allowing Linux library discovery, Windows version detection and Apple MLX font setup.
 - Blender scene cleanup and replacement preserve shared objects, saved bindings, and references used by other scenes.

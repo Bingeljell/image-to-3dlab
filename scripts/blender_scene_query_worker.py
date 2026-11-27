@@ -7,16 +7,19 @@ from __future__ import annotations
 
 import json
 import math
+import re
 
 if __package__:
     from .blender_scene import (
         import_gltf_objects,
+        private_scene_collections,
         remove_scene_objects,
         scene_marker_objects,
     )
 elif __name__ != "_assetfurnace_worker":
     from blender_scene import (
         import_gltf_objects,
+        private_scene_collections,
         remove_scene_objects,
         scene_marker_objects,
     )
@@ -175,20 +178,63 @@ def spawn_markers(bpy, asset_path, markers, prefix, confirm):
 def read_markers(bpy, prefix):
     return {
         name: [round(v, 5) for v in obj.matrix_world.translation]
-        for name, obj in scene_marker_objects(bpy.context.scene, prefix).items()
+        for name, obj in scene_marker_objects(bpy, bpy.context.scene, prefix).items()
     }
 
 
+def _check_marker_dependencies(bpy, scene, markers, private_collections):
+    if not markers:
+        return
+    scenes = tuple(bpy.data.scenes)
+    scene_objects = set(scene.objects)
+    users = bpy.data.user_map(subset=scene_objects)
+    for marker in markers:
+        can_move = private_collections.issuperset(marker.users_collection)
+        pending = [marker]
+        visited = set()
+        while pending:
+            obj = pending.pop()
+            if obj in visited:
+                continue
+            visited.add(obj)
+            for user in users.get(obj, ()):
+                if user in obj.users_collection or (user in scenes and user in obj.users_scene):
+                    continue
+                # An active-only child can still affect another scene further
+                # down the parent or constraint chain.
+                if (
+                    not can_move or user not in scene_objects
+                    or not private_collections.issuperset(user.users_collection)
+                ):
+                    raise RuntimeError(
+                        f"Cannot load marker {marker.name!r} safely. "
+                        "It has dependencies that could affect another scene."
+                    )
+                pending.append(user)
+
+
 def load_markers(bpy, markers, prefix):
-    collection = bpy.data.collections.get("JOINT_MARKERS")
-    if collection is None:
-        collection = bpy.data.collections.new("JOINT_MARKERS")
-        bpy.context.scene.collection.children.link(collection)
+    scene = bpy.context.scene
+    private = private_scene_collections(bpy, scene)
+    existing = scene_marker_objects(bpy, scene, prefix, private_collections=private)
+    _check_marker_dependencies(
+        bpy, scene, [existing[name] for name in markers if name in existing], private,
+    )
+    collection = next(
+        (child for child in scene.collection.children_recursive
+         if child in private and re.fullmatch(r"JOINT_MARKERS(?:\.[0-9]+)?", child.name)),
+        None,
+    )
     for name, location in markers.items():
-        full_name = prefix + name
-        obj = bpy.data.objects.get(full_name)
-        if obj is None:
+        obj = existing.get(name)
+        if obj is None or not private.issuperset(obj.users_collection):
+            if collection is None:
+                collection = bpy.data.collections.new("JOINT_MARKERS")
+                scene.collection.children.link(collection)
+            full_name = prefix + name
             obj = _new_marker(bpy, collection, full_name, 0.018)
+            if obj.name != full_name:
+                obj["assetfurnace_marker_name"] = full_name
         obj.location = location
     return {"restored": len(markers)}
 

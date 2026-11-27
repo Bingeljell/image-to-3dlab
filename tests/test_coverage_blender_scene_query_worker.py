@@ -195,9 +195,13 @@ class MarkerObject:
         self.type = "EMPTY" if data is None else "MESH"
         self.location = (0, 0, 0)
         self.bound_box = [(-1, -2, 0), (1, 2, 8)]
+        self.properties = {}
 
     def get(self, key):
-        return None
+        return self.properties.get(key)
+
+    def __setitem__(self, key, value):
+        self.properties[key] = value
 
     @property
     def matrix_world(self):
@@ -227,13 +231,19 @@ def markers(monkeypatch):
     items = NamedItems(
         MarkerObject, [MarkerObject("JOINT_old"), MarkerObject("keep this")]
     )
-    collections = NamedItems(
-        lambda name: NS(name=name, objects=NS(link=lambda _: None))
-    )
+    class Collection:
+        children_recursive = ()
+
+        def __init__(self, name):
+            self.name = name
+            self.objects = NS(link=lambda obj: setattr(obj, "users_collection", [self]))
+
+    collections = NamedItems(Collection)
     view = NS(type="VIEW_3D", shading=NS(type="SOLID"))
     linked = []
     imported = []
-    root = type("Collection", (), {"children_recursive": ()})()
+    root = Collection("Scene collection")
+    root.children_recursive = linked
     root.children = NS(link=linked.append)
     root.objects = NS(unlink=lambda _: None)
     scene = NS(collection=root, objects=items)
@@ -314,6 +324,36 @@ def test_markers_load_updates_existing_and_creates_missing(
         capsys.readouterr().out == json.dumps(result, indent=2, sort_keys=True) + "\n"
     )
     assert result == {"old": [5, 0, 0], "second": [4, 4, 4]}
+
+
+def test_read_markers_prefers_private_logical_marker_regardless_of_link_order(markers):
+    bpy, items, _, _, _ = markers
+    scene = bpy.context.scene
+    active = items.get("JOINT_old")
+    active.name = "JOINT_old.001"
+    active.properties["assetfurnace_marker_name"] = "JOINT_old"
+    active.location = (1, 2, 3)
+    foreign_collection = type("Collection", (), {"children_recursive": ()})()
+    bpy.data.scenes.append(NS(collection=foreign_collection))
+    shared = items.new("JOINT_old.002")
+    shared.properties["assetfurnace_marker_name"] = "JOINT_old"
+    shared.users_collection = [scene.collection, foreign_collection]
+    assert worker.read_markers(bpy, "JOINT_") == {"old": [1, 2, 3]}
+    items.reverse()
+    assert worker.read_markers(bpy, "JOINT_") == {"old": [1, 2, 3]}
+
+
+def test_load_markers_rejects_external_dependencies_before_any_edit(markers, monkeypatch):
+    bpy, items, linked, _, _ = markers
+    referenced = items.get("JOINT_old")
+    external_user = object()
+    monkeypatch.setattr(bpy.data, "user_map", lambda *, subset: (
+        {referenced: {external_user}} if referenced in subset else {}
+    ))
+    with pytest.raises(RuntimeError, match="JOINT_old"):
+        worker.load_markers(bpy, {"missing": [4, 5, 6], "old": [1, 2, 3]}, "JOINT_")
+    assert not linked and items.get("JOINT_missing") is None
+    assert referenced.location == (0, 0, 0)
 
 
 def test_marker_spawn_rejects_import_with_no_mesh(markers):

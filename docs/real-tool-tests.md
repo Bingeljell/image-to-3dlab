@@ -36,6 +36,11 @@ The test imports the production scene worker and checks:
 - Reusing a private render scene clears its own links and preserves objects,
   collections and references shared with other scenes.
 - Failed model, marker and rig replacements preserve previous work.
+- Loading joint markers preserves markers in other scenes and shared
+  collections. Repeated loads update the active scene's markers even when
+  Blender adds a numeric suffix. Children in the active scene still follow
+  their markers. A load that would move an object in another scene fails
+  before moving any markers.
 - Staging normalizes models with transformed roots; baking restores camera,
   frame and output settings after success and failure.
 - Animation replacement preserves other rigs and saved clips. Short clips retain

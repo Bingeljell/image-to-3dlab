@@ -138,7 +138,7 @@ def _build_bones(bpy, Vector, arm, markers, ear_length):
 def build_rig(bpy, Vector, *, ear_length: float, weight_threshold: float) -> dict:
     scene = bpy.context.scene
     markers = {name: obj.matrix_world.translation.copy()
-               for name, obj in scene_marker_objects(scene, "JOINT_").items()}
+               for name, obj in scene_marker_objects(bpy, scene, "JOINT_").items()}
     missing = sorted(({m for b in SKELETON for m in (b[1], b[2])}
                       | {m for _, m in EAR_BONES}) - set(markers))
     if missing:
@@ -342,10 +342,9 @@ def voxel_weights(bpy, *, voxel_size: float, weight_threshold: float, keep_proxy
         bpy.data.objects.remove(proxy, do_unlink=True)
 
     # --- 5. verification ------------------------------------------------------------
-    markers = {o.name[6:]: o.matrix_world.translation.copy()
-               for o in bpy.data.objects if o.name.startswith("JOINT_")}
+    head = scene_marker_objects(bpy, scene, "JOINT_").get("head")
     groups = {vg.index: vg.name for vg in mesh.vertex_groups}
-    head_z = markers["head"].z if "head" in markers else max(v.co.z for v in mesh.data.vertices)
+    head_z = head.matrix_world.translation.z if head else max(v.co.z for v in mesh.data.vertices)
     report = weight_report(mesh.data.vertices, groups, groups.values(), head_z, weight_threshold)
     contaminated, empty = flagged_groups(report)
     unweighted = sum(1 for v in mesh.data.vertices

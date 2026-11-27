@@ -319,7 +319,10 @@ def test_rig_worker_validates_scene_before_touching_meshes(rig_scene):
 
 
 @pytest.mark.parametrize("keep", [False, True])
-def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scene, capsys, keep):
+@pytest.mark.parametrize("active_head", [False, True])
+def test_voxel_worker_transfers_weights_and_uses_active_head(
+    rig_scene, capsys, keep, active_head
+):
     from scripts import blender_rig_weights_worker as worker
 
     bpy, active, _modes, operations = rig_scene
@@ -343,11 +346,16 @@ def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scen
     proxy.vertex_groups = mesh.vertex_groups.copy()
     proxy.modifiers = Modifiers(mesh.modifiers)
     mesh.copy = lambda: proxy
-    if keep:
-        marker = MeshObject("JOINT_head")
-        marker.matrix_world = Obj(translation=Vector((0, 0, .6)))
-        marker.get = lambda _key: None
+    if active_head:
+        marker = MeshObject("JOINT_head.001")
+        marker.matrix_world = Obj(translation=Vector((0, 0, .5)))
+        marker.get = {"assetfurnace_marker_name": "JOINT_head"}.get
         bpy.data.objects.append(marker)
+    bpy.context.scene.objects = list(bpy.data.objects)
+    foreign = MeshObject("JOINT_head")
+    foreign.matrix_world = Obj(translation=Vector((0, 0, .8 if active_head else .3)))
+    foreign.get = {}.get
+    bpy.data.objects.append(foreign)
 
     def parent_set(type):
         assert active.active is armature and armature.selected
@@ -375,7 +383,7 @@ def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scen
             mesh.vertex_groups = [Obj(index=0, name="front_paw")]
             if keep:
                 mesh.vertex_groups.append(Obj(index=1, name="jaw"))
-            source_vertices[int(keep) * 2].groups = [Obj(group=0, weight=.75)]
+            source_vertices[1].groups = [Obj(group=0, weight=.75)]
 
     bpy.ops.object.parent_set = parent_set
     bpy.ops.object.modifier_apply = apply
@@ -395,8 +403,9 @@ def test_voxel_worker_transfers_weights_and_keeps_proxy_only_on_request(rig_scen
     assert result["unweighted_vertices"] == 2
     assert result["proxy_heat_error"] == ("proxy heat failed" if keep else None)
     assert result["empty_groups"] == (["jaw"] if keep else [])
-    assert result["legs_reaching_head"] == (["front_paw"] if keep else [])
-    assert result["verdict"] == ("ENVELOPE-LIKE BLEED" if keep else "CLEAN")
+    assert result["legs_reaching_head"] == (["front_paw"] if active_head else [])
+    expected_verdict = "EMPTY GROUPS" if keep else "CLEAN"
+    assert result["verdict"] == ("ENVELOPE-LIKE BLEED" if active_head else expected_verdict)
 
 
 @pytest.mark.parametrize("filename", ["blender_build_rig.py", "blender_voxel_weights.py"])

@@ -127,15 +127,24 @@ def import_gltf_objects(bpy, path, *, require_mesh=False):
 
 
 
-def scene_marker_objects(scene, prefix):
-    """Find markers by their logical names even when another scene owns the exact object name."""
-    markers = {}
-    staged_names = {}
+def scene_marker_objects(bpy, scene, prefix, *, private_collections=None):
+    """Find logical markers, preferring a private marker over a shared one."""
+    candidates = {}
     for obj in scene.objects:
-        if obj.type == "EMPTY" and obj.name.startswith(prefix):
-            name = obj.get("assetfurnace_marker_name")
-            if name and name.startswith(prefix):
-                staged_names[name[len(prefix):]] = obj
-            else:
-                markers[obj.name[len(prefix):]] = obj
-    return markers | staged_names
+        if obj.type != "EMPTY" or not obj.name.startswith(prefix):
+            continue
+        logical_name = obj.get("assetfurnace_marker_name")
+        has_logical_name = bool(logical_name and logical_name.startswith(prefix))
+        name = (logical_name if has_logical_name else obj.name)[len(prefix):]
+        candidates.setdefault(name, []).append((obj, has_logical_name))
+
+    if all(len(matches) == 1 for matches in candidates.values()):
+        return {name: matches[0][0] for name, matches in candidates.items()}
+    if private_collections is None:
+        private_collections = private_scene_collections(bpy, scene)
+
+    def priority(match):
+        obj, has_logical_name = match
+        return private_collections.issuperset(obj.users_collection), has_logical_name, obj.name
+
+    return {name: max(matches, key=priority)[0] for name, matches in candidates.items()}

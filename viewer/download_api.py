@@ -341,7 +341,8 @@ def running_payload() -> dict[str, Any] | None:
     if run is None:
         return None
     return {"backend": run.backend.id, "rebuild": run.rebuild,
-            "events_url": f"/api/setup/{run.backend.id}/events"}
+            "events_url": f"/api/setup/{run.backend.id}/events",
+            "status_url": f"/api/setup/{run.backend.id}/status"}
 
 
 def start(backend_id: str, rebuild: bool = False) -> DownloadRun:  # Come get some.

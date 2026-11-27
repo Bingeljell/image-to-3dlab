@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Setup's fallback keeps working after a page reload, and stops repeating the log.** A page reloaded mid-setup had
+  no status address, so when the live updates dropped it reported the run as gone while it went on; and each status
+  check appended the same log again. The address now comes with the run, and only new log text is shown.
 - **The weights audit offers real duplicates again.** Requiring an identical copy of every file, down to the README,
   meant almost no cached model was offered for deletion. Files of 1 MB or more must still match byte for byte; smaller
   ones may be missing and are listed. Each file is now read once per run.

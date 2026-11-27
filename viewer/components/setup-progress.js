@@ -59,6 +59,15 @@ export function openSetupWatch(run, {
   let closed = false;
   let source = null;
   let timer = null;
+  let lastLog = '';
+  const statusUrl = run.status_url || (run.events_url ? run.events_url.replace(/\/events$/, '/status') : null);
+  // only the text appended since the last poll
+  const fresh = (text) => {
+    if (typeof text !== 'string' || !text) return '';
+    const added = lastLog && text.startsWith(lastLog) ? text.slice(lastLog.length) : (text === lastLog ? '' : text);
+    lastLog = text;
+    return added.replace(/^\n/, '');
+  };
   const finish = () => {
     closed = true;
     source?.close();
@@ -70,17 +79,20 @@ export function openSetupWatch(run, {
     if (FINISHED.has(event.phase)) finish();
   };
   const poll = async () => {
-    if (closed) return;
+    if (closed || !statusUrl) return;
     let again = true;
     try {
-      const response = await fetchImpl(run.status_url);
+      const response = await fetchImpl(statusUrl);
       if (response.status === 404 || response.status === 410) {
         again = false;
         emit({ phase: 'error', detail: 'This setup is no longer running.' });
       } else if (response.ok) {
         const body = await response.json();
-        if (body.log_tail && !body.last_event) emit({ phase: 'running', log: body.log_tail });
-        if (body.last_event) emit(body.last_event);
+        const added = fresh(body.log_tail ?? body.last_event?.log);
+        if (body.last_event) {
+          const { log, ...rest } = body.last_event;
+          emit(added ? { ...rest, log: added } : rest);
+        } else if (added) emit({ phase: 'running', log: added });
         if (FINISHED.has(body.status) && !FINISHED.has(body.last_event?.phase)) emit({ phase: body.status });
       }
     } catch { /* try again */ }

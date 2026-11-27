@@ -543,6 +543,7 @@ def test_a_page_loaded_mid_setup_can_find_the_run_again(monkeypatch):
     assert dl.running_payload() == {
         "backend": "pixal3d", "rebuild": False,
         "events_url": "/api/setup/pixal3d/events",
+        "status_url": "/api/setup/pixal3d/status",
     }
     run.status = "done"
     assert dl.running_payload() is None

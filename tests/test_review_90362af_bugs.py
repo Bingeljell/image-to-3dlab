@@ -44,6 +44,16 @@ def _cache_entry(hub: Path, repo_id: str, files: dict[str, int]) -> Path:
 # 2. audit_model_weights --------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _tiny_gb(monkeypatch):
+    """Shrink the audit's "GB" to 1 KiB so no test here writes a large file.
+
+    Truncated files are sparse on macOS and Linux but take real space on Windows NTFS,
+    and the audit hashes every size-matched file in full.
+    """
+    monkeypatch.setattr(audit, "GB", 1024)
+
+
 @pytest.mark.symlinks
 def test_ninety_percent_by_size_is_not_offered_for_deletion(tmp_path):
     """9 of 10 GB matched: the other 1 GB exists nowhere else, so it must not be deletable."""
@@ -65,11 +75,8 @@ def test_ninety_percent_by_size_is_not_offered_for_deletion(tmp_path):
 
 
 @pytest.mark.symlinks
-def test_same_name_and_size_but_different_bytes_is_not_a_duplicate(
-    tmp_path, monkeypatch
-):
+def test_same_name_and_size_but_different_bytes_is_not_a_duplicate(tmp_path):
     """Name and size alone call two different files 'the same'; the bytes must be compared."""
-    monkeypatch.setattr(audit, "GB", 1024)  # keep the files tiny
     hub, local = tmp_path / "hub", tmp_path / "local"
     entry = _cache_entry(hub, "org/model", {"w.bin": 2048})
     next((entry / "blobs").iterdir()).write_bytes(b"a" * 2048)

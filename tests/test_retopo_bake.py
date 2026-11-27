@@ -36,6 +36,25 @@ def test_defaults_are_sensible():
     assert 0.0005 <= voxel <= 0.05
 
 
+def test_the_inner_wall_is_dropped_unless_asked_to_keep():
+    """Pixal3D builds a second wall a few millimetres inside the first; on a knight figure 49 %
+    of the remeshed surface never sees the outside. Dropping it is the default, `keep` is
+    there for a subject whose inside matters."""
+    *_rest, inner = retopo.parse_args(["--", "a.glb", "b.glb"])
+    assert inner == "drop"
+    *_rest, inner = retopo.parse_args(
+        ["--", "a.glb", "b.glb", "20000", "2048", "89", "0.004", "0.25", "0.65", "1.45", "keep"]
+    )
+    assert inner == "keep"
+
+
+def test_an_unknown_inner_wall_choice_is_refused():
+    with pytest.raises(SystemExit):
+        retopo.parse_args(
+            ["--", "a.glb", "b.glb", "20000", "2048", "89", "0.004", "0.25", "0.65", "1.45", "maybe"]
+        )
+
+
 def test_explicit_arguments_are_honoured():
     _, _, faces, size, angle, voxel, *_surface = retopo.parse_args(
         ["--", "a.glb", "b.glb", "8000", "4096", "60", "0.003"]
@@ -155,13 +174,13 @@ def test_surface_knobs_have_neutral_organic_defaults():
     Defaults are a neutral organic surface rather than Blender's metallic 0 / roughness
     0.5, which reads as dead plastic under any light.
     """
-    *_, metallic, roughness, ior = retopo.parse_args(["--", "a.glb", "b.glb"])
+    *_, metallic, roughness, ior, _inner = retopo.parse_args(["--", "a.glb", "b.glb"])
     assert (metallic, roughness, ior) == (0.25, 0.65, 1.45)
 
 
 def test_surface_knobs_are_tunable_per_asset():
     # Wet bark and dry stone want different answers, so these are arguments, not constants.
-    *_, metallic, roughness, ior = retopo.parse_args(
+    *_, metallic, roughness, ior, _inner = retopo.parse_args(
         ["--", "a.glb", "b.glb", "20000", "2048", "89", "0.004", "0.648", "0.686", "1.4"]
     )
     assert (metallic, roughness, ior) == (0.648, 0.686, 1.4)

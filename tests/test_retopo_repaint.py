@@ -84,8 +84,18 @@ def test_the_blender_command_passes_arguments_in_the_documented_order():
     separator = command.index("--")
     positional = command[separator + 1:]
     assert positional == [
-        "in.glb", "out.glb", "40000", "2048", "89.0", "0.004", "0.648", "0.686", "1.4",
+        "in.glb", "out.glb", "40000", "2048", "89.0", "0.004", "0.648", "0.686", "1.4", "drop",
     ]
+
+
+def test_the_inner_wall_is_dropped_unless_the_run_keeps_it():
+    """--keep-inner reaches the Blender script as its tenth argument."""
+    command = rr.retopo_command(
+        Path("in.glb"), Path("out.glb"), 40000, 2048, 89.0, 0.004, 0.25, 0.65, 1.45, inner="keep",
+    )
+    assert command[-1] == "keep"
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb"]).keep_inner is False
+    assert rr.build_parser().parse_args(["a.glb", "a.png", "out.glb", "--keep-inner"]).keep_inner is True
 
 
 def test_the_blender_command_runs_headless_with_the_retopo_script():

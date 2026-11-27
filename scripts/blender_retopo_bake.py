@@ -30,12 +30,68 @@ Good for smooth subjects (Flicker's ceramic); expect it to damage foliage and fu
 is consistent with remesh having previously destroyed leafy meshes here.
 
 Headless on purpose: a Cycles bake through the live Blender socket blocks the GUI.
+
+**The inner wall.** Pixal3D builds a second wall a few millimetres inside the first: after
+the voxel remesh a knight figure is one closed surface of 1.64M faces, and 49 % of them never
+see the outside (12 to 16 rays from each face all come back to the mesh). Decimating that
+spends about half of the face budget where no camera ever looks. So after the remesh,
+every face from which no ray reaches the outside is deleted (`visibility_cull.
+hidden_from_rays`), and the budget goes to the surface that is seen. It runs after the
+remesh, not before: on the raw mesh the two walls meet at 22,774 non-manifold edges, and
+cutting there leaves slits the remesh closes into a double wall again (the knight then
+stopped at 201,771 faces when 60,000 were asked). `keep` as the tenth argument skips it.
 """
 
 from __future__ import annotations
 
 import math
 import sys
+from pathlib import Path
+
+INNER_WALL = ("drop", "keep")
+INNER_RAYS = 16
+
+
+def drop_inner_wall(obj, rays: int = INNER_RAYS) -> tuple[int, int]:
+    """Delete the faces of `obj` from which no ray reaches the outside; (faces, dropped).
+
+    Blender's BVH answers each ray; which faces go is decided by the tested
+    `visibility_cull.hidden_from_rays`. Nothing is deleted when every face would go: that
+    is a mesh the test cannot judge, not one to empty.
+    """
+    import bmesh
+    import numpy as np
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.visibility_cull import fibonacci_directions, hidden_from_rays
+
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(bm)
+    eps = max(obj.dimensions) * 1e-5
+
+    def cast(origin, direction, face):
+        location, _normal, index, _distance = tree.ray_cast(origin, direction)
+        if index == face:   # grazed the face it leaves: step past it once
+            location, _normal, index, _distance = tree.ray_cast(location + direction * eps, direction)
+        return location is not None
+
+    centres = [face.calc_center_median() for face in bm.faces]
+    directions = [Vector(d) for d in fibonacci_directions(rays)]
+    hidden = hidden_from_rays(centres, directions, cast, eps)
+    total = len(bm.faces)
+    doomed = [bm.faces[i] for i in np.flatnonzero(hidden)]
+    if doomed and len(doomed) < total:
+        bmesh.ops.delete(bm, geom=doomed, context="FACES")
+        bm.to_mesh(obj.data)
+        obj.data.update()
+    else:
+        doomed = []
+    bm.free()
+    return total, len(doomed)
 
 
 def quadriflow_reduced(before: int, after: int, target_faces: int) -> bool:
@@ -51,7 +107,7 @@ def quadriflow_reduced(before: int, after: int, target_faces: int) -> bool:
     return after <= max(target_faces * 3, 1)
 
 
-def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float, float, float]:
+def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float, float, float, str]:
     """Arguments after Blender's ``--`` separator. Kept free of ``bpy`` so it is testable."""
     if "--" in argv:
         argv = argv[argv.index("--") + 1 :]
@@ -61,7 +117,7 @@ def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float
         raise SystemExit(
             "usage: blender --background --python scripts/blender_retopo_bake.py "
             "-- IN.glb OUT.glb [target_faces] [atlas_size] [angle_degrees] "
-            "[voxel_fraction] [metallic] [roughness] [ior]"
+            "[voxel_fraction] [metallic] [roughness] [ior] [drop|keep]"
         )
     target_faces = int(argv[2]) if len(argv) > 2 else 20000
     size = int(argv[3]) if len(argv) > 3 else 2048
@@ -75,6 +131,9 @@ def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float
     metallic = float(argv[6]) if len(argv) > 6 else 0.25
     roughness = float(argv[7]) if len(argv) > 7 else 0.65
     ior = float(argv[8]) if len(argv) > 8 else 1.45
+    inner = argv[9] if len(argv) > 9 else "drop"
+    if inner not in INNER_WALL:
+        raise SystemExit(f"the inner wall is 'drop' or 'keep', got {inner!r}")
     for name, value in (("metallic", metallic), ("roughness", roughness)):
         if not 0.0 <= value <= 1.0:
             raise SystemExit(f"{name} must be within 0..1, got {value}")
@@ -95,7 +154,7 @@ def parse_args(argv: list[str]) -> tuple[str, str, int, int, float, float, float
             f"got {voxel_fraction}"
         )
     return (argv[0], argv[1], target_faces, size, math.radians(angle_degrees),
-            voxel_fraction, metallic, roughness, ior)
+            voxel_fraction, metallic, roughness, ior, inner)
 
 
 def decimate_ratio(target_faces: int, triangle_count: int) -> float:
@@ -238,7 +297,7 @@ def main() -> int:
     import bpy
 
     (source, destination, target_faces, size, angle_limit, voxel_fraction,
-     metallic, roughness, ior) = parse_args(list(sys.argv))
+     metallic, roughness, ior, inner) = parse_args(list(sys.argv))
 
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
@@ -299,6 +358,12 @@ def main() -> int:
         # resamples the surface — so where a welded mesh decimates cleanly, going direct
         # keeps detail the remesh throws away.
         print("RETOPO:: voxel remesh skipped (voxel_fraction=0); decimating the weld")
+
+    # After the remesh and before the face budget is spent: see the module docstring.
+    if inner == "drop":
+        total, dropped = drop_inner_wall(retopo)
+        print(f"RETOPO:: inner wall: dropped {dropped:,} of {total:,} faces no ray from outside "
+              f"reaches ({100.0 * dropped / max(total, 1):.1f} %)")
 
     # Recalculate normals AFTER the voxel remesh, not only before it. QuadriFlow requires
     # a manifold mesh whose face normals point consistently, and it refuses with a

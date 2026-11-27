@@ -99,3 +99,34 @@ def cull_report(seen: np.ndarray) -> str:
     kept = int(seen.sum())
     pct = 100.0 * kept / total if total else 0.0
     return f"{kept:,} of {total:,} faces visible ({pct:.1f}%); culling {total - kept:,}"
+
+
+def hidden_from_rays(centres, directions, cast, eps: float) -> np.ndarray:
+    """Boolean mask of the faces from whose centre no ray reaches the outside.
+
+    The render above needs every face to win a pixel, which a dense mesh cannot: a raw
+    Pixal3D figure has about 900,000 faces, most smaller than a pixel at 512. This asks each
+    face instead. From its centre, rays go out along `directions` (a Fibonacci sphere, no
+    hemisphere: the winding of a generated mesh cannot be trusted), and the face counts as
+    seen as soon as one of them meets nothing. A face that every ray brings back to the
+    mesh is enclosed: the inner wall of a generated double-walled surface, which no camera
+    and no game ever shows.
+
+    `cast(origin, direction, face)` answers whether the ray meets the mesh; it is Blender's
+    BVH in ``blender_retopo_bake.py`` and a plain function in the tests. Each face starts
+    at a different direction, so a crease does not try the same blocked ray everywhere,
+    and a seen face costs one ray when its first one gets out. Rays start `eps` off the
+    face along their own direction, so they do not stop on the face they leave.
+    """
+    count = len(centres)
+    hidden = np.zeros(count, dtype=bool)
+    total = len(directions)
+    for face in range(count):
+        centre = centres[face]
+        for k in range(total):
+            direction = directions[(face + k) % total]
+            if not cast(centre + direction * eps, direction, face):
+                break
+        else:
+            hidden[face] = True
+    return hidden

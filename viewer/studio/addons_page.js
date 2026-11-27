@@ -16,18 +16,19 @@ export function escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
+/** A link someone else wrote, ready for an href: a plain https address, escaped. Anything else is no link. */
+function safeLink(url) {
+  return typeof url === 'string' && url.startsWith('https://') ? escapeHtml(url) : '';
+}
+
 export function authorLine(addon) {
-  const author = addon.author?.name || 'unknown';
-  const url = addon.author?.url;
-  let html = `by ${url ? `<a href="${url}" target="_blank" rel="noopener">${escapeHtml(author)}</a>` : escapeHtml(author)}`;
-  if (addon.links) {
-    if (addon.links.repo) {
-      html += ` · <a href="${addon.links.repo}" target="_blank" rel="noopener">Source</a>`;
-    }
-    if (addon.links.site) {
-      html += ` · <a href="${addon.links.site}" target="_blank" rel="noopener">Site page</a>`;
-    }
-  }
+  const author = escapeHtml(addon.author?.name || 'unknown');
+  const url = safeLink(addon.author?.url);
+  const repo = safeLink(addon.links?.repo);
+  const site = safeLink(addon.links?.site);
+  let html = `by ${url ? `<a href="${url}" target="_blank" rel="noopener">${author}</a>` : author}`;
+  if (repo) html += ` · <a href="${repo}" target="_blank" rel="noopener">Source</a>`;
+  if (site) html += ` · <a href="${site}" target="_blank" rel="noopener">Site page</a>`;
   return html;
 }
 
@@ -36,7 +37,17 @@ export function tierBadge(addon) {
     return '<span class="addon-badge addon-unlisted">No longer listed</span>';
   }
   if (addon.tier === 'verified') return '<span class="addon-badge addon-verified">Verified</span>';
-  if (addon.tier === 'listed') return '<span class="addon-badge addon-listed">Listed</span>';
+  if (addon.tier === 'listed') {
+    const left = Array.isArray(addon.run_skipped) ? addon.run_skipped : [];
+    let note = '';
+    if (addon.run_checked === false) {
+      note = ' <span class="addon-badge addon-unchecked" title="We did not test-run it on a clean machine.">Not run-checked</span>';
+    } else if (left.length) {
+      const names = left.map((t) => String(t).replace(/[&<>"]/g, '')).join(', ');
+      note = ` <span class="addon-badge addon-unchecked" title="We test-ran its other tools on a clean machine. Not run, because they need a file: ${names}.">Partly run-checked</span>`;
+    }
+    return '<span class="addon-badge addon-listed">Listed</span>' + note;
+  }
   return '<span class="addon-badge addon-unknown">Unknown</span>';
 }
 

@@ -186,6 +186,15 @@ class TestReadRegistry:
         assert entry.rating == 4.5
         assert entry.ratings_count == 12
 
+    def test_a_link_that_is_not_a_plain_https_address_is_dropped(self):
+        # The studio puts these in a link; a list entry is written by someone else.
+        entry = addons.read_registry([listing(
+            author={"name": "X", "url": "javascript:alert(1)"},
+            links={"repo": "javascript:alert(1)", "site": "https://ok.example",
+                   "docs": 'https://x.example/" onfocus="alert(1)', "old": "http://plain.example"})])[0]
+        assert entry.author == {"name": "X", "url": ""}
+        assert entry.links == {"site": "https://ok.example"}
+
     def test_missing_links_and_rating_default_safely(self):
         entry = addons.read_registry([listing(links=None, rating=None, ratings_count=None)])[0]
         assert entry.links == {}
@@ -889,3 +898,50 @@ class TestPicture:
         for bad in ("javascript:alert(1)", "http://example.com/a.png", "pictures/a.png", 7):
             assert addons.read_registry([listing(picture=bad)])[0].picture is None
         assert addons.read_registry([listing()])[0].picture is None
+
+    def test_a_picture_link_is_checked_like_every_other_link_from_the_list(self):
+        """It only had to start with https://, so one with a quote, a bracket or a space in it
+        was kept where the author and source links with the same in them are dropped."""
+        for bad in ('https://example.com/a.png" onerror="alert(1)', "https://example.com/<a>.png",
+                    "https://example.com/a b.png", "https://example.com/a.png'x"):
+            assert addons.read_registry([listing(picture=bad)])[0].picture is None, bad
+
+
+class TestRunCheck:
+    def test_the_skipped_list_is_read_only_for_a_partial_result_and_only_strings(self):
+        entry = {"id": "a", "name": "A", "repo": "https://github.com/x/a.git", "commit": "a" * 40, "author": {"name": "X"}, "summary": "s", "type": "tool"}
+        def read(check):
+            return addons.read_registry([{**entry, "run_check": check}])[0].run_skipped
+        assert read({"status": "partial", "skipped": ["fit", 3, "label"]}) == ("fit", "label")
+        assert read({"status": "passed", "skipped": ["fit"]}) == ()
+        assert read({"status": "partial", "skipped": "fit"}) == ()
+
+    def test_registry_reads_run_check_and_ignores_nonsense(self):
+        entry = {"id": "pedestal", "name": "Pedestal", "repo": "https://github.com/x/y.git", "commit": "a" * 40,
+                 "author": {"name": "X"}, "summary": "s"}
+        read = lambda extra: addons.read_registry([{**entry, **extra}])[0].run_check
+        assert read({"run_check": {"status": "passed", "date": "2026-11-18"}}) == "passed"
+        assert read({"run_check": {"status": "not_run", "reason": "models"}}) == "not_run"
+        assert read({"run_check": {"status": "partial", "skipped": ["fit"]}}) == "partial"
+        assert read({}) == ""
+        assert read({"run_check": {"status": "great"}}) == ""
+        assert read({"run_check": "passed"}) == ""
+
+    def test_listed_sentence_says_whether_we_test_ran_it(self):
+        assert "test run" in addons.tier_sentence("listed", "passed")
+        assert "did not test-run" in addons.tier_sentence("listed", "")
+        assert "did not test-run" in addons.tier_sentence("listed", "not_run")
+        partly = addons.tier_sentence("listed", "partial", ("fit", "label"))
+        assert "some of its tools" in partly and "fit, label" in partly and "did not test-run" not in partly
+        assert addons.tier_sentence("verified", "partial", ("fit",)) == addons.TIER_SENTENCES["verified"]
+        assert addons.tier_sentence("verified", "") == addons.TIER_SENTENCES["verified"]
+        assert addons.tier_sentence("unknown", "passed") == addons.TIER_SENTENCES["unknown"]
+
+    def test_the_install_plan_warning_follows_the_listing(self, tmp_path):
+        entry = {"id": "pedestal", "name": "Pedestal", "repo": "https://github.com/x/y.git", "commit": "a" * 40,
+                 "author": {"name": "X"}, "summary": "s"}
+        m = _manifest_object(tmp_path, manifest())
+        checked = addons.read_registry([{**entry, "run_check": {"status": "passed"}}])[0]
+        unchecked = addons.read_registry([entry])[0]
+        assert "test run" in addons.install_plan(checked, m, tier="listed")["warning"]
+        assert "did not test-run" in addons.install_plan(unchecked, m, tier="listed")["warning"]

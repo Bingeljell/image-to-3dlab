@@ -193,4 +193,4 @@ def align_view(view: pp.View, positions: np.ndarray, uvs: np.ndarray, faces: np.
         shifted[..., 3] = moved[..., 3]  # colours move onto features; the cut-out stays fitted
         moved = shifted
     report = AlignReport(fit.scale, fit.dx, fit.dy, fit.iou_before, fit.iou_after, matches)
-    return pp.View(moved, view.cam_to_world, view.fov_x, view.name), report
+    return pp.View(moved, view.cam_to_world, view.fov_x, view.name, view.paint), report

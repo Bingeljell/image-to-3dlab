@@ -193,6 +193,38 @@ def clean_edges(rgba, solid: int = 250, reach: int = 4):
     return out
 
 
+def fill_inner_holes(rgba, rgb, max_share: float = 0.02, backdrop_distance: float = 40.0):
+    """Give back holes the remover cut inside the subject when they do not show the backdrop.
+
+    BiRefNet-lite cut a glowing eye out of a close face crop as if it were background, so the
+    3D build got a hole where the eye was. A hole closed in by the subject on every side whose
+    pixels are not the picture's backdrop colour (the median of its border) is part of the
+    subject; a real see-through gap (a trigger guard, a cup's handle) shows the backdrop and
+    stays cut, and so does any hole bigger than `max_share` of the subject. `rgba` is the
+    cut-out (H x W x 4 uint8), `rgb` the picture it came from; returns a new array.
+    """
+    import numpy as np
+    from scipy import ndimage
+
+    solid = rgba[..., 3] > 127
+    holes = ndimage.binary_fill_holes(solid) & ~solid
+    labels, count = ndimage.label(holes)
+    if not count:
+        return rgba
+    picture = np.asarray(rgb, dtype=np.float64)
+    border = np.concatenate([picture[0], picture[-1], picture[:, 0], picture[:, -1]])
+    backdrop = np.median(border, axis=0)
+    distance = np.abs(picture - backdrop).max(axis=-1)
+    out = rgba.copy()
+    limit = max_share * max(int(solid.sum()), 1)
+    for index in range(1, count + 1):
+        hole = labels == index
+        if hole.sum() <= limit and np.median(distance[hole]) > backdrop_distance:
+            out[hole, :3] = np.asarray(rgb, dtype=np.uint8)[hole]
+            out[hole, 3] = 255
+    return out
+
+
 def _verified_model_file(model: str) -> Path:
     digests = {LEAN_MODEL: ("sha256", LEAN_SHA256), LITE_MODEL: ("md5", LITE_MD5),
                FALLBACK_MODEL: ("md5", FALLBACK_MD5)}
@@ -262,4 +294,5 @@ def cut_out(image, session=None, *, allow_download: bool = False):
         import rembg
 
         cut = rembg.remove(rgb, session=session).convert("RGBA")
-    return Image.fromarray(clean_edges(np.asarray(cut))), model
+    cut = fill_inner_holes(np.asarray(cut), np.asarray(rgb))
+    return Image.fromarray(clean_edges(cut)), model

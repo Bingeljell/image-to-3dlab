@@ -52,6 +52,9 @@ class View:
     cam_to_world: np.ndarray   # 4 x 4; the camera looks down its own -Z
     fov_x: float               # horizontal field of view, radians
     name: str = "view"
+    # How this view paints: "all" (a photo, or a picture that matches the model everywhere), "safe" (a drawn side
+    # picture of a figure: only where `side_paint` allows) or "none" (it shaped the model, it paints nothing).
+    paint: str = "all"
 
     @property
     def focal_px(self) -> float:
@@ -73,7 +76,7 @@ def load_views(directory: Path) -> tuple[list[View], float]:
         image = np.asarray(Image.open(directory / frame["file_path"]).convert("RGBA"))
         fov = float(frame.get("camera_angle_x", meta.get("camera_angle_x")))
         views.append(View(image, np.asarray(frame["transform_matrix"], dtype=np.float64),
-                          fov, frame.get("name", frame["file_path"])))
+                          fov, frame.get("name", frame["file_path"]), frame.get("paint", "all")))
     return views, float(meta.get("mesh_scale", 1.0))
 
 
@@ -282,6 +285,17 @@ class Settings:
     # in colour (a robe's side next to a pale back, a belt beside a dark front). Falls back
     # to the global match when too little of the picture is trusted.
     local_colour: bool = True
+    # Surfaces that face up and that no picture sees (a hat's brim, shoulders, the top of
+    # the hair: the pictures' cameras stand level with the subject) keep the model's own
+    # paint instead of taking the local match's shift. The shift there is borrowed from
+    # whatever the pictures see nearby, so a brim beside a light hat band turned from the
+    # model's dark violet to teal; the generator's own paint of a top face is its best
+    # guess, since no picture says otherwise. Faces turned sideways still take the shift
+    # (a head's sides under a brim need it). Full keep from `top_high`, none below
+    # `top_low` (dot of the outward normal with up).
+    keep_top_paint: bool = False
+    top_low: float = 0.6
+    top_high: float = 0.85
     # Nudge each picture onto the model before painting (see view_align): the cut-out onto
     # the model's outline, then detailed spots onto where the model built them. Only moves
     # what it is sure of, a few pixels at most.
@@ -367,17 +381,78 @@ def _view_terms(texel_points: np.ndarray, texel_normals: np.ndarray, view: View,
     return weight, sample_rgb(view.image, x, y), outside
 
 
+def staged_pixel_match(directory: Path) -> bool:
+    """Whether the build that staged these views leaves Pixel Match on. A four-view build leaves it
+    off (`pixal3d_generate.py`, `"pixel_match": false`): the paint can drift around a face. Front and
+    back, and runs staged before the switch, say nothing and keep it on."""
+    try:
+        meta = json.loads((Path(directory) / "transforms.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    return not (isinstance(meta, dict) and meta.get("pixel_match") is False)
+
+
+def is_side(view: View) -> bool:
+    """A side view: its camera stands more to the side than in front or behind (the views' x against y)."""
+    position = view.position
+    return abs(position[0]) > abs(position[1])
+
+
+def front_view(views: list[View]) -> View | None:
+    """The front picture of a staged build (`view_000.png`), else None."""
+    return next((view for view in views if Path(view.name).stem == "view_000"), None)
+
+
+def side_trust(view: View, front: View, points: np.ndarray, normals: np.ndarray,
+               view_positions: np.ndarray, outward: float, layout) -> np.ndarray:
+    """How much a "safe" side view may paint each texel (0..1), by `side_paint`'s rules: the body band from the neck to
+    below the hands left to the front and the back (its arms and hands excepted), the face left to them too, and the
+    side picture's own drawn face never used."""
+    from image_to_3dlab import side_paint as sp
+    fx, fy, _ = project(points, front)
+    keep = np.maximum(sp.band_keep(fy, layout), sp.arm_keep(fx, fy, layout))
+    _, vy, _ = project(view_positions, front)
+    z = view_positions[:, 2]
+    size = max(float(z.max() - z.min()), 1e-12)
+    head = vy < layout.neck
+    head_x = float(np.median(view_positions[head, 0])) if head.any() else float(np.median(view_positions[:, 0]))
+    front_dir = front.position / max(np.linalg.norm(front.position), 1e-12)
+    toward = normals @ front_dir
+    toward = toward * outward if outward else np.abs(toward)
+    keep = keep * sp.face_keep(fy, points[:, 0], toward, head_x, size, layout)
+    # the side picture's own head: from its top to the neck's height, the face looking toward the front camera
+    neck = np.abs(vy - layout.neck) <= max(2.0, 0.004 * layout.height)
+    if head.any() and neck.any():
+        _, sy, _ = project(view_positions, view)
+        neck_z = float(np.median(z[neck]))
+        at_neck = np.abs(z - neck_z) <= 0.004 * size
+        top_row = int(np.floor(sy[head].min()))
+        neck_row = int(np.ceil(np.median(sy[at_neck]))) if at_neck.any() else int(sy[head].max())
+        centre = view_positions[head].mean(axis=0)
+        ahead, _, _ = project(np.stack([centre, centre + front_dir * size * 0.1]), view)
+        mask = sp.profile_face_mask(view.image[..., 3], top_row, neck_row, bool(ahead[1] > ahead[0]))
+        px, py, _ = project(points, view)
+        ix = np.clip(np.floor(px).astype(np.int64), 0, mask.shape[1] - 1)
+        iy = np.clip(np.floor(py).astype(np.int64), 0, mask.shape[0] - 1)
+        keep = keep * (1.0 - mask[iy, ix])
+    return keep
+
+
 def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
                   faces: np.ndarray, views: list[View], mesh_scale: float = 1.0,
                   frame=PIXAL3D_FRAME, settings: Settings | None = None,
-                  align_reports: list | None = None) -> tuple[np.ndarray, np.ndarray]:
+                  align_reports: list | None = None,
+                  side_reports: list | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Blend the views' pixels into `texture` (H x W x 3 or 4, uint8).
 
     `uvs` follow glTF: (0, 0) is the image's top-left corner. Returns the new texture and
     the per-texel weight actually applied (0..1), which is the debug map worth looking at.
-    Pass a list as `align_reports` to get one view_align.AlignReport per view.
+    Pass a list as `align_reports` to get one view_align.AlignReport per view, and one as
+    `side_reports` to hear how much each "safe" side view was allowed to paint.
+    A view whose `paint` is "none" is left out; a "safe" side view paints by `side_trust`.
     """
     settings = settings or DEFAULT_SETTINGS
+    views = [view for view in views if view.paint != "none"]
     if settings.align:
         from image_to_3dlab import view_align  # imports this module; import late
         aligned = [view_align.align_view(view, positions, uvs, faces, texture, frame, mesh_scale)
@@ -404,9 +479,28 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     strongest = np.zeros(len(points))
     past = np.zeros(len(points))
     outward = outward_sign(view_pos, faces)
+    safe = [view for view in views if view.paint == "safe" and is_side(view)]
+    front = front_view(views) if safe else None
+    layout = None
+    if front is not None:
+        from image_to_3dlab import side_paint
+        layout = side_paint.front_layout(front.image[..., 3])
     for view in views:
         weight, rgb, outside = _view_terms(points, texel_n, view, view_pos, faces, settings,
                                            outward)
+        if any(view is s for s in safe):
+            before = int((weight > 0.05).sum())
+            # Drawn side views may add paint only where the side trust rules allow it.
+            outside = 0.0
+            if layout is None:
+                weight = np.zeros_like(weight)   # no front picture to read the figure from: shape only
+            else:
+                weight = weight * side_trust(view, front, points, texel_n, view_pos, outward, layout)
+            if side_reports is not None:
+                side_reports.append({"view": view.name, "texels_seen": before,
+                                     "texels_painted": int((weight > 0.05).sum()),
+                                     "neck_row": None if layout is None else layout.neck,
+                                     "hands_row": None if layout is None else layout.hands})
         total_w += weight
         colour += weight[:, None] * rgb
         strongest = np.maximum(strongest, weight)
@@ -422,6 +516,8 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     if settings.match_colour and settings.local_colour:
         local = local_colour_offset(positions, faces, texel_face, texel_bary,
                                     flat[index, :3], photo, blend)
+    if local is not None and settings.keep_top_paint:
+        local = local * (1.0 - top_keep(texel_n, blend, frame, outward, settings))[:, None]
     if local is not None:
         flat[index, :3] = np.clip(flat[index, :3] + local, 0, 255)
     elif settings.match_colour:
@@ -449,6 +545,20 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     else:
         out, weight_map = _grow_into_gutter(out, weight_map, covered, settings.gutter_px)
     return np.clip(np.rint(out), 0, 255).astype(np.uint8), weight_map
+
+
+def top_keep(texel_normals: np.ndarray, blend: np.ndarray, frame=PIXAL3D_FRAME, outward: float = 1.0,
+             settings: Settings | None = None) -> np.ndarray:
+    """How much of each texel keeps the model's own paint for facing up unseen (0..1), see Settings.keep_top_paint.
+
+    `texel_normals` are in view space; up is the glTF's +y carried through `frame`. On an open mesh (`outward` 0) the
+    winding cannot tell up from down, so only normals that already point up count.
+    """
+    settings = settings or DEFAULT_SETTINGS
+    up = to_view_space(np.array([[0.0, 1.0, 0.0]]), frame)[0]
+    up = up / np.linalg.norm(up)
+    facing_up = (texel_normals @ up) * (outward or 1.0)
+    return smoothstep(facing_up, settings.top_low, settings.top_high) * (1.0 - blend)
 
 
 def local_colour_offset(positions: np.ndarray, faces: np.ndarray, texel_face: np.ndarray,

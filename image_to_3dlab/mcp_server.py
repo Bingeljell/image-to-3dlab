@@ -307,11 +307,11 @@ def finish_choices(detail: str | int | None, pixel_match: bool = True, edge_fade
         text = str(detail).strip().lower()
         if text in FINISH_DETAILS:
             out.update(FINISH_DETAILS[text])
-        elif text.isdigit() and 1000 <= int(text) <= 200000:
+        elif text.isdigit() and 500 <= int(text) <= 200000:
             out["faces"] = int(text)
         else:
             raise StudioError(f"finish_detail is one of {', '.join(FINISH_DETAILS)} or a triangle count from "
-                              "1000 to 200000.")
+                              "500 to 200000.")
     if not pixel_match:
         out["skip_photo"] = True
     else:
@@ -462,7 +462,7 @@ def options() -> dict[str, Any]:
                               "with 16 GB or less) | qwen (Qwen-Image, Qwen Research License, follows long prompts "
                               "more closely). Default: the suggested one for this machine that is installed.",
             "add_wording": "Append the studio's proven prompt wording (pose, background). Default: on.",
-            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 1000-200000 | "
+            "finish_detail": "light (10k triangles) | game (20k, default) | more (40k) | high (50k with the surface calmed where the picture paints: cleaner faces from the side, best for realistic humans) | hero (32k body plus a sharper head built again from a close crop of the picture: characters whose face matters; takes much longer than other details; needs a Pixal3D model made from a picture) | a count 500-200000 | "
                              "full (every triangle, for stills; not for rigging).",
             "pixel_match": "Paint the picture's real pixels onto the model in Finish. Default: on.",
             "move": "The animation to make (list_moves).",
@@ -1114,7 +1114,7 @@ def install_addon(studio: Studio, *, addon_id: str, confirm: bool = False) -> di
     if not confirm:
         plan["to_start"] = (
             "Nothing has been installed. Tell the user what this add-on does, who wrote it, "
-            "its licence, its label (Verified, Listed or Unknown) and whether it runs on their machine or in the cloud, then call again with confirm=true only after they say yes."
+            "its licence, its label (Verified, Listed or Unknown, and for a Listed one whether we test-ran it) and whether it runs on their machine or in the cloud, then call again with confirm=true only after they say yes."
         )
         return plan
     return studio.post_json(f"api/addons/{addon_id}/install", {"confirm": True})
@@ -1326,7 +1326,7 @@ def build_server(studio: Studio | None = None):
         finish_detail: "light" (10k triangles), "game" (20k, the default), "more" (40k), "high" (50k,
             cleaner faces from the side; best for realistic humans), "hero" (32k body plus a sharper head
             built again from a close crop; characters whose face matters, takes much longer), a count from
-        1000 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
+        500 to 200000, or "full" (Pixel Match on the raw model: its own mesh untouched, often ~1M
         triangles; the sharpest look, for renders and stills, not games or rigging). pixel_match: paint the picture's real pixels on (default on).
         advanced: the studio's Advanced knobs, e.g. {"nudge": false}. Call options to see them all.
         picture_engine: who draws the picture from a description: "flux" (FLUX.2 klein, Apache-2.0, fast),
@@ -1542,7 +1542,9 @@ def build_server(studio: Studio | None = None):
     @server.tool(name="list_addons", structured_output=False)
     def tool_list_addons():
         """Every add-on from the list (installed first): name, author, summary, links, rating,
-        its label (Verified, Listed or Unknown), whether it runs on this machine or in the cloud,
+        its label (Verified, Listed or Unknown; a Listed one with run_checked false is
+        "not run-checked": we did not test-run it; one with run_skipped filled in was only partly
+        run-checked: those tools need a file and were not run), whether it runs on this machine or in the cloud,
         a picture link of what it makes, and the tools it provides."""
         return safe(lambda: list_addons(studio))
 

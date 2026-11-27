@@ -7,11 +7,17 @@ path is exercised manually via ``--check`` then a real run.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
+import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
+
+from image_to_3dlab.provenance import read_model_record
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "trellis_space_generate.py"
 SPEC = importlib.util.spec_from_file_location("trellis_space_generate", SCRIPT)
@@ -284,7 +290,8 @@ def test_generate_checkpoints_latents_before_decode_failure(monkeypatch, tmp_pat
     assert checkpoint.is_file(), "failed non-debug runs must retain their recovery checkpoint"
 
 
-def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_path):
+def _finished_run(monkeypatch, tmp_path, *, matted_with=None, save_latents=False, told_to_decode=None):
+    """The real `generate`, picture to files, with the model, the decode and the bake stubbed."""
     from types import SimpleNamespace
 
     import torch
@@ -313,21 +320,12 @@ def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_pa
         "sample_latents_without_decode",
         lambda *_args, **_kwargs: (shape, texture, 512),
     )
-    monkeypatch.setattr(
-        gen,
-        "_decode_and_cache",
-        lambda *_args, **_kwargs: (
-            {
-                "vertices": None,
-                "faces": None,
-                "attrs": None,
-                "coords": None,
-                "attr_layout": None,
-                "res": 512,
-            },
-            0.1,
-        ),
-    )
+    def decode(*_args, **told):
+        if told_to_decode is not None:
+            told_to_decode.update(told)
+        return {"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None, "res": 512}, 0.1
+
+    monkeypatch.setattr(gen, "_decode_and_cache", decode)
     monkeypatch.setattr(gen, "_release_mps_memory", lambda: None)
 
     def finish_bake(*_args, **_kwargs):
@@ -342,18 +340,323 @@ def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_pa
         tmp_path,
         seed=19,
         sparse_attn_backend="sdpa",
-        matted_with=None,
-        save_latents=False,
+        matted_with=matted_with,
+        save_latents=save_latents,
         save_decode=False,
         pre_cap=4_000_000,
         resolution="512",
         decimation_target=300_000,
         texture_size=1024,
     )
+    return image_path, output_path, manifest
+
+
+def test_generate_removes_temporary_checkpoint_after_success(monkeypatch, tmp_path):
+    _, output_path, manifest = _finished_run(monkeypatch, tmp_path)
 
     assert output_path.is_file()
     assert not (tmp_path / "model_latents.pt").exists()
     assert "latents" not in manifest["artifacts"]
+
+
+# --- the licence record every way out of the script leaves beside the model ---
+
+def _sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _licence_parts(record):
+    return {part["component"]: part for part in record["components"]}
+
+
+def _removers(record):
+    """The background removers a record says were used (BRIA is listed as not loaded)."""
+    return [part["component"] for part in record["components"]
+            if part["purpose"] == "background removal" and part.get("loaded", True)]
+
+
+def _stub_the_bake(monkeypatch, output_path):
+    def finish_bake(*_args, **_kwargs):
+        output_path.write_bytes(b"glTF")
+        return {"bake": 0.2}, {"glb": gen._artifact(output_path)}
+
+    monkeypatch.setattr(gen, "_bake_export", finish_bake)
+
+
+def test_a_finished_run_leaves_its_licence_record_beside_the_model(monkeypatch, tmp_path):
+    # Every other route wrote <name>.provenance.json. This one wrote only its run file, so a Mac
+    # TRELLIS.2 model reached the Library with no licence, and Finish called it unverified.
+    image_path, output_path, _ = _finished_run(monkeypatch, tmp_path, matted_with="birefnet-general-lite")
+
+    record = read_model_record(output_path)     # what Finish and Fix a spot read
+    assert record is not None, "no licence record beside the model"
+    assert json.loads((tmp_path / "model.provenance.json").read_text(encoding="utf-8")) == record
+    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["model"]["backend"] == "trellis2" and record["model"]["route"] == "apple-mps"
+    assert record["model"]["parameters"]["resolution"] == "512"
+    assert record["input"] == {"path": str(image_path), "sha256": _sha256(image_path),
+                               "source": "user-provided"}
+    assert record["output"]["sha256"] == _sha256(output_path)
+    parts = _licence_parts(record)
+    assert parts["rembg/birefnet-general-lite"]["purpose"] == "background removal"
+    assert parts["facebook/dinov3-vitl16-pretrain-lvd1689m"]["license"] == "DINOv3 License"
+    assert parts["BRIA RMBG-2.0"]["loaded"] is False
+    assert "scripts/patch_trellis_space_core.py" in parts["BRIA RMBG-2.0"]["note"]
+
+
+def test_a_run_resumed_from_a_decode_bundle_leaves_its_licence_record_too(monkeypatch, tmp_path):
+    import torch
+
+    decode_path, output_path = tmp_path / "model_decode.pt", tmp_path / "model.glb"
+    # The picture this bundle came from is no longer on disk, so the bundle is the input on record.
+    torch.save({"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None,
+                "res": 512, "seed": 7, "images": [str(tmp_path / "gone.png")]}, decode_path)
+    monkeypatch.setattr(gen, "configure_environment", lambda *_args: None)
+    _stub_the_bake(monkeypatch, output_path)
+
+    gen.generate_from_decode(decode_path, output_path, tmp_path,
+                             decimation_target=300_000, texture_size=1024, pre_cap=4_000_000)
+
+    record = read_model_record(output_path)
+    assert record is not None, "no licence record beside the model"
+    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["input"] == {"path": str(decode_path), "sha256": _sha256(decode_path),
+                               "source": "resumed-bundle"}        # not a picture the user gave
+    assert record["output"]["sha256"] == _sha256(output_path)
+    assert _licence_parts(record)["BRIA RMBG-2.0"]["loaded"] is False
+
+
+def _resume_from_latents(monkeypatch, tmp_path, kept, beside=None):
+    """The real `generate_from_latents` over a bundle that kept `kept` beside the latents, with the
+    model, the decode and the bake stubbed. `beside(latents_path)` runs once the bundle is on
+    disk. Returns (the latents file, the model, the decode bundle the run would save)."""
+    import torch
+
+    latents_path, output_path = tmp_path / "model_latents.pt", tmp_path / "model.glb"
+    latents_path.write_bytes(b"latents")
+    if beside:
+        beside(latents_path)
+
+    class OnDevice:     # stands in for a tensor: it is only moved to the device, never read
+        def to(self, _device):
+            return self
+
+    class SparseTensor:
+        def __init__(self, feats, coords):
+            pass
+
+        def replace(self, _feats):
+            return self
+
+    sparse = types.ModuleType("trellis2.modules.sparse")
+    sparse.SparseTensor = SparseTensor
+    for name, module in (("trellis2", types.ModuleType("trellis2")),
+                         ("trellis2.modules", types.ModuleType("trellis2.modules")),
+                         ("trellis2.modules.sparse", sparse)):
+        monkeypatch.setitem(sys.modules, name, module)
+    bundle = {"shape_slat_feats": OnDevice(), "coords": OnDevice(), "tex_slat_feats": OnDevice(),
+              "res": 512, "seed": 7, **kept}
+    monkeypatch.setattr(torch, "load", lambda *_args, **_kwargs: bundle)
+    monkeypatch.setattr(gen, "load_pipeline", lambda *_args, **_kwargs: object())
+    handed_on = {}
+
+    def decode(*_args, **told):
+        handed_on.update(told)
+        return {"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None, "res": 512}, 0.1
+    monkeypatch.setattr(gen, "_decode_and_cache", decode)
+    monkeypatch.setattr(gen, "_release_mps_memory", lambda: None)
+    _stub_the_bake(monkeypatch, output_path)
+
+    gen.generate_from_latents(latents_path, output_path, tmp_path, sparse_attn_backend="sdpa",
+                              save_decode=False, pre_cap=4_000_000)
+    return latents_path, output_path, handed_on
+
+
+def _resume_from_decode(monkeypatch, tmp_path, kept, beside=None):
+    import torch
+
+    decode_path, output_path = tmp_path / "model_decode.pt", tmp_path / "model.glb"
+    torch.save({"vertices": None, "faces": None, "attrs": None, "coords": None, "attr_layout": None,
+                "res": 512, "seed": 7, **kept}, decode_path)
+    if beside:
+        beside(decode_path)
+    monkeypatch.setattr(gen, "configure_environment", lambda *_args: None)
+    _stub_the_bake(monkeypatch, output_path)
+
+    gen.generate_from_decode(decode_path, output_path, tmp_path,
+                             decimation_target=300_000, texture_size=1024, pre_cap=4_000_000)
+    return decode_path, output_path
+
+
+def test_a_run_resumed_from_latents_leaves_its_licence_record_too(monkeypatch, tmp_path):
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"png")
+
+    _, output_path, _ = _resume_from_latents(
+        monkeypatch, tmp_path, {"images": [str(picture)], "image_sha256": _sha256(picture), "matte_model": None})
+
+    record = read_model_record(output_path)
+    assert record is not None, "no licence record beside the model"
+    assert record["license"]["name"] == "MIT (TRELLIS.2) + DINOv3 License"
+    assert record["input"]["path"] == str(picture)      # still on disk and still the same file
+    assert record["input"]["sha256"] == _sha256(picture)
+    assert record["output"]["sha256"] == _sha256(output_path)
+    assert _removers(record) == []      # none cut this picture out, and the record says no more
+
+
+# --- a resumed run says what the first run knew ---------------------------------------------
+#
+# The remover that cut the picture out and the picture itself are known to the run that
+# samples. A run resumed from its latents or its decode bundle wrote a record without the
+# remover, and took whatever file sat at the picture's old path as the input.
+
+def test_a_fresh_run_keeps_the_remover_and_the_pictures_hash_in_its_checkpoint(monkeypatch, tmp_path):
+    import torch
+
+    kept_by_the_decode = {}
+    image_path, _, _ = _finished_run(monkeypatch, tmp_path, matted_with="birefnet-general-lite",
+                                     save_latents=True, told_to_decode=kept_by_the_decode)
+
+    latents = torch.load(tmp_path / "model_latents.pt", weights_only=False)
+    wanted = {"images": [str(image_path)], "image_sha256": _sha256(image_path), "matte_model": "birefnet-general-lite"}
+    assert {key: latents.get(key) for key in wanted} == wanted
+    assert kept_by_the_decode["origin"] == wanted       # the decode bundle is told the same
+
+
+@pytest.mark.parametrize("resume", ["latents", "decode"])
+def test_a_resumed_run_names_the_remover_and_says_it_was_resumed(monkeypatch, tmp_path, resume):
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"png")
+    kept = {"images": [str(picture)], "image_sha256": _sha256(picture), "matte_model": "birefnet-general-lite"}
+
+    if resume == "latents":
+        _, output_path, handed_on = _resume_from_latents(monkeypatch, tmp_path, kept)
+        assert handed_on["origin"] == kept      # so a decode bundle saved now can be resumed the same way
+    else:
+        _, output_path = _resume_from_decode(monkeypatch, tmp_path, kept)
+
+    record = read_model_record(output_path)
+    assert _licence_parts(record)["rembg/birefnet-general-lite"]["purpose"] == "background removal"
+    assert record["model"]["resumed_from"] == resume
+    assert record["input"] == {"path": str(picture), "sha256": _sha256(picture), "source": "user-provided"}
+    assert json.loads((tmp_path / "model.json").read_text(encoding="utf-8"))["matte_model"] == "birefnet-general-lite"
+
+
+def test_a_resumed_run_does_not_take_another_file_at_the_pictures_old_path_for_the_picture(monkeypatch, tmp_path):
+    picture = tmp_path / "cutout.png"
+    picture.write_bytes(b"the picture the model was made from")
+    kept = {"images": [str(picture)], "image_sha256": _sha256(picture), "matte_model": None}
+    picture.write_bytes(b"something else saved under the same name since")
+
+    decode_path, output_path = _resume_from_decode(monkeypatch, tmp_path, kept)
+
+    assert read_model_record(output_path)["input"] == {
+        "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}
+
+
+@pytest.mark.parametrize("kept_hash", [{}, {"image_sha256": None}], ids=["an older bundle", "no hash was taken"])
+@pytest.mark.parametrize("where", ["a relative path", "an absolute path"])
+def test_a_picture_that_cannot_be_told_from_another_file_is_not_recorded_as_the_input(
+        monkeypatch, tmp_path, where, kept_hash):
+    # Without the picture's hash nothing says the file at its old path is still that picture:
+    # not for a bundle made before the hash was kept, not for one whose picture was already
+    # gone when the hash would have been taken. A path alone was taken as proof, a relative one
+    # even from wherever the resume happened to run.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "cutout.png").write_bytes(b"whatever is at that path today")
+    monkeypatch.chdir(elsewhere)
+    named = "cutout.png" if where == "a relative path" else str(elsewhere / "cutout.png")
+
+    decode_path, output_path = _resume_from_decode(monkeypatch, tmp_path, {"images": [named], **kept_hash})
+
+    assert read_model_record(output_path)["input"] == {
+        "path": str(decode_path), "sha256": _sha256(decode_path), "source": "resumed-bundle"}
+
+
+def _first_runs_file(bundle_hash):
+    """`<name>.json` as a finished run leaves it, naming `bundle_hash` as its latents and its
+    decode bundle."""
+    def write(bundle_path):
+        made = {"path": str(bundle_path), "sha256": bundle_hash(bundle_path), "bytes": 1}
+        bundle_path.with_name("model.json").write_text(json.dumps(
+            {"matte_model": "u2net", "artifacts": {"latents": made, "decode": made}}), encoding="utf-8")
+    return write
+
+
+@pytest.mark.parametrize("resume", ["latents", "decode"])
+def test_an_older_bundle_takes_the_remover_from_the_first_runs_own_file(monkeypatch, tmp_path, resume):
+    # Before the bundle kept it, the remover's name was only in <name>.json, which a finished
+    # debug run leaves beside <name>_latents.pt and <name>_decode.pt.
+    older = {"images": [str(tmp_path / "gone.png")]}
+    the_first_runs = _first_runs_file(_sha256)
+
+    if resume == "latents":
+        _, output_path, _ = _resume_from_latents(monkeypatch, tmp_path, older, beside=the_first_runs)
+    else:
+        _, output_path = _resume_from_decode(monkeypatch, tmp_path, older, beside=the_first_runs)
+
+    assert "rembg/u2net" in _licence_parts(read_model_record(output_path))
+
+
+@pytest.mark.parametrize("resume", ["latents", "decode"])
+@pytest.mark.parametrize("left_there", ["by another run", "without the bundles it made",
+                                        "from before the remover was kept"])
+def test_an_older_bundle_whose_remover_cannot_be_told_says_it_is_not_known(
+        monkeypatch, tmp_path, resume, left_there):
+    # <name>.json is only a name: a later run of the same name writes over it, and a bundle
+    # copied into another folder can land beside anyone's. It speaks for this bundle only when
+    # it names this bundle's hash among what that run made, and then only if it kept the
+    # remover at all. Otherwise the record left the remover out, which reads as "none".
+    older = {"images": [str(tmp_path / "gone.png")]}
+    if left_there == "by another run":
+        not_this_one = _first_runs_file(lambda _bundle: "0" * 64)
+    elif left_there == "without the bundles it made":
+        def not_this_one(bundle_path):
+            bundle_path.with_name("model.json").write_text(json.dumps({"matte_model": "u2net"}), encoding="utf-8")
+    else:
+        def not_this_one(bundle_path):
+            made = {"path": str(bundle_path), "sha256": _sha256(bundle_path), "bytes": 1}
+            bundle_path.with_name("model.json").write_text(
+                json.dumps({"artifacts": {"latents": made, "decode": made}}), encoding="utf-8")
+
+    if resume == "latents":
+        _, output_path, handed_on = _resume_from_latents(monkeypatch, tmp_path, older, beside=not_this_one)
+        assert handed_on["origin"]["matte_model"] == "unknown"      # and so does a bundle saved now
+    else:
+        _, output_path = _resume_from_decode(monkeypatch, tmp_path, older, beside=not_this_one)
+
+    record = read_model_record(output_path)
+    assert _removers(record) == ["background remover (not known)"]
+    assert _licence_parts(record)["background remover (not known)"]["commercial_status"] == "unknown"
+    assert json.loads((tmp_path / "model.json").read_text(encoding="utf-8"))["matte_model"] == "unknown"
+
+
+def _git(folder, *args):
+    return subprocess.run(
+        ["git", "-C", str(folder), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+         "-c", "commit.gpgsign=false", *args],
+        check=True, capture_output=True, text=True).stdout.strip()
+
+
+def test_backend_revision_is_the_commit_of_the_trellis_checkout(tmp_path):
+    checkout = tmp_path / "TRELLIS.2"
+    checkout.mkdir()
+    _git(checkout, "init", "-q")
+    _git(checkout, "commit", "-q", "--allow-empty", "-m", "pin")
+
+    assert gen.backend_revision(tmp_path) == _git(checkout, "rev-parse", "HEAD")
+
+
+def test_backend_revision_is_nothing_when_the_checkout_is_not_a_clone(tmp_path):
+    # vendor/ sits inside this repository: asking git about a plain folder there would answer
+    # with this repository's commit, and the record would name the wrong code.
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "commit", "-q", "--allow-empty", "-m", "the repository around it")
+    (tmp_path / "TRELLIS.2").mkdir()
+
+    assert gen.backend_revision(tmp_path) is None
+    assert gen.backend_revision(tmp_path / "nowhere") is None
 
 
 # --- environment configuration ---

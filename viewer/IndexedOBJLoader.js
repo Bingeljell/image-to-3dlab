@@ -36,7 +36,9 @@ export class IndexedOBJLoader {
       };
       const vertexIndex = (token) => {
         const raw = Number.parseInt(token.split('/', 1)[0], 10);
-        return raw < 0 ? vertexCount + raw : raw - 1;
+        if (!Number.isFinite(raw) || raw === 0) return -1;
+        const index = raw < 0 ? vertexCount + raw : raw - 1;
+        return index >= 0 && index < vertexCount ? index : -1;
       };
       const parseLine = (line) => {
         if (line.startsWith('v ')) {
@@ -51,12 +53,13 @@ export class IndexedOBJLoader {
         if (!line.startsWith('f ')) return;
         const fields = line.trim().split(/\s+/).slice(1);
         if (fields.length < 3) return;
-        const first = vertexIndex(fields[0]);
+        const corners = fields.map(vertexIndex);
+        if (corners.some((c) => c < 0)) return;   // one bad corner drops the whole face
         growIndices(indexCount + (fields.length - 2) * 3);
-        for (let i = 1; i + 1 < fields.length; i++) {
-          indices[indexCount++] = first;
-          indices[indexCount++] = vertexIndex(fields[i]);
-          indices[indexCount++] = vertexIndex(fields[i + 1]);
+        for (let i = 1; i + 1 < corners.length; i++) {
+          indices[indexCount++] = corners[0];
+          indices[indexCount++] = corners[i];
+          indices[indexCount++] = corners[i + 1];
         }
       };
 
@@ -79,9 +82,9 @@ export class IndexedOBJLoader {
 
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute(
-        'position', new THREE.BufferAttribute(positions.subarray(0, positionCount), 3),
+        'position', new THREE.BufferAttribute(positions.slice(0, positionCount), 3),
       );
-      geometry.setIndex(new THREE.BufferAttribute(indices.subarray(0, indexCount), 1));
+      geometry.setIndex(new THREE.BufferAttribute(indices.slice(0, indexCount), 1));
       geometry.computeVertexNormals();
       geometry.computeBoundingBox();
       geometry.computeBoundingSphere();

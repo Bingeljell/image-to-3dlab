@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **A broken OBJ face no longer garbles the model on screen.** The studio's OBJ loader kept faces that pointed past the
+  vertex list or held a bad number. They are now skipped.
 - **Walk and idle no longer turn the head and an ear by default.** Their defaults (-32 degrees of head turn, and a -62
   degree ear swivel in the idle) were tuned for one fox and turned every other character's head. Both now default to 0;
   pass `--head-yaw` or `--ear-turn` to turn them.

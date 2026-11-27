@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **A failed winding repair no longer damages the finished model, and a damaged GLB gets an error line.** The repair
+  wrote straight over the finished file, so an export that failed halfway left it broken. It now writes beside it and
+  swaps it in. A GLB cut short stopped the command with a Python traceback; it is now an ordinary error.
 - **Smooth no longer drags away a loose piece the brush covers completely.** With nothing outside the brush to hold
   it, the piece was pulled toward the middle of the model. It now stays where it was, and a smooth that cannot settle
   no longer writes broken positions.

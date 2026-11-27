@@ -4,6 +4,7 @@ import json
 import os
 import struct
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,15 +22,18 @@ def read_glb(path: Path) -> tuple[dict, list[list], int, int]:
     regenerating the asset: the image data never left the file.
     """
     data = path.read_bytes()
-    magic, version, length = struct.unpack_from("<III", data, 0)
-    if magic != _GLB_MAGIC:
-        raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
-    offset = 12
-    chunks: list[list] = []
-    while offset < length:
-        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
-        chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
-        offset += 8 + chunk_len
+    try:
+        magic, version, length = struct.unpack_from("<III", data, 0)
+        if magic != _GLB_MAGIC:
+            raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
+        offset = 12
+        chunks: list[list] = []
+        while offset < length:
+            chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
+            chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
+            offset += 8 + chunk_len
+    except struct.error as exc:
+        raise ValueError(f"not a valid GLB: {path} is cut short ({exc})") from exc
     try:
         json_index = next(i for i, c in enumerate(chunks) if c[0] == _GLB_JSON_CHUNK)
     except StopIteration as exc:
@@ -111,7 +115,15 @@ def _repair_winding(path: Path) -> tuple[bool, bool]:
         inverted = float(mesh.volume) < 0.0
         if inverted:
             mesh.invert()
-        mesh.export(str(path))
+        # Export beside the original, then swap it in: a failed export must not eat the finished file.
+        fd, temp_name = tempfile.mkstemp(dir=path.parent, suffix=path.suffix)
+        os.close(fd)
+        try:
+            mesh.export(temp_name, file_type=path.suffix.lstrip(".") or None)
+            os.replace(temp_name, path)
+        except BaseException:
+            Path(temp_name).unlink(missing_ok=True)
+            raise
         print(
             f"  [image-to-3dlab] winding repaired: volume {volume_before:+.5f} -> "
             f"{float(mesh.volume):+.5f}{' (inverted)' if inverted else ''}"

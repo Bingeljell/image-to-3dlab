@@ -275,3 +275,43 @@ def test_the_legacy_route_runs_offline_when_the_weights_are_there(tmp_path, monk
                             tb.TrellisOptions(repo=_legacy_repo(tmp_path)))
     assert seen["offline"] == "1"
     os.environ.pop("HF_HUB_OFFLINE", None)
+
+
+def test_a_failed_winding_repair_keeps_the_finished_file(tmp_path, monkeypatch):
+    """The export writes some bytes and then fails: the finished model must be intact."""
+    import trimesh
+
+    from image_to_3dlab.trellis_backend import _repair_winding
+
+    source = tmp_path / "model.glb"
+    trimesh.creation.box().export(source)
+    original = source.read_bytes()
+
+    def write_some_then_fail(self, file_obj, *args, **kwargs):
+        Path(file_obj).write_bytes(b"glTF-half")
+        raise RuntimeError("export failed")
+
+    monkeypatch.setattr(trimesh.Trimesh, "export", write_some_then_fail)
+    assert _repair_winding(source) == (False, False)
+    assert source.read_bytes() == original
+    assert [p.name for p in tmp_path.iterdir()] == ["model.glb"], "a half-written file was left behind"
+
+
+def test_a_damaged_glb_is_an_error_line_not_a_traceback(tmp_path, monkeypatch, capsys):
+    """A truncated GLB makes the material step raise struct.error; the command line must say so plainly."""
+    from image_to_3dlab import cli
+    from image_to_3dlab.trellis_backend import _normalize_glb_material
+
+    image = tmp_path / "a.png"
+    image.write_bytes(b"png")
+    damaged = tmp_path / "damaged.glb"
+    damaged.write_bytes(b"glTF\x02\x00\x00")   # ends inside the header
+
+    def generate(_views, _out, _options):
+        _normalize_glb_material(damaged, "pbr")
+
+    monkeypatch.setattr("image_to_3dlab.trellis_backend.generate_trellis", generate)
+    monkeypatch.setattr(cli, "validate_run_policy", lambda *_a, **_k: {})
+    code = cli.main([str(image), "--trellis", "--output-dir", str(tmp_path)])
+    assert code == 1
+    assert "error:" in capsys.readouterr().err

@@ -393,20 +393,24 @@ def main(argv: list[str] | None = None) -> int:
         "steps": args.steps if args.trellis else None,
         "pre_simplify_cap": args.trellis_pre_simplify_cap if args.trellis else None,
     }
-    result, sidecar = finalize_output(
-        generated=result,
-        image=image,
-        output_root=args.output_dir,
-        backend=backend,
-        profile=profile,
-        intent=intent,
-        parameters=parameters,
-        source_manifest=source_manifest,
-        backend_repo=(
-            args.sf3d_repo if args.fast else args.trellis_repo if args.trellis else None
-        ),
-        model_identity=model_identity,
-    )
+    try:
+        result, sidecar = finalize_output(
+            generated=result,
+            image=image,
+            output_root=args.output_dir,
+            backend=backend,
+            profile=profile,
+            intent=intent,
+            parameters=parameters,
+            source_manifest=source_manifest,
+            backend_repo=(
+                args.sf3d_repo if args.fast else args.trellis_repo if args.trellis else None
+            ),
+            model_identity=model_identity,
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(result)
     print(sidecar)
     return 0

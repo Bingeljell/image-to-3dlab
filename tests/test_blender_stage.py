@@ -74,31 +74,6 @@ def test_mismatched_label_count_is_rejected():
         stage.labels_for(["/a.glb", "/b.glb"], ["only-one"])
 
 
-# --- generated code -------------------------------------------------------------------
-
-
-def test_viewport_is_set_to_material_preview():
-    """Otherwise the user sees untextured grey and asks where the texture went."""
-    code = stage.build_code(["/a.glb"], ["A_x"], [0.0], culled=True)
-    assert 'shading.type = "MATERIAL"' in code
-
-
-def test_backface_culling_is_on_by_default():
-    code = stage.build_code(["/a.glb"], ["A_x"], [0.0], culled=True)
-    assert "culled = True" in code
-
-
-def test_double_sided_mode_disables_culling():
-    code = stage.build_code(["/a.glb"], ["A_x"], [0.0], culled=False)
-    assert "culled = False" in code
-
-
-def test_nothing_is_left_selected():
-    """A selected object draws orange, which has been mistaken for a mesh property."""
-    code = stage.build_code(["/a.glb"], ["A_x"], [0.0], culled=True)
-    assert 'bpy.ops.object.select_all(action="DESELECT")' in code
-
-
 def test_generated_code_compiles():
     code = stage.build_code(["/a.glb", "/b.glb"], ["A_x", "B_y"], [-1.0, 1.0], culled=True)
     compile(code, "<blender>", "exec")

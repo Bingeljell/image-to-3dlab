@@ -36,6 +36,7 @@ if str(REPO / "scripts") not in sys.path:
 DEFAULT_VENDOR = REPO / "vendor" / "trellis-mac"
 
 import patch_trellis_space_core as space_patch
+from trellis_space_generate import require_flex_gemm
 
 from image_to_3dlab import matte
 
@@ -238,11 +239,7 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    try:
-        import flex_gemm  # noqa: F401
-        os.environ.setdefault("SPARSE_CONV_BACKEND", "flex_gemm")
-    except (ImportError, RuntimeError):
-        os.environ.setdefault("SPARSE_CONV_BACKEND", "none")
+    require_flex_gemm()
 
     sys.path.insert(0, str(trellis))
     if stubs.is_dir():

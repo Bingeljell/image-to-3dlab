@@ -3,6 +3,8 @@ name: CI
 # File checks, and the test suite in its own job.
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
@@ -18,7 +20,7 @@ jobs:
       - uses: tox-dev/action-pre-commit-uv@v1
 
   pytest:
-    name: Tests
+    name: Tests (Linux)
     needs: pre-commit
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +36,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uv-
       - run: uv sync --frozen
-      - run: uv run pytest --tb=short -ra --color=yes
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: uv run --frozen python scripts/measure_coverage.py coverage-report -- --tb=short -ra --color=yes
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: unit-coverage-linux
+          path: |
+            coverage-report/inventory.json
+            coverage-report/python.json
+            coverage-report/javascript.json
 
   # The suite on a Mac, where most of this code runs: the MLX and Apple routes, the Xcode and
   # memory checks. It is not report-only: a failure here fails the run, as on Linux.
@@ -55,16 +69,219 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uv-
       - run: uv sync --frozen
-      - run: uv run pytest --tb=short -ra --color=yes
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: uv run --frozen python scripts/measure_coverage.py coverage-report -- --tb=short -ra --color=yes
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: unit-coverage-macos
+          include-hidden-files: true
+          path: |
+            coverage-report/inventory.json
+            coverage-report/python.json
+            coverage-report/javascript.json
+            coverage-report/run.json
+            coverage-report/.coverage
 
-  # The suite on Windows (#243). Report-only for now: about 30 tests still assume POSIX paths
-  # or Linux build folders. Once those are fixed, drop continue-on-error so it blocks a merge.
+  mlx-unit:
+    name: MLX numerical unit tests
+    needs: pre-commit
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - run: uv venv --python 3.12 .venv-mlx-unit
+      - run: uv pip install --python .venv-mlx-unit/bin/python -r tests/mlx/requirements.txt
+      - run: .venv-mlx-unit/bin/python scripts/measure_coverage.py coverage-report --mlx-unit
+      - uses: actions/upload-artifact@v7
+        with:
+          name: unit-coverage-mlx
+          include-hidden-files: true
+          if-no-files-found: error
+          path: |
+            coverage-report/run.json
+            coverage-report/.coverage
+
+  coverage-macos:
+    name: Combined unit coverage (macOS)
+    needs: [pytest-macos, mlx-unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: unit-coverage-macos
+          path: coverage-report/portable
+      - uses: actions/download-artifact@v7
+        with:
+          name: unit-coverage-mlx
+          path: coverage-report/mlx
+      - run: >-
+          uv run --no-project --python 3.11 --with coverage==7.17.2
+          python scripts/measure_coverage.py coverage-report/combined
+          --merge coverage-report/portable coverage-report/mlx
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: unit-coverage-combined-macos
+          if-no-files-found: error
+          path: |
+            coverage-report/combined/inventory.json
+            coverage-report/combined/python.json
+            coverage-report/combined/javascript.json
+      - uses: actions/upload-artifact@v7
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        with:
+          name: coverage-badges
+          if-no-files-found: error
+          path: coverage-report/combined/badges/*.svg
+
+  blender-real:
+    name: Blender render and export
+    needs: pre-commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      LIBGL_ALWAYS_SOFTWARE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install software graphics support
+        run: sudo apt-get update && sudo apt-get install -y xvfb xauth libegl1 libgl1 libgl1-mesa-dri libxkbcommon0
+      - uses: BradyAJohnston/setup-blender@1006ec809db1af1422bd1197e107e2c4d368d81e # v5.2.0
+        with:
+          version: "5.2.2"
+      - name: Check real rendering, export, and cleanup
+        run: >-
+          xvfb-run -a blender --background --factory-startup --threads 2
+          --python-exit-code 1 --python tests/real_tools/blender/check.py
+          -- --output real-tool-results/blender
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: blender-real-results
+          path: real-tool-results/blender/
+
+  browser-real:
+    name: Studio browser rendering
+    needs: pre-commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - run: uv sync --frozen
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: browser-real-results
+          path: real-tool-results/browser/
+
+  merge-gate:
+    name: Merge gate
+    if: ${{ always() }}
+    needs: [pre-commit, pytest, pytest-macos, mlx-unit, coverage-macos, pytest-windows, blender-real, browser-real]
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      LINTERS: ${{ needs.pre-commit.result }}
+      LINUX: ${{ needs.pytest.result }}
+      MACOS: ${{ needs.pytest-macos.result }}
+      MLX: ${{ needs.mlx-unit.result }}
+      COMBINED_COVERAGE: ${{ needs.coverage-macos.result }}
+      WINDOWS: ${{ needs.pytest-windows.result }}
+      BLENDER: ${{ needs.blender-real.result }}
+      BROWSER: ${{ needs.browser-real.result }}
+    steps:
+      - name: Require every check to pass
+        shell: bash
+        run: |
+          failed=0
+          for dependency in LINTERS LINUX MACOS MLX COMBINED_COVERAGE WINDOWS BLENDER BROWSER; do
+            result="${!dependency}"
+            printf '%s: %s\n' "$dependency" "${result:-missing}"
+            if [[ "$result" != success ]]; then failed=1; fi
+          done
+          exit "$failed"
+
+  publish-coverage-badges:
+    name: Publish coverage badges
+    needs: [merge-gate]
+    if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: coverage-badges
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: badge-repo
+      - uses: actions/download-artifact@v7
+        with:
+          name: coverage-badges
+          path: badge-artifact
+      - name: Update coverage-badges branch
+        working-directory: badge-repo
+        shell: bash
+        run: |
+          latest_main() { git ls-remote --exit-code origin refs/heads/main | cut -f1; }
+          main_sha=$(latest_main)
+          if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Main has advanced. Keeping its latest published badges."
+            exit 0
+          fi
+
+          if git ls-remote --exit-code origin refs/heads/coverage-badges >/dev/null; then
+            git fetch origin refs/heads/coverage-badges
+            git switch --detach FETCH_HEAD
+          else
+            status=$?
+            if [[ $status != 2 ]]; then exit "$status"; fi
+            git switch --orphan coverage-badges
+          fi
+
+          badges=(python-lines.svg python-branches.svg javascript-lines.svg javascript-branches.svg)
+          for badge in "${badges[@]}"; do
+            install -T -m 0644 "../badge-artifact/$badge" "$badge"
+          done
+          git add -- "${badges[@]}"
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "docs: update coverage badges" -m "Source: $GITHUB_SHA"
+
+          main_sha=$(latest_main)
+          if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Main advanced while preparing badges. Skipping the update."
+            exit 0
+          fi
+          git push origin HEAD:refs/heads/coverage-badges
+
   # GitHub's Windows runners are admin, so the symlink-built tests (delete safety included) run here.
   pytest-windows:
     name: Tests (Windows)
     needs: pre-commit
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -78,5 +295,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uv-
       - run: uv sync --frozen
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: npm ci
       # No PYTHONUTF8 on purpose: a read without an encoding should fail here, as on a user's machine.
       - run: uv run pytest --tb=short -ra --color=yes

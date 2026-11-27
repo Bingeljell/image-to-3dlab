@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from scripts.measure_coverage import inventory
+
 REPO = Path(__file__).resolve().parents[1]
 
 
@@ -29,20 +31,15 @@ def test_pytest_puts_the_repo_root_on_the_path():
         assert "PYTHONPATH=. pytest" not in (REPO / name).read_text(encoding="utf-8")
 
 
-def test_coverage_measures_the_package_and_the_viewer():
-    """Opt-in line coverage for our code. scripts/ stays out: most of those files run
-    inside Blender, and one combined number would mostly describe them."""
-    project = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-    assert "pytest-cov>=7" in project
-    assert 'source = ["image_to_3dlab", "viewer"]' in project
-    assert 'directory = "htmlcov"' in project
-    ignored = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()
-    assert ".coverage" in ignored
-    assert "htmlcov/" in ignored
-    assert 'name = "pytest-cov"' in (REPO / "uv.lock").read_text(encoding="utf-8")
-    command = "--cov-config=pyproject.toml --cov --cov-report=term-missing"
-    assert command in (REPO / "README.md").read_text(encoding="utf-8")
-    assert command in (REPO / "AGENTS.md").read_text(encoding="utf-8")
+def test_coverage_inventory_includes_all_maintained_areas():
+    files = inventory(REPO)
+    assert {
+        "pipeline.py", "image_to_3dlab/cli.py", "viewer/generate_api.py",
+        "scripts/measure_coverage.py", "hunyuan_mlx/shape/hy3dmlx/sampler.py",
+        "hunyuan_mlx/paint/hy3dpaint_mlx/scheduler.py",
+    } <= set(files["python"])
+    assert {"understanding_3d/mesh-winding-demo.js", "viewer/studio/app.js"} <= set(files["javascript"])
+    assert "viewer/vendor/three.module.js" not in files["javascript"]
 
 
 def test_the_version_is_the_one_in_the_changelog():

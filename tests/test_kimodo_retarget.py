@@ -923,3 +923,58 @@ def test_a_clip_pulled_in_place_still_skips_its_standing_start():
     start, _, _ = kr.loop_trim(placed, rest, parents, order, height=1.6,
                                moving=kr.moving_frames(frames, height=1.6))
     assert start >= 6, "a still frame must not start the cycle"
+
+
+def test_planted_foot_without_toe_and_missing_other_foot_stays_at_rest():
+    mapping = {"shin": "LeftShin", "foot": "LeftFoot", "other_shin": "RightShin"}
+    order = ["shin", "foot"]
+    parents = {"shin": None, "foot": "shin"}
+    rest = {bone: np.eye(4) for bone in order}
+    rest["shin"][2, 3] = 1
+    rotations = {bone: np.eye(3) for bone in order}
+    frames = [(rotations, np.array([0, 0, 1]))]
+    assert kr._foot_sides(mapping, rest) == [("foot", None)]
+    # A horizontal sole is already level. A zero-length sole has no direction to fix.
+    for sole in ([0, 1, 0], [0, 0, 0]):
+        planted = kr.plant_feet(frames, rest, parents, order, {"foot": np.array(sole)},
+                                mapping, floor=0, height=1)
+        np.testing.assert_array_equal(planted[0][0]["foot"], np.eye(3))
+        np.testing.assert_array_equal(planted[0][1], frames[0][1])
+
+
+def test_a_single_pose_has_no_loop_and_duplicate_trimming_stops_at_three():
+    parents, heads, roles = _humanoid()
+    frames, rest, order = _clean_loop_frames(parents, heads, roles, frames=4)
+    assert kr.loop_candidates(frames[:1], rest, parents, order) == []
+    first, second, third, _ = frames
+    with_duplicate = [first, second, third, first]
+    assert kr.trim_duplicate_tail(with_duplicate, rest, parents, order, 1.6, tries=0) == with_duplicate
+    result = kr.trim_duplicate_tail(with_duplicate, rest, parents, order, 1.6)
+    assert len(result) == 3 and result[-1] is third
+
+
+def test_smallest_positive_height_still_does_not_classify_a_still_pose_as_moving():
+    frames = [({}, np.zeros(3))] * 3
+    assert kr.moving_frames(frames, float(np.nextafter(0, 1))) is None
+
+
+def test_clearance_on_an_empty_clip_does_not_invent_frames(capsys):
+    from types import SimpleNamespace
+
+    frames = []
+    kr.clear_arms(frames, {}, {"upper": None}, [], {}, SimpleNamespace(arms={"left": {"upper": "upper"}}))
+    assert frames == [] and capsys.readouterr().out == ""
+
+
+def test_arm_spread_keeps_a_one_armed_rigs_root_unchanged():
+    parents = {"hips": None, "arm": "hips"}
+    rest, order = _rest_mats(parents, {"hips": [0, 0, 0], "arm": [1, 1, 0]})
+    rotations = np.tile(np.eye(3), (1, 77, 1, 1))
+    rotations[0, kr.SOMA_INDEX["LeftArm"]] = [[0, 1, 0], [-1, 0, 0], [0, 0, 1]]
+    world, position = next(kr.retarget_pose_frames(
+        rest, parents, order, {"hips": "Hips", "arm": "LeftArm"}, np.eye(3),
+        rotations, np.zeros((1, 3)), 1.0, frame=np.eye(3), spread_degrees=30,
+    ))
+    np.testing.assert_array_equal(world["hips"], np.eye(3))
+    np.testing.assert_array_equal(position, [0, 0, 0])
+    assert world["arm"][:, 0] == pytest.approx([0.5, -np.sqrt(3) / 2, 0])

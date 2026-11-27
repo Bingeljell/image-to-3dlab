@@ -29,17 +29,13 @@ def test_replacement_is_idempotent():
 
 def test_sparse_attention_patch_uses_packed_metal_kernel():
     source = SCRIPT.read_text()
-    assert "flex_gemm.kernels.metal.sparse_attention_fwd" in source
-    assert "q_padded" not in source
-    assert "kv_prefix" in source
+    assert "from trellis2._assetfurnace_attention import metal_attention" in source
+    assert "metal_attention(q, k, v, q_seqlen, kv_seqlen, device)" in source
 
 
-def test_sdpa_preserves_packed_sequence_boundaries_and_metal_fails_fast_at_128():
+def test_sdpa_dispatch_preserves_both_length_vectors():
     source = SCRIPT.read_text()
-    assert "for q_length, kv_length in zip(q_seqlen, kv_seqlen)" in source
-    assert "F.scaled_dot_product_attention" in source
-    assert "if q.shape[-1] > 64" in source
-    assert "Use the sdpa backend for TRELLIS.2-4B" in source
+    assert "chunked_sdpa(q, k, v, q_seqlen, kv_seqlen)" in source
 
 
 def test_core_patch_does_not_change_model_or_sampler_equations():

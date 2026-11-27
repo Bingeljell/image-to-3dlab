@@ -12,16 +12,37 @@ normalization, flow equations, or decoder equations.
 from __future__ import annotations
 
 import argparse
+import ast
 from pathlib import Path
+from textwrap import dedent
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "trellis-space-mac" / "TRELLIS.2"
+ATTENTION_HELPER_SOURCE = Path(__file__).with_name("trellis_attention_compat.py")
+ATTENTION_HELPER_TARGET = "trellis2/_assetfurnace_attention.py"
+SPARSE_ATTENTION_TARGET = "trellis2/modules/sparse/attention/full_attn.py"
+DEVICE_ADAPTER = (
+    "        from trellis2._assetfurnace_attention import accelerator_device\n"
+    "        device = accelerator_device()"
+)
+LEGACY_DEVICE = '        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda")'
 
 
-def replace_exact(source: str, old: str, new: str, *, count: int, label: str) -> tuple[str, bool]:
+def install_attention_helper(root: Path) -> bool:
+    path = root / ATTENTION_HELPER_TARGET
+    source = ATTENTION_HELPER_SOURCE.read_bytes()
+    if path.is_file() and path.read_bytes() == source:
+        return False
+    path.write_bytes(source)
+    return True
+
+
+def replace_exact(source: str, old: str, new: str, *, count: int, label: str, previous: str | None = None) -> tuple[str, bool]:
     """Replace an audited anchor or fail instead of producing a partial port."""
     if new in source:
         return source, False
+    if previous is not None and previous in source:
+        old = previous
     found = source.count(old)
     if found != count:
         raise RuntimeError(f"{label}: expected {count} source anchors, found {found}")
@@ -38,13 +59,21 @@ def patch_file(path: Path, transform) -> bool:
 
 def patch_sparse_config(root: Path) -> bool:
     path = root / "trellis2/modules/sparse/config.py"
+    backends = "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']"
+    mlx_backends = backends[:-1] + ", 'mlx']"
 
     def transform(source: str) -> tuple[str, bool]:
+        if mlx_backends in source:
+            if (source.count(mlx_backends) != 2 or source.count("Literal" + mlx_backends) != 1
+                    or backends in source or "['xformers', 'flash_attn', 'flash_attn_3']" in source
+                    or "Literal['xformers', 'flash_attn']" in source):
+                raise RuntimeError("sparse attention allow-lists: inconsistent MLX patch")
+            return source, False
         changed = False
         source, did = replace_exact(
             source,
             "['xformers', 'flash_attn', 'flash_attn_3']",
-            "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']",
+            backends,
             count=1,
             label="sparse attention environment allow-list",
         )
@@ -52,7 +81,7 @@ def patch_sparse_config(root: Path) -> bool:
         source, did = replace_exact(
             source,
             "Literal['xformers', 'flash_attn']",
-            "Literal['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']",
+            "Literal" + backends,
             count=1,
             label="sparse attention type allow-list",
         )
@@ -62,92 +91,54 @@ def patch_sparse_config(root: Path) -> bool:
 
 
 def patch_sparse_attention(root: Path) -> bool:
-    path = root / "trellis2/modules/sparse/attention/full_attn.py"
+    path = root / SPARSE_ATTENTION_TARGET
     anchor = '''    else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")'''
-    replacement = '''    elif config.ATTN == 'sdpa':
-        # image-to-3dlab: evaluate each packed sequence independently with
-        # PyTorch SDPA.  This preserves FlashAttention's block-diagonal
-        # semantics without padding or a dense cross-sequence mask.
-        #
-        # MPS has no flash/memory-efficient SDPA kernel, so PyTorch materialises
-        # the full [H, Lq, Lkv] score tensor.  At TRELLIS.2-4B's real Stage-3
-        # shape (22,894 tokens, 12 heads, fp32) that single buffer is ~25 GiB
-        # and aborts the Metal allocator on a 32 GiB machine.  Chunking the
-        # query axis bounds the score tensor to [H, chunk, Lkv] and is
-        # numerically exact, because softmax runs per query over all keys.
-        # Override the block size with SDPA_Q_CHUNK; the default caps the
-        # self-attention score buffer near ~1 GiB.
-        import os as _os
-        import torch.nn.functional as F
-        if num_all_args == 1:
-            q, k, v = qkv.unbind(dim=1)
-        elif num_all_args == 2:
-            k, v = kv.unbind(dim=1)
-
-        q_chunk = int(_os.environ.get("SDPA_Q_CHUNK", "1024"))
-        out_parts = []
-        q_offset = 0
-        kv_offset = 0
-        for q_length, kv_length in zip(q_seqlen, kv_seqlen):
-            k_part = k[kv_offset:kv_offset + kv_length].permute(1, 0, 2).unsqueeze(0)
-            v_part = v[kv_offset:kv_offset + kv_length].permute(1, 0, 2).unsqueeze(0)
-            seq_parts = []
-            for start in range(0, q_length, q_chunk):
-                stop = min(start + q_chunk, q_length)
-                q_part = q[q_offset + start:q_offset + stop].permute(1, 0, 2).unsqueeze(0)
-                part = F.scaled_dot_product_attention(q_part, k_part, v_part)
-                seq_parts.append(part.squeeze(0).permute(1, 0, 2))
-            if seq_parts:
-                out_parts.append(torch.cat(seq_parts, dim=0))
-            q_offset += q_length
-            kv_offset += kv_length
-        out = torch.cat(out_parts, dim=0)
+    start = "    elif config.ATTN == 'sdpa':\n"
+    metal_branch = "    elif config.ATTN == 'metal_flash':"
+    mlx_branch = "    elif config.ATTN == 'mlx':"
+    legacy = "        # image-to-3dlab: evaluate each packed sequence independently with"
+    replacement = start + """\
+        from trellis2._assetfurnace_attention import chunked_sdpa, unpack_attention
+        q, k, v = unpack_attention(num_all_args, 1, locals())
+        out = chunked_sdpa(q, k, v, q_seqlen, kv_seqlen)
     elif config.ATTN == 'metal_flash':
-        # image-to-3dlab: Pedro's fused Metal kernel implements the same packed,
-        # variable-length equation used by Microsoft's FlashAttention path for
-        # head dimensions up to 64. TRELLIS.2-4B uses 128-wide heads, where
-        # Pedro silently falls back to an unusably slow serial kernel.
-        import math
-        import flex_gemm
-        if num_all_args == 1:
-            q, k, v = qkv.unbind(dim=1)
-        elif num_all_args == 2:
-            k, v = kv.unbind(dim=1)
-
-        if q.shape[-1] > 64:
-            raise RuntimeError(
-                f"metal_flash supports fast heads only through 64 values; got {q.shape[-1]}. "
-                "Use the sdpa backend for TRELLIS.2-4B."
-            )
-
-        q_prefix = [0]
-        for length in q_seqlen:
-            q_prefix.append(q_prefix[-1] + length)
-        kv_prefix = [0]
-        for length in kv_seqlen:
-            kv_prefix.append(kv_prefix[-1] + length)
-        cu_seqlens_q = torch.tensor(q_prefix, dtype=torch.int32).to(device)
-        cu_seqlens_kv = torch.tensor(kv_prefix, dtype=torch.int32).to(device)
-        out = flex_gemm.kernels.metal.sparse_attention_fwd(
-            q, k, v,
-            cu_seqlens_q, cu_seqlens_kv,
-            max(q_seqlen), max(kv_seqlen),
-            1.0 / math.sqrt(q.shape[-1]),
-        )
-    else:
-        raise ValueError(f"Unknown attention module: {config.ATTN}")'''
+        from trellis2._assetfurnace_attention import metal_attention, unpack_attention
+        q, k, v = unpack_attention(num_all_args, 1, locals())
+        out = metal_attention(q, k, v, q_seqlen, kv_seqlen, device)
+"""
 
     def transform(source: str) -> tuple[str, bool]:
-        return replace_exact(
-            source,
-            anchor,
-            replacement,
-            count=1,
-            label="fused Metal sparse-attention dispatch",
-        )
+        if legacy in source:
+            previous = start + legacy
+            if source.count(previous) != 1 or source.count(anchor) != 1:
+                raise RuntimeError("fused Metal sparse-attention dispatch: older patch is ambiguous")
+            before, _, patched = source.partition(previous)
+            old_branches, found, after = patched.partition(anchor)
+            if not found:
+                raise RuntimeError("fused Metal sparse-attention dispatch: older patch end is missing")
+            branches = [
+                line for line in old_branches.splitlines()[1:]
+                if line.strip() and not line.startswith("        ")
+            ]
+            if branches not in ([metal_branch], [metal_branch, mlx_branch]):
+                raise RuntimeError("fused Metal sparse-attention dispatch: older patch boundaries changed")
+            mlx_position = (
+                old_branches.index("\n" + mlx_branch + "\n") + 1
+                if mlx_branch in branches else len(old_branches)
+            )
+            return before + replacement + old_branches[mlx_position:] + found + after, True
+        installed_with_mlx = replacement + mlx_branch + "\n"
+        if installed_with_mlx in source:
+            _, _, mlx_body = source.partition(installed_with_mlx)
+            if source.count(installed_with_mlx) != 1 or source.count(anchor) != 1 or anchor not in mlx_body:
+                raise RuntimeError("fused Metal sparse-attention dispatch: MLX patch boundaries changed")
+            return source, False
+        return replace_exact(source, anchor, replacement + anchor, count=1,
+                             label="fused Metal sparse-attention dispatch")
 
-    return patch_file(path, transform)
+    changed = patch_file(path, transform)
+    return install_attention_helper(root) | changed
 
 
 def patch_image_feature_extractor(root: Path) -> bool:
@@ -163,13 +154,15 @@ def patch_image_feature_extractor(root: Path) -> bool:
     device_lifecycle = '''    @property
     def device(self):
         # image-to-3dlab: keep preprocessing tensors beside the DINO model.
-        return next(self.model.parameters()).device
+        from trellis2._assetfurnace_attention import model_device
+        return model_device(self.model)
 
     def to(self, device):
         self.model.to(device)
 
     def cuda(self):
-        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda")
+        from trellis2._assetfurnace_attention import accelerator_device
+        device = accelerator_device()
         self.model.to(device)
 
     def cpu(self):
@@ -183,6 +176,11 @@ def patch_image_feature_extractor(root: Path) -> bool:
             device_lifecycle,
             count=2,
             label="DINO device lifecycle",
+            previous=device_lifecycle.replace(DEVICE_ADAPTER, LEGACY_DEVICE).replace(
+                "        from trellis2._assetfurnace_attention import model_device\n"
+                "        return model_device(self.model)",
+                "        return next(self.model.parameters()).device",
+            ),
         )
         changed |= did
         if "torch.stack(image).cuda()" in source:
@@ -198,10 +196,13 @@ def patch_image_feature_extractor(root: Path) -> bool:
         source, did = replace_exact(
             source,
             "        for i, layer_module in enumerate(self.model.layer):",
-            "        layers = getattr(getattr(self.model, 'model', self.model), 'layer')\n"
+            "        from trellis2._assetfurnace_attention import dino_layers\n"
+            "        layers = dino_layers(self.model)\n"
             "        for i, layer_module in enumerate(layers):",
             count=1,
             label="DINOv3 transformer layer compatibility",
+            previous="        layers = getattr(getattr(self.model, 'model', self.model), 'layer')\n"
+                     "        for i, layer_module in enumerate(layers):",
         )
         return source, changed | did
 
@@ -216,19 +217,23 @@ def patch_pipeline_device(root: Path) -> bool:
         return replace_exact(
             source,
             '        self.to(torch.device("cuda"))',
-            '        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda")\n'
+            '        from trellis2._assetfurnace_attention import accelerator_device\n'
+            '        device = accelerator_device()\n'
             '        self.to(device)',
             count=1,
             label="pipeline accelerator selection",
+            previous=LEGACY_DEVICE + '\n        self.to(device)',
         )
 
     def pipeline_transform(source: str) -> tuple[str, bool]:
         return replace_exact(
             source,
             "        torch.cuda.empty_cache()",
-            "        if torch.cuda.is_available():\n            torch.cuda.empty_cache()",
+            "        from trellis2._assetfurnace_attention import empty_cuda_cache\n"
+            "        empty_cuda_cache()",
             count=1,
             label="CUDA cache guard",
+            previous="        if torch.cuda.is_available():\n            torch.cuda.empty_cache()",
         )
 
     return patch_file(base, base_transform) | patch_file(pipeline, pipeline_transform)
@@ -254,13 +259,37 @@ def pipeline_path(root: Path) -> Path:
     return root / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
 
 
+def _remover_is_disabled(source: str) -> bool:
+    """Recognize the audited assignment and reject further writes to the remover."""
+    if _CALL in source:
+        return False
+    try:
+        tree = ast.parse(dedent(source))
+    except SyntaxError:
+        return False
+    approved = None
+    writes = []
+    for node in ast.walk(tree):
+        match node:
+            case ast.Assign(targets=[
+                ast.Attribute(value=ast.Name(id="new_pipeline"), attr="rembg_model") as target
+            ], value=ast.Constant(value=None)):
+                approved = target
+            case ast.Attribute(attr="rembg_model", ctx=ast.Store() | ast.Del()):
+                writes.append(node)
+            case ast.Call(func=ast.Name(id="setattr" | "delattr"),
+                          args=[_, ast.Constant(value="rembg_model"), *_]):
+                return False
+    return approved is not None and writes == [approved]
+
+
 def is_patched(root: Path) -> bool:
-    """False while the pipeline still constructs the background remover."""
+    """True when the only background remover assignment disables it."""
     try:
         text = pipeline_path(root).read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return False
-    return _CALL not in text and DISABLED in text
+    return _remover_is_disabled(text)
 
 
 def has_old_optional_form(root: Path) -> bool:
@@ -268,17 +297,33 @@ def has_old_optional_form(root: Path) -> bool:
     version of this patch wrote. Such a tree is ours to upgrade, not a pristine checkout."""
     try:
         return TERNARY in pipeline_path(root).read_text()
-    except OSError:
+    except (OSError, UnicodeError):
         return False
 
 
 def bria_refusal(root: Path) -> str | None:
-    """Why this Space checkout may not run, or None. The licence guardrail."""
+    """Why this Space checkout may not run, or None."""
     if is_patched(root):
-        return None
+        return attention_helper_refusal(root)
     return (
         f"{root} still loads BRIA RMBG-2.0, which this repo's "
         "generation pipeline must never load. Apply the guardrail first:\n"
+        f"    python scripts/patch_trellis_space_core.py --root {root}"
+    )
+
+
+def attention_helper_refusal(root: Path) -> str | None:
+    """Older inline patches need no helper. A linked copy must match this release."""
+    attention = root / SPARSE_ATTENTION_TARGET
+    try:
+        if not attention.is_file() or "from trellis2._assetfurnace_attention import" not in attention.read_text():
+            return None
+        if (root / ATTENTION_HELPER_TARGET).read_bytes() == ATTENTION_HELPER_SOURCE.read_bytes():
+            return None
+    except (OSError, UnicodeError):
+        pass
+    return (
+        f"The TRELLIS attention helper in {root} is out of date or missing. Refresh it first:\n"
         f"    python scripts/patch_trellis_space_core.py --root {root}"
     )
 
@@ -298,7 +343,7 @@ def patch_optional_rembg(root: Path) -> bool:
         )
         changed |= did
         if _CALL not in source:
-            if DISABLED in source:
+            if _remover_is_disabled(source):
                 return source, changed
             raise RuntimeError(
                 "background-removal model disabled: expected 1 source anchors, found 0"
@@ -312,6 +357,8 @@ def patch_optional_rembg(root: Path) -> bool:
                 f"background-removal model disabled: expected 1 source anchors, found {found}"
             )
         source = source.replace(old, DISABLED, 1)
+        if not _remover_is_disabled(source):
+            raise RuntimeError("background-removal model disabled: found another remover assignment")
         return source, True
 
     return patch_file(path, transform)
@@ -324,7 +371,8 @@ def patch_sparse_tensor_cuda_aliases(root: Path) -> bool:
         return self.replace(new_feats)'''
     varlen_device = '''    def cuda(self) -> 'VarLenTensor':
         # API-compatible accelerator alias for Apple Silicon.
-        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda")
+        from trellis2._assetfurnace_attention import accelerator_device
+        device = accelerator_device()
         new_feats = self.feats.to(device)
         return self.replace(new_feats)'''
     sparse = '''    def cuda(self) -> 'SparseTensor':
@@ -333,17 +381,20 @@ def patch_sparse_tensor_cuda_aliases(root: Path) -> bool:
         return self.replace(new_feats, new_coords)'''
     sparse_device = '''    def cuda(self) -> 'SparseTensor':
         # API-compatible accelerator alias for Apple Silicon.
-        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda")
+        from trellis2._assetfurnace_attention import accelerator_device
+        device = accelerator_device()
         new_feats = self.feats.to(device)
         new_coords = self.coords.to(device)
         return self.replace(new_feats, new_coords)'''
 
     def transform(source: str) -> tuple[str, bool]:
         source, first = replace_exact(
-            source, varlen, varlen_device, count=1, label="VarLenTensor accelerator alias"
+            source, varlen, varlen_device, count=1, label="VarLenTensor accelerator alias",
+            previous=varlen_device.replace(DEVICE_ADAPTER, LEGACY_DEVICE),
         )
         source, second = replace_exact(
-            source, sparse, sparse_device, count=1, label="SparseTensor accelerator alias"
+            source, sparse, sparse_device, count=1, label="SparseTensor accelerator alias",
+            previous=sparse_device.replace(DEVICE_ADAPTER, LEGACY_DEVICE),
         )
         return source, first | second
 
@@ -355,7 +406,8 @@ def patch_mesh_device(root: Path) -> bool:
     cuda_alias = '''    def cuda(self, non_blocking=False):
         return self.to('cuda', non_blocking=non_blocking)'''
     accelerator_alias = '''    def cuda(self, non_blocking=False):
-        device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cuda")
+        from trellis2._assetfurnace_attention import accelerator_device
+        device = accelerator_device()
         return self.to(device, non_blocking=non_blocking)'''
 
     def transform(source: str) -> tuple[str, bool]:
@@ -366,6 +418,7 @@ def patch_mesh_device(root: Path) -> bool:
             accelerator_alias,
             count=1,
             label="mesh accelerator alias",
+            previous=accelerator_alias.replace(DEVICE_ADAPTER, LEGACY_DEVICE),
         )
         changed |= did
         if "self.vertices.cuda()" in source or "self.faces.cuda()" in source:

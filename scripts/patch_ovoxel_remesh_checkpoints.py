@@ -23,10 +23,12 @@ DEFAULT_TARGETS = (
     REPO / "vendor/trellis-mac/deps/trellis2-apple/o-voxel/o_voxel/postprocess.py",
     REPO / "vendor/trellis-mac/.venv/lib/python3.11/site-packages/o_voxel/postprocess.py",
 )
-MARKER = "def _i2l_save_checkpoint("
+MARKER = "from ._i2l_trellis_export import save_checkpoint as _i2l_save_checkpoint"
+HELPER_SOURCE = Path(__file__).with_name("trellis_export_compat.py")
+HELPER_NAME = "_i2l_trellis_export.py"
 HELPER_ANCHOR = "# Mesh processing — cumesh auto-selects Metal/CUDA\n"
 
-HELPER = '''
+LEGACY_HELPER = '''
 
 def _i2l_save_checkpoint(tag, mesh=None, vertices=None, faces=None):
     """Persist exact pre-export geometry when I2L_CHECKPOINT_PREFIX is set."""
@@ -52,6 +54,8 @@ def _i2l_save_checkpoint(tag, mesh=None, vertices=None, faces=None):
     print(f"[i2l] checkpoint {tag}: {path}", flush=True)
 '''
 
+HELPER = f"\n{MARKER}\n"
+
 CALLS = (
     (
         '            print(f"After remeshing: {mesh.num_vertices} vertices, {mesh.num_faces} faces")\n',
@@ -73,6 +77,8 @@ CALLS = (
 
 
 def patch(source: str) -> str:
+    if LEGACY_HELPER in source:
+        return source.replace(LEGACY_HELPER, HELPER, 1)
     if MARKER in source:
         return source
     if HELPER_ANCHOR not in source:
@@ -93,17 +99,25 @@ def main() -> int:
     targets = tuple(args.target or DEFAULT_TARGETS)
 
     states = []
+    payload = HELPER_SOURCE.read_bytes()
     for target in targets:
         if not target.is_file():
             states.append(f"MISSING {target}")
             continue
         source = target.read_text()
-        if MARKER in source:
+        helper = target.with_name(HELPER_NAME)
+        helper_current = helper.is_file() and helper.read_bytes() == payload
+        if MARKER in source and helper_current:
             states.append(f"APPLIED {target}")
         elif args.check:
-            states.append(f"ABSENT {target}")
+            status = "APPLIED" if LEGACY_HELPER in source else "ABSENT"
+            states.append(f"{status} {target}")
         else:
-            target.write_text(patch(source))
+            patched = patch(source)
+            if not helper_current:
+                helper.write_bytes(payload)
+            if patched != source:
+                target.write_text(patched)
             states.append(f"PATCHED {target}")
     print("\n".join(states))
     return 0 if all(not state.startswith(("MISSING", "ABSENT")) for state in states) else 2

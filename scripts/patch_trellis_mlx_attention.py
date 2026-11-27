@@ -30,6 +30,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "trellis-space-mac" / "TRELLIS.2"
+HELPER_SOURCE = Path(__file__).with_name("trellis_attention_compat.py")
+HELPER_TARGET = "trellis2/_assetfurnace_attention.py"
+ATTENTION_TARGET = "trellis2/modules/sparse/attention/full_attn.py"
 
 BACKEND_LIST_OLD = "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa']"
 BACKEND_LIST_NEW = "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 'sdpa', 'mlx']"
@@ -37,7 +40,7 @@ BACKEND_LIST_NEW = "['xformers', 'flash_attn', 'flash_attn_3', 'metal_flash', 's
 DISPATCH_ANCHOR = """    else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")"""
 
-DISPATCH_NEW = '''    elif config.ATTN == 'mlx':
+LEGACY_DISPATCH = '''    elif config.ATTN == 'mlx':
         # image-to-3dlab: route attention through MLX's fused Metal kernel.
         #
         # torch MPS has no fused attention kernel and Pedro's Metal kernel supports head
@@ -74,6 +77,13 @@ DISPATCH_NEW = '''    elif config.ATTN == 'mlx':
         raise ValueError(f"Unknown attention module: {config.ATTN}")'''
 
 
+DISPATCH_NEW = """    elif config.ATTN == 'mlx':
+        from trellis2._assetfurnace_attention import mlx_sparse_attention
+
+        out = mlx_sparse_attention(num_all_args, locals(), q_seqlen, kv_seqlen, __file__)
+""" + DISPATCH_ANCHOR
+
+
 def replace_exact(source: str, old: str, new: str, *, count: int, label: str) -> tuple[str, bool]:
     """Replace an audited anchor, or fail rather than produce a partial patch."""
     if new in source:
@@ -101,9 +111,10 @@ def patch_config(source: str) -> tuple[str, bool]:
 
 def patch_full_attn(source: str) -> tuple[str, bool]:
     """Insert the mlx dispatch branch ahead of the unknown-backend guard."""
+    anchor = LEGACY_DISPATCH if LEGACY_DISPATCH in source else DISPATCH_ANCHOR
     return replace_exact(
         source,
-        DISPATCH_ANCHOR,
+        anchor,
         DISPATCH_NEW,
         count=1,
         label="sparse attention dispatch",
@@ -112,12 +123,15 @@ def patch_full_attn(source: str) -> tuple[str, bool]:
 
 TARGETS = (
     ("trellis2/modules/sparse/config.py", patch_config),
-    ("trellis2/modules/sparse/attention/full_attn.py", patch_full_attn),
+    (ATTENTION_TARGET, patch_full_attn),
 )
 
 
 def apply(root: Path, *, check_only: bool = False) -> int:
     changed = 0
+    helper = root / HELPER_TARGET
+    payload = HELPER_SOURCE.read_bytes()
+    helper_current = helper.is_file() and helper.read_bytes() == payload
     for relative, transform in TARGETS:
         path = root / relative
         if not path.is_file():
@@ -125,10 +139,14 @@ def apply(root: Path, *, check_only: bool = False) -> int:
         source = path.read_text()
         patched, did = transform(source)
         state = "would patch" if check_only else "patched"
-        if did:
+        needs_helper = relative == ATTENTION_TARGET and not helper_current
+        if did or needs_helper:
             changed += 1
             if not check_only:
-                path.write_text(patched)
+                if needs_helper:
+                    helper.write_bytes(payload)
+                if did:
+                    path.write_text(patched)
             print(f"{state}: {relative}")
         else:
             print(f"already applied: {relative}")

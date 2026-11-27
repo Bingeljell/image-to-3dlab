@@ -10,10 +10,14 @@ are intentionally excluded.
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "vendor" / "trellis-space-mac"
+BVH_HELPER_SOURCE = Path(__file__).with_name("trellis_bvh_compat.py")
+SPARSE_HASHMAP_SOURCE = Path(__file__).with_name("trellis_sparse_hashmap_compat.py")
 
 
 def replace_once(source: str, old: str, new: str, label: str) -> tuple[str, bool]:
@@ -26,57 +30,44 @@ def replace_once(source: str, old: str, new: str, label: str) -> tuple[str, bool
 
 
 def patch_file(path: Path, transform) -> bool:
-    source = path.read_text()
+    source = path.read_text(encoding="utf-8")
     patched, changed = transform(source)
     if changed:
-        path.write_text(patched)
+        path.write_text(patched, encoding="utf-8")
     return changed
 
 
 def patch_mtlbvh_python(root: Path) -> bool:
     path = root / "deps/mtlbvh/mtlbvh/bvh.py"
     return_anchor = "        return self._impl.unsigned_distance(positions, return_uvw, out_id)"
-    chunked = '''        # image-to-3dlab: bound each command buffer on dense TRELLIS meshes.
-        # Queries are independent, so chunking preserves the exact result.
-        chunk_size = int(os.environ.get("MTLBVH_QUERY_CHUNK", "65536"))
-        if chunk_size <= 0 or positions.shape[0] <= chunk_size:
-            return self._impl.unsigned_distance(positions, return_uvw, out_id)
-
-        scalar_dtype = output_dtype or torch.float32
-        distances = torch.empty(positions.shape[0], dtype=scalar_dtype, device=positions.device)
-        face_ids = torch.empty(positions.shape[0], dtype=torch.int64, device=positions.device)
-        uvws = (
-            torch.empty((positions.shape[0], 3), dtype=torch.float32, device=positions.device)
-            if return_uvw else None
-        )
-        for start in range(0, positions.shape[0], chunk_size):
-            result = self._impl.unsigned_distance(
-                positions[start:start + chunk_size], return_uvw, out_id
-            )
-            end = start + result[0].shape[0]
-            distances[start:end].copy_(result[0])
-            face_ids[start:end].copy_(result[1])
-            if return_uvw:
-                uvws[start:end].copy_(result[2])
-            del result
-            if positions.device.type == "mps":
-                torch.mps.synchronize()
-        return distances, face_ids, uvws'''
+    chunked = '''        from ._assetfurnace_bvh import chunked_unsigned_distance
+        return chunked_unsigned_distance(self._impl.unsigned_distance, positions,
+                                         return_uvw, out_id, output_dtype)'''
+    legacy_start = "        # image-to-3dlab: bound each command buffer on dense TRELLIS meshes."
+    legacy_end = "        return distances, face_ids, uvws"
 
     def transform(source: str) -> tuple[str, bool]:
-        changed = False
-        if "import os\n" not in source:
-            source, did = replace_once(
-                source,
-                '"""Python wrapper for MtlBVH — Metal-accelerated BVH queries."""\nimport torch',
-                '"""Python wrapper for MtlBVH — Metal-accelerated BVH queries."""\nimport os\n\nimport torch',
-                "mtlbvh environment import",
-            )
-            changed |= did
-        source, did = replace_once(source, return_anchor, chunked, "chunked BVH queries")
-        return source, changed | did
+        if legacy_start in source:
+            start = source.index(legacy_start)
+            end = source.find(legacy_end, start)
+            if end < 0:
+                raise RuntimeError("chunked BVH queries: previous patch has changed")
+            digest = hashlib.sha256(source[start:end + len(legacy_end)].encode()).hexdigest()
+            if digest != "4d0f52499c206dcb3746ce82651c0eba5f7ceea2aa696808c5e78fffac1a6418":
+                raise RuntimeError("chunked BVH queries: previous patch has changed")
+            return source[:start] + chunked + source[end + len(legacy_end):], True
+        return replace_once(source, return_anchor, chunked, "chunked BVH queries")
 
-    return patch_file(path, transform)
+    source = path.read_text(encoding="utf-8")
+    patched, changed = transform(source)
+    helper = path.with_name("_assetfurnace_bvh.py")
+    expected = BVH_HELPER_SOURCE.read_bytes()
+    helper_changed = not helper.is_file() or helper.read_bytes() != expected
+    if helper_changed:
+        helper.write_bytes(expected)
+    if changed:
+        path.write_text(patched, encoding="utf-8")
+    return changed or helper_changed
 
 
 def patch_mtlbvh_metal(root: Path) -> bool:
@@ -275,28 +266,37 @@ def patch_ovoxel_sparse_hashmap(root: Path) -> bool:
         result[result < 0] = 0xffffffff
         return result
 '''
-    new = '''class _CPUHashMap:
-    """Sparse coordinate lookup for non-CUDA decoders.
+    replacement = "from .trellis_sparse_hashmap_compat import CPUHashMap as _CPUHashMap\n"
+    source = path.read_text(encoding="utf-8")
+    if replacement in source:
+        patched = source
+    elif '"""Sparse coordinate lookup for non-CUDA decoders.' in source:
+        # Previous releases embedded the class in the vendor file. The constructor
+        # marker self._entries = {} distinguishes it from upstream's dense table.
+        source_lines = source.splitlines(keepends=True)
+        previous = next(
+            (node for node in ast.parse(source).body if isinstance(node, ast.ClassDef)
+             and node.name == "_CPUHashMap"
+             and (ast.get_docstring(node) or "").startswith("Sparse coordinate lookup for non-CUDA decoders.")),
+            None,
+        )
+        if previous is None:
+            raise RuntimeError("sparse o_voxel coordinate map: missing previous sparse class")
+        start, end = previous.lineno - 1, previous.end_lineno
+        if "self._entries = {}" not in "".join(source_lines[start:end]):
+            raise RuntimeError("sparse o_voxel coordinate map: unknown previous sparse class")
+        patched = "".join([*source_lines[:start], replacement, *source_lines[end:]])
+    else:
+        patched, _ = replace_once(source, old, replacement, "sparse o_voxel coordinate map")
 
-    Pedro's dense fallback allocates D*H*W int64 entries, which is about 8 GiB
-    for a 1024-cubed decode even though only active voxels are queried.  Keep only
-    active coordinates while preserving the CUDA API's 0xFFFFFFFF miss sentinel.
-    """
-
-    def __init__(self, grid_size, device='cpu'):
-        self.device = device
-        self._entries = {}
-
-    def insert(self, coords_4d):
-        coords = coords_4d[:, 1:4].detach().cpu().tolist()
-        self._entries = {tuple(coord): index for index, coord in enumerate(coords)}
-
-    def lookup_3d(self, coords_4d):
-        coords = coords_4d[:, 1:4].detach().cpu().tolist()
-        values = [self._entries.get(tuple(coord), 0xFFFFFFFF) for coord in coords]
-        return torch.tensor(values, dtype=torch.long, device=self.device)
-'''
-    return patch_file(path, lambda source: replace_once(source, old, new, "sparse o_voxel coordinate map"))
+    helper = path.with_name(SPARSE_HASHMAP_SOURCE.name)
+    desired = SPARSE_HASHMAP_SOURCE.read_bytes()
+    helper_changed = not helper.is_file() or helper.read_bytes() != desired
+    if helper_changed:
+        helper.write_bytes(desired)
+    if patched != source:
+        path.write_text(patched, encoding="utf-8")
+    return helper_changed or patched != source
 
 
 def apply(root: Path) -> list[str]:

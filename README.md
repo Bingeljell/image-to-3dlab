@@ -15,6 +15,13 @@ NVIDIA PC, with the licence of every asset written down.</p>
 </p>
 
 <p align="center">
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/python-lines.svg" alt="Python line coverage"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/python-branches.svg" alt="Python branch coverage"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/javascript-lines.svg" alt="JavaScript line coverage"></a>
+  <a href="https://github.com/Bingeljell/image-to-3dlab/actions/workflows/pre-commit.yml"><img src="https://raw.githubusercontent.com/Bingeljell/image-to-3dlab/coverage-badges/javascript-branches.svg" alt="JavaScript branch coverage"></a>
+</p>
+
+<p align="center">
   <a href="https://assetfurnace.com"><b>assetfurnace.com</b></a> ·
   <a href="https://assetfurnace.com/blog/how-to-use-assetfurnace"><b>Step-by-step guide</b></a> ·
   <a href="https://discord.gg/EuY9cQTRUt"><b>Join the Discord</b></a> ·
@@ -527,12 +534,14 @@ here. Model weights keep their own licences, listed above.
 ```bash
 uv sync
 uv tool install pre-commit --with pre-commit-uv && pre-commit install
-uv run pytest -q        # backends that load real models stay manual
-uv run pytest -q --cov-config=pyproject.toml --cov --cov-report=term-missing --cov-report=html  # package and viewer; writes htmlcov/
+npm ci
+uv run pytest -q
+npm test
 ruff check .
 ```
 
 Conventions: Conventional Commits, Keep a Changelog (`CHANGELOG.md`), test-first.
+See [coverage and unit tests](docs/coverage.md) for setup and combined coverage reports.
 
 ## Credits
 

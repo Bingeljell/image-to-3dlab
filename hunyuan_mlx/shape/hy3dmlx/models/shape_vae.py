@@ -13,27 +13,9 @@ import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
 
+from ..grid import default_chunks, dense_grid, octree_grid
+from ..grid import near_surface_mask as _near_surface_mask  # noqa: F401
 from ..layers import FourierEmbedder, LayerNorm, gelu_erf, sdpa
-
-
-def _near_surface_mask(grid: np.ndarray, alpha: float) -> np.ndarray:
-    """Cells bracketing the iso-surface: sign changes vs a 6-neighbor, or |value| < 0.95.
-    NaN cells (inactive from a previous octree level) are excluded. Returns bool mask.
-    """
-    g = grid + alpha
-    valid = ~np.isnan(g)
-    s = np.sign(np.where(valid, g, 0.0))
-    near = np.zeros(g.shape, dtype=bool)
-    for axis in range(3):
-        lo = [slice(None)] * 3; lo[axis] = slice(0, -1)
-        hi = [slice(None)] * 3; hi[axis] = slice(1, None)
-        lo, hi = tuple(lo), tuple(hi)
-        change = (s[lo] != s[hi]) & valid[lo] & valid[hi]
-        near[lo] |= change
-        near[hi] |= change
-    near |= (np.abs(np.where(valid, g, 1e9)) < 0.95)
-    near &= valid
-    return near
 
 
 def _self_qkv(qkv: mx.array, heads: int, q_norm, k_norm):
@@ -216,18 +198,6 @@ class ShapeVAE(nn.Module):
         """latents [B, num_latents, embed_dim] (already divided by scale_factor) -> kv [B, N, width]."""
         return self.transformer(self.post_kl(latents))
 
-    @staticmethod
-    def _default_chunks(num_latents, num_chunks):
-        if num_chunks is not None:
-            return num_chunks
-        return 8000 if num_latents <= 1024 else 100000
-
-    @staticmethod
-    def _bbox(bounds):
-        if isinstance(bounds, (int, float)):
-            bounds = [-bounds, -bounds, -bounds, bounds, bounds, bounds]
-        return np.array(bounds[0:3], dtype=np.float32), np.array(bounds[3:6], dtype=np.float32)
-
     def _decode_points(self, kv: mx.array, pts: np.ndarray, num_chunks: int) -> np.ndarray:
         """Evaluate the geo-decoder SDF at arbitrary query points. pts [P,3] -> [P] (numpy)."""
         kv_dt = kv.dtype
@@ -241,58 +211,18 @@ class ShapeVAE(nn.Module):
 
     def query_grid(self, kv: mx.array, bounds=1.01, octree_resolution=256, num_chunks=None):
         """Dense (R+1)^3 SDF grid. num_chunks tunes only GPU dispatch (output is identical)."""
-        num_chunks = self._default_chunks(self.latent_shape[0], num_chunks)
-        bbox_min, bbox_max = self._bbox(bounds)
-        r = int(octree_resolution)
-        ax = [np.linspace(bbox_min[i], bbox_max[i], r + 1, dtype=np.float32) for i in range(3)]
-        gx, gy, gz = np.meshgrid(*ax, indexing="ij")
-        xyz = np.stack([gx, gy, gz], axis=-1).reshape(-1, 3)
-        grid = self._decode_points(kv, xyz, num_chunks).reshape((r + 1, r + 1, r + 1))
-        return grid, bbox_min, bbox_max, (r + 1, r + 1, r + 1)
+        num_chunks = default_chunks(self.latent_shape[0], num_chunks)
+        return dense_grid(
+            lambda xyz: self._decode_points(kv, xyz, num_chunks),
+            bounds=bounds, resolution=octree_resolution,
+        )
 
     def query_grid_octree(self, kv: mx.array, bounds=1.01, octree_resolution=256,
                           num_chunks=None, mc_level=0.0, min_resolution=63):
-        """Octree (FlashVDM-style) SDF grid: decode a coarse grid densely, then refine only the
-        near-surface band level-by-level (x2). Inactive cells are NaN (masked at marching cubes).
-        Returns the same (grid, bbox_min, bbox_max, grid_size) tuple as query_grid.
-        Octree bookkeeping is numpy on the small grids; only the neural queries hit MLX.
-        """
-        from scipy import ndimage
-        num_chunks = self._default_chunks(self.latent_shape[0], num_chunks)
-        bbox_min, bbox_max = self._bbox(bounds)
-        bbox_size = bbox_max - bbox_min
-
-        res_list = []
-        r = int(octree_resolution)
-        while r >= min_resolution:
-            res_list.append(r)
-            r //= 2
-        res_list = res_list[::-1] or [int(octree_resolution)]  # [coarse, ..., fine]
-
-        # coarse dense decode
-        r0 = res_list[0]
-        ax = [np.linspace(bbox_min[i], bbox_max[i], r0 + 1, dtype=np.float32) for i in range(3)]
-        gx, gy, gz = np.meshgrid(*ax, indexing="ij")
-        xyz = np.stack([gx, gy, gz], axis=-1).reshape(-1, 3)
-        grid = self._decode_points(kv, xyz, num_chunks).reshape((r0 + 1,) * 3)
-
-        struct = np.ones((3, 3, 3), dtype=bool)
-        for res in res_list[1:]:
-            gs = res + 1
-            step = bbox_size / res
-            near = _near_surface_mask(grid, mc_level)
-            expand = 0 if res == res_list[-1] else 1
-            for _ in range(expand):
-                near = ndimage.binary_dilation(near, struct)
-            cidx = np.argwhere(near) * 2  # upsample coarse->fine (x2)
-            nxt = np.zeros((gs, gs, gs), dtype=bool)
-            cidx = np.clip(cidx, 0, gs - 1)
-            nxt[cidx[:, 0], cidx[:, 1], cidx[:, 2]] = True
-            for _ in range(2 - expand):
-                nxt = ndimage.binary_dilation(nxt, struct)
-            nidx = np.argwhere(nxt)  # active fine-grid voxels [P,3]
-            pts = nidx.astype(np.float32) * step + bbox_min
-            vals = self._decode_points(kv, pts, num_chunks)
-            grid = np.full((gs, gs, gs), np.nan, dtype=np.float32)
-            grid[nidx[:, 0], nidx[:, 1], nidx[:, 2]] = vals
-        return grid, bbox_min, bbox_max, grid.shape
+        """Decode a dense coarse grid, then refine only its band near the surface."""
+        num_chunks = default_chunks(self.latent_shape[0], num_chunks)
+        return octree_grid(
+            lambda xyz: self._decode_points(kv, xyz, num_chunks),
+            bounds=bounds, resolution=octree_resolution, mc_level=mc_level,
+            min_resolution=min_resolution,
+        )

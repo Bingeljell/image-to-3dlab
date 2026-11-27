@@ -23,6 +23,14 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+from pathlib import Path
+
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_stage_worker.py")
 
 
 def build_code(
@@ -37,73 +45,14 @@ def build_code(
     output_dir: str,
     label: str,
 ) -> str:
-    return f'''
-import bpy, os, math, json
-
-arm = bpy.data.objects.get("rig")
-if arm is None:
-    raise RuntimeError("no object named 'rig' in the scene")
-if arm.animation_data is None:
-    raise RuntimeError("'rig' has no animation_data")
-
-action = bpy.data.actions.get({action_name!r})
-if action is None:
-    raise RuntimeError("no action named {action_name!r} in this file")
-previous_action = arm.animation_data.action
-arm.animation_data.action = action
-
-target = bpy.data.objects.get("CAM_TARGET")
-if target is None:
-    raise RuntimeError("no CAM_TARGET empty in this file")
-previous_target_rotation = tuple(target.rotation_euler)
-target.rotation_euler = (math.radians({el}), 0.0, math.radians({az}))
-
-cam = bpy.data.objects.get("QuickCam2") or bpy.data.objects.get("Camera")
-if cam is None or cam.data.type != "ORTHO":
-    raise RuntimeError("no ortho camera parented to CAM_TARGET found (expected 'QuickCam2')")
-{"cam.data.ortho_scale = " + repr(ortho_scale) if ortho_scale is not None else "# ortho_scale left as authored in the file"}
-previous_camera = bpy.context.scene.camera
-bpy.context.scene.camera = cam
-
-scene = bpy.context.scene
-previous_resolution = (scene.render.resolution_x, scene.render.resolution_y)
-previous_film = scene.render.film_transparent
-previous_view = scene.view_settings.view_transform
-scene.render.resolution_x = {resolution}
-scene.render.resolution_y = {resolution}
-scene.render.film_transparent = True
-scene.view_settings.view_transform = "Standard"
-scene.render.image_settings.file_format = "PNG"
-scene.render.image_settings.color_mode = "RGBA"
-
-out_dir = {str(output_dir)!r}
-os.makedirs(out_dir, exist_ok=True)
-
-native_start, native_end = int(action.frame_range[0]), int(action.frame_range[1])
-start = {frame_start!r} if {frame_start!r} is not None else native_start
-end = {frame_end!r} if {frame_end!r} is not None else native_end
-step = {frame_step}
-
-rendered = []
-for frame in range(start, end + 1, step):
-    scene.frame_set(frame)
-    path = os.path.join(out_dir, f"{label}_{{action.name}}_az{az:g}_f{{frame:03d}}.png")
-    scene.render.filepath = path
-    bpy.ops.render.render(write_still=True)
-    rendered.append(os.path.basename(path))
-
-print("STAGE_BAKE " + json.dumps({{
-    "label": {label!r}, "action": action.name, "az": {az}, "el": {el},
-    "native_range": [native_start, native_end], "step": step,
-    "frame_count": len(rendered), "frames": rendered,
-}}))
-arm.animation_data.action = previous_action
-target.rotation_euler = previous_target_rotation
-scene.camera = previous_camera
-scene.render.resolution_x, scene.render.resolution_y = previous_resolution
-scene.render.film_transparent = previous_film
-scene.view_settings.view_transform = previous_view
-'''
+    return build_worker_code(WORKER_PATH, {
+        "action": "stage_bake",
+        "parameters": {
+            "action_name": action_name, "az": az, "el": el, "ortho_scale": ortho_scale,
+            "frame_start": frame_start, "frame_end": frame_end, "frame_step": frame_step,
+            "resolution": resolution, "output_dir": str(output_dir), "label": label,
+        },
+    })
 
 
 def send(code: str, host: str, port: int) -> str:

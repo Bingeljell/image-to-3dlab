@@ -35,8 +35,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+if __package__:
+    from .pixal3d_compat import (
+        ENV_VAR,
+        helper_matches,
+        install_helper,
+        replace_payload,
+    )
+else:
+    from pixal3d_compat import (
+        ENV_VAR,
+        helper_matches,
+        install_helper,
+        replace_payload,
+    )
+
 MARKER = "i2l_model_subset"
-ENV_VAR = "PIXAL3D_SKIP_MODELS"
+HELPER_SOURCE = Path(__file__).with_name("pixal3d_compat.py")
 
 DEFAULT_TARGET = Path("vendor/pixal3d-mac/pixal3d/pipelines/pixal3d_image_to_3d.py")
 
@@ -44,58 +59,23 @@ ANCHOR = """        'tex_slat_decoder',
     ]
 """
 
-INJECTION = f'''
-    # {MARKER}: drop checkpoints this run will not use, before they are read. The list
-    # above is ~22 GB at 1024, which does not fit beside a sampler on a 32 GB Mac.
-    # `pipelines/base.py` skips any model absent from this attribute, so subtracting
-    # here is enough — nothing downstream needs to know.
-    import os as _i2l_os
-
-    _i2l_skip = {{
-        _name.strip()
-        for _name in _i2l_os.environ.get("{ENV_VAR}", "").split(",")
-        if _name.strip()
-    }}
-    if _i2l_skip:
-        print(f"[{MARKER}] not loading: {{sorted(_i2l_skip)}}", flush=True)
-        # A plain loop, not a comprehension: comprehensions get their own scope and
-        # cannot see class-body names, so the obvious one-liner raises NameError at
-        # import time. Caught by a test rather than by a dead run.
-        _i2l_kept = []
-        for _i2l_name in model_names_to_load:
-            if _i2l_name not in _i2l_skip:
-                _i2l_kept.append(_i2l_name)
-        model_names_to_load = _i2l_kept
-        del _i2l_kept, _i2l_name
-    del _i2l_os, _i2l_skip
+INJECTION = '''    # i2l_model_subset: apply the checkpoint selection before loading weights.
+    from ._assetfurnace_pixal3d_compat import model_names_for_run as _i2l_select
+    model_names_to_load = _i2l_select(model_names_to_load)
+    del _i2l_select
 '''
-
-
-def remaining_models(names: list[str], skip: str) -> list[str]:
-    """The models still loaded after applying a `PIXAL3D_SKIP_MODELS` value.
-
-    Pure, and the same decision the injected code makes, so it can be tested without
-    importing a pipeline or spending a run.
-    """
-    dropped = {name.strip() for name in skip.split(",") if name.strip()}
-    return [name for name in names if name not in dropped]
+LEGACY_END = '    del _i2l_os, _i2l_skip\n'
+LEGACY_DIGEST = "044a8822bc71e3012a0bab7506b9a4e8635d15fcda43ed6aef553f6f6f8bf357"
 
 
 def is_patched(source: str) -> bool:
-    return MARKER in source
+    return source.count(ANCHOR) == 1 and ANCHOR + INJECTION in source
 
 
 def apply(source: str) -> str:
     """Return the patched source. Idempotent."""
-    if is_patched(source):
-        return source
-    if ANCHOR not in source:
-        raise SystemExit(
-            "anchor not found: the pipeline's `model_names_to_load` list no longer ends "
-            "with 'tex_slat_decoder'. Check what it loads now before assuming this patch "
-            "still selects the right subset."
-        )
-    return source.replace(ANCHOR, ANCHOR + INJECTION, 1)
+    return replace_payload(source, ANCHOR, INJECTION, MARKER, LEGACY_END, LEGACY_DIGEST,
+                           "anchor not found or changed: the audited Pixal3D checkpoint selection block.")
 
 
 def main() -> int:
@@ -109,14 +89,17 @@ def main() -> int:
     source = args.target.read_text(encoding="utf-8")
 
     if args.check:
-        print(("patched: " if is_patched(source) else "NOT PATCHED: ") + str(args.target))
-        return 0 if is_patched(source) else 1
+        ready = is_patched(source) and helper_matches(HELPER_SOURCE, args.target)
+        print(("patched: " if ready else "NOT PATCHED: ") + str(args.target))
+        return 0 if ready else 1
 
     patched = apply(source)
-    if patched == source:
+    helper_changed = install_helper(HELPER_SOURCE, args.target)
+    if patched == source and not helper_changed:
         print(f"already patched: {args.target}")
         return 0
-    args.target.write_text(patched, encoding="utf-8")
+    if patched != source:
+        args.target.write_text(patched, encoding="utf-8")
     print(f"patched {args.target}: {ENV_VAR} now subtracts from model_names_to_load")
     return 0
 

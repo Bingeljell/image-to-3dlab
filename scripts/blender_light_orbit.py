@@ -18,13 +18,20 @@ washed out.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blender_joint_markers import send
-from blender_scene import isolated_scene_prelude, restore_previous_scene
+
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_stage_worker.py")
 
 
 def key_light_rotation(frame: int, frames: int, elevation: float) -> tuple[float, float, float]:
@@ -42,58 +49,6 @@ def key_light_rotation(frame: int, frames: int, elevation: float) -> tuple[float
     return (math.radians(elevation), 0.0, 2.0 * math.pi * t)
 
 
-TEMPLATE = '''
-import bpy, json, math
-
-ASSET = {asset!r}
-OUT = {out!r}
-FRAMES = {frames}
-ELEV = {elevation}
-RES = {res}
-
-{prelude}
-bpy.ops.import_scene.gltf(filepath=ASSET)
-meshes = [o for o in render_scene.objects if o.type == "MESH"]
-if not meshes:
-    raise RuntimeError("no mesh imported from " + ASSET)
-
-scn = bpy.context.scene
-cam_data = bpy.data.cameras.new("CAM"); cam = bpy.data.objects.new("CAM", cam_data)
-scn.collection.objects.link(cam); scn.camera = cam
-cam.location = (2.15, -1.75, 0.10)
-cam.rotation_euler = (math.radians(88), 0.0, math.radians(51))
-cam.data.lens = 70
-
-def sun(name, energy, angle, rot):
-    d = bpy.data.lights.new(name, type="SUN")
-    d.energy = energy; d.angle = angle
-    o = bpy.data.objects.new(name, d); scn.collection.objects.link(o)
-    o.rotation_euler = rot
-    return o
-
-key = sun("KEY", 5.0, math.radians(6), (0, 0, 0))      # tight angle = crisp relief
-sun("FILL", 0.55, math.radians(50), (math.radians(75), 0, math.radians(-80)))
-sun("RIM", 1.4, math.radians(10), (math.radians(103), 0, math.radians(200)))
-
-scn.world.use_nodes = True
-scn.world.node_tree.nodes["Background"].inputs[0].default_value = (0.03, 0.033, 0.037, 1)
-
-scn.render.engine = "BLENDER_EEVEE"
-scn.render.resolution_x = RES; scn.render.resolution_y = RES
-scn.render.fps = 24
-scn.render.image_settings.file_format = "PNG"
-
-rotations = json.loads({rotations!r})
-for i, rot in enumerate(rotations, start=1):
-    key.rotation_euler = rot
-    scn.frame_set(i)
-    scn.render.filepath = OUT + "%04d" % i
-    bpy.ops.render.render(write_still=True)
-
-print(json.dumps({{"asset": ASSET, "frames": len(rotations), "written_to": OUT}}))
-{restore}'''
-
-
 def blender_code(
     asset: Path,
     out: Path,
@@ -102,16 +57,13 @@ def blender_code(
     res: int,
     rotations: str,
 ) -> str:
-    return TEMPLATE.format(
-        prelude=isolated_scene_prelude("IMG3D light orbit"),
-        restore=restore_previous_scene(),
-        asset=str(asset),
-        out=str(out),
-        frames=frames,
-        elevation=elevation,
-        res=res,
-        rotations=rotations,
-    )
+    return build_worker_code(WORKER_PATH, {
+        "action": "light_orbit",
+        "parameters": {
+            "asset": str(asset), "out": str(out), "resolution": res,
+            "rotations": json.loads(rotations),
+        },
+    })
 
 
 def main() -> int:
@@ -130,12 +82,10 @@ def main() -> int:
         list(key_light_rotation(f, args.frames, args.elevation))
         for f in range(1, args.frames + 1)
     ]
-    import json as _json
-
     code = blender_code(
         args.asset.expanduser().resolve(),
         args.out_prefix.expanduser().resolve(),
-        args.frames, args.elevation, args.res, _json.dumps(rotations),
+        args.frames, args.elevation, args.res, json.dumps(rotations),
     )
     print(send(code, args.host, args.port))
     return 0

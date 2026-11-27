@@ -1102,7 +1102,7 @@ def soma_hip_height(posed_joints: np.ndarray) -> float:
     return float(f0[SOMA_INDEX["Hips"], 1] - f0[feet, 1].min())
 
 
-def body_proxy(arm, mapping, heads, tails, up):  # pragma: no cover - needs bpy
+def body_proxy(arm, mapping, heads, tails, up):
     """`arm_clearance.Proxy` from the rig's skinned meshes, in armature space."""
     import arm_clearance
 
@@ -1126,13 +1126,13 @@ def body_proxy(arm, mapping, heads, tails, up):  # pragma: no cover - needs bpy
     return arm_clearance.build_proxy(mapping, np.array(points), owners, segments, height)
 
 
-def _skinned_meshes(arm):  # pragma: no cover - needs bpy
+def _skinned_meshes(arm):
     import bpy
 
     return [o for o in bpy.data.objects if o.type == "MESH" and o.find_armature() == arm]
 
 
-def mesh_bounds(arm, up):  # pragma: no cover - needs bpy
+def mesh_bounds(arm, up):
     """(floor, top) of the skinned meshes' rest pose, in armature space along `up`."""
     inv = np.array(arm.matrix_world.inverted())
     low, high = np.inf, -np.inf
@@ -1144,7 +1144,16 @@ def mesh_bounds(arm, up):  # pragma: no cover - needs bpy
     return low, high
 
 
-def foot_vertices(arm, mapping):  # pragma: no cover - needs bpy
+def sole_weights(pairs: list[tuple[str, float]]) -> dict[str, float]:
+    """Normalise up to four foot weights if the strongest is at least 0.2."""
+    if not pairs or max(weight for _, weight in pairs) < 0.2:
+        return {}
+    strongest = sorted(pairs, key=lambda pair: -pair[1])[:4]
+    total = sum(weight for _, weight in strongest)
+    return {bone: weight / total for bone, weight in strongest}
+
+
+def foot_vertices(arm, mapping):
     """Rest positions and skin weights of the vertices that make up the soles.
 
     Grounding against the actual sole, not the ankle joint, is what stops a boot from
@@ -1160,17 +1169,15 @@ def foot_vertices(arm, mapping):  # pragma: no cover - needs bpy
         for v in mesh.data.vertices:
             pairs = [(names[g.group], float(g.weight)) for g in v.groups
                      if names.get(g.group) in foot and g.weight > 0]
-            if not pairs or max(weight for _, weight in pairs) < 0.2:
+            normalized = sole_weights(pairs)
+            if not normalized:
                 continue
-            pairs.sort(key=lambda pair: -pair[1])
-            pairs = pairs[:4]
-            total = sum(weight for _, weight in pairs)
             points.append((to_arm @ np.append(np.array(v.co), 1.0))[:3])
-            weights.append({bone: weight / total for bone, weight in pairs})
+            weights.append(normalized)
     return np.asarray(points), weights
 
 
-def main() -> None:  # pragma: no cover - needs bpy
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rig", required=True, type=Path, help="SkinTokens-rigged GLB")
     ap.add_argument("--motion", required=True, type=Path, help="Kimodo .npz (kimodo_gen output)")
@@ -1194,7 +1201,11 @@ def main() -> None:  # pragma: no cover - needs bpy
                     help="fingers move rigidly with the hand (for gloves, mittens or bad hand weights)")
     ap.add_argument("--arm-spread", type=float, default=0.0,
                     help="degrees to tilt hanging arms outward, for bulky characters (try 8-15)")
-    args = ap.parse_args()
+    return ap
+
+
+def main() -> None:
+    args = build_parser().parse_args()
 
     import bpy
     from mathutils import Matrix
@@ -1268,8 +1279,8 @@ def main() -> None:  # pragma: no cover - needs bpy
     if not args.no_ground:
         frames = ground_frames(frames, rest, parents, order, tails, mapping, floor, up,
                                track=track(frames))
-    blend = LOOP_BLEND_FRAMES
-    if args.loop:
+    blend = 0
+    if args.loop and (args.keep_whole or trim[2]):
         seam_gap = loop_gap(frames, rest, parents, order, height, up)
         blend = seam_blend_frames(seam_gap, height)
         frames = blend_loop(frames, 0, len(frames), blend, up=up)
@@ -1285,11 +1296,16 @@ def main() -> None:  # pragma: no cover - needs bpy
     after_gap = loop_gap(frames, rest, parents, order, height, up)
     after_travel = horizontal_travel(frames, up)
     detail = ""
+    loop_mode = "kept whole" if args.keep_whole else "off"
     if args.loop:
         start, end, candidates = trim
         if args.keep_whole:
             detail = f"; kept whole, blend {blend}"
+        elif not candidates:
+            loop_mode = "full clip"
+            detail = "; no cycle found, all frames preserved without seam blending"
         else:
+            loop_mode = "trimmed"
             runner = ""
             if len(candidates) > 1:
                 length = candidates[1][1] - candidates[1][0]
@@ -1301,7 +1317,7 @@ def main() -> None:  # pragma: no cover - needs bpy
     print(f"feet: planted toe tip {100 * after_tilt:.2f}% of height off its rest height "
           f"({'off' if args.no_ground else 'on'})")
     print(f"loop: gap {100 * before_gap:.2f}% -> {100 * after_gap:.2f}% of height "
-          f"({'kept whole' if args.keep_whole else 'trimmed' if args.loop else 'off'}, "
+          f"({loop_mode}, "
           f"{len(frames)} frames){detail}")
     print(f"in place: root travel {100 * before_travel / height:.1f}% -> "
           f"{100 * after_travel / height:.1f}% of height "

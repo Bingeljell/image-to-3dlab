@@ -19,6 +19,7 @@ repeatedly: an edit already in place is skipped.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,17 +55,16 @@ except Exception as e:
             res = _flash_attn_func(*args, **kwargs)
             return res, None
     except Exception:
-        # i2l-portable: no flash-attn (e.g. Apple Silicon). Same [B, L, H, D] layout via SDPA.
-        import torch.nn.functional as _F
-        def flash_attn_func(q, k, v, causal=False, softmax_scale=None, **kwargs):
-            q, k, v = (t.transpose(1, 2) for t in (q, k, v))
-            if k.shape[1] != q.shape[1]:  # grouped-query attention
-                rep = q.shape[1] // k.shape[1]
-                k, v = k.repeat_interleave(rep, dim=1), v.repeat_interleave(rep, dim=1)
-            v = v.to(q.dtype); k = k.to(q.dtype)
-            out = _F.scaled_dot_product_attention(q, k, v, is_causal=causal, scale=softmax_scale)
-            return out.transpose(1, 2).contiguous(), None
+        # i2l-portable: no flash-attn (e.g. Apple Silicon).
+        from ._assetfurnace_attention import flash_attn_func
 """
+
+HELPER_SOURCE = Path(__file__).with_name("skintokens_attention_compat.py")
+HELPER_TARGET = "src/model/_assetfurnace_attention.py"
+LEGACY_FLASH_START = "try:\n    from flash_attn_interface import flash_attn_func # type: ignore\n"
+LEGACY_FLASH_MARKER = "        # i2l-portable: no flash-attn (e.g. Apple Silicon). Same"
+LEGACY_FLASH_END = "            return out.transpose(1, 2).contiguous(), None\n"
+LEGACY_FLASH_DIGEST = "d3093e6b314b80983635ceb2236b9edd7b3737fec7d931ae2a3d4ec5f5d3425e"
 
 
 @dataclass(frozen=True)
@@ -116,11 +116,20 @@ EDITS: tuple[Edit, ...] = (
 
 
 def apply_edit(text: str, edit: Edit) -> tuple[str, str]:
-    """(new text, "applied" | "present"). Raises if neither the anchor nor the edit is there.
+    """(new text, status). Raises when a known upstream or patched anchor is missing.
 
     "present" means every occurrence was already replaced; a half-patched file (some
     occurrences left) still has the anchor, so it is finished rather than skipped.
     """
+    if edit.new == FLASH_IMPORT_PORTABLE and LEGACY_FLASH_MARKER in text:
+        marker = text.index(LEGACY_FLASH_MARKER)
+        start = text.rfind(LEGACY_FLASH_START, 0, marker)
+        end = text.find(LEGACY_FLASH_END, marker)
+        if start >= 0 and end >= 0:
+            end += len(LEGACY_FLASH_END)
+            if hashlib.sha256(text[start:end].encode()).hexdigest() == LEGACY_FLASH_DIGEST:
+                return text[:start] + edit.new + text[end:], "upgrade"
+        raise ValueError(f"{edit.path}: previous attention patch has changed")
     found = text.count(edit.old)
     if found == 0:
         if edit.new in text:
@@ -138,13 +147,27 @@ def patch(root: Path = DEFAULT_ROOT, check: bool = False) -> list[str]:
         if text is None:
             text = (root / edit.path).read_text()
         new_text, state = apply_edit(text, edit)
-        if state == "applied":
-            if check:
-                raise SystemExit(f"not patched: {edit.path}")
+        if state == "applied" and check:
+            raise SystemExit(f"not patched: {edit.path}")
+        if state != "present" and not check:
             changed.add(edit.path)
-        texts[edit.path] = new_text
+        texts[edit.path] = text if check else new_text
+    if check and not any(FLASH_IMPORT_PORTABLE in text for text in texts.values()):
+        return []  # Exact older inline patch still runs without the copied helper.
+    helper = root / HELPER_TARGET
+    expected = HELPER_SOURCE.read_bytes()
+    try:
+        installed = helper.read_bytes()
+    except OSError:
+        installed = None
+    if installed != expected:
+        if check:
+            raise SystemExit(f"not patched: {HELPER_TARGET}")
+        helper.write_bytes(expected)
     for path in sorted(changed):
         (root / path).write_text(texts[path])
+    if installed != expected:
+        changed.add(HELPER_TARGET)
     return sorted(changed)
 
 

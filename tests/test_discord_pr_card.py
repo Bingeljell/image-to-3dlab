@@ -85,3 +85,53 @@ def test_the_workflow_runs_only_when_a_pr_is_merged():
 def test_only_a_pr_labelled_announce_gets_a_card():
     workflow = (REPO / ".github" / "workflows" / "discord-pr.yml").read_text()
     assert "contains(github.event.pull_request.labels.*.name, 'announce')" in workflow
+
+
+def test_pr_card_without_attribution_omits_author_and_timestamp():
+    payload = card.build_payload(pr(merged=True, user=None), "closed")
+    embed = payload["embeds"][0]
+    assert "author" not in embed and "timestamp" not in embed
+
+
+def test_pr_card_links_an_author_without_an_avatar():
+    payload = card.build_payload(merged(user={"login": "contributor"}), "closed")
+    assert payload["embeds"][0]["author"] == {
+        "name": "contributor", "url": "https://github.com/contributor",
+    }
+
+
+def test_pull_request_url_parser_rejects_a_release_link():
+    with pytest.raises(ValueError, match="not a GitHub pull request URL"):
+        card.repo_from_pr_url("https://github.com/example/repo/releases/tag/v1")
+
+
+def test_merged_pr_cli_requires_webhook_then_posts_to_normalized_url(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "pull.json"
+    path.write_text(json.dumps(merged()))
+    sent = []
+    monkeypatch.setattr(card, "send", lambda payload, hook: sent.append((payload, hook)))
+    monkeypatch.setenv("DISCORD_PR_WEBHOOK", "  ")
+    assert card.main([str(path)]) == 1
+    assert "DISCORD_PR_WEBHOOK is not set" in capsys.readouterr().err
+    assert not sent
+    hook = "https://example.invalid/webhooks/test"
+    monkeypatch.setenv("DISCORD_PR_WEBHOOK", f" {hook}/github ")
+    assert card.main([str(path)]) == 0
+    assert len(sent) == 1
+    payload, destination = sent[0]
+    assert destination == hook
+    assert payload["embeds"][0]["url"] == URL
+    assert payload["allowed_mentions"] == {"parse": []}
+
+
+def test_pr_script_entrypoint_uses_given_event_and_respects_dry_run(tmp_path, monkeypatch, capsys):
+    import runpy
+
+    script = Path(card.__file__)
+    path = tmp_path / "event.json"
+    path.write_text(json.dumps({"action": "closed", "pull_request": merged()}))
+    monkeypatch.setattr(sys, "argv", [str(script), str(path), "--dry-run"])
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(str(script), run_name="__main__")
+    assert exc.value.code == 0
+    assert json.loads(capsys.readouterr().out)["embeds"][0]["url"] == URL

@@ -5,8 +5,8 @@ this renders a model from the front, three-quarter, side and back into one label
 headless in Blender (it never touches a running Blender session), and keeps it in
 `output/.previews` so asking twice costs nothing. A picture-stage asset is its own preview.
 
-The maths and the sheet layout are plain functions so tests can import them; only the
-thin `bpy` calls live in the string handed to Blender.
+The preview worker handles the Blender scene and saves PNGs. This module handles the
+layout and cache.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ PANEL_W, PANEL_H = 512, 640
 LABEL_PX = 40          # big enough to read in a chat window (labels at default size are unreadable)
 SHEET_WIDTH = 1600
 RENDER_TIMEOUT = 300
+RENDER_WORKER = Path(__file__).resolve().parents[1] / "scripts" / "blender_preview_worker.py"
 # The stages a preview can show, and the asset field holding each one's file.
 STAGE_FIELDS = {"picture": "picture", "model": "model", "finished": "finished", "rigged": "rigged", "animated": "rigged"}
 
@@ -151,125 +152,15 @@ def moment_label(seconds: float | None) -> str:
     return "" if seconds is None else f"{seconds:.1f} s"
 
 
-def blender_code() -> str:
-    """The script handed to Blender: import once, render every shot. Kept thin on purpose."""
-    return """
-import sys, math, json, bpy
-from mathutils import Vector
-
-argv = sys.argv[sys.argv.index("--") + 1:]
-src, out_dir, front, w, h, clay = argv[0], argv[1], float(argv[2]), int(argv[3]), int(argv[4]), argv[5] == "1"
-shots = []
-for item in argv[6].split(";"):
-    name, az, frac = item.split("=")
-    shots.append((name, float(az), float(frac) if frac else None))
-
-bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.import_scene.gltf(filepath=src)
-scene = bpy.context.scene
-# only what shows: a file can carry hidden helper meshes that would wreck the framing
-for o in scene.objects:
-    if o.type == "MESH" and not o.visible_get():
-        o.hide_render = True
-meshes = [o for o in scene.objects if o.type == "MESH" and not o.hide_render]
-if not meshes:
-    raise SystemExit("no mesh in " + src)
-if clay:
-    neutral = bpy.data.materials.new("clay")
-    neutral.use_nodes = True
-    neutral.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.62, 0.62, 0.60, 1.0)
-    for o in meshes:
-        o.data.materials.clear()
-        o.data.materials.append(neutral)
-
-# a move's length is its actions' keys (an empty scene's own range is Blender's default 250 frames)
-ranges = [a.frame_range for a in bpy.data.actions]
-first, last = (min(r[0] for r in ranges), max(r[1] for r in ranges)) if ranges else (scene.frame_start, scene.frame_end)
-fps = scene.render.fps / (scene.render.fps_base or 1)
-frames = {name: (first + frac * (last - first) if frac is not None else None) for name, _, frac in shots}
-
-def bounds_now(lo, hi):
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    for o in meshes:
-        ev = o.evaluated_get(depsgraph)
-        mesh = ev.to_mesh()
-        m = ev.matrix_world
-        for v in mesh.vertices:
-            p = m @ v.co
-            for i in range(3):
-                lo[i] = min(lo[i], p[i]); hi[i] = max(hi[i], p[i])
-        ev.to_mesh_clear()
-
-# one frame for every shot: the box round the model at every moment shown
-lo, hi = [float("inf")] * 3, [float("-inf")] * 3
-for f in sorted({f for f in frames.values() if f is not None}) or [None]:
-    if f is not None:
-        scene.frame_set(int(f), subframe=f - int(f))
-    bounds_now(lo, hi)
-centre = [(lo[i] + hi[i]) / 2 for i in range(3)]
-radius = math.sqrt(sum(((hi[i] - lo[i]) / 2) ** 2 for i in range(3))) or 1.0
-
-world = bpy.data.worlds.new("W"); scene.world = world; world.use_nodes = True
-world.node_tree.nodes["Background"].inputs[0].default_value = (0.05, 0.05, 0.055, 1)
-world.node_tree.nodes["Background"].inputs[1].default_value = 0.6
-scene.render.resolution_x, scene.render.resolution_y = w, h
-scene.render.resolution_percentage = 100
-available = {i.identifier for i in type(scene.render).bl_rna.properties["engine"].enum_items}
-scene.render.engine = next(e for e in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES") if e in available)
-scene.render.image_settings.file_format = "PNG"
-
-cam_data = bpy.data.cameras.new("Cam")
-cam = bpy.data.objects.new("Cam", cam_data)
-scene.collection.objects.link(cam)
-scene.camera = cam
-# the lens angle spans the frame's longer side; fit the subject to the shorter one
-narrow = math.atan(math.tan(cam_data.angle / 2) * min(w, h) / max(w, h))
-dist = radius / math.sin(narrow) * 1.05
-
-rig = bpy.data.objects.new("Lights", None)
-scene.collection.objects.link(rig)
-rig.location = centre
-for name, offset, energy in (("key", (1.6, -2.2, 1.8), 6.0), ("fill", (-2.4, -1.6, 0.6), 2.4), ("rim", (0.4, 2.8, 1.8), 3.0)):
-    light = bpy.data.lights.new(name, type="AREA")
-    light.energy = energy * radius ** 2 * 40
-    light.size = radius * 2
-    obj = bpy.data.objects.new(name, light)
-    obj.parent = rig
-    obj.location = tuple(offset[i] * radius for i in range(3))
-    obj.rotation_euler = (-obj.location).to_track_quat("-Z", "Y").to_euler()
-    scene.collection.objects.link(obj)
-
-times = {}
-for name, az, frac in shots:
-    if frames[name] is not None:
-        f = frames[name]
-        scene.frame_set(int(f), subframe=f - int(f))
-        times[name] = round((f - first) / fps, 2)
-    a, e = math.radians(front + az), math.radians(8)
-    cam.location = (centre[0] + dist * math.cos(e) * math.sin(a), centre[1] - dist * math.cos(e) * math.cos(a),
-                    centre[2] + dist * math.sin(e))
-    cam.rotation_euler = (Vector(centre) - cam.location).to_track_quat("-Z", "Y").to_euler()
-    rig.rotation_euler = (0, 0, a)  # lights turn with the camera, so the back is lit like the front
-    scene.render.filepath = out_dir + "/" + name + ".png"
-    bpy.ops.render.render(write_still=True)
-with open(out_dir + "/times.json", "w") as handle:
-    json.dump(times, handle)
-"""
-
-
 def render_shots(blender: Path, source: Path, out_dir: Path, azimuth: float, look: str,
                  shots: list[tuple[str, float, float | None]]) -> list[tuple[str, Path]]:
     """Render every shot in one Blender run; returns (label, PNG) per panel."""
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as script:
-        script.write(blender_code())
-    try:
-        result = subprocess.run(
-            [str(blender), "--background", "--factory-startup", "--python", script.name, "--",
-             str(source), str(out_dir), str(azimuth), str(PANEL_W), str(PANEL_H), "1" if look == "clay" else "0",
-             shots_arg(shots)],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=RENDER_TIMEOUT, check=False)
-    finally:
-        Path(script.name).unlink(missing_ok=True)
+    result = subprocess.run(
+        [str(blender), "--background", "--factory-startup", "--python", str(RENDER_WORKER), "--",
+         str(source), str(out_dir), str(azimuth), str(PANEL_W), str(PANEL_H), "1" if look == "clay" else "0",
+         shots_arg(shots)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=RENDER_TIMEOUT, check=False,
+    )
     files = [(name, out_dir / f"{name}.png") for name, _, _ in shots]
     if result.returncode != 0 or not all(p.is_file() for _, p in files):
         tail = "\n".join((result.stderr or result.stdout).strip().splitlines()[-6:])

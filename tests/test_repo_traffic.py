@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import repo_traffic as rt
@@ -82,3 +84,74 @@ def test_a_missing_token_skips_installs_without_failing(tmp_path, monkeypatch, c
     assert rt.main(["--repo", "o/n", "--out", str(out), "--token-file", str(tmp_path / "none")]) == 0
     assert "installs skipped" in capsys.readouterr().err
     assert rt.read_csv(out)["2026-10-10"]["clones"] == 4
+
+
+def test_traffic_cli_fetches_installs_and_uses_the_current_repository(tmp_path, monkeypatch, capsys):
+    import io
+    import json
+    import runpy
+    from types import SimpleNamespace
+
+    script = Path(rt.__file__)
+    output, token = tmp_path / "stats" / "daily.csv", tmp_path / "token"
+    token.write_text(" fixture-token\n")
+    url = "https://example.invalid/install-counts"
+    monkeypatch.setattr(sys, "argv", [
+        str(script), "--out", str(output), "--token-file", str(token), "--installs-url", url,
+    ])
+    expected = [
+        ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+        ["gh", "api", "repos/org/project/traffic/views"],
+        ["gh", "api", "repos/org/project/traffic/clones"],
+    ]
+    replies = iter(["org/project\n", json.dumps(VIEWS), json.dumps(CLONES)])
+    issued = []
+
+    def run(args, *, check, capture_output, text):
+        assert check and capture_output and text
+        issued.append(args)
+        return SimpleNamespace(stdout=next(replies))
+
+    def read_installs(request, *, timeout):
+        assert request.full_url == url and timeout == 20
+        assert request.get_header("Authorization") == "Bearer fixture-token"
+        return io.BytesIO(b'{"2026-10-10": {"sh": 3, "ps1": 2}}')
+
+    monkeypatch.setattr(rt.subprocess, "run", run)
+    monkeypatch.setattr(rt.urllib.request, "urlopen", read_installs)
+    with pytest.raises(SystemExit) as exc:
+        runpy.run_path(str(script), run_name="__main__")
+    assert exc.value.code == 0
+    assert issued == expected
+    assert rt.read_csv(output)["2026-10-10"] == {
+        "views": 3, "unique_views": 2, "clones": 4, "unique_clones": 2,
+        "installs_sh": 3, "installs_ps1": 2,
+    }
+    assert "5 installs" in capsys.readouterr().out
+
+
+def test_github_only_traffic_does_not_open_install_endpoint(tmp_path, monkeypatch, capsys):
+    def unexpected_request(*args, **kwargs):
+        pytest.fail("GitHub-only mode should not contact the install endpoint")
+
+    monkeypatch.setattr(rt.urllib.request, "urlopen", unexpected_request)
+    monkeypatch.setattr(rt, "gh_api", lambda path: VIEWS if path.endswith("views") else CLONES)
+    output = tmp_path / "traffic.csv"
+    assert rt.main(["--repo", "org/project", "--out", str(output), "--no-installs"]) == 0
+    assert rt.read_csv(output)["2026-10-10"]["clones"] == 4
+    assert not capsys.readouterr().err
+
+
+def test_traffic_preserves_install_history_if_the_endpoint_is_unavailable(tmp_path, monkeypatch, capsys):
+    def offline(*args, **kwargs):
+        raise OSError("fixture endpoint unavailable")
+
+    output, token = tmp_path / "daily.csv", tmp_path / "token"
+    token.write_text("fixture-token")
+    rt.write_csv(output, {"2026-10-10": {"installs_sh": 12}})
+    monkeypatch.setattr(rt.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(rt, "gh_api", lambda path: VIEWS if path.endswith("views") else CLONES)
+    assert rt.main(["--repo", "org/project", "--out", str(output), "--token-file", str(token)]) == 0
+    assert "fixture endpoint unavailable" in capsys.readouterr().err
+    assert rt.read_csv(output)["2026-10-10"]["installs_sh"] == 12
+    assert rt.read_csv(output)["2026-10-10"]["views"] == 3

@@ -26,57 +26,44 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+if __package__:
+    from .pixal3d_compat import LOW_VRAM_ENV, helper_matches, install_helper
+else:
+    from pixal3d_compat import LOW_VRAM_ENV, helper_matches, install_helper
+
 MARKER = "i2l_low_vram"
-ENV_VAR = "PIXAL3D_LOW_VRAM"
+ENV_VAR = LOW_VRAM_ENV
+HELPER_SOURCE = Path(__file__).with_name("pixal3d_compat.py")
 
 DEFAULT_TARGET = Path("vendor/pixal3d-mac/generate_mps.py")
 
 ANCHOR = '    if getattr(args, "low_vram", False):\n'
 
-REPLACEMENT = (
+LEGACY = (
     f'    # {MARKER}: the hooks below were unreachable — nothing ever set args.low_vram.\n'
     f'    if getattr(args, "low_vram", False) or os.environ.get("{ENV_VAR}", "").strip() '
     f'not in ("", "0", "false", "False"):\n'
 )
-
-
-def low_vram_requested(args_value: bool, env_value: str | None) -> bool:
-    """Whether low-VRAM mode should be installed.
-
-    Pure, and the same decision the injected condition makes. The falsy spellings matter:
-    `PIXAL3D_LOW_VRAM=0` in a shell profile must not silently turn it on.
-    """
-    if args_value:
-        return True
-    if env_value is None:
-        return False
-    return env_value.strip() not in ("", "0", "false", "False")
+REPLACEMENT = f'''    # {MARKER}: apply the existing option or {ENV_VAR}.
+    from _assetfurnace_pixal3d_compat import low_vram_for_run
+    if low_vram_for_run(args):
+'''
 
 
 def is_patched(source: str) -> bool:
-    return MARKER in source
+    return source.count(REPLACEMENT) == 1
 
 
 def apply(source: str) -> str:
     """Return the patched source. Idempotent."""
     if is_patched(source):
         return source
-    if ANCHOR not in source:
+    anchor = LEGACY if LEGACY in source else ANCHOR
+    if source.count(anchor) != 1:
         raise SystemExit(
-            "anchor not found: generate_mps.py no longer gates the low-VRAM hooks on "
-            "`getattr(args, \"low_vram\", False)`. Check whether it grew a real flag "
-            "before applying this."
+            "anchor not found exactly once: verify the audited low-VRAM hook before patching."
         )
-    return source.replace(ANCHOR, REPLACEMENT, 1)
-
-
-def uses_os_module(source: str) -> bool:
-    """The injected condition calls `os.environ`, so the host file must import os.
-
-    Patched code must never assume the host's imports — that assumption has cost a whole
-    generation run in this repo before.
-    """
-    return "\nimport os\n" in source or source.startswith("import os\n")
+    return source.replace(anchor, REPLACEMENT, 1)
 
 
 def main() -> int:
@@ -90,20 +77,17 @@ def main() -> int:
     source = args.target.read_text(encoding="utf-8")
 
     if args.check:
-        print(("patched: " if is_patched(source) else "NOT PATCHED: ") + str(args.target))
-        return 0 if is_patched(source) else 1
-
-    if not uses_os_module(source):
-        raise SystemExit(
-            "generate_mps.py does not import os at module level; the injected condition "
-            "would raise NameError at runtime."
-        )
+        ready = is_patched(source) and helper_matches(HELPER_SOURCE, args.target)
+        print(("patched: " if ready else "NOT PATCHED: ") + str(args.target))
+        return 0 if ready else 1
 
     patched = apply(source)
-    if patched == source:
+    helper_changed = install_helper(HELPER_SOURCE, args.target)
+    if patched == source and not helper_changed:
         print(f"already patched: {args.target}")
         return 0
-    args.target.write_text(patched, encoding="utf-8")
+    if patched != source:
+        args.target.write_text(patched, encoding="utf-8")
     print(f"patched {args.target}: {ENV_VAR}=1 now installs the low-VRAM hooks")
     return 0
 

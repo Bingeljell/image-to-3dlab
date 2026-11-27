@@ -8,6 +8,7 @@ the two failure modes that matter: an anchor that has moved, and a second run.
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -86,12 +87,26 @@ def test_patching_ten_times_does_not_stack_the_imports(checkout: Path):
     for _ in range(10):
         gen.patch(checkout)
     text = (checkout / gen.ATTN_FILE).read_text()
-    assert text.count("import os  # image-to-3dlab") == 1
+    assert text.count("from ._i2l_rocm_compat import chunked_attention") == 1
     # This patch keeps its anchor by design, so exactly one of those must survive too.
     assert text.count(gen.ATTN_IMPORT_NEEDLE) == 1
-    # The attention call is fully replaced: it becomes the unchunked branch, re-indented.
+    # The attention call now goes through the shared helper.
     assert gen.ATTN_NEEDLE not in text
-    assert text.count("F.scaled_dot_product_attention(") == 2
+    assert text.count("hidden_states = chunked_attention(") == 1
+
+
+@pytest.mark.posix
+def test_patch_preserves_a_symlink_and_target_mode(checkout: Path):
+    scheduler = checkout / gen.SCHEDULER_FILE
+    real_source = scheduler.with_name("linked_scheduler.py")
+    scheduler.rename(real_source)
+    scheduler.symlink_to(real_source.name)
+    real_source.chmod(0o751)
+
+    assert gen.patch(checkout) == 2
+    assert gen.is_patched(checkout)
+    assert scheduler.is_symlink()
+    assert stat.S_IMODE(real_source.stat().st_mode) == 0o751
 
 
 def test_the_patched_file_is_still_valid_python(checkout: Path):
@@ -109,7 +124,7 @@ def test_the_scheduler_stops_matching_on_exact_float_equality(checkout: Path):
     gen.patch(checkout)
     text = (checkout / gen.SCHEDULER_FILE).read_text()
     assert "(schedule_timesteps == timestep).nonzero()" not in text
-    assert "(schedule_timesteps - timestep).abs().argmin()" in text
+    assert "nearest_timestep_indices(schedule_timesteps, timestep)" in text
     # Both schedulers had the line, so both are patched.
     assert text.count(gen.SCHEDULER_REPLACEMENT) == 2
 
@@ -124,61 +139,17 @@ def test_the_scheduler_patch_still_works_when_only_one_scheduler_moved(tmp_path:
         gen.patch(root)
 
 
-def test_attention_is_chunked_and_only_when_asked(checkout: Path):
-    """Unchunked by default, so an NVIDIA run through this checkout is byte-for-byte the
-    upstream maths. The chunk is opt-in because it costs a little speed."""
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    assert "HY3D_SDPA_QUERY_CHUNK" in text
-    # The tokens are dim -2 and are stitched back together there; dim 0 is the batch and
-    # concatenating on it would be a different, wrong operation.
-    assert "torch.cat(parts, dim=-2)" in text
-    # The original call survives as the unchunked branch, so nothing is lost when it is 0.
-    assert text.count("F.scaled_dot_product_attention(") == 2
-
-
-def test_the_chunk_needs_its_own_import(checkout: Path):
-    """Patched code must import what it uses: `os` is not in upstream's header."""
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    assert "import os" in text
-
-
-def test_the_mask_is_sliced_with_the_queries(checkout: Path):
-    """The mask is (batch, heads, q_len, k_len). Slicing the queries and not the mask
-    either fails on shape or, worse, quietly attends to the wrong tokens."""
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    assert "attention_mask[..., i:i + chunk, :]" in text
-
-
-def _chunked_attention(checkout: Path):
-    """The patched attention block, as a callable, lifted out of the real patched file.
-
-    Extracted rather than retyped so that what runs here is the text that ships. The block
-    is wrapped in the same locals its caller supplies, so it needs nothing but torch.
-    """
-
+def _chunked_attention():
     torch = pytest.importorskip("torch")
-    gen.patch(checkout)
-    text = (checkout / gen.ATTN_FILE).read_text()
-    # The replacement runs from its marker comment to the blank line before the
-    # `return hidden_states` upstream already had. Upstream indents it eight spaces (it is
-    # inside a class method); it becomes the body of a plain function here.
-    marker = "        # image-to-3dlab: chunk the sequence axis"
-    block = marker + text.split(marker)[1].split("\n\n")[0]
-    body = "\n".join("    " + line[8:] if line.strip() else "" for line in block.splitlines())
-    source = ("def chunked(query, key, value, attention_mask=None):\n"
-              + body + "\n    return hidden_states\n")
-    namespace: dict = {"os": os, "torch": torch, "F": torch.nn.functional}
-    exec(compile(source, "<patched attn_processor.py>", "exec"), namespace)
-    return namespace["chunked"], torch
+    from scripts.hunyuan_rocm_compat import chunked_attention
+
+    return chunked_attention, torch
 
 
-def test_chunked_attention_is_the_same_answer_as_unchunked(checkout: Path):
+def test_chunked_attention_is_the_same_answer_as_unchunked():
     """The claim this patch makes is "same maths, done in pieces". Check it, for chunk
     sizes around every awkward boundary: smaller than the batch, one, and larger."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, dim = 8, 4, 37, 16
     generator = torch.Generator().manual_seed(7)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -201,10 +172,10 @@ def test_chunked_attention_is_the_same_answer_as_unchunked(checkout: Path):
             os.environ["HY3D_SDPA_QUERY_CHUNK"] = was
 
 
-def test_chunked_attention_matches_with_a_mask_too(checkout: Path):
+def test_chunked_attention_matches_with_a_mask_too():
     """Slicing the queries but not the mask is the failure mode that produces
     plausible-looking but wrong textures, so it gets its own check."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, k_len, dim = 6, 4, 23, 29, 8
     generator = torch.Generator().manual_seed(11)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -225,10 +196,10 @@ def test_chunked_attention_matches_with_a_mask_too(checkout: Path):
     torch.testing.assert_close(chunked_result, whole, rtol=1e-5, atol=1e-6)
 
 
-def test_a_stale_mask_would_actually_have_been_caught(checkout: Path):
+def test_a_stale_mask_would_actually_have_been_caught():
     """Guard against the check above passing for the wrong reason: attending with the
     un-sliced mask really does fail loudly, so the equality above means something."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, k_len, dim = 6, 4, 23, 29, 8
     generator = torch.Generator().manual_seed(11)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -249,11 +220,11 @@ def test_a_stale_mask_would_actually_have_been_caught(checkout: Path):
         os.environ.pop("HY3D_SDPA_QUERY_CHUNK")
 
 
-def test_the_batch_is_left_alone_so_the_pieces_cannot_be_welded_end_to_end(checkout: Path):
+def test_the_batch_is_left_alone_so_the_pieces_cannot_be_welded_end_to_end():
     """query, key and value are (batch, heads, sequence, head_dim). Slicing dim 0 would
     leave key and value at full batch, SDPA would broadcast the output batch back up to
     match, and cat would glue the chunks into one long sequence."""
-    chunked, torch = _chunked_attention(checkout)
+    chunked, torch = _chunked_attention()
     batch, heads, q_len, k_len, dim = 3, 2, 19, 13, 8
     generator = torch.Generator().manual_seed(5)
     query = torch.randn(batch, heads, q_len, dim, generator=generator)
@@ -280,21 +251,61 @@ def test_the_hardcoded_device_follows_the_tensor_instead(checkout: Path):
     assert 'l c")' in text
 
 
+def snapshot(root: Path) -> dict[Path, bytes]:
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
 def test_an_anchor_that_moved_fails_loudly_instead_of_half_applying(checkout: Path):
-    """A patch that cannot find its anchor must not leave a checkout that looks done."""
     path = checkout / gen.ATTN_FILE
     path.write_text(path.read_text().replace(
         "F.scaled_dot_product_attention(", "F._sdpa_renamed("))
+    before = snapshot(checkout)
     with pytest.raises(RuntimeError, match="anchor for this patch is gone"):
         gen.patch(checkout)
-    assert gen.is_patched(checkout) is False
+    assert snapshot(checkout) == before
 
 
-def test_a_missing_file_is_reported_rather_than_skipped(tmp_path: Path):
-    root = tmp_path / "Hunyuan3D-2.1"
-    root.mkdir()
+def test_a_missing_later_file_leaves_the_checkout_unchanged(checkout: Path):
+    (checkout / gen.ATTN_FILE).unlink()
+    before = snapshot(checkout)
     with pytest.raises(SystemExit, match="is missing"):
-        gen.patch(root)
+        gen.patch(checkout)
+    assert snapshot(checkout) == before
+
+
+def test_a_missing_helper_source_leaves_the_checkout_unchanged(checkout: Path, monkeypatch):
+    before = snapshot(checkout)
+    monkeypatch.setattr(gen, "HELPER_SOURCE", checkout / "missing-helper.py")
+    with pytest.raises(FileNotFoundError, match="missing-helper.py"):
+        gen.patch(checkout)
+    assert snapshot(checkout) == before
+
+
+@pytest.mark.parametrize("stale_helper", [False, True])
+def test_a_failed_helper_write_restores_the_checkout(checkout: Path, monkeypatch, stale_helper):
+    scheduler = checkout / gen.SCHEDULER_FILE
+    scheduler.chmod(0o751)
+    original_mode = stat.S_IMODE(scheduler.stat().st_mode)
+    scheduler_helper = scheduler.with_name(gen.HELPER_NAME)
+    attention_helper = (checkout / gen.ATTN_FILE).with_name(gen.HELPER_NAME)
+    if stale_helper:
+        scheduler_helper.write_bytes(b"# previous helper\r\n")
+    before = snapshot(checkout)
+
+    replace = Path.replace
+
+    def refuse_replace(path, destination):
+        if destination == attention_helper:
+            assert scheduler_helper.read_bytes() != before.get(scheduler_helper.relative_to(checkout))
+            raise OSError("helper write failed")
+        return replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", refuse_replace)
+    with pytest.raises(OSError, match="helper write failed"):
+        gen.patch(checkout)
+    assert snapshot(checkout) == before
+    assert stat.S_IMODE(scheduler.stat().st_mode) == original_mode
 
 
 def test_a_folder_that_is_not_a_checkout_says_so(tmp_path: Path):

@@ -360,14 +360,14 @@ def test_model_load_error_is_rendered_as_text_not_markup():
     )
     stub_viewport_url = "data:text/javascript," + quote(stub_viewport, safe="")
     program = f"""
-      import {{ register }} from 'node:module';
-      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{
-        if (s === 'three') return {{ url: {json.dumps(three_url)}, shortCircuit: true }};
+      import {{ registerHooks }} from 'node:module';
+      registerHooks({{ resolve(s, c, n) {{
+        if (s === 'three') return n({json.dumps(three_url)}, c);
         if (s === '../components/model-viewport.js' && c.parentURL === {json.dumps(module_url)}) {{
-          return {{ url: {json.dumps(stub_viewport_url)}, shortCircuit: true }};
+          return n({json.dumps(stub_viewport_url)}, c);
         }}
         return n(s, c);
-      }}`));
+      }} }});
 
       const make = () => {{
         const node = {{
@@ -443,16 +443,16 @@ def test_studio_viewer_3d_tools_follow_real_picture_and_empty_mode_switches():
     }
     stub_urls = {key: "data:text/javascript," + quote(value, safe="") for key, value in stubs.items()}
     resolve_cases = "".join(
-        f"if (s === {json.dumps(spec)} && c.parentURL === {json.dumps(module_url)}) return {{ url: {json.dumps(url)}, shortCircuit: true }};"
+        f"if (s === {json.dumps(spec)} && c.parentURL === {json.dumps(module_url)}) return n({json.dumps(url)}, c);"
         for spec, url in stub_urls.items()
     )
     program = f"""
-      import {{ register }} from 'node:module';
-      register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, n) {{
-        if (s === 'three') return {{ url: {json.dumps(three_url)}, shortCircuit: true }};
+      import {{ registerHooks }} from 'node:module';
+      registerHooks({{ resolve(s, c, n) {{
+        if (s === 'three') return n({json.dumps(three_url)}, c);
         {resolve_cases}
         return n(s, c);
-      }}`));
+      }} }});
       const make = () => {{
         const node = {{ nodeType: 1, className: '', hidden: false, inert: false, style: {{}}, children: [], _html: '', zoomAttached: false,
           get innerHTML() {{ return node._html; }}, set innerHTML(value) {{ node._html = value; node.children = []; }},

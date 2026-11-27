@@ -23,6 +23,11 @@ const ICON = {
   pause: '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>',
 };
 
+const PLAY_CONTROLS = `
+  <button class="tool" data-clip-act="play" data-tip="Play or pause" aria-label="Play or pause">${ICON.pause}</button>
+  <button class="ghost" data-clip-act="rest" data-tip="Reset pose: stop and show the character in its rest pose">Reset pose</button>`;
+const SCRUBBER = `<span class="scrubber"><input type="range" class="scrub" data-scrub min="0" max="1000" value="0" aria-label="Scrub through the move"><span class="meta frame" data-frame>frame 0</span></span>`;
+
 export function set3dToolsMode(tools, is3d) {
   tools.hidden = !is3d;
   tools.inert = !is3d;
@@ -84,6 +89,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
 
   let view = null, player = null, skeleton = null, renderPending = false, loadToken = 0;
   let clips = [], clipIndex = -1;
+  let embeddedPicker = null, embeddedTransport = [];
   const gizmo = tools.querySelector('.sv-gizmo');
   const axisButtons = new Map(AXES.map((end) => {
     const button = document.createElement('button');
@@ -416,6 +422,14 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     pane.querySelector('.stats').hidden = true;   // a picture or an empty stage has no face count
     player?.dispose?.();
     player = null;
+    if (embeddedPicker) {
+      embeddedPicker.remove();
+      embeddedPicker = null;
+      embeddedTransport.forEach((control) => control.remove());
+      embeddedTransport = [];
+      clipBar.querySelectorAll('[data-clip-act], [data-scrub]').forEach((control) => { control.disabled = false; });
+      clipBar.hidden = !clipBar.childElementCount;
+    }
     skeleton?.dispose();
     skeleton = null;
     if (view) {
@@ -464,9 +478,9 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
             onFrame: (time, duration) => { requestRender(); syncScrub(time, duration); },
             onStateChange: (playing) => syncPlayButton(playing),
           });
-          player.select(loaded.rig.animations[0]);
-          player.action.setLoop(THREE.LoopRepeat, Infinity);
-          if (autoplay) player.play();
+          const animations = loaded.rig.animations;
+          if (animations.length === 1) selectAnimation(animations[0], autoplay);
+          else showEmbeddedMoves(animations);
         }
         // keep wireframe and skeleton on across models and moves
         const pressed = (act) => tools.querySelector(`[data-act="${act}"]`).getAttribute('aria-pressed') === 'true';
@@ -529,6 +543,44 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
   }
 
   // ------------------------------------------------------------------ clips
+  function selectAnimation(clip, autoplay) {
+    player.select(clip).setLoop(THREE.LoopRepeat, Infinity);
+    if (autoplay) player.play();
+  }
+
+  function showEmbeddedMoves(animations) {
+    if (!clipBar.querySelector('[data-clip-act="play"]')) {
+      const transport = document.createElement('template');
+      transport.innerHTML = PLAY_CONTROLS + SCRUBBER;
+      embeddedTransport = [...transport.content.children];
+      clipBar.append(...embeddedTransport);
+    }
+    clipBar.hidden = false;
+    const picker = document.createElement('select');
+    picker.setAttribute('aria-label', 'Choose a move');
+    const placeholder = document.createElement('option');
+    placeholder.textContent = 'Choose a move';
+    placeholder.disabled = true;
+    picker.appendChild(placeholder);
+    animations.forEach((clip) => {
+      const option = document.createElement('option');
+      option.textContent = clip.name;
+      picker.appendChild(option);
+    });
+    picker.selectedIndex = 0;
+    embeddedPicker = picker;
+    clipBar.prepend(picker);
+    const controls = clipBar.querySelectorAll('[data-clip-act], [data-scrub]');
+    controls.forEach((control) => { control.disabled = true; });
+    syncScrub();
+    picker.onchange = () => {
+      const clip = animations[picker.selectedIndex - 1];
+      if (!clip) return;
+      controls.forEach((control) => { control.disabled = false; });
+      selectAnimation(clip, true);
+    };
+  }
+
   function syncPlayButton(playing) {
     const button = clipBar.querySelector('[data-clip-act="play"]');
     if (button) {
@@ -547,12 +599,9 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     clipBar.hidden = !items.length && !restUrl;
     if (clipBar.hidden) { clipBar.innerHTML = ''; return; }
     clipIndex = items.length ? index : -1;
-    clipBar.innerHTML = (still ? '' : `
-      <button class="tool" data-clip-act="play" data-tip="Play or pause" aria-label="Play or pause">${ICON.pause}</button>
-      <button class="ghost" data-clip-act="rest" data-tip="Reset pose: stop and show the character in its rest pose">Reset pose</button>
-      <span class="sep"></span>`) + `
+    clipBar.innerHTML = (still ? '' : PLAY_CONTROLS + '<span class="sep"></span>') + `
       ${items.map((clip, i) => `<button class="chip" data-clip="${i}" aria-pressed="${i === clipIndex}">${clip.name}</button>`).join('')}`
-      + (still ? '' : `<span class="scrubber"><input type="range" class="scrub" data-scrub min="0" max="1000" value="0" aria-label="Scrub through the move"><span class="meta frame" data-frame>frame 0</span></span>`);
+      + (still ? '' : SCRUBBER);
     if (clipIndex >= 0) onClipChange?.(items[clipIndex]);
     clipBar.dataset.rest = restUrl || '';
     if (clipIndex >= 0) load(items[clipIndex].url, { label: items[clipIndex].name, autoplay: true });

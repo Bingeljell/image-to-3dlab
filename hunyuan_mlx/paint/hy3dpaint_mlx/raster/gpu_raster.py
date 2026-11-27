@@ -43,7 +43,7 @@ try:
     import mlx.core as mx
 
     _HAS_MLX = True
-except Exception:  # pragma: no cover - MLX always present in this repo
+except Exception:
     _HAS_MLX = False
 
 MAXINT = 2147483647

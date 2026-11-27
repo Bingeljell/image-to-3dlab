@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import sys
 
-import bpy
-
 
 def solidify(path_in: str, path_out: str, fraction: float) -> None:
+    import bpy
+
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
 

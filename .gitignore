@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .venv/
+.venv-mlx-unit/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -81,3 +82,8 @@ manifests/*.json
 # Private agent rules: never committed (AGENTS.md says to read them first)
 AGENTS.local.md
 CLAUDE.local.md
+
+# Coverage reports and JavaScript test dependencies
+/coverage-report/
+/node_modules/
+/real-tool-results/

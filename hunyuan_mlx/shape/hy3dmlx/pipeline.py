@@ -7,17 +7,28 @@ skimage marching cubes -> trimesh export.
 import time
 
 import numpy as np
-import mlx.core as mx
 import trimesh
 from skimage import measure
 
-from .convert import load_models
 from .preprocess import dino_transform, load_image
 from .sampler import consistency_sigmas, denoise, flow_match_sigmas
 
 
+def sampling_schedule(config, num_inference_steps):
+    """Select the schedule declared by the shape checkpoint."""
+    scheduler = config.get("scheduler", {})
+    if "Consistency" in scheduler.get("target", ""):
+        pcm = scheduler.get("params", {}).get("pcm_timesteps", 100)
+        return consistency_sigmas(num_inference_steps, pcm_timesteps=pcm)
+    return flow_match_sigmas(num_inference_steps)
+
+
 class Hunyuan3DShapePipeline:
-    def __init__(self, dino, dit, vae, cfg, dtype=mx.float32):
+    def __init__(self, dino, dit, vae, cfg, dtype=None):
+        if dtype is None:
+            import mlx.core as mx
+
+            dtype = mx.float32
         self.dino = dino
         self.dit = dit
         self.vae = vae
@@ -25,14 +36,22 @@ class Hunyuan3DShapePipeline:
         self.dtype = dtype
 
     @classmethod
-    def from_pretrained(cls, model_dir: str, dtype=mx.float32, quantize=None, verbose=True):
+    def from_pretrained(cls, model_dir: str, dtype=None, quantize=None, verbose=True):
         """model_dir: the folder with config.yaml + model.fp16.safetensors
         (e.g. weights/Hunyuan3D-2mini/hunyuan3d-dit-v2-mini).
         quantize: None | 8 | 4 — quantize the DiT+DINO block linears (VAE stays fp16)."""
+        import mlx.core as mx
+
+        from .convert import load_models
+
+        if dtype is None:
+            dtype = mx.float32
         dino, dit, vae, cfg = load_models(model_dir, dtype=dtype, quantize=quantize, verbose=verbose)
         return cls(dino, dit, vae, cfg, dtype)
 
     def encode_image(self, image_path: str, border_ratio=0.15):
+        import mlx.core as mx
+
         img = load_image(image_path, size=512, border_ratio=border_ratio)  # [1,3,512,512] in [-1,1]
         pixel = dino_transform(img[0]).astype(self.dtype)                   # NHWC [1,518,518,3]
         cond = self.dino(pixel)                                            # [1,1370,1536]
@@ -45,6 +64,8 @@ class Hunyuan3DShapePipeline:
                  octree_resolution=256, num_chunks=None, box_v=1.01, mc_level=0.0,
                  seed=0, border_ratio=0.15, octree_decode=False, compile_dit=False,
                  verbose=True):
+        import mlx.core as mx
+
         t0 = time.time()
         cond_cat = self.encode_image(image_path, border_ratio)
         if verbose:
@@ -52,12 +73,7 @@ class Hunyuan3DShapePipeline:
 
         # Distilled (guidance-embedded) models skip CFG: single forward with a guidance token.
         guidance_embed = bool(getattr(self.dit, "guidance_embed", False))
-        sched = self.cfg.get("scheduler", {}).get("target", "")
-        if "Consistency" in sched:  # turbo / PCM-distilled
-            pcm = self.cfg["scheduler"].get("params", {}).get("pcm_timesteps", 100)
-            sigmas = consistency_sigmas(num_inference_steps, pcm_timesteps=pcm)
-        else:
-            sigmas = flow_match_sigmas(num_inference_steps)
+        sigmas = sampling_schedule(self.cfg, num_inference_steps)
 
         if guidance_embed:
             cond1 = cond_cat[:1]  # conditional embedding only (no uncond branch)
@@ -146,6 +162,8 @@ def main():
     ap.add_argument("--compile-dit", action="store_true",
                     help="mx.compile the DiT step (~1.1x; perturbs the fp16 sample slightly)")
     args = ap.parse_args()
+
+    import mlx.core as mx
 
     dtype = {"float32": mx.float32, "float16": mx.float16}[args.dtype]
     pipe = Hunyuan3DShapePipeline.from_pretrained(args.weights, dtype=dtype,

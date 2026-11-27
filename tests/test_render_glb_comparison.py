@@ -1,15 +1,11 @@
-"""Tests for the headless GLB comparison renderer.
-
-Only the pure parts are tested, which is the point of extracting them: the framing maths
-and the layout decisions are what can silently produce a misleading image, while the
-Blender call itself is a thin shell.
-"""
+"""Test the headless GLB comparison command's framing and layout helpers."""
 
 from __future__ import annotations
 
 import importlib.util
 import math
-from pathlib import Path
+import ntpath
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
@@ -75,31 +71,17 @@ def test_asset_spec_without_a_label_uses_the_file_stem():
     assert label == "storm_ram"
 
 
-def test_blender_code_imports_everything_it_uses():
-    """The Blender-side script runs in a fresh interpreter with no inherited imports."""
-    code = mod.blender_render_code()
-    for name in ("import bpy", "from mathutils import Vector", "import math", "import sys"):
-        assert name in code
+@pytest.mark.parametrize(("suffix", "label"), [("", "storm_ram"), (":MLX fp16", "MLX fp16")])
+def test_asset_spec_with_windows_drive(monkeypatch, suffix, label):
+    class MissingWindowsPath(PureWindowsPath):
+        def exists(self):
+            return False
+
+    monkeypatch.setattr(mod, "Path", MissingWindowsPath)
+    monkeypatch.setattr(mod, "splitdrive", ntpath.splitdrive, raising=False)
+    path = r"C:\models\storm_ram.glb"
+    assert mod.parse_asset(path + suffix) == (PureWindowsPath(path), label)
 
 
-def test_blender_code_does_not_pin_a_single_render_engine():
-    # The EEVEE enum has been renamed across Blender releases; pinning one name turns an
-    # upgrade into a silent failure.
-    code = mod.blender_render_code()
-    assert "BLENDER_EEVEE_NEXT" in code and "BLENDER_EEVEE" in code and "CYCLES" in code
-
-
-def test_blender_code_starts_from_an_empty_scene():
-    # Otherwise a user's default cube, camera and light end up in the render.
-    assert "read_factory_settings(use_empty=True)" in mod.blender_render_code()
-
-
-def test_blender_code_can_strip_materials_for_a_shape_comparison():
-    """Texture and geometry fail in different ways.
-
-    A broken UV map makes a sound mesh look ruined, so when the question is about shape,
-    the paint has to come off or the comparison answers the wrong question.
-    """
-    code = mod.blender_render_code()
-    assert "clay" in code
-    assert "materials.clear()" in code
+def test_blender_render_code_returns_the_shipped_worker():
+    assert mod.blender_render_code() == mod.BLENDER_WORKER.read_text(encoding="utf-8")

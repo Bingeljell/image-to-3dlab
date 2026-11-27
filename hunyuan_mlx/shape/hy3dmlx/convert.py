@@ -11,15 +11,6 @@ import os
 
 import numpy as np
 import yaml
-import mlx.core as mx
-import mlx.nn as nn
-from mlx.utils import tree_flatten
-from safetensors import safe_open
-
-from .models.dit import Hunyuan3DDiT
-from .models.dit_plain import HunYuanDiTPlain
-from .models.shape_vae import ShapeVAE
-from .models.dinov2 import DinoImageEncoder
 
 COND_PREFIX = "conditioner.main_image_encoder."
 
@@ -29,8 +20,9 @@ def load_config(model_dir: str) -> dict:
         return yaml.safe_load(f)
 
 
-def _assign(module, items, name: str):
-    need = {k: tuple(v.shape) for k, v in tree_flatten(module.parameters())}
+def checked_parameters(expected, items, name: str):
+    """Check required keys and tensor shapes before mutating a model."""
+    need = {k: tuple(v.shape) for k, v in expected}
     provided = dict(items)
     missing = set(need) - set(provided)
     if missing:
@@ -38,29 +30,45 @@ def _assign(module, items, name: str):
     for k in need:
         if tuple(provided[k].shape) != need[k]:
             raise ValueError(f"{name}.{k}: shape {tuple(provided[k].shape)} != expected {need[k]}")
-    module.load_weights([(k, provided[k]) for k in need], strict=True)
-    return len(need), len(set(provided) - set(need))
+    return [(k, provided[k]) for k in need], len(set(provided) - set(need))
+
+
+def _assign(module, items, name: str):
+    from mlx.utils import tree_flatten
+
+    params, extras = checked_parameters(tree_flatten(module.parameters()), items, name)
+    module.load_weights(params, strict=True)
+    return len(params), extras
 
 
 def _build_dit(cfg: dict):
     target = cfg["model"]["target"].rsplit(".", 1)[-1]
     params = cfg["model"]["params"]
     if target == "HunYuanDiTPlain":
+        from .models.dit_plain import HunYuanDiTPlain
+
         return HunYuanDiTPlain(**params)
+    from .models.dit import Hunyuan3DDiT
+
     return Hunyuan3DDiT(**params)  # Hunyuan3DDiT
 
 
-def _build_dino(cfg: dict, dino_items: dict):
+def dino_parameters(cfg: dict, dino_items: dict) -> dict:
+    """Resolve encoder dimensions and feed-forward variant from config and weights."""
     dcfg = cfg["conditioner"]["params"]["main_image_encoder"]["kwargs"]["config"]
     swiglu = bool(dcfg.get("use_swiglu_ffn", True))
     # FFN inner dim straight from the weights (SwiGLU weights_out / plain fc2: [hidden, ffn_dim]).
     wkey = "model.encoder.layer.0.mlp." + ("weights_out" if swiglu else "fc2") + ".weight"
     ffn_dim = dino_items[wkey].shape[1]
-    return DinoImageEncoder(
-        hidden=dcfg["hidden_size"], heads=dcfg["num_attention_heads"],
-        layers=dcfg["num_hidden_layers"], ffn_dim=ffn_dim, swiglu=swiglu,
-        patch=dcfg["patch_size"], eps=float(dcfg["layer_norm_eps"]),
-    )
+    return {
+        "hidden": dcfg["hidden_size"],
+        "heads": dcfg["num_attention_heads"],
+        "layers": dcfg["num_hidden_layers"],
+        "ffn_dim": ffn_dim,
+        "swiglu": swiglu,
+        "patch": dcfg["patch_size"],
+        "eps": float(dcfg["layer_norm_eps"]),
+    }
 
 
 # Keep these in fp16 even when quantizing: small, quality-critical input/output
@@ -72,6 +80,8 @@ _QUANT_SKIP_DINO = ("embeddings",)
 def _quantize(module, skip, bits: int, group_size: int = 64):
     """Quantize the bulk nn.Linear weights of `module` to `bits`, skipping `skip` paths.
     Norms, Conv2d, and the VAE are left in fp16 (never passed here)."""
+    import mlx.nn as nn
+
     def predicate(path, m):
         return (isinstance(m, nn.Linear)
                 and not any(s in path for s in skip)
@@ -79,28 +89,48 @@ def _quantize(module, skip, bits: int, group_size: int = 64):
     nn.quantize(module, group_size=group_size, bits=bits, class_predicate=predicate)
 
 
-def load_models(model_dir: str, dtype=mx.float32, quantize: int | None = None,
+def split_checkpoint(items, *, as_array=None):
+    """Group weight keys by model, converting each retained tensor as it is read."""
+    dino, dit, vae = {}, {}, {}
+    for key, arr in items:
+        if key.startswith(COND_PREFIX):
+            name = key[len(COND_PREFIX):]
+            if name.endswith("patch_embeddings.projection.weight") and arr.ndim == 4:
+                arr = np.transpose(arr, (0, 2, 3, 1))
+            dest = dino
+        elif key.startswith("model."):
+            name, dest = key[len("model."):], dit
+        elif key.startswith("vae."):
+            name, dest = key[len("vae."):], vae
+        else:
+            continue
+        dest[name] = as_array(arr) if as_array is not None else arr
+    return dino, dit, vae
+
+
+def load_models(model_dir: str, dtype=None, quantize: int | None = None,
                 verbose: bool = True):
+    import mlx.core as mx
+    from safetensors import safe_open
+
+    from .models.shape_vae import ShapeVAE
+
+    if dtype is None:
+        dtype = mx.float32
     cfg = load_config(model_dir)
     st = os.path.join(model_dir, "model.fp16.safetensors")
 
-    dino_items, dit_items, vae_items = {}, {}, {}
     with safe_open(st, framework="numpy") as f:
-        for key in f.keys():
-            arr = f.get_tensor(key)
-            if key.startswith(COND_PREFIX):
-                k = key[len(COND_PREFIX):]
-                if k.endswith("patch_embeddings.projection.weight") and arr.ndim == 4:
-                    arr = np.transpose(arr, (0, 2, 3, 1))
-                dino_items[k] = mx.array(arr).astype(dtype)
-            elif key.startswith("model."):
-                dit_items[key[len("model."):]] = mx.array(arr).astype(dtype)
-            elif key.startswith("vae."):
-                vae_items[key[len("vae."):]] = mx.array(arr).astype(dtype)
+        dino_items, dit_items, vae_items = split_checkpoint(
+            ((key, f.get_tensor(key)) for key in f.keys()),
+            as_array=lambda arr: mx.array(arr).astype(dtype),
+        )
 
     dit = _build_dit(cfg)
     vae = ShapeVAE(**cfg["vae"]["params"])
-    dino = _build_dino(cfg, dino_items)
+    from .models.dinov2 import DinoImageEncoder
+
+    dino = DinoImageEncoder(**dino_parameters(cfg, dino_items))
 
     n_dino = _assign(dino, dino_items.items(), "dino")
     n_dit = _assign(dit, dit_items.items(), "dit")

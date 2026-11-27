@@ -152,3 +152,11 @@ def test_centroid_is_reported_in_bounding_box_fractions():
     assert x == pytest.approx(1.0, abs=1e-6)  # the open face is at the +x extreme
     assert y == pytest.approx(0.5, abs=1e-6)
     assert z == pytest.approx(0.5, abs=1e-6)
+
+
+def test_rim_winding_is_retained_when_neighbor_normal_already_agrees():
+    vertices = np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0)], dtype=float)
+    rim, = loop_geometry(vertices, np.array([[0, 1, 2]]), [[0, 1, 2]])
+    assert rim["normal"] == pytest.approx([0, 0, 1])
+    assert rim["centroid"] == pytest.approx([1 / 3, 1 / 3, 0])
+    assert rim["perimeter"] == pytest.approx(2 + np.sqrt(2))

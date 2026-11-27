@@ -1,13 +1,6 @@
 """Tests for the local-model Blender harness.
 
-The expensive failure this guards against is a malformed bpy snippet reaching Blender
-halfway through an agent run: the model gets back a syntax error it cannot fix, burns its
-remaining rounds, and the whole run is wasted. Compiling every builder's output costs
-milliseconds and catches exactly that, which is AGENTS.md's "verify the environment before
-the expensive step".
-
-The builders are imported and called, never re-derived. A test that re-implemented the
-string building would be testing a copy of the code rather than the code.
+Check that client builders send valid requests to the shipped Blender worker.
 """
 
 from __future__ import annotations
@@ -16,8 +9,10 @@ import ast
 import importlib.util
 import json
 import sys
+from inspect import signature
 from pathlib import Path
 
+import blender_agent_worker as worker
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -33,6 +28,24 @@ def _load():
 
 
 agent = _load()
+
+
+def worker_request(code):
+    """Inspect the worker bytes and JSON packed into the generated request."""
+    tree = ast.parse(code)
+    compiler, = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "compile"
+        and ast.literal_eval(node.args[1]) == agent.WORKER_PATH.name
+    ]
+    decoder, = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name) and node.func.value.id == "json"
+        and node.func.attr == "loads"
+    ]
+    return ast.literal_eval(compiler.args[0]), json.loads(ast.literal_eval(decoder.args[0]))
 
 
 # Representative arguments per tool. Anything the harness owns rather than the model goes
@@ -76,13 +89,12 @@ def test_generated_code_compiles(name):
 
 
 @pytest.mark.parametrize("name", sorted(SAMPLE_CALLS))
-def test_generated_code_reports_through_the_sentinel(name):
-    """parse_response looks for exactly one marker; a builder that forgets it produces a
-    tool the model sees as permanently broken."""
+def test_generated_code_carries_the_shipped_worker_and_compatible_arguments(name):
     arguments, injected = SAMPLE_CALLS[name]
-    code = agent.build_call(name, arguments, injected)
-    assert agent.RESULT_SENTINEL in code
-    assert "payload" in code
+    source, request = worker_request(agent.build_call(name, arguments, injected))
+    assert source == agent.WORKER_PATH.read_bytes()
+    assert request["action"] == name
+    signature(worker.ACTIONS[name]).bind(None, **request["parameters"])
 
 
 @pytest.mark.parametrize("name", sorted(SAMPLE_CALLS))
@@ -131,6 +143,11 @@ def test_invented_argument_is_refused_not_dropped():
     assert "roll" in str(excinfo.value)
 
 
+def test_nonfinite_arguments_are_refused_at_the_request_boundary():
+    with pytest.raises(TypeError, match="JSON-compatible"):
+        agent.build_call("move_object", {"name": "body", "dx": float("nan")})
+
+
 def test_missing_required_argument_is_refused():
     with pytest.raises(TypeError) as excinfo:
         agent.build_call("set_camera", {"azimuth": 0})
@@ -145,20 +162,12 @@ def test_render_path_is_not_model_controlled():
         agent.build_call("render_view", {"output_path": "/etc/passwd"})
 
 
-def test_string_arguments_cannot_break_out_of_the_snippet():
-    """Paths reach Blender as Python literals via repr, not by concatenation. A quote or
-    a newline in an asset name must stay data."""
-    nasty = "/tmp/a'; import os; os.system('echo pwned'); x='.glb"
-    code = agent.build_call("import_asset", {"path": nasty})
-    compile(code, "<nasty>", "exec")
-    tree = ast.parse(code)
-    literals = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)
-                and isinstance(node.value, str)}
-    assert nasty in literals  # present as one literal, not spliced into source
-    assert "os.system" not in {
-        getattr(getattr(node.func, "value", None), "id", None)
-        for node in ast.walk(tree) if isinstance(node, ast.Call)
-    }
+def test_string_arguments_round_trip_as_data():
+    name = "/tmp/café'\n\".glb"
+    code = agent.build_call("import_asset", {"path": name})
+    compile(code, "<asset name>", "exec")
+    _, request = worker_request(code)
+    assert request["parameters"] == {"path": name, "clear_scene": True}
 
 
 def test_parse_response_reads_the_result_line():
@@ -221,46 +230,36 @@ def test_list_tools_needs_no_blender(capsys):
 
 
 def test_transform_arguments_survive_being_omitted():
-    """set_object_transform takes three optional vectors; a None must reach Blender as a
-    literal None, not as the string "None"."""
     code = agent.build_call("set_object_transform", {"name": "cubelet", "scale": [2, 2, 2]})
-    compile(code, "<transform>", "exec")
-    tree = ast.parse(code)
-    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-    assert "None" not in names  # None is a Constant, never a bare Name
-    assert '"None"' not in code and "'None'" not in code
-
-
-def test_duplicate_grid_refuses_a_runaway():
-    """A model that means 3 and types 30 gets an error, not a hung Blender. The cap lives
-    in the generated code, so assert it is actually in there."""
-    code = agent.build_call("duplicate_grid",
-                            {"name": "cubelet", "counts": [30, 30, 30], "spacing": [1, 1, 1]})
-    assert "200" in code
-    compile(code, "<grid>", "exec")
+    _, request = worker_request(code)
+    assert request["parameters"] == {
+        "name": "cubelet", "location": None, "rotation": None, "scale": [2, 2, 2],
+    }
 
 
 def test_duplicate_grid_clamps_counts_to_at_least_one():
-    code = agent.build_call("duplicate_grid",
-                            {"name": "c", "counts": [0, -4, 3], "spacing": [1, 1, 1]})
-    assert "[1, 1, 3]" in code
+    code = agent.build_call("duplicate_grid", {"name": "c", "counts": [0, -4, 3], "spacing": [1]})
+    _, request = worker_request(code)
+    assert request["parameters"] == {
+        "name": "c", "counts": [1, 1, 3], "spacing": [1, 0, 0], "prefix": None,
+    }
 
 
-def test_primitive_kinds_in_the_schema_all_exist_in_the_builder():
-    """A kind the schema advertises but the builder cannot make is a tool that fails only
-    once the model tries it, several minutes into a run."""
+def test_primitive_kind_survives_the_request():
     kinds = agent.TOOLS["add_primitive"].parameters["properties"]["kind"]["enum"]
-    code = agent.build_call("add_primitive", {"kind": "cube", "name": "x"})
     for kind in kinds:
-        assert f'"{kind}"' in code, f"{kind} is offered but the builder has no adder"
+        _, request = worker_request(agent.build_add_primitive(kind, "sample"))
+        assert request["parameters"]["kind"] == kind
 
 
-def test_short_vectors_do_not_crash_the_builder():
-    """Models emit [0, 0] for a 3-vector often enough that it must not raise."""
-    for args in ({"kind": "cube", "name": "a", "location": []},
-                 {"kind": "cube", "name": "b", "location": [1, 2]},
-                 {"kind": "cube", "name": "c", "rotation": [5]}):
-        compile(agent.build_call("add_primitive", args), "<short>", "exec")
+def test_short_vectors_get_padded():
+    _, request = worker_request(agent.build_add_primitive(
+        "cube", "a", location=[1, 2], rotation=[5], scale=[2],
+    ))
+    parameters = request["parameters"]
+    assert parameters["location"] == [1, 2, 0]
+    assert parameters["rotation"] == [5, 0, 0]
+    assert parameters["scale"] == [2, 1, 1]
 
 
 def test_opening_messages_without_a_reference():
@@ -288,16 +287,6 @@ def test_missing_reference_file_is_caught_before_the_model_loads():
     """Loading a 20 GB model and then failing on a typo'd path is a five-minute mistake."""
     with pytest.raises(SystemExit):
         agent.main(["--task", "x", "--out-dir", "/tmp/u", "--reference", "/nope/absent.png"])
-
-
-def test_render_engine_is_resolved_against_the_running_blender():
-    """Blender renamed the realtime engine (BLENDER_EEVEE_NEXT in 4.2+, BLENDER_EEVEE in
-    5.2). A hardcoded identifier crashes on the other version, which it did. The snippet
-    must ask Blender what it has rather than assuming."""
-    code = agent.build_call("set_render_settings", {"engine": "eevee"})
-    assert "enum_items" in code, "engine must be resolved from Blender's own enum"
-    assert "BLENDER_EEVEE_NEXT" not in code
-    compile(code, "<engine>", "exec")
 
 
 def test_render_engine_schema_offers_only_loose_names():
@@ -328,37 +317,6 @@ def test_forced_render_ignores_unknown_tool_names():
     assert not agent.needs_forced_render(["sculpt_a_dragon"])
 
 
-def test_default_import_clears_meshes_only():
-    """A default import used to delete armatures and joint-marker empties too."""
-    code = agent.build_import_asset("/tmp/a.glb")
-    assert '"MESH"' in code
-    assert '"ARMATURE"' not in code
-    assert '"EMPTY"' not in code
-
-
-def test_clear_scene_removes_only_meshes_and_lights():
-    """The tool text says meshes and lights. Cameras, rigs and markers stay."""
-    code = agent.build_clear_scene()
-    assert '"MESH"' in code
-    assert '"LIGHT"' in code
-    assert '"ARMATURE"' not in code
-    assert '"EMPTY"' not in code
-    assert '"CAMERA"' not in code
-    compile(code, "<clear>", "exec")
-
-
-def test_clear_scene_keeps_the_camera():
-    """Deleting the camera mid-run leaves the model unable to render, and it has no verb
-    to make a new one except set_camera, which it may not think to call."""
-    code = agent.build_call("clear_scene", {})
-    assert '"CAMERA"' not in code
-    compile(code, "<clear>", "exec")
-
-
-def test_clear_scene_can_spare_the_lights():
-    assert "keep_lights" in agent.build_call("clear_scene", {"keep_lights": True})
-
-
 def test_run_makes_the_out_dir_absolute(tmp_path, monkeypatch):
     """The generated code runs inside Blender, whose cwd is not ours. A relative path made
     every render fail with a read-only filesystem error while every other tool worked."""
@@ -376,106 +334,81 @@ def test_run_makes_the_out_dir_absolute(tmp_path, monkeypatch):
     assert (tmp_path / "relative" / "out" / "transcript.json").exists()
 
 
-def test_duplicate_grid_gives_each_copy_its_own_mesh():
-    """Linked duplicates share a mesh datablock, and material slots live on the mesh. The
-    first live Rubik's cube came out uniformly blue because of this: every set_material
-    call repainted all 27 cubelets."""
-    code = agent.build_call("duplicate_grid",
-                            {"name": "c", "counts": [3, 3, 3], "spacing": [1, 1, 1]})
-    assert "source.data.copy()" in code
-    assert "copy.data = source.data\n" not in code
-
-
 def test_set_material_colours_many_at_once():
-    code = agent.build_call("set_material", {"names": ["a", "b", "c"], "color": [1, 0, 0]})
-    compile(code, "<mat>", "exec")
-    assert "['a', 'b', 'c']" in code
+    _, request = worker_request(agent.build_set_material([1, 0, 0], names=["a", "b", "c"]))
+    assert request["parameters"]["targets"] == ["a", "b", "c"]
 
 
 def test_set_material_still_takes_a_single_name():
-    code = agent.build_call("set_material", {"name": "solo", "color": [0, 1, 0]})
-    assert "['solo']" in code
+    _, request = worker_request(agent.build_set_material([0, 1], name="solo"))
+    assert request["parameters"]["targets"] == ["solo"]
+    assert request["parameters"]["color"] == [0, 1, 0]
 
 
-def test_set_material_with_nothing_to_colour_tells_the_model_so():
-    """Neither name nor names is required by the schema, so a bare colour is a call an
-    honest model will make. It must get a readable error back, not a crash."""
-    code = agent.build_call("set_material", {"color": [1, 1, 1]})
-    compile(code, "<mat>", "exec")
-    assert "needs name" in code
-
-
-def test_set_camera_ignores_flat_ground_by_default():
-    """Framing at 3x the radius of everything put the camera 21 units from a 2-unit
-    sphere, because a 10-unit floor dominated the bounds. Measured on the reference run."""
-    code = agent.build_call("set_camera", {"azimuth": 0, "elevation": 0})
-    assert "_flat" in code
-    compile(code, "<cam>", "exec")
-
-
-def test_set_camera_honours_an_explicit_target_even_if_flat():
-    """Naming the ground as the target must still frame the ground."""
-    code = agent.build_call("set_camera", {"azimuth": 0, "elevation": 0, "target": "floor"})
-    assert "if target_name:" in code
-    compile(code, "<cam>", "exec")
+def test_set_material_can_reach_worker_without_a_target():
+    _, request = worker_request(agent.build_set_material([1, 1, 1]))
+    assert request["parameters"]["targets"] == []
 
 
 def test_add_primitive_can_shape_in_one_call():
-    """Creating then shaping as two calls doubles the round cost of every body part, and
-    a forced render sits between rounds. A fifteen-part figure has to fit the budget."""
-    code = agent.build_call("add_primitive",
-                            {"kind": "cube", "name": "torso", "scale": [1.0, 0.5, 1.4]})
-    assert "obj.scale" in code
-    assert "[1.0, 0.5, 1.4]" in code
-    compile(code, "<prim>", "exec")
+    _, request = worker_request(agent.build_add_primitive("cube", "torso", scale=[1.0, 0.5, 1.4]))
+    assert request["parameters"]["scale"] == [1.0, 0.5, 1.4]
 
 
 def test_add_primitive_scale_defaults_to_unit():
-    code = agent.build_call("add_primitive", {"kind": "sphere", "name": "head"})
-    assert "[1.0, 1.0, 1.0]" in code
-
-
-@pytest.mark.parametrize("name,args,reader", [
-    ("add_primitive", {"kind": "cube", "name": "arm", "scale": [0.1, 0.1, 0.6]},
-     "obj.dimensions"),
-    ("set_object_transform", {"name": "arm", "scale": [0.1, 0.1, 0.6]}, "obj.dimensions"),
-    ("describe_scene", {}, "obj.matrix_world"),
-])
-def test_dimensions_are_read_after_the_depsgraph_refreshes(name, args, reader):
-    """obj.dimensions derives from the object matrix and does not refresh until the
-    dependency graph does. Without the update the payload reported the UNSCALED size: the
-    model was told its 0.02-wide arm was a 0.2 cube, built a figure with thread limbs, and
-    could not see why. A stale number is worse than no number.
-
-    The comparison is against the first read of a derived attribute, not the word
-    "dimensions", which also appears in the comment explaining this very trap.
-    """
-    code = agent.build_call(name, args)
-    assert "view_layer.update()" in code
-    assert code.index("view_layer.update()") < code.index(reader)
-
-
-def test_mirror_negates_both_location_and_scale():
-    """A mirrored part that keeps its original scale is not a mirror, it is a translation,
-    and asymmetric geometry gives it away."""
-    code = agent.build_call("mirror_object", {"name": "arm_l", "new_name": "arm_r"})
-    assert "location[index] = -location[index]" in code
-    assert "scale[index] = -scale[index]" in code
-    compile(code, "<mirror>", "exec")
+    _, request = worker_request(agent.build_add_primitive("sphere", "head"))
+    assert request["parameters"]["scale"] == [1.0, 1.0, 1.0]
 
 
 def test_mirror_defaults_to_the_left_right_axis():
-    """x is left/right in Blender space, which is the axis a character needs."""
-    code = agent.build_call("mirror_object", {"name": "a", "new_name": "b"})
-    assert "'x'" in code
+    _, request = worker_request(agent.build_mirror_object("a", "b"))
+    assert request["parameters"]["axis"] == "x"
 
 
-def test_mirror_gives_the_copy_its_own_mesh():
-    """Same trap as duplicate_grid: a shared datablock means colouring one recolours both."""
-    code = agent.build_call("mirror_object", {"name": "a", "new_name": "b"})
-    assert "source.data.copy()" in code
+@pytest.mark.parametrize("last", [b'"success"}', b"", TimeoutError()])
+def test_socket_sends_the_supplied_code_and_collects_split_response(monkeypatch, last):
+    chunks = iter([b'{"status":', last])
+    sent = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            sent.append("closed")
+
+        def settimeout(self, timeout):
+            assert timeout == 12
+
+        def sendall(self, request):
+            sent.append(json.loads(request))
+
+        def recv(self, size):
+            assert size == 65536
+            chunk = next(chunks)
+            if isinstance(chunk, TimeoutError):
+                raise chunk
+            return chunk
+
+    def connect(address, *, timeout):
+        assert address == ("localhost", 4000)
+        assert timeout == 10
+        return Connection()
+
+    monkeypatch.setattr(agent.socket, "create_connection", connect)
+    code = 'print("arbitrary Blender code supplied by the caller")'
+    result = agent.send(code, "localhost", 4000, timeout=12)
+    assert sent == [{"type": "execute_code", "params": {"code": code}}, "closed"]
+    assert result == ('{"status":"success"}' if last == b'"success"}' else '{"status":')
 
 
-def test_mirror_refuses_a_name_already_in_use():
-    code = agent.build_call("mirror_object", {"name": "a", "new_name": "b"})
-    assert "already exists" in code
+def test_default_blender_error_and_invalid_result_are_readable():
+    assert agent.parse_response('{"status":"error"}') == {"error": "Blender reported an error"}
+    invalid = json.dumps({"result": agent.RESULT_SENTINEL + "{garbage"})
+    assert agent.parse_response(invalid)["error"].startswith("unparseable result line:")
+
+
+def test_package_entrypoint_uses_the_same_worker():
+    from scripts import blender_agent
+
+    assert blender_agent.build_describe_scene() == agent.build_describe_scene()

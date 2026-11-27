@@ -45,11 +45,22 @@ _HELPER = '''
 def {marker}(mesh):
     import sys
 
-    import torch
-
     repo = {repo!r}
     if repo not in sys.path:
         sys.path.insert(0, repo)
+    from scripts.patch_ovoxel_weld_before_simplify import weld_before_simplify
+
+    weld_before_simplify(mesh)
+# --- end image-to-3dlab -------------------------------------------------------------
+'''
+
+_SIMPLIFY = re.compile(r"^(\s*)mesh\.simplify\(", re.MULTILINE)
+
+
+def weld_before_simplify(mesh) -> None:
+    """Weld exact duplicate vertices in the backend mesh before simplification."""
+    import torch
+
     from scripts.mesh_weld import duplicate_count, weld_vertices
 
     vertices, faces = mesh.read()
@@ -64,13 +75,9 @@ def {marker}(mesh):
         torch.as_tensor(welded_f, dtype=torch.int32).contiguous(),
     )
     print(
-        f"  [image-to-3dlab] welded {{duplicates}} duplicate vertices "
-        f"({{len(f)}} -> {{len(welded_f)}} faces) before simplify"
+        f"  [image-to-3dlab] welded {duplicates} duplicate vertices "
+        f"({len(f)} -> {len(welded_f)} faces) before simplify"
     )
-# --- end image-to-3dlab -------------------------------------------------------------
-'''
-
-_SIMPLIFY = re.compile(r"^(\s*)mesh\.simplify\(", re.MULTILINE)
 
 
 def already_patched(source: str) -> bool:

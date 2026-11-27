@@ -71,11 +71,8 @@ def test_patch_binvox_platform_check_adds_darwin_branch_once(tmp_path, monkeypat
 
     assert patch_mod.patch_binvox_platform_check() is True
     patched = (tmp_path / "rignet" / "quick_start.py").read_text()
-    assert 'platform == "darwin"' in patched
-    assert "voxelize_normalized_mesh" in patched
-    # the linux/windows branches must still be reachable, unmodified
-    assert '"./binvox -d 88 -pb "' in patched
-    assert '"binvox.exe -d 88 "' in patched
+    assert "from utils.voxelize_compat import load_voxels" in patched
+    assert "vox = load_voxels(mesh_filaname)" in patched
 
     assert patch_mod.patch_binvox_platform_check() is False
     assert (tmp_path / "rignet" / "quick_start.py").read_text() == patched

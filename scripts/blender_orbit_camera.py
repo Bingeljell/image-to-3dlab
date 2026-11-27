@@ -30,7 +30,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import socket
+from pathlib import Path
+
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_query_worker.py")
 
 
 def send(code: str, host: str, port: int, timeout: int = 60) -> str:
@@ -55,56 +64,28 @@ def send(code: str, host: str, port: int, timeout: int = 60) -> str:
     return b"".join(chunks).decode("utf-8", errors="replace")
 
 
-CODE_TEMPLATE = '''
-import bpy, json, math
-from mathutils import Vector
+def camera_pose(
+    target: tuple[float, float, float], azimuth: float, elevation: float, radius: float
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Return the Blender camera position and direction toward a SceneKit target."""
+    x, y, z = target
+    az = math.radians(azimuth)
+    el = math.radians(elevation)
+    dx = radius * math.cos(el) * math.sin(az)
+    dy = -radius * math.cos(el) * math.cos(az)
+    dz = radius * math.sin(el)
+    location = (x + dx, -z + dy, y + dz)
+    return location, (x - location[0], -z - location[1], y - location[2])
 
-cam_name = {cam_name!r}
-target_sk = {target!r}
-azimuth_deg = {azimuth!r}
-elevation_deg = {elevation!r}
-radius = {radius!r}
-fov_deg = {fov!r}
-render_path = {render_path!r}
-resolution = {resolution!r}
 
-def sk_to_blender(x, y, z):
-    return (x, -z, y)
-
-cam_obj = bpy.data.objects.get(cam_name)
-if cam_obj is None:
-    cam_data = bpy.data.cameras.new(cam_name)
-    cam_obj = bpy.data.objects.new(cam_name, cam_data)
-    bpy.context.collection.objects.link(cam_obj)
-cam_obj.data.lens_unit = "FOV"
-cam_obj.data.sensor_fit = "VERTICAL"  # SceneKit's fieldOfView is vertical; Blender's `angle` defaults horizontal
-cam_obj.data.angle = math.radians(fov_deg)
-
-target = Vector(sk_to_blender(*target_sk))
-az = math.radians(azimuth_deg)
-el = math.radians(elevation_deg)
-offset = Vector((
-    radius * math.cos(el) * math.sin(az),
-    -radius * math.cos(el) * math.cos(az),
-    radius * math.sin(el),
-))
-cam_obj.location = target + offset
-direction = (target - cam_obj.location).normalized()
-cam_obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-bpy.context.scene.camera = cam_obj
-
-result = {{"camera": cam_obj.name, "location": list(cam_obj.location)}}
-
-if render_path:
-    scene = bpy.context.scene
-    scene.render.resolution_x, scene.render.resolution_y = resolution
-    scene.render.filepath = render_path
-    bpy.ops.render.render(write_still=True)
-    result["rendered"] = render_path
-
-print("ORBIT_RESULT " + json.dumps(result))
-result
-'''
+def build_code(cam_name, location, toward, fov, render_path, resolution) -> str:
+    return build_worker_code(WORKER_PATH, {
+        "action": "orbit_camera",
+        "parameters": {
+            "cam_name": cam_name, "location": location, "toward": toward,
+            "fov": fov, "render_path": render_path, "resolution": resolution,
+        },
+    })
 
 
 def main() -> int:
@@ -121,12 +102,11 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=9876)
     args = parser.parse_args()
 
-    code = CODE_TEMPLATE.format(
+    location, toward = camera_pose(tuple(args.target), args.azimuth, args.elevation, args.radius)
+    code = build_code(
         cam_name=args.camera_name,
-        target=tuple(args.target),
-        azimuth=args.azimuth,
-        elevation=args.elevation,
-        radius=args.radius,
+        location=location,
+        toward=toward,
         fov=args.fov,
         render_path=args.render,
         resolution=tuple(args.resolution),

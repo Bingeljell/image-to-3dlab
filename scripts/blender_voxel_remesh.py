@@ -27,8 +27,6 @@ to bridge the gaps between shards.
 
 import sys
 
-import bpy
-
 
 def parse_args(argv: list[str]) -> tuple[str, str, float]:
     """Arguments after Blender's `--` separator: input, output, voxel size."""
@@ -41,6 +39,8 @@ def parse_args(argv: list[str]) -> tuple[str, str, float]:
 
 
 def clear_scene() -> None:
+    import bpy
+
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
 
@@ -52,6 +52,8 @@ def voxel_remesh(obj, voxel_size: float):
     the operation that turns separated shards into one skin. QuadriFlow — the other remesh
     mode — refuses meshes like this, as recorded in earlier work.
     """
+    import bpy
+
     before = len(obj.data.polygons)
     modifier = obj.modifiers.new(name="i2l_voxel", type="REMESH")
     modifier.mode = "VOXEL"
@@ -67,6 +69,8 @@ def voxel_remesh(obj, voxel_size: float):
 
 
 def main() -> None:
+    import bpy
+
     source, target, voxel_size = parse_args(sys.argv)
     clear_scene()
 

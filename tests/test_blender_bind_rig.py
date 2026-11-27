@@ -125,3 +125,32 @@ def test_binding_to_a_named_armature_still_wins():
     _mesh, armature = module.resolve_pair(
         [Obj("geometry_0", "MESH"), metarig, generated], armature_name="metarig")
     assert armature is metarig
+
+
+def test_multiple_armatures_prefer_a_single_deforming_rig():
+    module = load_module()
+    mesh = Obj("body", "MESH")
+    guide = Armature("guide", [Bone("spine")])
+    deform = Armature("deform", [Bone("DEF-spine")])
+    other = Armature("other", [Bone("DEF-tail")])
+    assert module.resolve_pair([mesh, guide, deform]) == (mesh, deform)
+    with pytest.raises(RuntimeError, match="name one explicitly"):
+        module.resolve_pair([mesh, guide, deform, other])
+    with pytest.raises(RuntimeError, match="expected one"):
+        module.pick_armature([guide, deform], None)
+
+
+def test_binding_leaves_an_object_mode_scene_alone_before_validation(monkeypatch, tmp_path):
+    import runpy
+    import sys
+    from types import SimpleNamespace as NS
+
+    ops = []
+    bpy = NS(context=NS(object=NS(mode="OBJECT")), data=NS(objects=[]),
+             ops=NS(object=NS(mode_set=lambda **kw: ops.append(kw))))
+    monkeypatch.setitem(sys.modules, "bpy", bpy)
+    monkeypatch.setattr(sys, "argv", ["blender", "--", "--out", str(tmp_path / "bound.blend")])
+    with pytest.raises(RuntimeError, match="no mesh"):
+        runpy.run_path(str(MODULE), run_name="__main__")
+    assert ops == []
+    assert list(tmp_path.iterdir()) == []

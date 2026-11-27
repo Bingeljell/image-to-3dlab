@@ -9,8 +9,16 @@ optional substring renames (e.g. diffusers' ".to_out.0." -> our ".to_out.").
 
 from __future__ import annotations
 
-import mlx.core as mx
-from mlx.utils import tree_unflatten
+
+def remap_parameters(sd, renames=(), *, as_array=None):
+    """Yield renamed parameters with convolution weights in channels-last order."""
+    for key, value in sd.items():
+        for old, new in renames:
+            key = key.replace(old, new)
+        arr = as_array(value) if as_array is not None else value
+        if arr.ndim == 4:
+            arr = arr.transpose(0, 2, 3, 1)
+        yield key, arr
 
 
 def load_torch_weights(module, sd, renames=(), verbose=False):
@@ -19,14 +27,13 @@ def load_torch_weights(module, sd, renames=(), verbose=False):
     sd: {torch_key: array}. renames: iterable of (old_substr, new_substr).
     After the update, a parameter the checkpoint left out raises KeyError.
     """
-    flat = []
-    for k, v in sd.items():
-        for a, b in renames:
-            k = k.replace(a, b)
-        arr = v if isinstance(v, mx.array) else mx.array(v)
-        if arr.ndim == 4:  # conv weight NCHW -> NHWC
-            arr = arr.transpose(0, 2, 3, 1)
-        flat.append((k, arr))
+    import mlx.core as mx
+    from mlx.utils import tree_unflatten
+
+    def as_mlx(value):
+        return value if isinstance(value, mx.array) else mx.array(value)
+
+    flat = list(remap_parameters(sd, renames, as_array=as_mlx))
     module.update(tree_unflatten(flat))
     mx.eval(module.parameters())
     loaded = {key for key, _value in flat}

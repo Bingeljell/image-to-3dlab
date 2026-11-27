@@ -33,53 +33,46 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+if __package__:
+    from .pixal3d_compat import (
+        FORBIDDEN_PREFIX,
+        SUBSTITUTE,
+        helper_matches,
+        install_helper,
+        replace_payload,
+    )
+else:
+    from pixal3d_compat import (
+        FORBIDDEN_PREFIX,
+        SUBSTITUTE,
+        helper_matches,
+        install_helper,
+        replace_payload,
+    )
+
 MARKER = "i2l_rembg_licence"
-SUBSTITUTE = "ZhengPeng7/BiRefNet"
-FORBIDDEN_PREFIX = "briaai/"
+HELPER_SOURCE = Path(__file__).with_name("pixal3d_compat.py")
 
 DEFAULT_TARGET = Path("vendor/pixal3d-mac/pixal3d/pipelines/rembg/BiRefNet.py")
 
 ANCHOR = '    def __init__(self, model_name: str = "ZhengPeng7/BiRefNet"):\n'
 
-INJECTION = f'''        # {MARKER}: the weights' pipeline.json asks for "briaai/RMBG-2.0", whose
-        # licence this repo does not accept in its generation path. Substitute the
-        # permissive upstream model BRIA fine-tuned to make it. Never remove silently:
-        # the point is that no run can load BRIA by way of a config we do not control.
-        if model_name.startswith("{FORBIDDEN_PREFIX}"):
-            print(
-                f"[{MARKER}] refusing {{model_name}}; using {SUBSTITUTE} instead",
-                flush=True,
-            )
-            model_name = "{SUBSTITUTE}"
+INJECTION = '''        # i2l_rembg_licence: guard against the forbidden briaai/ model family.
+        from ._assetfurnace_pixal3d_compat import guard_rembg_model
+        model_name = guard_rembg_model(model_name)
 '''
-
-
-def permissive_model_name(model_name: str) -> str:
-    """The model that may actually be loaded, given what a config asked for.
-
-    Pure, and the same decision the injected code makes — which is why it can be tested
-    here rather than only by running a generation.
-    """
-    if model_name.startswith(FORBIDDEN_PREFIX):
-        return SUBSTITUTE
-    return model_name
+LEGACY_END = '            model_name = "ZhengPeng7/BiRefNet"\n'
+LEGACY_DIGEST = "441cb01263380bd9edf3305e6b8a0004669da5d86854e7ebe2aade727d08259c"
 
 
 def is_patched(source: str) -> bool:
-    return MARKER in source
+    return source.count(ANCHOR) == 1 and ANCHOR + INJECTION in source
 
 
 def apply(source: str) -> str:
     """Return the patched source. Idempotent."""
-    if is_patched(source):
-        return source
-    if ANCHOR not in source:
-        raise SystemExit(
-            "anchor not found: BiRefNet.__init__ no longer has the expected signature. "
-            "Check how the matting model is selected before assuming this patch works — "
-            "an unpatched run downloads BRIA RMBG-2.0."
-        )
-    return source.replace(ANCHOR, ANCHOR + INJECTION, 1)
+    return replace_payload(source, ANCHOR, INJECTION, MARKER, LEGACY_END, LEGACY_DIGEST,
+                           "anchor not found or changed: verify the audited BiRefNet constructor before generation.")
 
 
 def main() -> int:
@@ -97,17 +90,19 @@ def main() -> int:
     source = args.target.read_text(encoding="utf-8")
 
     if args.check:
-        if is_patched(source):
+        if is_patched(source) and helper_matches(HELPER_SOURCE, args.target):
             print(f"patched: {args.target}")
             return 0
-        print(f"NOT PATCHED: {args.target} — a run would load BRIA RMBG-2.0")
+        print(f"NOT PATCHED: {args.target} — refresh the BRIA guard before generation")
         return 1
 
     patched = apply(source)
-    if patched == source:
+    helper_changed = install_helper(HELPER_SOURCE, args.target)
+    if patched == source and not helper_changed:
         print(f"already patched: {args.target}")
         return 0
-    args.target.write_text(patched, encoding="utf-8")
+    if patched != source:
+        args.target.write_text(patched, encoding="utf-8")
     print(f"patched {args.target}: {FORBIDDEN_PREFIX}* -> {SUBSTITUTE}")
     return 0
 

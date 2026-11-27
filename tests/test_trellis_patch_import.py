@@ -60,5 +60,6 @@ def test_a_present_remesh_checkpoint_patch_passes_its_check(tmp_path, monkeypatc
     module = importlib.import_module("patch_ovoxel_remesh_checkpoints")
     target = tmp_path / "postprocess.py"
     target.write_text(module.MARKER + "\n")
+    target.with_name(module.HELPER_NAME).write_bytes(module.HELPER_SOURCE.read_bytes())
     monkeypatch.setattr(sys, "argv", ["patch", "--check", "--target", str(target)])
     assert module.main() == 0

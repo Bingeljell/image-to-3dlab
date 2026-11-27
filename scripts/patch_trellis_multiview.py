@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TRELLIS = ROOT / "vendor" / "trellis-mac"
 PIPELINE = TRELLIS / "TRELLIS.2" / "trellis2" / "pipelines" / "trellis2_image_to_3d.py"
 GENERATE = TRELLIS / "generate.py"
+HELPER_SOURCE = Path(__file__).with_name("trellis_multiview_compat.py")
 
 
 def replace(path: Path, needle: str, replacement: str, marker: str) -> bool:
@@ -72,72 +73,29 @@ def undo_token_concatenation() -> bool:
 
 def patch_sampler_injection() -> bool:
     needle = """    def get_cond(self, image: Union[torch.Tensor, list[Image.Image]], resolution: int, include_neg_cond: bool = True) -> dict:"""
-    replacement = '''    def install_multi_image_hooks(self, num_views: int) -> None:
-        """Install the per-view fusion hook on every sampler, once."""
-        for name in ('sparse_structure_sampler', 'shape_slat_sampler', 'tex_slat_sampler'):
-            sampler = getattr(self, name, None)
-            if sampler is None or getattr(sampler, '_multi_image_hooked', False):
-                continue
-            self.inject_sampler_multi_image(
-                name, getattr(self, 'multi_image_mode', 'multidiffusion')
-            )
-            sampler._multi_image_hooked = True
+    marker = "from ._i2l_multiview import install_multi_image_hooks"
+    replacement = f'''    def install_multi_image_hooks(self, num_views: int) -> None:
+        {marker}
+        install_multi_image_hooks(self)
 
     def inject_sampler_multi_image(self, sampler_name: str, mode: str = 'multidiffusion'):
-        """Combine several views by fusing the denoiser's predictions, not its inputs.
+        from ._i2l_multiview import inject_sampler_multi_image
+        inject_sampler_multi_image(getattr(self, sampler_name), mode)
 
-        Concatenating conditioning tokens fails because TRELLIS has no view embeddings
-        and cannot tell the views apart. Instead keep the views separate -- conditioning
-        stays shaped (B, N, D) -- and slice one view per call, so classifier-free
-        guidance and the guidance interval still apply per view exactly as designed.
-
-        Ported from TRELLIS v1, which shipped this and which v2 dropped.
-        """
-        sampler = getattr(self, sampler_name)
-        original = sampler._inference_model
-        counter = {'step': 0}
-
-        def per_view(model, x_t, t, cond, **kwargs):
-            views = cond.shape[0] if hasattr(cond, 'shape') and cond.ndim == 3 else 1
-            if views <= 1:
-                return original(model, x_t, t, cond, **kwargs)
-
-            neg_cond = kwargs.pop('neg_cond', None)
-
-            def call(index):
-                extra = dict(kwargs)
-                if neg_cond is not None:
-                    # neg_cond mirrors cond's batch, so slice it in step.
-                    extra['neg_cond'] = (
-                        neg_cond[index:index + 1]
-                        if getattr(neg_cond, 'shape', [1])[0] == views
-                        else neg_cond
-                    )
-                return original(model, x_t, t, cond[index:index + 1], **extra)
-
-            if not getattr(per_view, '_announced', False):
-                print(f"MULTIVIEW:: fusing {views} views, mode={mode}", flush=True)
-                per_view._announced = True
-            per_view._fusions = getattr(per_view, '_fusions', 0) + 1
-
-            if mode == 'stochastic':
-                # One view per step, cycling. Deterministic, so runs stay reproducible.
-                index = counter['step'] % views
-                counter['step'] += 1
-                return call(index)
-
-            # multidiffusion: every view predicts, then average.
-            predictions = [call(i) for i in range(views)]
-            total = predictions[0]
-            for prediction in predictions[1:]:
-                total = total + prediction
-            return total / len(predictions)
-
-        sampler._inference_model = per_view
-        sampler._multi_image_per_view = per_view
-
-    def get_cond(self, image: Union[torch.Tensor, list[Image.Image]], resolution: int, include_neg_cond: bool = True) -> dict:'''
-    return replace(PIPELINE, needle, replacement, "install_multi_image_hooks")
+{needle}'''
+    source = PIPELINE.read_text()
+    if marker in source:
+        return False
+    legacy = "    def install_multi_image_hooks(self, num_views: int) -> None:"
+    if legacy in source:
+        start = source.index(legacy)
+        end = source.index(needle, start)
+        block = source[start:end]
+        if "def inject_sampler_multi_image(" not in block or "def per_view(" not in block:
+            raise RuntimeError("unrecognized multi-view hook block; inspect the pipeline")
+        PIPELINE.write_text(source[:start] + replacement + source[end + len(needle):])
+        return True
+    return replace(PIPELINE, needle, replacement, marker)
 
 
 def patch_contextmanager_import() -> bool:
@@ -161,14 +119,21 @@ def patch_run() -> bool:
         torch.manual_seed(seed)
         cond_512 = self.get_cond([image], 512)
         cond_1024 = self.get_cond([image], 1024) if pipeline_type != '512' else None"""
-    replacement = """        # Accept either one image or several views of the same subject.
+    legacy = """        # Accept either one image or several views of the same subject.
         images = list(image) if isinstance(image, (list, tuple)) else [image]
         if preprocess_image:
             images = [self.preprocess_image(i) for i in images]
         torch.manual_seed(seed)
         cond_512 = self.get_cond(images, 512)
         cond_1024 = self.get_cond(images, 1024) if pipeline_type != '512' else None"""
-    return replace(PIPELINE, needle, replacement, "Accept either one image or several")
+    marker = "from ._i2l_multiview import prepare_conditioning"
+    replacement = f"""        {marker}
+        images, cond_512, cond_1024 = prepare_conditioning(
+            self, image, preprocess_image, seed, pipeline_type
+        )"""
+    if legacy in PIPELINE.read_text():
+        needle = legacy
+    return replace(PIPELINE, needle, replacement, marker)
 
 
 def patch_run_wraps_samplers() -> bool:
@@ -226,7 +191,7 @@ def patch_generate_mode_arg() -> bool:
 def patch_generate_load() -> bool:
     needle = """    img = PILImage.open(args.image)
     print(f"Input: {args.image} ({img.size[0]}x{img.size[1]})")"""
-    replacement = """    img = [PILImage.open(path) for path in args.image]
+    legacy = """    img = [PILImage.open(path) for path in args.image]
     for path, view in zip(args.image, img):
         print(f"Input: {path} ({view.size[0]}x{view.size[1]})")
     if len(img) == 1:
@@ -234,16 +199,28 @@ def patch_generate_load() -> bool:
     else:
         print(f"Conditioning on {len(img)} views (mode={args.multi_image_mode})")
         pipeline.multi_image_mode = args.multi_image_mode"""
-    return replace(GENERATE, needle, replacement, "pipeline.multi_image_mode =")
+    marker = "from _i2l_multiview import load_input_views"
+    replacement = f"""    {marker}
+
+    img = load_input_views(args.image, pipeline, args.multi_image_mode)"""
+    if legacy in GENERATE.read_text():
+        needle = legacy
+    return replace(GENERATE, needle, replacement, marker)
 
 
 def patch_generate_exists() -> bool:
     needle = """    if not os.path.exists(args.image):
         print(f"Error: {args.image} not found")"""
-    replacement = """    missing = [p for p in args.image if not os.path.exists(p)]
+    legacy = """    missing = [p for p in args.image if not os.path.exists(p)]
     if missing:
         print(f"Error: {', '.join(missing)} not found")"""
-    return replace(GENERATE, needle, replacement, "missing = [p for p in args.image")
+    marker = "from _i2l_multiview import report_missing_inputs"
+    replacement = f"""    {marker}
+
+    if report_missing_inputs(args.image):"""
+    if legacy in GENERATE.read_text():
+        needle = legacy
+    return replace(GENERATE, needle, replacement, marker)
 
 
 def main() -> int:
@@ -251,6 +228,11 @@ def main() -> int:
         raise SystemExit(
             "vendored TRELLIS.2 not found; bootstrap it before applying this patch"
         )
+    source = HELPER_SOURCE.read_bytes()
+    for target in (PIPELINE, GENERATE):
+        helper = target.with_name("_i2l_multiview.py")
+        if not helper.is_file() or helper.read_bytes() != source:
+            helper.write_bytes(source)
     if undo_token_concatenation():
         print("  removed  : earlier token-concatenation approach (wrong technique)")
     steps = (

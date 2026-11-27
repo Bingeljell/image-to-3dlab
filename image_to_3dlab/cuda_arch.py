@@ -27,19 +27,24 @@ from pathlib import Path
 OLDEST_SM = 75
 OLDEST_CARD = "an NVIDIA RTX 20-series or newer"
 
-#: One JSON line out of the venv's torch: the architectures it was built for, and this card.
+CUDA_PROBE_PATH = Path(__file__).resolve()
 PROBE_SOURCE = (
-    "import json, torch\n"
-    "facts = {}\n"
-    "try:\n"
-    "    facts['archs'] = list(torch.cuda.get_arch_list())\n"
-    "    facts['capability'] = list(torch.cuda.get_device_capability(0)) "
-    "if torch.cuda.is_available() else None\n"
-    "    facts['device'] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else None\n"
-    "except Exception as exc:\n"
-    "    facts['error'] = str(exc)\n"
-    "print(json.dumps(facts))\n"
+    "from runpy import run_path; "
+    f"run_path({str(CUDA_PROBE_PATH)!r}, run_name='__main__')"
 )
+
+
+def cuda_probe_facts(torch_module) -> dict:
+    """Collect the capabilities reported by the selected environment's PyTorch."""
+    facts = {}
+    try:
+        cuda = torch_module.cuda
+        facts["archs"] = list(cuda.get_arch_list())
+        facts["capability"] = list(cuda.get_device_capability(0)) if cuda.is_available() else None
+        facts["device"] = cuda.get_device_name(0) if cuda.is_available() else None
+    except Exception as exc:
+        facts["error"] = str(exc)
+    return facts
 
 
 def sm_number(entry: str) -> int | None:
@@ -173,3 +178,10 @@ def card_problem(python: Path, card: str | None = None,
     capability = facts.get("capability")
     capability = tuple(capability) if isinstance(capability, list) else None
     return problem(facts.get("archs") or [], capability, card or facts.get("device"))
+
+
+
+if __name__ == "__main__":
+    import torch
+
+    print(json.dumps(cuda_probe_facts(torch)))

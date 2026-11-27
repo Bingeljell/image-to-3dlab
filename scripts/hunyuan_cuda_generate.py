@@ -73,13 +73,16 @@ def checkout(vendor_root: Path) -> Path:
     return vendor_root / bootstrap.CHECKOUT.name
 
 
+def models_dir(vendor_root: Path) -> Path:
+    return bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
+
+
 def configure_environment(vendor_root: Path,
                           environ: dict[str, str] | None = None) -> dict[str, str]:
     """Point upstream's shape loader at the weights the bootstrap fetched. Before import."""
     environ = os.environ if environ is None else environ
     # the installed route follows the chosen models folder; any other checkout keeps its own
-    models = bootstrap.MODELS if vendor_root == bootstrap.VENDOR else vendor_root / "models"
-    environ["HY3DGEN_MODELS"] = str(models)
+    environ["HY3DGEN_MODELS"] = str(models_dir(vendor_root))
     environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     return environ
 
@@ -227,6 +230,7 @@ def prepare_image(image_path: Path, output: Path, *, force_matte: bool) -> tuple
 
 
 def _enter_upstream(vendor_root: Path) -> None:
+    os.environ["HF_HUB_OFFLINE"] = "1"
     configure_environment(vendor_root)
     for path in reversed(import_paths(vendor_root)):
         if str(path) not in sys.path:
@@ -336,7 +340,7 @@ def missing_weights(vendor_root: Path, hub: Path | None = None,
     """Weights the run would otherwise fetch. Same idea as the AMD route's check."""
     from image_to_3dlab.weight_gate import snapshot_dir
 
-    shape = bootstrap.MODELS / bootstrap.HUNYUAN_REPO
+    shape = models_dir(vendor_root) / bootstrap.HUNYUAN_REPO
     checks = {
         "Hunyuan3D-2.1 shape model": (shape / "hunyuan3d-dit-v2-1").is_dir(),
         "Hunyuan3D-2.1 shape VAE": (shape / "hunyuan3d-vae-v2-1").is_dir(),

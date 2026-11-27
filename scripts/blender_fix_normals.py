@@ -30,60 +30,18 @@ import json
 import socket
 from pathlib import Path
 
-from blender_scene import isolated_scene_prelude, restore_previous_scene
+if __package__:
+    from .blender_worker_source import build_worker_code
+else:
+    from blender_worker_source import build_worker_code
+
+WORKER_PATH = Path(__file__).with_name("blender_scene_stage_worker.py")
 
 
 def blender_code(asset: Path, output: Path) -> str:
-    prelude = isolated_scene_prelude("IMG3D normals")
-    restore = restore_previous_scene()
-    return f'''
-import bpy
-import numpy as np
-
-{prelude}
-
-bpy.ops.import_scene.gltf(filepath={str(asset)!r})
-meshes = [o for o in render_scene.objects if o.type == "MESH"]
-for o in render_scene.objects:
-    o.select_set(False)
-for o in meshes:
-    o.select_set(True)
-bpy.context.view_layer.objects.active = meshes[0]
-if len(meshes) > 1:
-    bpy.ops.object.join()
-obj = bpy.context.view_layer.objects.active
-mesh = obj.data
-
-
-def inward():
-    """Area fraction facing away from the centroid. A crude but usable proxy: some
-    residue is real concavity, so treat it as an upper bound rather than an error."""
-    count = len(mesh.polygons)
-    normals = np.zeros(count * 3, dtype=np.float32)
-    centres = np.zeros(count * 3, dtype=np.float32)
-    areas = np.zeros(count, dtype=np.float32)
-    mesh.polygons.foreach_get("normal", normals)
-    mesh.polygons.foreach_get("center", centres)
-    mesh.polygons.foreach_get("area", areas)
-    normals = normals.reshape(-1, 3)
-    centres = centres.reshape(-1, 3)
-    facing = ((centres - centres.mean(axis=0)) * normals).sum(axis=1)
-    return 100.0 * areas[facing < 0].sum() / areas.sum()
-
-
-before = inward()
-bpy.ops.object.mode_set(mode="EDIT")
-bpy.ops.mesh.select_all(action="SELECT")
-bpy.ops.mesh.normals_make_consistent(inside=False)
-bpy.ops.object.mode_set(mode="OBJECT")
-after = inward()
-
-bpy.ops.export_scene.gltf(
-    filepath={str(output)!r}, export_format="GLB", use_selection=False
-)
-print("NORMALS:: inward area %.1f%% -> %.1f%%" % (before, after))
-result = {{"before": before, "after": after}}
-{restore}'''
+    return build_worker_code(WORKER_PATH, {
+        "action": "fix_normals", "parameters": {"asset": str(asset), "output": str(output)},
+    })
 
 
 def main() -> int:

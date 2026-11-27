@@ -10,19 +10,7 @@ import json
 import time
 
 import numpy as np
-import trimesh
 from PIL import Image
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
-
-import mlx.core as mx
-from hy3dpaint_mlx.vae import AutoencoderKL
-from hy3dpaint_mlx.unet2p5d import UNet2p5DConditionModel
-from hy3dpaint_mlx.scheduler import DDIMScheduler, UniPCScheduler
-from hy3dpaint_mlx.mesh_render import MeshRender
-from hy3dpaint_mlx.raster import cr_raster
-from hy3dpaint_mlx.convert import load_torch_weights
 
 W = "weights/hunyuan3d-paint-v2-0"
 R = int(os.environ.get("PAINT_RES", "512"))      # native-res generation (crisp); set 384 for a faster/softer run
@@ -79,7 +67,38 @@ def prep_img(pil, size):
     return np.asarray(pil.convert("RGB"), np.float32) / 255.0  # [H,W,3] in [0,1]
 
 
+def export_texture(out_dir, vertices, faces, renderer_uv, texture):
+    """Write the paint texture and the painted mesh with its original geometry."""
+    import trimesh
+
+    Image.fromarray((texture * 255).astype(np.uint8)).save(os.path.join(out_dir, "paint_texture.png"))
+    tex_img = Image.fromarray((np.clip(texture, 0, 1) * 255).astype(np.uint8))
+    uv = renderer_uv.copy()
+    uv[:, 1] = 1.0 - uv[:, 1]
+    mesh = trimesh.Trimesh(
+        vertices=vertices, faces=faces, process=False,
+        visual=trimesh.visual.TextureVisuals(uv=uv, image=tex_img),
+    )
+    output = os.path.join(out_dir, "textured_mesh.glb")
+    mesh.export(output)
+    _write_sidecar(output)
+    return output
+
+
 def main():
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, root)
+
+    import trimesh
+    import xatlas
+    import mlx.core as mx
+    from hy3dpaint_mlx.vae import AutoencoderKL
+    from hy3dpaint_mlx.unet2p5d import UNet2p5DConditionModel
+    from hy3dpaint_mlx.scheduler import DDIMScheduler, UniPCScheduler
+    from hy3dpaint_mlx.mesh_render import MeshRender
+    from hy3dpaint_mlx.raster import cr_raster
+    from hy3dpaint_mlx.convert import load_torch_weights
+
     out_dir = _export_dir()
     t0 = time.time()
     print(f"res={R} steps={STEPS} guidance={GUID}")
@@ -91,7 +110,6 @@ def main():
     print(f"models loaded ({time.time()-t0:.0f}s)")
 
     # mesh + UV unwrap (xatlas)
-    import xatlas
     mesh = trimesh.load(MESH, force="mesh")
     vmapping, indices, uvs = xatlas.parametrize(mesh.vertices, mesh.faces)
     V = np.asarray(mesh.vertices)[vmapping]
@@ -155,17 +173,7 @@ def main():
         print(f"super-res x4 ({time.time()-t0:.0f}s, views -> {views[0].shape[0]}px)")
     texture, covered = rend.bake(views, ELEVS, AZIMS, texture_size=TEX, weights=view_weights)
     texture = rend.inpaint(texture, covered)
-    Image.fromarray((texture * 255).astype(np.uint8)).save(os.path.join(out_dir, "paint_texture.png"))
-
-    tex_img = Image.fromarray((np.clip(texture, 0, 1) * 255).astype(np.uint8))
-    uv_exp = rend.vtx_uv.copy(); uv_exp[:, 1] = 1.0 - uv_exp[:, 1]   # v-up (OpenGL) UVs for common viewers
-    # export the ORIGINAL geometry (V), not the renderer's internally-normalized vtx_pos whose
-    # Y<->Z axis swap inverts face winding (would show inside-out / see-through in viewers)
-    out = trimesh.Trimesh(vertices=V, faces=F, process=False,
-                          visual=trimesh.visual.TextureVisuals(uv=uv_exp, image=tex_img))
-    glb = os.path.join(out_dir, "textured_mesh.glb")
-    out.export(glb)
-    _write_sidecar(glb)
+    glb = export_texture(out_dir, V, F, rend.vtx_uv, texture)
     print(f"DONE {time.time()-t0:.0f}s -> {glb} (+ paint_texture.png)")
 
     # textured preview render (rasterize + sample texture) for a couple views

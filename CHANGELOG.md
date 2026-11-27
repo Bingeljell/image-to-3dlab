@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Automated real Blender render, export and scene-cleanup checks, plus real-browser Studio rendering checks, are required by the Merge gate.
+- Animation commands accept rig names and bone maps for different characters.
+- The region split command accepts `--output-prefix` for the exported model and its materials.
+- Contributors can run one command to report separate Python and JavaScript line and branch coverage, including files the tests never load.
+- The combined macOS coverage check requires at least 96% for lines and branches in both Python and JavaScript.
+- The README shows four coverage badges from successful main runs, and CI reports the exact counts for each measure.
+- The Merge gate requires lint, Linux, macOS, Windows, Apple MLX and combined coverage to pass before badge publication and can be required on main.
 - **Pixel Match: `--keep-top-paint`** leaves surfaces that face up and that no picture sees (a hat's brim, shoulders,
   the top of the hair) in the generator's own paint. The pictures' cameras stand level with the subject, so they never
   see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet
@@ -32,7 +39,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for a model painted again. `--sides-paint none` (or `--sides-shape-only`) lets the sides shape the model only;
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
+### Changed
+- Studio asks which move to play when a model contains multiple saved animations.
+
 ### Fixed
+- The comparison render command accepts Windows drive paths with or without labels.
+- The TRELLIS.2 Mac installer shows command help on any platform.
+- Loading joint markers and checking rig weights use the active Blender scene, so markers in another scene cannot change the result.
+- The Hunyuan and TRELLIS patches for AMD graphics stage their edits before installation and restore earlier files if a later write fails.
+- Coverage checks keep their offline safeguards while allowing Linux library discovery, Windows version detection and Apple MLX font setup.
+- Blender scene cleanup and replacement preserve shared objects, saved bindings, and references used by other scenes.
+- Staging centers models with transformed roots, and baking restores camera, frame and output settings after success or failure.
+- Video commands reject missing frames and failed Blender replies, preserve prior frames on retries, and replace videos only after successful encoding.
+- TRELLIS compatibility updates preserve optional MLX attention when upgrading older patches.
+- Region exports include the output prefix in standalone texture filenames, so separate exports do not overwrite each other.
+- Retargeting preserves every pose when no loop is found, including two-frame clips.
+- Coverage merging rejects results after executable permissions change and rejects missing or substituted report files.
+- Attack and walk animation commands preserve other rigs’ animations, saved clips, and animation-strip references when replacing a take.
+- Blender normal repair exports only its private scene, keeping unrelated scene objects out of the repaired model.
+- Local coverage merging rejects reports collected before root installers, launchers or other versionable root files changed.
+- Live asset previews, turntables, and mesh baking restore the previous Blender scene after a failure.
+- Model previews report a framing error for meshes without vertices.
+- TRELLIS setup detects stale compatibility helpers and refreshes them when patches are reapplied.
+- Metal backend patches preserve Unicode in Python and shader source files.
+- TRELLIS on Mac refuses to run if its background remover is assigned anywhere else in the pipeline.
+- TRELLIS material sampling on Mac reports when the required sparse convolution backend is missing.
+- The add-on command reports filesystem errors when removal fails.
+- Hunyuan generation stays offline and checks for weights in the selected checkout.
+- TRELLIS on Mac retries mesh simplification when it returns an empty mesh.
+- Retargeting exports short clips when there are too few frames to blend into a loop.
+- Interrupted pod smoke tests report an incomplete run and preserve finished steps.
 - **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
   one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
   rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",

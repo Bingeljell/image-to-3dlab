@@ -9,12 +9,12 @@ changing nothing, and the patched text still being valid Python.
 
 from __future__ import annotations
 
-import os
 import sys
-import textwrap
 from pathlib import Path
 
 import pytest
+
+from scripts.trellis_rocm_bitcode import device_lib_path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
@@ -392,9 +392,8 @@ def test_sparse_aule_branch_walks_the_packed_sequences(root: Path):
     """The sparse branch must advance q and k by their own lengths, not q alone."""
     trellis_rocm.apply(root)
     sparse = read(root, "TRELLIS.2/trellis2/modules/sparse/attention/full_attn.py")
-    assert "for qn, kn in zip(q_seqlen, kv_seqlen):" in sparse
-    assert "q_off += qn" in sparse and "kv_off += kn" in sparse
-    assert "torch.cat(outs, dim=0)" in sparse
+    assert "from trellis2._assetfurnace_attention import aule_packed" in sparse
+    assert "aule_packed(q, k, v, q_seqlen, kv_seqlen, flash_attention_triton)" in sparse
 
 
 def test_unknown_backend_still_raises(root: Path):
@@ -418,7 +417,7 @@ def test_windowed_attention_has_an_aule_branch_in_all_three_places(root: Path):
     text = read(root, WINDOWED)
     assert text.count("config.ATTN == 'aule'") == 3
     assert text.count("from aule import flash_attention_triton") == 2
-    assert "for qn, kn in zip(q_seq_lens.tolist(), kv_seq_lens.tolist()):" in text
+    assert "aule_window_cross(q_feats, kv_feats, q_seq_lens, kv_seq_lens, flash_attention_triton)" in text
 
 
 def test_windowed_attention_names_an_unknown_backend(root: Path):
@@ -521,26 +520,14 @@ def test_the_cxx20_anchor_count_is_what_upstream_has():
 
 # --- the device-bitcode expression resolves ------------------------------------------------
 
-def device_lib_expression() -> str:
-    """The replacement as it is written into setup.py, as one evaluable expression.
-
-    The trailing comma is the list-element separator, not part of the value, so it comes off
-    before eval — otherwise the whole thing evaluates to a one-element tuple.
-    """
-    block = (trellis_rocm.DEVICE_LIB_REPLACEMENT.replace("%%MARK%%", trellis_rocm.MARKER)
-             .replace("%%INDENT%%", " " * 8).replace("%%DEEP%%", " " * 4))
-    code = textwrap.dedent("\n".join(line for line in block.splitlines()
-                                     if line.strip() and not line.strip().startswith("#")))
-    return code.rstrip().rstrip(",")
-
 
 def test_device_lib_finds_the_rocm7_layout(tmp_path: Path, monkeypatch):
     """ROCm 7.x keeps the bitcode at <root>/amdgcn/bitcode; the forks only knew about 10."""
     root = tmp_path / "rocm"
     (root / "amdgcn" / "bitcode").mkdir(parents=True)
     monkeypatch.delenv("HIP_DEVICE_LIB_PATH", raising=False)
-    got = eval(device_lib_expression(), {"os": os, "_rocm": str(root)})
-    assert got == f"--rocm-device-lib-path={root / 'amdgcn' / 'bitcode'}"
+    got = device_lib_path(str(root))
+    assert got == f"{root / 'amdgcn' / 'bitcode'}"
 
 
 def test_device_lib_finds_the_rocm10_layout(tmp_path: Path, monkeypatch):
@@ -548,8 +535,8 @@ def test_device_lib_finds_the_rocm10_layout(tmp_path: Path, monkeypatch):
     root = tmp_path / "rocm"
     (root / "lib" / "llvm" / "amdgcn" / "bitcode").mkdir(parents=True)
     monkeypatch.delenv("HIP_DEVICE_LIB_PATH", raising=False)
-    got = eval(device_lib_expression(), {"os": os, "_rocm": str(root)})
-    assert got == f"--rocm-device-lib-path={root / 'lib' / 'llvm' / 'amdgcn' / 'bitcode'}"
+    got = device_lib_path(str(root))
+    assert got == f"{root / 'lib' / 'llvm' / 'amdgcn' / 'bitcode'}"
 
 
 @pytest.mark.posix
@@ -559,8 +546,8 @@ def test_device_lib_prefers_the_rocm10_path_when_both_exist(tmp_path: Path, monk
     (root / "amdgcn" / "bitcode").mkdir(parents=True)
     (root / "lib" / "llvm" / "amdgcn" / "bitcode").mkdir(parents=True)
     monkeypatch.delenv("HIP_DEVICE_LIB_PATH", raising=False)
-    got = eval(device_lib_expression(), {"os": os, "_rocm": str(root)})
-    assert "lib/llvm/amdgcn/bitcode" in got
+    got = device_lib_path(str(root))
+    assert Path(got) == root / "lib" / "llvm" / "amdgcn" / "bitcode"
 
 
 def test_device_lib_honours_hip_device_lib_path(tmp_path: Path, monkeypatch):
@@ -568,8 +555,8 @@ def test_device_lib_honours_hip_device_lib_path(tmp_path: Path, monkeypatch):
     root = tmp_path / "rocm"
     (root / "amdgcn" / "bitcode").mkdir(parents=True)
     monkeypatch.setenv("HIP_DEVICE_LIB_PATH", "/somewhere/else")
-    got = eval(device_lib_expression(), {"os": os, "_rocm": str(root)})
-    assert got == "--rocm-device-lib-path=/somewhere/else"
+    got = device_lib_path(str(root))
+    assert got == "/somewhere/else"
 
 
 def test_device_lib_refuses_when_neither_layout_exists(tmp_path: Path, monkeypatch):
@@ -577,7 +564,7 @@ def test_device_lib_refuses_when_neither_layout_exists(tmp_path: Path, monkeypat
     never mentioned the bitcode. Now setup.py stops and says where it looked."""
     monkeypatch.delenv("HIP_DEVICE_LIB_PATH", raising=False)
     with pytest.raises(RuntimeError, match="HIP_DEVICE_LIB_PATH") as refused:
-        eval(device_lib_expression(), {"os": os, "_rocm": str(tmp_path / "nope")})
+        device_lib_path(str(tmp_path / "nope"))
     assert "amdgcn/bitcode" in str(refused.value) and "nope" in str(refused.value)
 
 
@@ -613,6 +600,58 @@ def test_missing_files_are_named_rather_than_silently_skipped(tmp_path: Path):
     assert not trellis_rocm.is_patched(empty)
     with pytest.raises(RuntimeError, match="cannot patch"):
         trellis_rocm.apply(empty)
+
+
+def snapshot(root: Path) -> dict[Path, bytes]:
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
+def test_a_missing_later_file_leaves_the_checkout_unchanged(root: Path):
+    (root / "extensions/FlexGEMM/setup.py").unlink()
+    before = snapshot(root)
+    with pytest.raises(RuntimeError, match="cannot patch"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
+def test_a_moved_late_anchor_leaves_the_checkout_unchanged(root: Path):
+    path = root / "extensions/FlexGEMM/setup.py"
+    path.write_text(path.read_text().replace("-std=c++17", "-std=c++14"))
+    before = snapshot(root)
+    with pytest.raises(RuntimeError, match="anchor for this patch is gone"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
+def test_a_missing_helper_source_leaves_the_checkout_unchanged(root: Path, monkeypatch):
+    before = snapshot(root)
+    monkeypatch.setattr(trellis_rocm, "BITCODE_HELPER_SOURCE", root / "missing-helper.py")
+    with pytest.raises(FileNotFoundError, match="missing-helper.py"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize("stale_helper", [False, True])
+def test_a_failed_helper_write_restores_the_checkout(root: Path, monkeypatch, stale_helper):
+    attention_helper = root / trellis_rocm.ATTENTION_HELPER_TARGET
+    bitcode_helper = root / "extensions/CuMesh" / trellis_rocm.BITCODE_HELPER_NAME
+    if stale_helper:
+        attention_helper.write_bytes(b"# previous helper\r\n")
+    before = snapshot(root)
+
+    replace = Path.replace
+
+    def refuse_replace(path, destination):
+        if destination == bitcode_helper:
+            assert attention_helper.read_bytes() != before.get(attention_helper.relative_to(root))
+            raise OSError("helper write failed")
+        return replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", refuse_replace)
+    with pytest.raises(OSError, match="helper write failed"):
+        trellis_rocm.apply(root)
+    assert snapshot(root) == before
 
 
 def test_is_patched_is_false_when_one_file_is_reverted(root: Path):

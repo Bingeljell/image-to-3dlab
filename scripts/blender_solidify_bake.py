@@ -20,7 +20,7 @@ import json
 import socket
 from pathlib import Path
 
-from blender_scene import isolated_scene_prelude, restore_previous_scene
+from blender_worker_source import build_worker_code
 
 
 def blender_code(
@@ -31,180 +31,14 @@ def blender_code(
     extrusion: float,
     min_component_verts: int,
 ) -> str:
-    prelude = isolated_scene_prelude("IMG3D solidify")
-    restore = restore_previous_scene()
-    return f'''
-import bpy
-from mathutils import Vector
-
-asset_path = {str(asset)!r}
-output_path = {str(output)!r}
-voxel_size = {voxel_size}
-texture_size = {texture_size}
-extrusion = {extrusion}
-min_component_verts = {min_component_verts}
-
-{prelude}
-
-before = set(bpy.data.objects)
-bpy.ops.import_scene.gltf(filepath=asset_path)
-imported = [o for o in render_scene.objects if o not in before]
-meshes = [o for o in imported if o.type == "MESH"]
-
-# The importer may split the asset across objects; bake wants a single source.
-for o in render_scene.objects:
-    o.select_set(False)
-for o in meshes:
-    o.select_set(True)
-bpy.context.view_layer.objects.active = meshes[0]
-if len(meshes) > 1:
-    bpy.ops.object.join()
-source = bpy.context.view_layer.objects.active
-source.name = "SOURCE"
-
-# Absolute voxel size is meaningless without knowing the asset's scale, so derive it
-# from the bounding box when the caller passes a non-positive value.
-corners = [source.matrix_world @ Vector(c) for c in source.bound_box]
-lo = Vector((min(v.x for v in corners), min(v.y for v in corners), min(v.z for v in corners)))
-hi = Vector((max(v.x for v in corners), max(v.y for v in corners), max(v.z for v in corners)))
-extent = max(hi.x - lo.x, hi.y - lo.y, hi.z - lo.z)
-if voxel_size <= 0:
-    voxel_size = extent * 0.002
-
-target = source.copy()
-target.data = source.data.copy()
-bpy.context.scene.collection.objects.link(target)
-target.name = "TARGET"
-
-for o in render_scene.objects:
-    o.select_set(False)
-target.select_set(True)
-bpy.context.view_layer.objects.active = target
-
-remesh = target.modifiers.new("Remesh", "REMESH")
-remesh.mode = "VOXEL"
-remesh.voxel_size = voxel_size
-remesh.adaptivity = 0.0
-bpy.ops.object.modifier_apply(modifier=remesh.name)
-
-# Voxelising welds nearby geometry into a handful of large closed bodies
-# (torso, head, each limb) plus a lot of tiny specks. Full fusion into one body would
-# need a voxel far coarser than the face can survive, so instead keep every substantial
-# component and drop only the specks. Each survivor is closed, which is what kills the
-# see-through artefact; the pieces do not need to be welded to each other for that.
-import bmesh
-
-bm = bmesh.new()
-bm.from_mesh(target.data)
-bm.verts.ensure_lookup_table()
-
-component = [-1] * len(bm.verts)
-sizes = []
-current = 0
-for seed in range(len(bm.verts)):
-    if component[seed] != -1:
-        continue
-    stack = [seed]
-    component[seed] = current
-    size = 0
-    while stack:
-        index = stack.pop()
-        size += 1
-        for edge in bm.verts[index].link_edges:
-            other = edge.other_vert(bm.verts[index]).index
-            if component[other] == -1:
-                component[other] = current
-                stack.append(other)
-    sizes.append(size)
-    current += 1
-
-keep = {{index for index, size in enumerate(sizes) if size >= min_component_verts}}
-if not keep:  # threshold too aggressive; fall back to the largest component
-    keep = {{max(range(len(sizes)), key=lambda i: sizes[i])}}
-debris = [v for v in bm.verts if component[v.index] not in keep]
-if debris:
-    bmesh.ops.delete(bm, geom=debris, context="VERTS")
-bm.to_mesh(target.data)
-bm.free()
-target.data.update()
-components_kept = len(keep)
-components_removed = current - components_kept
-
-# The remeshed surface carries no usable UVs, so make a fresh atlas to bake into.
-target.data.materials.clear()
-bpy.ops.object.mode_set(mode="EDIT")
-bpy.ops.mesh.select_all(action="SELECT")
-bpy.ops.uv.smart_project(angle_limit=1.15192, island_margin=0.002)
-bpy.ops.object.mode_set(mode="OBJECT")
-
-baked = bpy.data.images.new("BAKED", texture_size, texture_size, alpha=False)
-material = bpy.data.materials.new("BAKED_MAT")
-material.use_nodes = True
-nodes = material.node_tree.nodes
-bsdf = nodes.get("Principled BSDF")
-if bsdf is not None:
-    bsdf.inputs["Roughness"].default_value = 1.0
-    bsdf.inputs["Metallic"].default_value = 0.0
-tex_node = nodes.new("ShaderNodeTexImage")
-tex_node.image = baked
-tex_node.select = True
-nodes.active = tex_node
-target.data.materials.append(material)
-
-scene = bpy.context.scene
-scene.render.engine = "CYCLES"
-try:
-    scene.cycles.device = "GPU"
-except Exception:
-    pass
-scene.cycles.samples = 1
-scene.cycles.bake_type = "DIFFUSE"
-scene.render.bake.use_pass_direct = False
-scene.render.bake.use_pass_indirect = False
-scene.render.bake.use_pass_color = True
-scene.render.bake.use_selected_to_active = True
-scene.render.bake.cage_extrusion = extrusion if extrusion > 0 else voxel_size * 6.0
-scene.render.bake.max_ray_distance = (extrusion if extrusion > 0 else voxel_size * 6.0) * 2.0
-
-for o in render_scene.objects:
-    o.select_set(False)
-source.select_set(True)
-target.select_set(True)
-bpy.context.view_layer.objects.active = target
-bpy.ops.object.bake(type="DIFFUSE")
-
-# Pack the baked image so the glTF exporter embeds it rather than chasing a file path.
-baked.pack()
-if bsdf is not None:
-    material.node_tree.links.new(tex_node.outputs["Color"], bsdf.inputs["Base Color"])
-
-bpy.data.objects.remove(source, do_unlink=True)
-for o in render_scene.objects:
-    o.select_set(False)
-target.select_set(True)
-bpy.context.view_layer.objects.active = target
-bpy.ops.export_scene.gltf(
-    filepath=output_path,
-    export_format="GLB",
-    use_selection=True,
-    export_materials="EXPORT",
-)
-
-print(
-    "SOLIDIFY:: voxel %.5f faces %d verts %d kept %d removed %d"
-    % (voxel_size, len(target.data.polygons), len(target.data.vertices), components_kept, components_removed)
-)
-
-result = {{
-    "voxel_size": voxel_size,
-    "extent": extent,
-    "faces": len(target.data.polygons),
-    "verts": len(target.data.vertices),
-    "components_kept": components_kept,
-    "debris_components_removed": components_removed,
-    "output": output_path,
-}}
-{restore}'''
+    return build_worker_code(
+        Path(__file__).with_name("blender_solidify_bake_worker.py"),
+        {
+            "asset_path": str(asset), "output_path": str(output), "voxel_size": voxel_size,
+            "texture_size": texture_size, "extrusion": extrusion,
+            "min_component_verts": min_component_verts,
+        },
+    )
 
 
 def main() -> int:

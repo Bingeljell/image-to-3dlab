@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.pixal3d_compat import permissive_model_name
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "patch_pixal3d_rembg.py"
 
 
@@ -40,16 +42,16 @@ class BiRefNet:
 
 def test_the_exact_name_the_shipped_weights_ask_for_is_substituted():
     """pipeline.json in TencentARC/Pixal3D carries this literal string."""
-    assert patch.permissive_model_name("briaai/RMBG-2.0") == "ZhengPeng7/BiRefNet"
+    assert permissive_model_name("briaai/RMBG-2.0") == "ZhengPeng7/BiRefNet"
 
 
 def test_any_bria_model_is_substituted_not_just_that_one():
-    assert patch.permissive_model_name("briaai/RMBG-1.4") == "ZhengPeng7/BiRefNet"
+    assert permissive_model_name("briaai/RMBG-1.4") == "ZhengPeng7/BiRefNet"
 
 
 def test_a_permissive_model_is_passed_through_untouched():
-    assert patch.permissive_model_name("ZhengPeng7/BiRefNet") == "ZhengPeng7/BiRefNet"
-    assert patch.permissive_model_name("some/other-matting") == "some/other-matting"
+    assert permissive_model_name("ZhengPeng7/BiRefNet") == "ZhengPeng7/BiRefNet"
+    assert permissive_model_name("some/other-matting") == "some/other-matting"
 
 
 def test_applying_the_patch_inserts_the_guard():
@@ -76,22 +78,3 @@ def test_a_missing_anchor_fails_loudly():
     )
     with pytest.raises(SystemExit):
         patch.apply(moved)
-
-
-def test_the_injected_guard_is_valid_python_and_behaves():
-    """Compile the patched file and drive the guard, rather than trusting the string."""
-    patched = patch.apply(ORIGINAL)
-    # Keep only the injected branch, with the model load stubbed out.
-    body = patched.replace(
-        """        self.model = AutoModelForImageSegmentation.from_pretrained(
-            model_name, trust_remote_code=True
-        )
-""",
-        "        self.model_name = model_name\n",
-    ).replace("from transformers import AutoModelForImageSegmentation\n", "")
-
-    namespace: dict = {}
-    exec(compile(body, "patched_BiRefNet.py", "exec"), namespace)
-
-    assert namespace["BiRefNet"]("briaai/RMBG-2.0").model_name == "ZhengPeng7/BiRefNet"
-    assert namespace["BiRefNet"]("ZhengPeng7/BiRefNet").model_name == "ZhengPeng7/BiRefNet"

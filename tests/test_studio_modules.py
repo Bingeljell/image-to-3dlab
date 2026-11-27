@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -15,11 +16,12 @@ NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="Node is required to execute browser ES modules")
 
 
-def _run(module: str, body: str):
+def _run(module: str, body: str, env: dict | None = None):
     url = (REPO / "viewer" / "studio" / module).as_uri()
     program = f"import * as m from {json.dumps(url)};\n{body}"
     result = subprocess.run([NODE, "--input-type=module", "--eval", program],
-                            check=True, capture_output=True, text=True, encoding="utf-8")
+                            check=True, capture_output=True, text=True, encoding="utf-8",
+                            env={**os.environ, **(env or {})})
     return json.loads(result.stdout)
 
 
@@ -767,11 +769,21 @@ def test_the_page_follows_a_run_the_server_carries_and_lands_on_the_result():
 
 
 @needs_node
-def test_activity_says_how_long_in_words_and_groups_by_day():
+@pytest.mark.parametrize("tz", ["UTC", "Asia/Jerusalem", "Pacific/Auckland", "America/Los_Angeles"])
+def test_activity_says_how_long_in_words_and_groups_by_day(tz):
+    # Record times are local wall-clock strings (no Z) and byDay groups by the viewer's local day,
+    # so "now" and the records are built from local components: the result cannot depend on the
+    # machine's zone or the hour (a fixed UTC "now" lands on a different local day east of UTC).
     out = _run("pages.js", """
-      const recs = [{ time: '2026-10-06T23:10:00' }, { time: '2026-10-06T09:00:00' }, { time: '2026-10-05T22:00:00' }, { time: '2026-09-30T10:00:00' }];
+      const local = (y, mo, d, h, mi) => {
+        const p = (n) => String(n).padStart(2, '0');
+        return `${y}-${p(mo)}-${p(d)}T${p(h)}:${p(mi)}:00`;
+      };
+      const recs = [{ time: local(2026, 10, 6, 23, 10) }, { time: local(2026, 10, 6, 9, 0) },
+                    { time: local(2026, 10, 5, 22, 0) }, { time: local(2026, 9, 30, 10, 0) }];
+      const now = new Date(2026, 9, 6, 23, 30);
       console.log(JSON.stringify({ d: [38, 252, 3780, 60].map(m.duration),
-        g: m.byDay(recs, new Date('2026-10-06T23:30:00Z')).map((g) => [g.label, g.items.length]) }));""")
+        g: m.byDay(recs, now).map((g) => [g.label, g.items.length]) }));""", env={"TZ": tz})
     assert out["d"] == ["38 s", "4 min 12 s", "1 h 3 min", "1 min"]
     assert out["g"] == [["Today", 2], ["Yesterday", 1], ["2026-09-30", 1]]
 

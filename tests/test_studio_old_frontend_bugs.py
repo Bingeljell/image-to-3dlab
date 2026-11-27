@@ -293,10 +293,13 @@ def test_today_and_yesterday_follow_the_local_day_not_utc():
       // 01:00 on 7 Oct local time; in UTC it is still 6 Oct
       const today = new Date(2026, 9, 7, 1, 0);
       const recs = [{{ time: '2026-10-07T00:30:00' }}, {{ time: '2026-10-06T22:00:00' }}];
-      console.log(JSON.stringify(m.byDay(recs, today).map((g) => [g.label, g.items.length])));
+      const utcDay = today.toISOString().slice(0, 10);
+      console.log(JSON.stringify({{ utcDay, groups: m.byDay(recs, today).map((g) => [g.label, g.items.length]) }}));
     """
     out = _node(program, env={"TZ": "Pacific/Auckland"})
-    assert out == [["Today", 1], ["Yesterday", 1]]
+    if out["utcDay"] == "2026-10-07":  # Windows Node may ignore an IANA TZ: the UTC bug could not show
+        pytest.skip("this Node ignored TZ, so local and UTC days agree and the case proves nothing")
+    assert out["groups"] == [["Today", 1], ["Yesterday", 1]]
 
 
 def test_reset_pose_returns_the_playhead_to_the_start():

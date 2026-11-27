@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The Blender agent no longer wipes your open file when it imports a model.** Import cleared every mesh by default,
+  and clear and delete reached into every scene of the file, not only the one in view. Import now keeps what is there
+  unless asked to clear, and clear and delete touch only the current scene.
 - **An auto-rigged ear no longer follows the hand.** When the rig tied part of an ear or the head to a hand, finger
   or forearm bone, the ear was dragged out whenever the arm moved. That weight now goes back to the head; real shoulder
   weight stays, and a body that is not two-legged is left as it was.

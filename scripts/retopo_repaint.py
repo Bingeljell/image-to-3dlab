@@ -272,9 +272,10 @@ def photo_settings(edge_fade: bool = True, nudge: bool = True):
 
 
 def photo_stage(model: Path, views_dir: Path, output: Path, weights_png: Path,
-                edge_fade: bool = True, nudge: bool = True) -> dict:
+                edge_fade: bool = True, nudge: bool = True, sharpen: float = 1.0) -> dict:
     """Paint `model` with the real pixels of the photos in `views_dir`; see
-    image_to_3dlab/photo_paint.py. In-process: numpy only, seconds on a Finish mesh."""
+    image_to_3dlab/photo_paint.py. In-process: numpy only, seconds on a Finish mesh.
+    `sharpen` > 1 paints from the pictures upscaled that many times by Real-ESRGAN."""
     sys.path.insert(0, str(REPO))
     import numpy as np
     from PIL import Image
@@ -283,13 +284,16 @@ def photo_stage(model: Path, views_dir: Path, output: Path, weights_png: Path,
 
     positions, uvs, faces, texture = pp.read_glb(model)
     views, mesh_scale = pp.load_views(views_dir)
+    if sharpen > 1:
+        views = pp.sharpen_views(views, sharpen)
     painted, weight = pp.paint_texture(texture, positions, uvs, faces, views, mesh_scale,
                                        settings=photo_settings(edge_fade, nudge))
     output.write_bytes(pp.replace_base_colour(model.read_bytes(), pp.encode_png(painted)))
     Image.fromarray(np.rint(weight * 255).astype(np.uint8)).save(weights_png)
     share = round(float((weight > 0.5).mean()), 3)
     print(f"[photo] {len(views)} view(s); {share:.0%} of the texture from the photo", flush=True)
-    return {"count": len(views), "texture_share": share, "edge_fade": edge_fade, "nudge": nudge}
+    return {"count": len(views), "texture_share": share, "edge_fade": edge_fade, "nudge": nudge,
+            "sharpen": sharpen}
 
 
 def step_paths(output: Path, steps_dir: Path | None = None) -> dict[str, Path]:
@@ -407,6 +411,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-nudge", action="store_true",
         help="Pixel Match paints from the pictures as they are instead of first nudging them onto "
              "the model. Try it when a feature lands twice (a ghost eye) or slides off its place",
+    )
+    parser.add_argument(
+        "--photo-sharpen", type=float, default=1.0, metavar="F",
+        help="Pixel Match paints from the pictures upscaled F times by Real-ESRGAN (the Hero "
+             "route's upscaler): 2 keeps a face's eyelids, brows and lips sharp. Default 1, off",
     )
     parser.add_argument(
         "--native-dump", type=Path, default=None,
@@ -614,7 +623,7 @@ def main() -> int:
             emit_stage("photo", "Pixel Match: keeping the photo's real pixels where it can see")
             photo_record = photo_stage(current, args.views, photo_glb,
                                        steps["photo_weights"], edge_fade=not args.no_edge_fade,
-                                       nudge=not args.no_nudge)
+                                       nudge=not args.no_nudge, sharpen=args.photo_sharpen)
         timings["photo"] = round(time.time() - step, 1)
         current = photo_glb
 

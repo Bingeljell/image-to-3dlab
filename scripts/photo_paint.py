@@ -18,6 +18,11 @@ figure's drawn sides (ears, side hair, arms and legs only, never the face or the
 the neck and the hands; `image_to_3dlab/side_paint.py`), `all` or `none`. Each step can be switched off to compare:
 `--no-align`, `--no-local-colour`, `--cutout-edge 0`, `--inner-edge 0`.
 
+`--sharpen 2` paints from the pictures upscaled twice by Real-ESRGAN (the Hero route's
+upscaler, from Setup or scripts/bootstrap_upscaler.py; nothing is downloaded here), so a
+face drawn ~90 px wide keeps clean eyelids, brows and lips; give the texture room for them
+with `--texture-size` (say 6144 for a raw model's 4096 map).
+
 `--keep-top-paint` leaves upward-facing surfaces that no picture sees in the model's own
 paint. Use it when Pixel Match shifts the colour of a hat brim, shoulders or hair.
 
@@ -58,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
                         help="match colour with one shift for the whole model instead")
     parser.add_argument("--no-align", action="store_true",
                         help="paint from the pictures as they are, without nudging them onto the model")
+    parser.add_argument("--sharpen", type=float, default=1.0, metavar="F",
+                        help="paint from the pictures upscaled F times by Real-ESRGAN (2 = a face's "
+                             "eyes and lips twice as sharp; default 1, off)")
+    parser.add_argument("--texture-size", type=int, default=0, metavar="N",
+                        help="grow the model's base colour to N x N first, so it can hold the sharper "
+                             "pictures (never shrinks it; default 0, as it is)")
     parser.add_argument("--keep-top-paint", action="store_true",
                         help="surfaces facing up that no picture sees (a brim, shoulders, hair tops) keep the "
                              "model's own paint instead of the colour shift of their neighbours")
@@ -75,6 +86,15 @@ def main() -> int:
     started = time.time()
     positions, uvs, faces, texture = pp.read_glb(args.model)
     views, mesh_scale = pp.load_views(args.views)
+    if args.sharpen > 1:
+        from image_to_3dlab import upscale
+
+        if not upscale.installed():
+            raise SystemExit("--sharpen needs Real-ESRGAN (67 MB): get it from Setup & Status or "
+                             "scripts/bootstrap_upscaler.py. Nothing was downloaded.")
+        views = pp.sharpen_views(views, args.sharpen)
+        print(f"[photo-paint] pictures upscaled {args.sharpen:g}x by Real-ESRGAN", flush=True)
+    texture = pp.grow_texture(texture, args.texture_size)
     if args.sides != "staged":
         views = [pp.View(v.image, v.cam_to_world, v.fov_x, v.name, args.sides) if pp.is_side(v) else v
                  for v in views]

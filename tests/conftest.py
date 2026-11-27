@@ -23,9 +23,10 @@ them when convenient; migrate immediately if production code imports the same na
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -39,6 +40,149 @@ os.environ["I3D_NO_USAGE"] = "1"
 
 
 import pytest
+
+
+def _waitid_peek(pid: int) -> None:
+    """`waitid(P_PID, pid, WEXITED | WNOHANG | WNOWAIT)`; raises ChildProcessError if not ours.
+
+    Python's `os.waitid` is missing on macOS before 3.13 (the project runs 3.11), so call
+    libc directly there. The constants differ per platform, so they are spelled out.
+    """
+    if hasattr(os, "waitid"):
+        os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        return
+    import ctypes
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    wnowait = 0x20 if sys.platform == "darwin" else 0x01000000
+    info = ctypes.create_string_buffer(256)  # siginfo_t, larger than any platform's
+    ctypes.set_errno(0)
+    if libc.waitid(1, ctypes.c_uint(pid), info, 4 | 1 | wnowait) != 0:  # P_PID, WEXITED|WNOHANG
+        err = ctypes.get_errno()
+        raise (ChildProcessError if err == errno.ECHILD else OSError)(err, os.strerror(err))
+
+
+def _is_our_child(pid: int) -> bool:
+    """Whether `pid` is a child of this process (live, or exited but not yet reaped).
+
+    The WNOWAIT peek leaves an exited child unreaped, so `Popen` still gets its exit code.
+    A process that is not our child raises ChildProcessError.
+    """
+    if pid <= 0:
+        return False
+    try:
+        _waitid_peek(pid)
+    except OSError:  # ChildProcessError (not ours) or anything else: do not trust it
+        return False
+    return True
+
+
+def _taskkill_pid(argv) -> int | None:
+    """The pid in a `taskkill /PID <pid> ...` command line, or None if it is not one."""
+    if not isinstance(argv, (list, tuple)) or not argv:
+        return None
+    if PureWindowsPath(str(argv[0])).stem.lower() != "taskkill":
+        return None
+    lowered = [str(part).lower() for part in argv]
+    if "/pid" not in lowered or lowered.index("/pid") + 1 >= len(argv):
+        return None
+    try:
+        return int(argv[lowered.index("/pid") + 1])
+    except ValueError:
+        return None
+
+
+def _track_started_pids(popen_cls, started: set[int]) -> None:
+    """Record the pid of every process started through `popen_cls` (the session's children)."""
+    real_init = popen_cls.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        started.add(self.pid)
+
+    popen_cls.__init__ = tracking_init
+
+
+def _guarded_run(real_run, started: set[int]):
+    """`subprocess.run` that refuses `taskkill /PID <pid>` for a pid this session did not start.
+
+    Windows has no cheap, reliable "is this my child" check from Python (it needs a toolhelp
+    process snapshot), so the Windows guard tracks the pids the session itself started by
+    wrapping `Popen.__init__`, and lets `taskkill` through only for those. A refused call
+    does nothing and reports taskkill's "process not found" exit code, which
+    `terminate_group` ignores. It is applied at the `taskkill` call, so it covers
+    `terminate_group` and `kill_group` however they were imported.
+    """
+
+    def run(*args, **kwargs):
+        argv = args[0] if args else kwargs.get("args")
+        pid = _taskkill_pid(argv)
+        if pid is not None and pid not in started:
+            import subprocess
+
+            return subprocess.CompletedProcess(argv, 128, b"", b"")
+        return real_run(*args, **kwargs)
+
+    run._i3d_guard = True  # type: ignore[attr-defined]
+    return run
+
+
+def _install_windows_guard() -> None:
+    """Windows half of the guard (see `_install_signal_guard`): same reason, same lifetime."""
+    import subprocess
+
+    if getattr(subprocess.run, "_i3d_guard", False):
+        return
+    started: set[int] = set()
+    _track_started_pids(subprocess.Popen, started)
+    subprocess.run = _guarded_run(subprocess.run, started)
+
+
+def _install_signal_guard() -> None:
+    """Make `os.kill` / `os.killpg` unable to signal a process this test run did not start.
+
+    Many tests use a fake worker with a made-up pid (often 4242) whose `poll()` never
+    finishes. The runners' cleanup now really stops a still-running worker through
+    `os.killpg(pid, SIGTERM/SIGKILL)`, and skin-build Cancel does so from a timer about
+    10 s later. Left alone, the suite could signal whatever process group 4242 is on the
+    developer's or CI machine. A test must never signal a process it did not start.
+
+    A non-zero signal goes through only when the target is a child of this process (for
+    `killpg`, when the group leader, whose pid is the group id, is our child). Anything
+    else raises ProcessLookupError, as if the target were gone; production code already
+    treats that as "nothing to stop". A process signalling itself is allowed. Signal 0 (the existence check behind
+    `group_alive` / `process_alive`) passes through unchanged.
+
+    This is installed once at conftest import time, not as a per-test monkeypatch, because
+    a timer can fire after the test that started it has finished and its patch was undone.
+    Tests that monkeypatch `os.killpg` themselves still work: their patch sits on top.
+    """
+    if sys.platform == "win32":
+        _install_windows_guard()
+        return
+    if getattr(os.kill, "_i3d_guard", False):
+        return
+    real_kill, real_killpg = os.kill, os.killpg
+
+    def guarded_kill(pid, sig):
+        # A negative pid addresses a group; pid 0 / -1 address our own group / everyone.
+        # A test signalling itself (a signal-handler test) is its own business and allowed.
+        if sig != 0 and pid != os.getpid() and not _is_our_child(abs(pid) if pid < -1 else pid):
+            raise ProcessLookupError(3, "test guard: not a child of the test process", pid)
+        return real_kill(pid, sig)
+
+    def guarded_killpg(pgid, sig):
+        if sig != 0 and not _is_our_child(pgid):
+            raise ProcessLookupError(3, "test guard: group leader is not a child of the test process", pgid)
+        return real_killpg(pgid, sig)
+
+    guarded_kill._i3d_guard = True  # type: ignore[attr-defined]
+    guarded_killpg._i3d_guard = True  # type: ignore[attr-defined]
+    os.kill = guarded_kill
+    os.killpg = guarded_killpg
+
+
+_install_signal_guard()
 
 _SYMLINKS: list[bool] = []
 

@@ -6,8 +6,10 @@ shown and the UI can say the list is unreachable.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -19,7 +21,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from image_to_3dlab import addon_install as ai
-from image_to_3dlab.addons import Listing, read_manifest, tier_from_install
+from image_to_3dlab import processes
+from image_to_3dlab.addons import Listing, output_dir, read_manifest, tier_from_install
 
 ADDONS_DIR = Path(os.environ.get("ADDONS_DIR", REPO / "addons"))
 OUTPUT_DIR = Path(os.environ.get("OUTPUT_DIR", REPO / "output"))
@@ -88,6 +91,8 @@ def _listed_addon_payload(listing: Listing, installed_ids: set[str]) -> dict[str
         "installed": listing.id in installed_ids,
         "listed": True,
         "tier": listing.tier,  # the list entry itself; an installed copy overrides this below
+        "run_checked": listing.run_check in ("passed", "partial"),  # False = "Not run-checked": we did not test-run it
+        "run_skipped": list(listing.run_skipped),  # with a partial test run: the tools we could not run
         "links": listing.links,
         "rating": listing.rating,
         "ratings_count": listing.ratings_count,
@@ -188,6 +193,7 @@ class AddonJob:
         self.events: list[dict[str, Any]] = []
         self.result_path: str | None = None
         self.error_message: str | None = None
+        self.process: subprocess.Popen | None = None    # the tool, once it runs: a server stop ends it
         self.started = time.monotonic()
         self.condition = threading.Condition()
         self.cancel_event = threading.Event()
@@ -218,7 +224,12 @@ class AddonJobManager:
         return active is not None and active.status not in TERMINAL
 
     def create(self, addon_id: str, tool_id: str, inputs: dict[str, str]) -> AddonJob:
-        """Validate the request and create a job without starting it."""
+        """Validate the request and put the job on the books as the one that runs.
+
+        One tool at a time, and "is one running?" is asked in the same step as the entry.
+        They were two steps with the checks below between them: two requests at the same
+        moment both started a tool, and the manager then knew only the later one.
+        """
         addon_dir = _addon_dir(addon_id)
         if not addon_dir.is_dir():
             raise ValueError(f"{addon_id} is not installed")
@@ -229,22 +240,25 @@ class AddonJobManager:
         run_stem = ai._default_run_stem()
         job = AddonJob(uuid.uuid4().hex, addon_id, tool_id, dict(inputs), run_stem)
         with self.lock:
+            if self.busy():
+                raise RuntimeError("another add-on run is already in progress")
             self.jobs[job.id] = job
-        return job
-
-    def _claim(self, job: AddonJob) -> AddonJob:
-        with self.lock:
             self.active = job.id
         return job
 
     def run(self, job: AddonJob) -> None:
-        self._claim(job)
-        threading.Thread(
-            target=_run_addon_job,
-            args=(job, self),
-            daemon=True,
-            name=f"addon-{job.id[:8]}",
-        ).start()
+        try:
+            threading.Thread(
+                target=_run_addon_job,
+                args=(job, self),
+                daemon=True,
+                name=f"addon-{job.id[:8]}",
+            ).start()
+        except RuntimeError as exc:     # no thread: the job ends here, and its slot is free
+            job.status, job.error_message = "error", str(exc)
+            job.emit({"phase": "error", "message": str(exc)})
+            self.finish(job)
+            raise
 
     def get(self, job_id: str) -> AddonJob | None:
         if not JOB_ID_RE.fullmatch(job_id):
@@ -270,6 +284,19 @@ ADDON_JOBS = AddonJobManager()
 
 
 def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
+    # `pid` in the run's own folder while the tool runs, as every other job leaves one. The
+    # tool leads a process group of its own and so outlives a studio that is killed; the
+    # next start reads these (generate_api._reconcile_orphaned_jobs) and stops what was left.
+    note = OUTPUT_DIR / output_dir(job.addon_id, job.run_stem) / "pid"
+
+    def started(process: subprocess.Popen) -> None:
+        job.process = process
+        try:
+            note.write_text(processes.pid_record(process.pid), encoding="utf-8")
+        except OSError as exc:      # the tool still runs; only a studio killed meanwhile cannot find it
+            job.append_log(f"Could not leave a note of this tool's process ({exc}). If the studio is "
+                           f"killed while it runs, stop it by hand: process {process.pid}.")
+
     try:
         job.status = "running"
         result = ai.run_addon(
@@ -282,6 +309,7 @@ def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
             repo_dir=REPO,
             logger=job.append_log,
             cancel_event=job.cancel_event,
+            on_start=started,
         )
         if job.cancel_event.is_set():
             job.status = "cancelled"
@@ -299,6 +327,8 @@ def _run_addon_job(job: AddonJob, manager: AddonJobManager) -> None:
         job.error_message = str(exc)
         job.emit({"phase": "error", "message": str(exc)})
     finally:
+        with contextlib.suppress(OSError):
+            note.unlink(missing_ok=True)
         manager.finish(job)
 
 

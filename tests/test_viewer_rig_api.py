@@ -5,6 +5,13 @@ import json
 from pathlib import Path
 
 import pytest
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 
 from viewer import rig_api
 
@@ -91,6 +98,36 @@ def test_runner_records_a_pid_for_server_restart_reconciliation():
     assert 'joinpath("pid").unlink(missing_ok=True)' in source
 
 
+def test_a_rebind_notes_its_owner_and_when_it_started(tmp_path, monkeypatch):
+    # The rebind's note held its number alone: a second studio starting up took a rebind that
+    # another one was running for one a killed studio had left, and a rebind long ended could
+    # be taken for whatever process had its number since.
+    import os
+    import sys
+
+    from image_to_3dlab import processes
+
+    manager = rig_api.RigJobManager(tmp_path)
+    job = manager.create("Creature.glb", b"glb", b"blend", valid_sidecar(b"glb", b"blend"))
+    note = job.directory / "pid"
+    reads_its_note = (
+        "import pathlib, time\n"
+        f"note = pathlib.Path({str(note)!r})\n"
+        "while not (note.exists() and note.read_text().strip()):\n"
+        "    time.sleep(0.01)\n"
+        "print('note', note.read_text().strip(), flush=True)\n"
+    )
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path(sys.executable))
+    monkeypatch.setattr(rig_api, "build_command", lambda _job, _blender: [sys.executable, "-c", reads_its_note])
+
+    rig_api.run_job(job, manager)
+
+    [said] = [line.removeprefix("note ") for line in job.log_lines if line.startswith("note ")]
+    pid, owner, started, owner_started = processes.parse_pid_record(said)
+    assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
+    assert owner_started == processes.process_started(os.getpid())
+
+
 def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp_path, monkeypatch):
     """If the pid-record write fails after Popen, the child must be stopped and reaped
     before the active slot is freed."""
@@ -135,3 +172,73 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
     assert job.status == "error"
     assert calls == [("terminate_group", 4242, job.id), ("wait", pytest.approx(30, rel=0.1), job.id)]
     assert manager.active is None
+
+
+@pytest.mark.posix
+def test_a_rebind_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked Blender to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next rebind started beside it.
+    manager = rig_api.RigJobManager(tmp_path)
+    job = manager.create("Creature.glb", b"glb", b"blend", valid_sidecar(b"glb", b"blend"))
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(rig_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        rig_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_failed_rebind_run_is_not_over_until_its_worker_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped Blender (up to 35 s), so the gate
+    # was open and a new rebind could start beside a Blender still holding the GPU.
+    from deaf_worker import assert_still_running_when_stop_began, watch_status_at_stop
+
+    manager = rig_api.RigJobManager(tmp_path)
+    job = manager.create("Creature.glb", b"glb", b"blend", valid_sidecar(b"glb", b"blend"))
+    seen = watch_status_at_stop(rig_api, monkeypatch, lambda: job.status)
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(rig_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        rig_api.run_job(job, manager)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_rebind_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next rebind was blocked.
+    manager = rig_api.RigJobManager(tmp_path)
+    job = manager.create("Creature.glb", b"glb", b"blend", valid_sidecar(b"glb", b"blend"))
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(rig_api, "blender_executable", lambda: Path("/bin/blender"))
+    use_deaf_popen(rig_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        rig_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

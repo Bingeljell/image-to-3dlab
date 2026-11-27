@@ -106,13 +106,12 @@ def test_a_repo_named_tokens_is_not_mistaken_for_a_login_problem():
 def test_a_setup_that_only_announces_a_gated_model_is_not_a_login_problem():
     """SF3D's own announcement says the model "is gated". A Mac without libomp stopped right
     after it, and the setup blamed Hugging Face sign-in instead of naming libomp."""
-    log = ["About to install:", "backend: Stable Fast 3D (Stability AI)",
-           "stabilityai/stable-fast-3d is gated (see licence below)",
-           "licence: Stability AI Community License: free under $1M annual revenue, otherwise a",
-           "commercial licence from Stability. Gated: accept it at",
-           "https://huggingface.co/stabilityai/stable-fast-3d and run `hf auth login`.",
-           "SF3D's Metal baker needs libomp: brew install libomp"]
-    message = dl._explain(1, log)
+    import bootstrap_sf3d
+
+    # the announcement as the setup prints it today, not a copy of it kept here
+    announced = [line.strip() for line in bootstrap_sf3d.announcement().splitlines() if line.strip()]
+    assert any("is gated" in line for line in announced) and any("hf auth login" in line for line in announced)
+    message = dl._explain(1, [*announced, "SF3D's Metal baker needs libomp: brew install libomp"])
     assert "Hugging Face" not in message
     assert "brew install libomp" in message
 
@@ -818,3 +817,149 @@ def test_external_models_environment_choice_wins_over_saved_folder(tmp_path, mon
     with pytest.raises(RuntimeError, match="refusing to delete"):
         dl.remove(backend.id)
     assert own.is_dir()
+
+
+def test_asking_what_is_downloading_survives_a_download_starting_at_that_moment(monkeypatch):
+    """Every start in the studio asks this now (the shared waiting rule), each on its own thread.
+    The list was read while another request could be adding an engine's first download to it,
+    and Python stops reading a dict that grows meanwhile: the request asking would have failed."""
+    import types
+
+    downloads = {}
+    monkeypatch.setattr(dl, "DOWNLOADS", downloads)
+
+    class Finished:
+        @property
+        def status(self):       # read by the scan; another request starts a download right then
+            downloads.setdefault("another-engine", types.SimpleNamespace(status="running"))
+            return "done"
+
+    downloads["pixal3d"], downloads["trellis"] = Finished(), types.SimpleNamespace(status="done")
+
+    assert dl.active() is None                      # the list as it was when asked
+    assert dl.active().status == "running"          # and the new download is seen by the next ask
+
+
+
+def test_a_download_whose_thread_cannot_start_does_not_hold_the_slot(monkeypatch):
+    # Before: the run was on DOWNLOADS as "queued" when its thread failed to start, so
+    # active() answered it for ever and every later setup was refused as "already running".
+    import threading
+    import types
+
+    monkeypatch.setattr(dl, "DOWNLOADS", {})
+    monkeypatch.setattr(dl, "command_for", lambda *a, **k: ["true"])
+    monkeypatch.setattr(type(dl.BY_ID["pixal3d"]), "runs_here", lambda self: True)
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    class NothingRuns(threading.Thread):
+        def start(self):
+            pass  # accepts the worker and runs nothing: no real download starts
+
+    monkeypatch.setattr(dl, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        dl.start("pixal3d")
+
+    [run] = dl.DOWNLOADS.values()
+    assert run.status == "error"
+    assert "can't start new thread" in run.events[-1]["detail"]
+    assert dl.active() is None
+
+    monkeypatch.setattr(dl, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NothingRuns}))
+    assert dl.start("pixal3d").status != "error"
+
+
+def _deaf_run(tmp_path, monkeypatch):
+    """A setup run whose downloader is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import failing_pid_note, use_deaf_popen
+
+    run = dl.DownloadRun(dl.BY_ID["pixal3d"])
+    run.command = [sys.executable, "downloader.py"]
+    run.directory = tmp_path / "setup"
+    monkeypatch.setattr(dl, "DOWNLOADS", {"pixal3d": run})
+    use_deaf_popen(dl, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    return run
+
+
+@pytest.mark.posix
+def test_a_downloader_that_ignores_the_polite_stop_is_stopped_when_the_run_fails(
+        tmp_path, monkeypatch):
+    # A run that failed after the downloader launched (here: its pid note could not be written)
+    # was marked an error and the slot freed, but the downloader kept running, unread and
+    # untracked, spending bandwidth beside the next setup.
+    from deaf_worker import kill_and_reap
+
+    run = _deaf_run(tmp_path, monkeypatch)
+    try:
+        dl._run(run)
+
+        assert run.status == "error"
+        assert dl.active() is None
+        assert run.process.poll() is not None, "the downloader was left running"
+    finally:
+        kill_and_reap(run.process)
+
+
+@pytest.mark.posix
+def test_a_failed_download_is_not_over_until_its_downloader_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its downloader (up to 5 s), so
+    # active() let another download start beside a downloader still running.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    run = _deaf_run(tmp_path, monkeypatch)
+    seen = watch_status_at_stop(dl, monkeypatch, lambda: run.status)
+    try:
+        dl._run(run)
+
+        assert_still_running_when_stop_began(seen)
+        assert run.status == "error"
+        assert dl.active() is None
+        assert run.process.poll() is not None
+    finally:
+        kill_and_reap(run.process)
+
+
+@pytest.mark.posix
+def test_a_run_ends_and_its_downloader_is_stopped_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed raised out of the finally: the error escaped the
+    # runner's thread, the downloader kept running, and the run stayed "running" for good, so
+    # no other setup could start.
+    from deaf_worker import kill_and_reap, unremovable_pid_note
+
+    run = _deaf_run(tmp_path, monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        dl._run(run)
+
+        assert run.status == "error"
+        assert dl.active() is None
+        assert run.process.poll() is not None, "the downloader was left running"
+    finally:
+        kill_and_reap(run.process)
+
+
+def test_a_finished_download_is_not_left_running_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A download that finished fine still raised out of the finally when its pid note could not
+    # be removed, before its result was read: it stayed "running" for good.
+    from deaf_worker import unremovable_pid_note
+
+    run = dl.DownloadRun(dl.BY_ID["pixal3d"])
+    run.command = [sys.executable, "-c", "pass"]
+    run.directory = tmp_path / "setup"
+    monkeypatch.setattr(dl, "DOWNLOADS", {"pixal3d": run})
+    unremovable_pid_note(monkeypatch)
+
+    dl._run(run)
+
+    assert run.status == "done"
+    assert dl.active() is None

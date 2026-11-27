@@ -53,6 +53,7 @@ game-ready LODs), start with [the prop sheet guide](../docs/prop-sheets.md).
 | `hero_blender.py` | Join a grafted head and body into one object, or render a check sheet, in a background Blender. |
 | `upscale_esrgan.py` | Upscale a picture 4x with Real-ESRGAN, then resize it to a square of SIZE pixels. |
 | `make_back_view.py` | Draw the back of a subject from its front picture, for a front + back 3D build. |
+| `make_side_views.py` | Draw a subject's right and left side from its front picture, for a four-view 3D build. |
 | `trellis_space_generate.py` | Full image -> GLB generation through the CLEAN `trellis-space-mac` port on Apple Silicon. |
 | `trellis_cuda_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an NVIDIA card. |
 | `trellis_rocm_generate.py` | Full image -> GLB generation through Microsoft's own TRELLIS.2 on an AMD card. |
@@ -136,6 +137,7 @@ Numbers and renders to decide whether a change helped. Read `docs/` before trust
 | `ribbon_metric.py` | Measure how torn a generated mesh is, and gate post-processing on it. |
 | `tear_provenance.py` | Ask of every large tear: could the input view see it?. |
 | `glb_forensics.py` | Dump what a GLB actually contains, so a reference asset can be diffed against ours. |
+| `normal_map_facets.py` | Say whether a GLB's shading breaks at its triangle edges, as a normal map baked against flat shading makes it. |
 | `mesh_checkpoint_forensics.py` | Measure exact-position topology in an o_voxel `.pt` geometry checkpoint. |
 | `replay_cleanup_checkpoints.py` | Replay o_voxel cleanup on an exact mesh checkpoint, saving every substage. |
 | `diagnose_remesh_kernel.py` | Isolate why Metal narrow-band DC remeshing emits a wireframe instead of a surface. |

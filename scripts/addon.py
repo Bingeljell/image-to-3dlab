@@ -129,6 +129,10 @@ def cmd_list(args: argparse.Namespace) -> int:
             rating = f" * {listing.rating}{count}"
         where = " (cloud)" if listing.runs == "cloud" else ""
         label = TIER_LABELS[listing.tier]
+        if listing.tier == "listed" and listing.run_check == "partial":
+            label += f", partly run-checked (not run: {', '.join(listing.run_skipped)})" if listing.run_skipped else ", partly run-checked"
+        elif listing.tier == "listed" and listing.run_check != "passed":
+            label += ", not run-checked"
         print(f"{listing.id}{marker}: {listing.name} by {listing.author['name']}{rating} [{listing.type}] {label}{where}")
         if listing.summary:
             print(f"  {listing.summary}")

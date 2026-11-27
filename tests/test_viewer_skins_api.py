@@ -77,6 +77,18 @@ def test_a_new_run_with_a_provenance_record_takes_a_skin(output):
     assert base["seed"] == 15629060
 
 
+@pytest.mark.parametrize("parameters, side_inputs", [
+    ({"views": "four views"}, {}),
+    ({"views": "front + back"}, {"right_input": {"path": "right.png"}, "left_input": {"path": "left.png"}}),
+])
+def test_skins_rejects_four_view_models_before_drawing(output, parameters, side_inputs):
+    _write(output / GEN / f"{GEN}.provenance.json", json.dumps({
+        "backend": "pixal3d", "parameters": parameters, **side_inputs,
+    }))
+    with pytest.raises(sk.SkinError, match="Skins need a one- or two-view build"):
+        sk.base_from_asset(output, _asset())
+
+
 def test_a_version_changed_by_fix_a_spot_cannot_take_a_skin(output):
     """A skin repaints the shape the model was made with, so the fixed spots would come back."""
     _write(output / "finish" / FIN / "fix-spot.json", "{}")
@@ -198,6 +210,20 @@ def test_an_empty_or_huge_change_is_refused(output):
         store.create(_asset(), "   ")
     with pytest.raises(sk.SkinError, match="under"):
         store.create(_asset(), "x" * (sk.MAX_INSTRUCTION + 1))
+
+
+def test_a_draft_is_checked_like_any_skin_and_kept_only_once_it_is_saved(output):
+    """The studio asks whether the first picture can be drawn before it keeps a new skin."""
+    store = sk.SkinStore(output)
+    with pytest.raises(sk.SkinError, match="Say what to change"):
+        store.draft(_asset(), "   ")
+    with pytest.raises(sk.SkinError, match="finished model"):
+        store.draft(_asset(finished=None), "gold skirt")
+    skin = store.draft(_asset(), "gold skirt", "Parade")
+    assert (skin.name, skin.instruction) == ("Parade", "gold skirt")
+    assert store.all() == [] and not store.folder(skin.id).exists()
+    store.save(skin)
+    assert [kept.id for kept in store.all()] == [skin.id]
 
 
 def test_ids_from_urls_are_checked(output):
@@ -722,3 +748,416 @@ def test_skin_finish_preserves_the_models_height(output, monkeypatch):
     assert worker.main() == 0
     result = trimesh.load(io.BytesIO(Path(command[5]).read_bytes()), file_type='glb', force='scene')
     assert result.bounds[:, 1] == pytest.approx([0, 1.8])
+
+
+def test_a_skin_build_whose_thread_cannot_start_does_not_hold_the_slot(output, monkeypatch):
+    # Before: the build was the active one and the skin saved as "building" when its thread
+    # failed to start, so running() stayed true and the skin could never be built again.
+    import threading
+    import types
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    monkeypatch.setattr(sk, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": NoThreadsLeft}))
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        builds.start(skin, runner=lambda c, **k: _FakeProcess(["x"]), box=_same_box)
+
+    [job] = builds.jobs.values()
+    assert job.status == "error" and "can't start new thread" in job.error
+    assert not builds.running()
+    saved = store.get(skin.id)
+    assert saved.status == "error" and "can't start new thread" in saved.error
+
+    again = builds.start(saved, background=False, runner=lambda c, **k: _FakeProcess(["boom"], code=1),
+                         box=_same_box)
+    assert again.status == "error" and "repaint" in again.error  # accepted and ran (failing on purpose)
+
+
+def test_a_skin_is_counted_as_made_only_once_its_build_thread_has_started(output, monkeypatch):
+    # Before: the skin was counted before its thread started, so a start that failed still
+    # counted a skin as made although its build never ran (and no failure was counted).
+    import threading
+    import types
+
+    features, failures = [], []
+    monkeypatch.setattr(sk.usage_api, "count_features", lambda *a, **k: features.append(k))
+    monkeypatch.setattr(sk.usage_api, "count_failed", lambda step, reason, *a, **k: failures.append(step))
+
+    class NoThreadsLeft(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    class ThreadThatStarts(threading.Thread):
+        def start(self):   # started; the build itself is not needed here
+            pass
+
+    def swap(thread_class):
+        monkeypatch.setattr(sk, "threading", types.SimpleNamespace(**{**vars(threading), "Thread": thread_class}))
+
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    swap(NoThreadsLeft)
+    with pytest.raises(RuntimeError, match="can't start new thread"):
+        builds.start(skin, runner=lambda c, **k: _FakeProcess(["x"]), box=_same_box)
+    assert features == []
+    assert failures == ["skin"]
+
+    swap(ThreadThatStarts)
+    builds.start(store.get(skin.id), runner=lambda c, **k: _FakeProcess(["x"]), box=_same_box)
+    assert features == [{"skin": True}]
+    assert failures == ["skin"]
+
+
+def _deaf_build(output, tmp_path, monkeypatch):
+    """A build whose repaint is a real child that ignores SIGTERM, with its pid note failing."""
+    from deaf_worker import deaf_popen_class, failing_pid_note
+
+    failing_pid_note(monkeypatch)
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    seen = {}
+    record = builds._history
+
+    def history(job, skin):
+        seen["alive_when_saved"] = job.process is not None and job.process.poll() is None
+        seen["still_active"] = builds.active == job.id
+        record(job, skin)
+
+    builds._history = history
+    return builds, skin, deaf_popen_class(tmp_path), seen
+
+
+@pytest.mark.posix
+def test_a_repaint_that_ignores_the_polite_stop_is_stopped_when_the_build_fails(
+        output, tmp_path, monkeypatch):
+    # A build that failed after its repaint launched (here: its pid note could not be written)
+    # left the repaint running, unread and untracked, once the skin was saved as an error and
+    # the slot freed.
+    from deaf_worker import kill_and_reap
+
+    builds, skin, runner, seen = _deaf_build(output, tmp_path, monkeypatch)
+    job = None
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=_same_box)
+
+        assert job.status == "error"
+        assert not builds.running()
+        assert seen["alive_when_saved"] is False, "the build ended with the repaint still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(next(iter(builds.jobs.values())).process)
+
+
+@pytest.mark.posix
+def test_a_failed_skin_build_is_not_over_until_its_repaint_has_been_stopped(
+        output, tmp_path, monkeypatch):
+    # The build was marked "error" first and only then stopped its repaint (up to 5 s), so
+    # running() let a new build start beside a repaint still holding the GPU.
+    from deaf_worker import (
+        assert_still_running_when_stop_began,
+        kill_and_reap,
+        watch_status_at_stop,
+    )
+
+    builds, skin, runner, _ = _deaf_build(output, tmp_path, monkeypatch)
+    seen = watch_status_at_stop(sk, monkeypatch, lambda: next(iter(builds.jobs.values())).status)
+    job = None
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=_same_box)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert not builds.running()
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(next(iter(builds.jobs.values())).process)
+
+
+@pytest.mark.posix
+def test_a_build_is_stopped_and_its_slot_freed_when_its_pid_note_cannot_be_removed(
+        output, tmp_path, monkeypatch):
+    # A pid note that could not be removed raised out of the finally before the skin was saved,
+    # the history written or the slot cleared: the skin stayed "building" and no skin could be
+    # built again.
+    from deaf_worker import kill_and_reap, unremovable_pid_note
+
+    builds, skin, runner, seen = _deaf_build(output, tmp_path, monkeypatch)
+    store = builds.store
+    unremovable_pid_note(monkeypatch)
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=_same_box)
+
+        assert job.status == "error"
+        assert not builds.running()
+        assert store.get(skin.id).status == "error"
+        assert seen["alive_when_saved"] is False, "the build ended with the repaint still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(next(iter(builds.jobs.values())).process)
+
+
+@pytest.mark.posix
+def test_cancel_stops_a_repaint_that_ignores_the_polite_stop_and_frees_the_slot(
+        output, tmp_path, monkeypatch):
+    # Cancel asked the repaint's group to stop with SIGTERM once. A repaint that ignores it ran
+    # on: the build thread stayed blocked reading its output, the build stayed "running" and
+    # held the slot, and the approved pictures were never put back.
+    import threading
+    import time
+
+    from deaf_worker import deaf_popen_class, kill_and_reap
+
+    monkeypatch.setattr(sk, "CANCEL_GRACE_SECONDS", 0.5)
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    runner = deaf_popen_class(tmp_path)
+    thread = None
+    job = None
+    try:
+        thread = threading.Thread(
+            target=lambda: builds.start(store.get(skin.id), background=False, runner=runner, box=_same_box),
+            daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not (builds.jobs and next(iter(builds.jobs.values())).process):
+            time.sleep(0.01)
+        job = next(iter(builds.jobs.values()))
+        assert job.process is not None, "the build never launched its repaint"
+
+        assert builds.cancel(job.id) is True
+
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and (job.status not in sk.TERMINAL or job.process.poll() is None):
+            time.sleep(0.05)
+
+        assert job.process.poll() is not None, "Cancel left the repaint running"
+        assert job.status == "cancelled"
+        assert not builds.running()
+        assert store.get(skin.id).status == "pictures", "the approved pictures were not kept"
+    finally:
+        if job is not None:
+            kill_and_reap(job.process)
+        if thread is not None:
+            thread.join(timeout=10)
+
+
+@pytest.mark.posix
+def test_a_cancel_that_lands_as_the_repaint_starts_still_stops_one_that_ignores_the_polite_stop(
+        output, tmp_path, monkeypatch):
+    # A Cancel that landed while the repaint was starting asked it to stop with SIGTERM once and
+    # never forced it: a repaint that ignores it kept the build blocked reading its output, the
+    # build never ended, the slot stayed held and the worker ran on.
+    import threading
+    import time
+
+    from deaf_worker import deaf_popen_class, kill_and_reap
+
+    monkeypatch.setattr(sk, "CANCEL_GRACE_SECONDS", 0.5)
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    deaf = deaf_popen_class(tmp_path)
+    launched = []
+
+    def cancelled_as_it_starts(*args, **kwargs):
+        process = deaf(*args, **kwargs)
+        launched.append(process)
+        next(iter(builds.jobs.values())).cancel_requested = True   # Cancel lands right after launch
+        return process
+
+    thread = threading.Thread(
+        target=lambda: builds.start(store.get(skin.id), background=False, runner=cancelled_as_it_starts,
+                                    box=_same_box),
+        daemon=True)
+    try:
+        thread.start()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not launched:
+            time.sleep(0.01)
+        assert launched, "the build never launched its repaint"
+        job = next(iter(builds.jobs.values()))
+
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline and (job.status not in sk.TERMINAL or launched[0].poll() is None):
+            time.sleep(0.05)
+
+        assert launched[0].poll() is not None, "the repaint was left running"
+        assert job.status == "cancelled"
+        assert not builds.running()
+    finally:
+        for process in launched:
+            kill_and_reap(process)
+        thread.join(timeout=10)
+
+
+_LEADER_WITH_DEAF_CHILD = (
+    "import pathlib, subprocess, sys, time\n"
+    "folder = pathlib.Path(sys.argv[1])\n"
+    "child = ('import os, pathlib, signal, sys, time\\n'\n"
+    "         'signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n'\n"
+    "         'folder = pathlib.Path(sys.argv[1])\\n'\n"
+    "         '(folder / \"child.pid\").write_text(str(os.getpid()))\\n'\n"
+    "         'deadline = time.monotonic() + 30\\n'\n"
+    "         'while not (folder / \"release\").exists() and time.monotonic() < deadline:\\n'\n"
+    "         '    time.sleep(0.05)\\n')\n"
+    "subprocess.Popen([sys.executable, '-c', child, str(folder)])\n"   # same group, same stdout pipe
+    "while not (folder / 'child.pid').exists():\n"
+    "    time.sleep(0.01)\n"
+    "(folder / 'leader.ready').touch()\n"
+    "time.sleep(60)\n"                                                 # dies on the polite SIGTERM
+)
+
+
+@pytest.mark.posix
+def test_cancel_stops_a_child_that_keeps_the_output_open_after_the_repaint_itself_has_exited(
+        output, tmp_path, monkeypatch):
+    # The forced stop only ran while the repaint's own process was alive. A repaint that quit on
+    # the polite stop while its child ignored it and held the output open looked finished to the
+    # timer, so nothing was forced: the child ran on, the build thread stayed blocked reading,
+    # and the skin stayed "building" with its slot held.
+    import os
+    import subprocess
+    import threading
+    import time
+
+    monkeypatch.setattr(sk, "CANCEL_GRACE_SECONDS", 0.5)
+    folder = tmp_path / "worker"
+    folder.mkdir()
+
+    class LeaderWithDeafChild(subprocess.Popen):
+        def __init__(self, command, *args, **kwargs):
+            super().__init__([sys.executable, "-c", _LEADER_WITH_DEAF_CHILD, str(folder)], *args, **kwargs)
+            deadline = time.monotonic() + 10
+            while not (folder / "leader.ready").exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert (folder / "leader.ready").exists(), "the worker never started its child"
+
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store)
+    thread = threading.Thread(
+        target=lambda: builds.start(store.get(skin.id), background=False, runner=LeaderWithDeafChild,
+                                    box=_same_box),
+        daemon=True)
+    job = None
+    child_pid = None
+    try:
+        thread.start()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not (builds.jobs and next(iter(builds.jobs.values())).process):
+            time.sleep(0.01)
+        job = next(iter(builds.jobs.values()))
+        assert job.process is not None, "the build never launched its repaint"
+        child_pid = int((folder / "child.pid").read_text())
+
+        assert builds.cancel(job.id) is True
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and (alive(child_pid) or job.status not in sk.TERMINAL):
+            time.sleep(0.05)
+
+        assert not alive(child_pid), "Cancel left the repaint's child running"
+        assert job.status == "cancelled"
+        assert not builds.running()
+        assert store.get(skin.id).status == "pictures"
+    finally:
+        # The guard allows signals only to our children; the grandchild is not one, so it is told
+        # to leave through its release file (it also gives up by itself after 30 s).
+        (folder / "release").touch()
+        thread.join(timeout=10)
+        if job is not None and job.process is not None:
+            job.process.wait(timeout=10)
+
+
+# --- the skin is saved before the job reads as ended -----------------------------------------------
+#
+# A client that sees the job end reads the skin straight away. The build used to turn the job
+# terminal and emit its last event, and only later (in its `finally`) save the skin: the stored
+# skin still read "building", which the state reports as "interrupted (the studio restarted)".
+
+_TERMINAL_PHASES = {"done", "cancelled", "error"}
+_FINAL_SKIN_STATUS = {"done": "done", "cancelled": "pictures", "error": "error"}
+
+
+def _ending_runner(ending, folder, builds):
+    """A runner that makes the build end as `ending`, with the file's own fakes."""
+    if ending == "error":
+        return lambda c, **k: _FakeProcess(["boom"], code=1), _same_box
+    if ending == "cancelled":
+        def box(path):
+            builds.cancel(builds.active)
+            return _same_box(path)
+        return lambda c, **k: _FakeProcess([]), box
+
+    def runner(command, **kwargs):
+        return _FakeProcess(["I2L_STAGE::photo::Pixel Match"],
+                            on_wait=lambda: _write(folder / "gold-skirt_20k.glb", b"skin"))
+    return runner, _same_box
+
+
+def _watch_saves(store, builds, monkeypatch, fail_first_final_save=None):
+    """Record, at every save of a skin that is no longer 'building', what a reader of the job sees
+    at that instant: the job's status, its last event's phase and what the store holds."""
+    real_save, saves = store.save, []
+
+    def save(skin):
+        if skin.status == "building":                 # the save that starts the build
+            return real_save(skin)
+        job = next(iter(builds.jobs.values()))
+        last = job.events[-1].get("phase") if job.events else None
+        saves.append({"skin": skin.status, "job": job.status, "phase": last})
+        if fail_first_final_save is not None and len(saves) == 1:
+            raise fail_first_final_save
+        return real_save(skin)
+
+    monkeypatch.setattr(store, "save", save)
+    return saves
+
+
+@pytest.mark.parametrize("ending", ["done", "cancelled", "error"])
+def test_the_skin_is_saved_with_its_final_state_before_the_job_reads_as_ended(output, monkeypatch, ending):
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store, stop=lambda pid: None)
+    saves = _watch_saves(store, builds, monkeypatch)
+    runner, box = _ending_runner(ending, output / "skins" / skin.id, builds)
+
+    job = builds.start(skin, background=False, runner=runner, box=box)
+
+    assert job.status == ("error" if ending == "error" else ending)
+    final = [s for s in saves if s["skin"] == _FINAL_SKIN_STATUS[ending]]
+    assert final, f"the skin was never saved as {_FINAL_SKIN_STATUS[ending]!r}: {saves}"
+    first = final[0]
+    assert first["job"] not in sk.TERMINAL, (
+        f"the job already read {first['job']!r} when the skin was saved as {first['skin']!r}: "
+        "a client that saw the job end would read the stored skin as 'building'")
+    assert first["phase"] not in _TERMINAL_PHASES, (
+        f"the final event ({first['phase']!r}) was emitted before the skin was saved")
+    assert job.events[-1]["phase"] == ending        # and the final event still comes, after the save
+    assert store.get(skin.id).status == _FINAL_SKIN_STATUS[ending]
+
+
+@pytest.mark.parametrize("ending", ["done", "cancelled", "error"])
+def test_a_save_that_fails_still_ends_the_job_as_an_error_and_frees_the_slot(output, monkeypatch, ending):
+    store, skin = _ready(output)
+    builds = sk.SkinBuilds(store, stop=lambda pid: None)
+    _watch_saves(store, builds, monkeypatch, fail_first_final_save=OSError("disk full while saving the skin"))
+    runner, box = _ending_runner(ending, output / "skins" / skin.id, builds)
+
+    try:
+        job = builds.start(skin, background=False, runner=runner, box=box)
+    except OSError as exc:
+        pytest.fail(f"the failed save escaped the build instead of ending the job: {exc}")
+
+    assert job.status == "error", f"the job read {job.status!r} after its save failed"
+    assert "disk full while saving the skin" in (job.error or "")
+    assert not builds.running()
+    assert builds.active is None

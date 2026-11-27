@@ -216,6 +216,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
       pane.classList.toggle('fixing', on);
       brushPanel.hidden = !on;
       if (!on) { hideRing(); endSession(true); }
+      if (on) fixSession?.open?.();
       if (on) overlayNote('Mark the spots to fix, then Patch. Size: the slider, or [ and ].');
     }
   });

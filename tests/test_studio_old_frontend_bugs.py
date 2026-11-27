@@ -252,3 +252,16 @@ def test_a_forgotten_setup_run_answers_404_json_not_a_file_page(server, monkeypa
         "the page got a static file answer, which a polling page reads as a dropped connection"
     body = json.loads(caught.value.read())
     assert body["status"] == "error" and "no longer running" in body["error"]
+
+
+# 4. Spot-fix Keep ------------------------------------------------------------------------------
+
+def test_spot_fix_keep_uses_the_asset_the_brush_was_opened_on():
+    """Source check: app.js cannot be loaded without a page. The keep and patch callbacks must
+    not read `current` (whichever row is selected when the button is pressed)."""
+    app = (REPO / "viewer" / "studio" / "app.js").read_text(encoding="utf-8")
+    block = app[app.index("fixSession: {"):app.index("async function postFix")]
+    keep = block[block.index("keep: async"):block.index("discard:")]
+    patch = block[block.index("patch: async"):block.index("keep: async")]
+    assert "current" not in keep, "Keep files the patch onto whatever asset is selected now"
+    assert "current" not in patch, "the preview is made from whatever asset is selected now"

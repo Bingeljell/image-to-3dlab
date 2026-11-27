@@ -80,19 +80,22 @@ let viewingStep = null;       // a step id when the viewer shows that step's own
 let viewingSkin = null;       // a skin id when the viewer shows one of the model's skins
 const openFamilies = new Set();  // families whose versions are listed under their row
 
+let fixAsset = null;   // the asset the spot-fix brush was opened on
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), fixSession: {
   // only a finished model on screen (not a rigged one, a move or the raw model)
   canFix: () => canFixShown(current, { step: viewingStep, pictures: viewingPictures }),
   blockedNote: () => fixBlockedNote(current),
+  open: () => { fixAsset = current; },
   patch: async (spots, base) => {
-    const body = await postFix('preview', { from: current.finished, base, spots });
+    const body = await postFix('preview', { from: fixAsset.finished, base, spots });
     return { preview: body.preview, url: url(body.preview) };
   },
   keep: async (preview) => {
-    const before = assets, family = current.family || current.id;
-    const body = await postFix('keep', { from: current.finished, preview });
+    const opened = fixAsset;
+    const before = assets, family = opened.family || opened.id;
+    const body = await postFix('keep', { from: opened.finished, preview });
     await loadLibrary(null, { pick: false });
-    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? opened);
   },
   discard: (preview) => postFix('discard', { preview }).catch(() => {}),
 } });

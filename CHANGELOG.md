@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Keep on a spot fix files it on the model you were fixing.** After switching to another model with the brush open,
+  Keep saved the fix onto whichever model was selected. It now uses the one the brush was opened on.
 - **Setup learns that a run finished even when its live updates drop.** The page only listened to the event stream,
   so a dropped connection left it waiting for good, and a run the studio had forgotten was answered with a file page.
   The page now falls back to asking for the status, and a forgotten run answers "no longer running".

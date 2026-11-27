@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Reset pose really ends in the rest pose.** Returning the move to its start ran after the reset and put the
+  character back in the move's first frame. The start is now set first, then the rest pose.
 - **Setup's fallback keeps working after a page reload, and stops repeating the log.** A page reloaded mid-setup had
   no status address, so when the live updates dropped it reported the run as gone while it went on; and each status
   check appended the same log again. The address now comes with the run, and only new log text is shown.

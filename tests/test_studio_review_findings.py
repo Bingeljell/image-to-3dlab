@@ -80,6 +80,54 @@ def test_a_watch_given_only_an_events_url_never_polls_undefined():
         "a run that is still going was reported as no longer running"
 
 
+# 2. Reset pose ends on the clip's first frame --------------------------------------------------
+
+def _rest_branch_source() -> str:
+    source = (REPO / "viewer" / "studio" / "viewer.js").read_text(encoding="utf-8")
+    start = source.index("if (act === 'rest')")
+    open_brace = source.index("{", start)
+    depth, i = 0, open_brace
+    while True:
+        depth += {"{": 1, "}": -1}.get(source[i], 0)
+        if depth == 0:
+            return source[open_brace + 1:i]
+        i += 1
+
+
+@needs_node
+def test_reset_pose_leaves_the_bones_at_rest_and_the_playhead_at_zero():
+    """Runs the shipped Reset branch of viewer.js with the real player, a real three.js mixer and
+    a skinned mesh whose clip starts away from rest."""
+    branch = _rest_branch_source()
+    out = _node(f"""
+      import * as THREE from {json.dumps(THREE_URL)};
+      import {{ AnimationPlayer }} from {json.dumps(PLAYER)};
+      import {{ inspectRig, resetRigPose }} from {json.dumps(RIG)};
+      const bone = new THREE.Bone(); bone.name = 'arm';           // rest: x = 0
+      const mesh = new THREE.SkinnedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+      mesh.add(bone); mesh.bind(new THREE.Skeleton([bone]));
+      const root = new THREE.Group(); root.add(mesh);
+      root.updateMatrixWorld(true);
+      // frame 0 puts the arm at x = 5, frame 1s at x = 9: neither is the rest pose
+      const clip = new THREE.AnimationClip('wave', 1,
+        [new THREE.VectorKeyframeTrack('arm.position', [0, 1], [5, 0, 0, 9, 0, 0])]);
+      const player = new AnimationPlayer(new THREE.AnimationMixer(root));
+      player.select(clip);
+      player.action.time = 0.5; player.mixer.update(0);           // the user scrubbed mid-clip
+      const view = {{ rig: inspectRig(root, [clip]), resetPose() {{ resetRigPose(this.rig); }} }};
+      const before = bone.position.x;
+      let renders = 0, buttons = 0;
+      const run = new Function('player', 'view', 'requestRender', 'syncPlayButton',
+        {json.dumps(branch)});
+      run(player, view, () => renders++, () => buttons++);
+      console.log(JSON.stringify({{ before, x: bone.position.x, time: player.time, playing: player.playing }}));
+    """)
+    assert out["before"] == pytest.approx(7), "the harness did not pose the bone mid-clip"
+    assert out["time"] == 0, "the playhead is not at the start"
+    assert out["x"] == pytest.approx(0), \
+        f"Reset pose left the bone at x={out['x']}: the clip's first frame (x=5) was written over the rest pose"
+
+
 # 4. Polling repeats the log --------------------------------------------------------------------
 
 def _logs_after_polls(status_body: dict | list, wait_ms: int = 80) -> list[str]:

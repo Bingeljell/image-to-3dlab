@@ -592,6 +592,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     if (act === 'rest') {
       player?.pause();
       view?.resetPose();
+      player?.seek(0);
       requestRender();
       syncPlayButton(false);
     }

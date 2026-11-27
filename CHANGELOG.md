@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Reset pose also returns the move to its start.** The pose went back to rest but the playhead stayed where it was.
 - **Today and Yesterday follow your own clock.** The studio grouped items by the UTC day, so around midnight they landed
   under the wrong day. It now uses the local day.
 - **Top and bottom views keep the model upright.** They turned the camera's up direction, so the model spun when

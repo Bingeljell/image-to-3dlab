@@ -297,3 +297,11 @@ def test_today_and_yesterday_follow_the_local_day_not_utc():
     """
     out = _node(program, env={"TZ": "Pacific/Auckland"})
     assert out == [["Today", 1], ["Yesterday", 1]]
+
+
+def test_reset_pose_returns_the_playhead_to_the_start():
+    """Source check: the Reset button's handler lives in viewer.js's page wiring."""
+    source = (REPO / "viewer" / "studio" / "viewer.js").read_text(encoding="utf-8")
+    start = source.index("if (act === 'rest')")
+    branch = source[start:source.index("}", source.index("syncPlayButton", start))]
+    assert re.search(r"seek\(\s*0\s*\)|restCharacter", branch), "Reset pose leaves the playhead where it was"

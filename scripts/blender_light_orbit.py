@@ -78,7 +78,8 @@ sun("RIM", 1.4, math.radians(10), (math.radians(103), 0, math.radians(200)))
 scn.world.use_nodes = True
 scn.world.node_tree.nodes["Background"].inputs[0].default_value = (0.03, 0.033, 0.037, 1)
 
-scn.render.engine = "BLENDER_EEVEE"
+_engines = [e.identifier for e in scn.render.bl_rna.properties['engine'].enum_items]
+scn.render.engine = "BLENDER_EEVEE_NEXT" if "BLENDER_EEVEE_NEXT" in _engines else "BLENDER_EEVEE"
 scn.render.resolution_x = RES; scn.render.resolution_y = RES
 scn.render.fps = 24
 scn.render.image_settings.file_format = "PNG"

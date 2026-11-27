@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The light orbit works on Blender versions whose Eevee has a new name.** It set the engine to `BLENDER_EEVEE`, which
+  newer Blender calls `BLENDER_EEVEE_NEXT`. It now picks whichever this Blender offers.
 - **The line-up keeps an asset's parts in proportion.** Each part was scaled to the same height on its own, so an eye
   came out as tall as the body. One scale from the whole asset's bounds now applies to every part.
 - **Region split cuts are fractions of the model, not one creature's coordinates.** `blender_split_regions` cut head,

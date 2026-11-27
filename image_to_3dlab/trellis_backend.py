@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from image_to_3dlab.manifest_choices import MANIFEST_CHOICES
+
 _GLB_MAGIC = 0x46546C67
 _GLB_JSON_CHUNK = 0x4E4F534A
 
@@ -244,6 +246,11 @@ def _prepare_rgba(image: Path, destination: Path) -> Path:
 def generate_trellis(
     image: Path | Sequence[Path], output_dir: Path, options: TrellisOptions
 ) -> TrellisResult:
+    for key, allowed in MANIFEST_CHOICES.items():
+        if key in ("pipeline_type", "texture_size", "material_mode"):
+            value = getattr(options, key)
+            if value not in allowed:
+                raise ValueError(f"{key} {value!r} is not one of {list(allowed)}")
     repo = options.repo.expanduser().resolve()
     python = repo / ".venv" / "bin" / "python"
     generator = repo / "generate.py"

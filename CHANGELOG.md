@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **A TRELLIS run with a mistyped setting is refused before it starts.** A wrong pipeline type, texture size or
+  material mode from the studio or an agent tool was only caught after the long run, or not at all. It is now refused
+  at once, with the allowed values, as the command line already did for a run file.
 - **TRELLIS cuts out a picture whose transparency is only noise.** Any pixel short of fully opaque made the picture
   count as already cut out, so a photo with stray partial transparency went in with its background. It now counts
   as cut out only when a real part of it is clear, as the other routes check, and the run stops if cutting fails.

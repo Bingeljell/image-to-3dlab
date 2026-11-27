@@ -368,3 +368,22 @@ def test_a_real_cut_out_is_left_alone(tmp_path, monkeypatch):
 
     monkeypatch.setattr("image_to_3dlab.matte.cut_out", cut_out)
     assert _prepare_rgba(tmp_path / "cut.png", tmp_path / "out.png").is_file()
+
+
+@pytest.mark.parametrize("field, value", [
+    ("pipeline_type", "huge"), ("texture_size", 64), ("material_mode", "glass")])
+def test_a_typo_in_the_settings_is_refused_before_the_run(tmp_path, monkeypatch, field, value):
+    """Weights present and the generator stubbed: a bad setting must stop before it starts."""
+    from image_to_3dlab import trellis_backend as tb
+
+    hub = tmp_path / "hub"
+    snap = hub / "models--microsoft--TRELLIS.2-4B" / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    (snap / "pipeline.json").write_text("{}")
+    monkeypatch.setenv("HF_HUB_CACHE", str(hub))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr(tb, "_prepare_rgba", lambda image, destination: destination)
+    monkeypatch.setattr(tb.subprocess, "run", lambda *a, **k: pytest.fail("the run started"))
+    options = tb.TrellisOptions(repo=_legacy_repo(tmp_path), **{field: value})
+    with pytest.raises(ValueError):
+        tb.generate_trellis(tmp_path / "in.png", tmp_path / "out", options)

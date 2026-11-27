@@ -39,3 +39,12 @@ def test_world_is_created_when_the_scene_has_none():
     code = _code()
     assert 'scene.world = bpy.data.worlds.new("World")' in code
     assert code.index("if scene.world is None:") < code.index("scene.world.color =")
+
+
+def test_a_rigged_model_comes_in_without_blenders_helper_sphere():
+    # Blender's glTF importer adds a 1 m bone-shape sphere at the origin to every rigged model (collection
+    # glTF_not_exported, not in the file); taken into the render scene it was drawn and framed with the figure
+    code = _code()
+    assert "disable_bone_shape=True" in code
+    assert "except TypeError:" in code                     # an older Blender without the option still imports
+    assert "glTF_not_exported" in code                     # and whatever the importer adds there stays out

@@ -27,6 +27,7 @@ bake reads from the new UVs it is writing into and produces garbage.
 from __future__ import annotations
 
 import argparse
+import inspect
 import sys
 from pathlib import Path
 
@@ -37,6 +38,10 @@ from blender_scene import isolated_scene_prelude, restore_previous_scene
 REGION_NAMES = ("head", "body", "tail")
 
 
+DEFAULT_HEAD_CUT = 2 / 3
+DEFAULT_TAIL_CUT = 1 / 3
+
+
 def classify_faces(
     face_axis_positions: list[float],
     head_cut: float,
@@ -45,15 +50,23 @@ def classify_faces(
     """Assign each face to a region from its position along the front-back axis.
 
     Positions are the face centroid's coordinate on the axis running from tail to head,
-    with the head at the positive end. `head_cut` and `tail_cut` are absolute positions
-    on that axis, not fractions, so they can be read straight off the model's bounds.
+    with the head at the positive end. `head_cut` and `tail_cut` are fractions of this
+    mesh's own extent on that axis (0 = tail-most face, 1 = head-most), so the same cuts
+    split any creature, wherever it sits and however big it is.
     """
     if head_cut <= tail_cut:
         raise ValueError("head_cut must be greater than tail_cut")
-    return [
-        "head" if p > head_cut else "tail" if p < tail_cut else "body"
-        for p in face_axis_positions
-    ]
+    if not face_axis_positions:
+        return []
+    lo = min(face_axis_positions)
+    span = max(face_axis_positions) - lo
+    if span <= 1e-12:
+        raise ValueError("mesh has no extent on the front-back axis")
+    out = []
+    for p in face_axis_positions:
+        f = (p - lo) / span
+        out.append("head" if f > head_cut else "tail" if f < tail_cut else "body")
+    return out
 
 
 def region_counts(assignments: list[str]) -> dict[str, int]:
@@ -70,6 +83,8 @@ def texel_density(face_count: int, texture_size: int) -> float:
 TEMPLATE = '''
 import bpy, json, time
 from mathutils import Vector
+
+{classify_source}
 
 ASSET = {asset!r}
 OUT_DIR = {out_dir!r}
@@ -132,11 +147,13 @@ for i, region in enumerate(REGIONS):
 
 # Assign each face to a region by its centroid along the front-back axis. glTF is Y-up
 # so the importer maps the model's front-back onto Blender's Y, with the head at -Y.
+# The cuts are fractions of this mesh's own extent (same classify_faces as the helper).
 counts = {{r: 0 for r in REGIONS}}
+axes = []
 for poly in me.polygons:
     centre = sum((me.vertices[v].co for v in poly.vertices), Vector()) / len(poly.vertices)
-    axis = -centre.y                     # positive toward the head
-    region = "head" if axis > HEAD_CUT else "tail" if axis < TAIL_CUT else "body"
+    axes.append(-centre.y)               # positive toward the head
+for poly, region in zip(me.polygons, classify_faces(axes, HEAD_CUT, TAIL_CUT)):
     poly.material_index = REGIONS.index(region)
     counts[region] += 1
 
@@ -234,6 +251,7 @@ print(json.dumps({{
 
 def blender_code(asset: Path, out_dir: Path, size: int, head_cut: float, tail_cut: float) -> str:
     return TEMPLATE.format(
+        classify_source=inspect.getsource(classify_faces),
         prelude=isolated_scene_prelude("IMG3D regions"),
         restore=restore_previous_scene(),
         asset=str(asset),
@@ -252,17 +270,17 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=9876)
     parser.add_argument("--size", type=int, default=2048)
     parser.add_argument(
-        "--head-cut", type=float, default=0.25,
-        help="Position on the front-back axis above which faces are head",
+        "--head-cut", type=float, default=DEFAULT_HEAD_CUT,
+        help="Fraction (0-1) of the mesh's own front-back extent above which faces are head",
     )
     parser.add_argument(
-        "--tail-cut", type=float, default=-0.10,
-        help="Position below which faces are tail",
+        "--tail-cut", type=float, default=DEFAULT_TAIL_CUT,
+        help="Fraction (0-1) of the mesh's own front-back extent below which faces are tail",
     )
     args = parser.parse_args()
 
-    if args.head_cut <= args.tail_cut:
-        raise SystemExit("--head-cut must be greater than --tail-cut")
+    if not 0.0 <= args.tail_cut < args.head_cut <= 1.0:
+        raise SystemExit("cuts are fractions: 0 <= --tail-cut < --head-cut <= 1")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     code = blender_code(

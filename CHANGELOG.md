@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Region split cuts are fractions of the model, not one creature's coordinates.** `blender_split_regions` cut head,
+  body and tail at fixed positions taken from one model, so any other size or placement split in the wrong place. The
+  cuts are now fractions of the model's own length (defaults 2/3 and 1/3).
 - **The stage bake waits long enough and reports a failure.** It gave Blender two minutes whatever the frame range,
   and exited as a success even when Blender reported an error or never answered. The wait now grows with the frames
   (or `--timeout`), and an error or empty reply exits with an error.

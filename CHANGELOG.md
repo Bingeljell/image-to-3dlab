@@ -14,10 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   see those tops, and the local colour match shifted them like whatever the pictures see nearby: a wizard's dark violet
   brim beside a light hat band turned teal. Faces turned sideways still take the shift, so the head's sides under the
   brim keep their correction. Off by default.
-- **Pixel Match: sharper faces from the same pictures**: `photo_paint.py --sharpen 2` (and Finish's
-  `--photo-sharpen 2`) paints from the pictures upscaled twice by the Real-ESRGAN the Hero route already uses, so a
-  face drawn about 90 px wide keeps clean eyelids, brows and lips instead of a blur; `--texture-size` grows the model's
-  colour map first so it can hold them. Off by default; it needs the 67 MB upscaler and downloads nothing.
 - **Build from four pictures** (`scripts/pixal3d_generate.py --right --left`): front, right side, back and left side
   instead of front and back, every view at one shared scale. Front and back say nothing about how deep a subject is,
   so animals came out too short or with a second pair of ears or legs, and figures with boots got made-up shoe plates;

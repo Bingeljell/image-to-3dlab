@@ -550,67 +550,6 @@ def test_local_colour_can_fall_back_to_the_global_match():
     assert abs(int(out[20, 64, 0]) - int(out[108, 64, 0])) < 20
 
 
-# --- sharper pictures: a face is about 90 px wide in a 1376 px picture -----------------------
-
-
-def _nearest_x4(rgb):
-    """A stand-in for Real-ESRGAN's x4: the same picture four times larger, nothing invented."""
-    return rgb.repeat(4, axis=0).repeat(4, axis=1)
-
-
-def test_sharpened_views_are_factor_times_larger_with_the_same_camera():
-    image = np.zeros((40, 30, 4), dtype=np.uint8)
-    image[..., 3] = 255
-    view = _camera(image=image)
-    view = pp.View(view.image, view.cam_to_world, view.fov_x, view.name, paint="safe")
-    (big,) = pp.sharpen_views([view], 2, upscale_rgb=_nearest_x4)
-    assert big.image.shape == (80, 60, 4)
-    assert np.array_equal(big.cam_to_world, view.cam_to_world) and big.fov_x == view.fov_x
-    assert big.name == view.name
-    assert big.paint == "safe"
-
-
-def test_a_point_lands_on_the_same_spot_of_the_sharpened_picture():
-    view = _camera(size=64)
-    (big,) = pp.sharpen_views([view], 2, upscale_rgb=_nearest_x4)
-    point = np.array([[0.2, -0.1, 0.0]])
-    x, y, _ = pp.project(point, view)
-    bx, by, _ = pp.project(point, big)
-    assert bx[0] == pytest.approx(2 * x[0]) and by[0] == pytest.approx(2 * y[0])
-
-
-def test_the_matte_is_carried_over_and_the_colours_kept():
-    image = np.zeros((32, 32, 4), dtype=np.uint8)
-    image[:, :16] = (200, 40, 40, 255)        # a red, matted left half; the right half is cut out
-    (big,) = pp.sharpen_views([_camera(image=image)], 2, upscale_rgb=_nearest_x4)
-    assert big.image[32, 8, 3] == 255 and big.image[32, 56, 3] == 0
-    assert tuple(big.image[32, 8, :3]) == (200, 40, 40)
-
-
-def test_factor_one_leaves_the_views_alone_and_needs_no_upscaler():
-    view = _camera(size=16)
-    assert pp.sharpen_views([view], 1)[0] is view
-
-
-def test_the_texture_grows_to_hold_the_sharper_pictures_but_never_shrinks():
-    texture = np.full((64, 64, 3), 90, dtype=np.uint8)
-    assert pp.grow_texture(texture, 128).shape == (128, 128, 3)
-    assert pp.grow_texture(texture, 32) is texture
-    assert pp.grow_texture(texture, 0) is texture
-
-
-def test_painting_from_a_sharpened_view_matches_painting_from_the_original():
-    positions, faces, uvs = _quad()
-    photo = np.zeros((64, 64, 4), dtype=np.uint8)
-    photo[...] = (30, 160, 90, 255)
-    texture = np.full((32, 32, 3), 100, dtype=np.uint8)
-    view = _camera(size=64, image=photo)
-    (big,) = pp.sharpen_views([view], 2, upscale_rgb=_nearest_x4)
-    small_out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY)
-    big_out, _ = pp.paint_texture(texture, positions, uvs, faces, [big], frame=IDENTITY)
-    assert np.abs(small_out[16, 16].astype(int) - big_out[16, 16].astype(int)).max() <= 2
-
-
 def _grid_with_roof(n: int = 40, depth: float = 0.3):
     """The grid of _grid() (facing the camera, UVs in the texture's top 80 %) plus a flat roof along its top edge that
     runs back away from the camera and faces up, like a hat's brim seen from the front (UVs in the bottom 15 %). The

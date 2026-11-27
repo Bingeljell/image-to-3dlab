@@ -28,7 +28,7 @@ from __future__ import annotations
 import io
 import json
 import struct
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -76,47 +76,6 @@ def load_views(directory: Path) -> tuple[list[View], float]:
         views.append(View(image, np.asarray(frame["transform_matrix"], dtype=np.float64),
                           fov, frame.get("name", frame["file_path"]), frame.get("paint", "all")))
     return views, float(meta.get("mesh_scale", 1.0))
-
-
-def sharpen_views(views: list[View], factor: float = 2.0, upscale_rgb=None) -> list[View]:
-    """Each view's picture `factor` times larger and sharper, its camera unchanged.
-
-    A figure's face is only about 90 px wide in a 1376 px picture, so the paint can never be
-    sharper than that, whatever the atlas holds. `upscale_rgb` turns an H x W x 3 float
-    picture (0..1) into a larger one: Real-ESRGAN's x4 (`image_to_3dlab.upscale`, the Hero
-    route's upscaler) when left out, which draws clean lines where a plain resize blurs. Its
-    result is resized to exactly `factor` times; the matte is resized alongside. The camera
-    is kept: `focal_px` follows the picture's width, so every point lands on the same spot.
-    """
-    if factor <= 1:
-        return list(views)
-    if upscale_rgb is None:
-        from image_to_3dlab import upscale
-
-        model = upscale.load()
-
-        def upscale_rgb(rgb):
-            return upscale.upscale(model, rgb)
-    out = []
-    for view in views:
-        height, width = view.image.shape[:2]
-        size = (int(round(width * factor)), int(round(height * factor)))
-        rgb = np.asarray(upscale_rgb(view.image[..., :3].astype(np.float32) / 255.0))
-        rgb = Image.fromarray(np.clip(rgb * 255.0 + 0.5, 0, 255).astype(np.uint8))
-        if rgb.size != size:
-            rgb = rgb.resize(size, Image.LANCZOS)
-        alpha = Image.fromarray(view.image[..., 3]).resize(size, Image.LANCZOS)
-        image = np.dstack([np.asarray(rgb), np.asarray(alpha)])
-        out.append(replace(view, image=image))
-    return out
-
-
-def grow_texture(texture: np.ndarray, size: int) -> np.ndarray:
-    """The texture resampled to `size` x `size` so it can hold sharper pictures; a texture
-    already that large (or `size` 0) is returned as it is, never shrunk."""
-    if size <= 0 or min(texture.shape[:2]) >= size:
-        return texture
-    return np.asarray(Image.fromarray(texture).resize((size, size), Image.LANCZOS))
 
 
 def to_view_space(points: np.ndarray, frame=PIXAL3D_FRAME, mesh_scale: float = 1.0) -> np.ndarray:

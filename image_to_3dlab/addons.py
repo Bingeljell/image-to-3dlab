@@ -20,9 +20,24 @@ LISTED_TIERS = {"listed", "verified"}  # what a list entry may say; "unknown" is
 TIER_LABELS = {"verified": "Verified", "listed": "Listed", "unknown": "Unknown"}
 TIER_SENTENCES = {
     "verified": "We read its code, ran it and checked its licences.",
-    "listed": "It passed automatic checks. We have not read its code. Use it at your own risk.",
+    "listed": "It passed automatic checks, but we did not test-run it. We have not read its code. Use it at your own risk.",
     "unknown": "It is not on our list and we have never looked at it. Install it only if you trust the source.",
 }
+
+
+LISTED_RUN_CHECKED = "It passed automatic checks and a test run. We have not read its code. Use it at your own risk."
+
+
+def tier_sentence(tier: str, run_check: str = "", skipped: tuple[str, ...] | list[str] = ()) -> str:
+    """What a user is told about a tier. A Listed add-on says whether we test-ran it ("not run-checked" when we did not,
+    and which tools we could not run when only some were tested)."""
+    if tier == "listed" and run_check == "passed":
+        return LISTED_RUN_CHECKED
+    if tier == "listed" and run_check == "partial":
+        left_out = f" ({', '.join(skipped)})" if skipped else ""
+        return (f"It passed automatic checks and a test run of some of its tools. The ones that need a file{left_out} "
+                "were not run. We have not read its code. Use it at your own risk.")
+    return TIER_SENTENCES[tier]
 
 
 def tier_from_install(info: dict[str, Any]) -> str:
@@ -88,6 +103,8 @@ class Listing:
     picture: str | None = None
     rating: float | None = None
     ratings_count: int = 0
+    run_check: str = ""  # "passed" or "partial" when the list's test run passed; anything else means it was not run-checked
+    run_skipped: tuple[str, ...] = ()  # with "partial": the tools the test run could not give a file to
 
 
 def validate_addon_id(addon_id: str) -> None:
@@ -188,12 +205,26 @@ def read_manifest(path: Path) -> Manifest:
     )
 
 
+_NOT_IN_A_LINK = re.compile(r"""[\s"'<>]""")
+
+
+def _https_link(value: Any) -> str:
+    """A link the studio may show: a plain https address, or nothing.
+
+    The add-on list and an add-on's manifest are written by other people, and these end up
+    inside a link on a page: no other scheme, and nothing that could end the link early.
+    """
+    if isinstance(value, str) and value.startswith("https://") and not _NOT_IN_A_LINK.search(value):
+        return value
+    return ""
+
+
 def _author(data: Any) -> dict[str, str]:
     if not isinstance(data, dict):
         raise ValueError("addon.json 'author' must be an object with at least 'name'")
     if "name" not in data:
         raise ValueError("addon.json 'author' is missing 'name'")
-    return {"name": str(data["name"]), "url": str(data.get("url", ""))}
+    return {"name": str(data["name"]), "url": _https_link(data.get("url", ""))}
 
 
 def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
@@ -216,7 +247,8 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         if addon_type not in ADDON_TYPES:
             raise ValueError(f"{where} 'type' must be one of {ADDON_TYPES}; got {addon_type!r}")
         raw_links = item.get("links", {})
-        links = {k: str(v) for k, v in raw_links.items()} if isinstance(raw_links, dict) else {}
+        links = ({k: link for k, v in raw_links.items() if (link := _https_link(v))}
+                 if isinstance(raw_links, dict) else {})
         rating = item.get("rating")
         if rating is not None:
             try:
@@ -230,12 +262,17 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
         runs = item.get("runs", "local")
         if runs not in RUNS:
             raise ValueError(f"{where} 'runs' must be one of {sorted(RUNS)}; got {runs!r}")
-        picture = item.get("picture")
-        if not (isinstance(picture, str) and picture.startswith("https://")):
-            picture = None  # a picture is only ever a plain https link
+        picture = _https_link(item.get("picture")) or None  # only ever a plain https link
         tier = item.get("tier", "listed")
         if tier not in LISTED_TIERS:
             raise ValueError(f"{where} 'tier' must be one of {sorted(LISTED_TIERS)}; got {tier!r}")
+        raw_check = item.get("run_check")
+        run_check = raw_check.get("status") if isinstance(raw_check, dict) else ""
+        if run_check not in ("passed", "partial", "not_run"):
+            run_check = ""
+        run_skipped: tuple[str, ...] = ()
+        if run_check == "partial" and isinstance(raw_check.get("skipped"), list):
+            run_skipped = tuple(str(t)[:60] for t in raw_check["skipped"][:20] if isinstance(t, str))
         listings.append(
             Listing(
                 id=str(item["id"]),
@@ -251,6 +288,8 @@ def read_registry(data: list[dict[str, Any]]) -> list[Listing]:
                 picture=picture,
                 rating=rating,
                 ratings_count=ratings_count,
+                run_check=run_check,
+                run_skipped=run_skipped,
             )
         )
     return listings
@@ -268,7 +307,7 @@ def install_plan(listing: Listing, manifest: Manifest, *, tier: str = "listed") 
         if manifest.runs == "local"
         else "This add-on uses the cloud: your models and pictures are sent off this machine to its service."
     )
-    warning = f"{where} {TIER_SENTENCES[tier]}"
+    warning = f"{where} {tier_sentence(tier, listing.run_check, listing.run_skipped)}"
     return {
         "author": manifest.author["name"],
         "licence": manifest.licence,

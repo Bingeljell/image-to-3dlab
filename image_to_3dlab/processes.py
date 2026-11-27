@@ -11,8 +11,11 @@ from __future__ import annotations
 import ctypes
 import os
 import signal
+import struct
 import subprocess
-from pathlib import PureWindowsPath
+import sys
+from pathlib import Path, PureWindowsPath
+from typing import NamedTuple
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
@@ -46,6 +49,17 @@ def group_popen_kwargs(windows: bool = _IS_WINDOWS) -> dict:
     if windows:
         return {"creationflags": CREATE_NEW_PROCESS_GROUP | outlive_kwargs(windows).get("creationflags", 0)}
     return {"start_new_session": True}
+
+
+def stoppable_popen_kwargs(windows: bool = _IS_WINDOWS) -> dict:
+    """Popen keyword arguments for a child `terminate_group` must be able to stop together
+    with everything it started, but that no pid file tracks (an add-on's tool).
+
+    POSIX: its own session, so the whole group can be signalled. Windows: nothing, because
+    `taskkill /T` follows the tree by pid, and the child stays in the server's job object, so
+    it still ends with the server (see kill_children_with_this_process); `group_popen_kwargs`
+    would take it out of that job, with nothing to clean it up at the next start."""
+    return {} if windows else {"start_new_session": True}
 
 
 # The job object this process put itself in, kept open for its whole life: the kernel
@@ -175,24 +189,118 @@ def process_alive(pid: int, windows: bool = _IS_WINDOWS) -> bool:
         return True
 
 
-def pid_record(pid: int, owner: int | None = None) -> str:
-    """What a job's `pid` file holds: the job's pid, then the pid of the process tracking it.
+def windows_process_started(pid: int, kernel32) -> str | None:
+    """When `pid` started, from its creation time; None when Windows has no such process, or
+    it has exited (an ended process stays openable while any handle to it is open)."""
+    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        created, ended, in_kernel, in_user = (ctypes.c_uint64() for _ in range(4))
+        if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(ended),
+                                        ctypes.byref(in_kernel), ctypes.byref(in_user)):
+            return None
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != _STILL_ACTIVE:
+            return None
+        return str(created.value)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+# sysctl(CTL_KERN, KERN_PROC, KERN_PROC_PID, pid) answers a `struct kinfo_proc`, which opens
+# with the process's start as a timeval (seconds, then microseconds) on 64-bit macOS.
+_KERN_PROC_PID = (1, 14, 1)
+_KINFO_PROC_SIZE = 648
+
+
+def _darwin_started(pid: int) -> str | None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.sysctl.argtypes = (ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p,
+                            ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t)
+    asked = (ctypes.c_int * 4)(*_KERN_PROC_PID, pid)
+    answer = ctypes.create_string_buffer(_KINFO_PROC_SIZE)
+    size = ctypes.c_size_t(_KINFO_PROC_SIZE)
+    if libc.sysctl(asked, 4, answer, ctypes.byref(size), None, 0) != 0 or size.value < 12:
+        return None     # no such process: the kernel answers nothing
+    seconds, microseconds = struct.unpack_from("=qi", answer.raw, 0)
+    return f"{seconds}.{microseconds:06d}"
+
+
+def process_started(pid: int, windows: bool = _IS_WINDOWS) -> str | None:
+    """When the process `pid` started, as a word with no spaces that tells it from a later
+    process given the same number. None when no process has that number, or where this
+    cannot be asked. Asked of the kernel, never by starting a program: Linux gives clock
+    ticks since boot, macOS microseconds, Windows its creation time."""
+    if windows:
+        return windows_process_started(pid, ctypes.windll.kernel32)
+    if sys.platform.startswith("linux"):
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        fields = stat.rpartition(")")[2].split()    # the name, in brackets, may hold spaces
+        return fields[19] if len(fields) > 19 else None     # field 22, the start
+    if sys.platform == "darwin":
+        return _darwin_started(pid)
+    return None
+
+
+def still_the_process(pid: int, started: str | None) -> bool:
+    """Whether the process now at `pid` can be the one that started at `started`.
+
+    Yes when the starts agree, and when no process has the number any more: on POSIX a
+    job's group may live on without its leader, and its number is not given out while it
+    does. Yes too for a note from before starts were kept, which has nothing to go by."""
+    if started is None:
+        return True
+    now = process_started(pid)
+    return now is None or now == started
+
+
+_UNKNOWN = "-"     # a start that could not be read, in a note
+
+
+class PidNote(NamedTuple):
+    """A job's `pid` file, read back. A start is None where the note has none."""
+
+    pid: int
+    owner: int | None
+    started: str | None
+    owner_started: str | None
+
+
+def pid_record(pid: int, owner: int | None = None, started: str | None = None,
+               owner_started: str | None = None) -> str:
+    """What a job's `pid` file holds: the job's pid, the pid of the process tracking it, and
+    when each of them started (read now when not given; "-" when that cannot be read).
 
     The owner is what lets a starting server tell a dead server's orphan from a job that
     something else alive is still running (a second viewer, a script driving the Finish
-    code). Without it, starting the viewer killed a live Finish run (2026-09-29)."""
-    return f"{pid} {os.getpid() if owner is None else owner}"
+    code). Without it, starting the viewer killed a live Finish run (2026-09-29). The starts
+    tell each of them from a process given its number after it ended (see `still_the_process`)."""
+    owner = os.getpid() if owner is None else owner
+    started = process_started(pid) if started is None else started
+    owner_started = process_started(owner) if owner_started is None else owner_started
+    return f"{pid} {owner} {started or _UNKNOWN} {owner_started or _UNKNOWN}"
 
 
-def parse_pid_record(text: str) -> tuple[int, int | None]:
-    """(job pid, owner pid). Files from before the owner was recorded hold one number.
+def parse_pid_record(text: str) -> PidNote:
+    """A `pid` file, read back. Older ones hold only the job's number, then also its owner's,
+    then also the job's start.
 
-    Raises ValueError for anything that is not one or two whole numbers."""
+    Raises ValueError for anything else, including a job number below 2 (no job is process 0
+    or 1) and an owner number below 1 (an owner of 1 stays valid: a studio can be PID 1 in a
+    container)."""
     fields = text.split()
-    if len(fields) not in (1, 2):
+    if not 1 <= len(fields) <= 4:
         raise ValueError(f"not a pid record: {text!r}")
-    numbers = [int(field) for field in fields]
-    return numbers[0], numbers[1] if len(numbers) == 2 else None
+    numbers = [int(field) for field in fields[:2]]
+    if numbers[0] < 2 or (len(numbers) == 2 and numbers[1] < 1):
+        raise ValueError(f"not a pid record: {text!r}")
+    starts = [None if field == _UNKNOWN else field for field in fields[2:]]
+    return PidNote(numbers[0], numbers[1] if len(numbers) == 2 else None,
+                   *(starts + [None, None])[:2])
 
 
 def terminate_group(pid: int, windows: bool = _IS_WINDOWS) -> None:
@@ -205,3 +313,33 @@ def terminate_group(pid: int, windows: bool = _IS_WINDOWS) -> None:
         os.killpg(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         pass
+
+
+def kill_group(pid: int, windows: bool = _IS_WINDOWS) -> None:
+    """Stop the group led by `pid` for certain: for one that was asked (`terminate_group`) and
+    carried on. Windows has no gentler ask to follow up on: its `terminate_group` already forces."""
+    if windows:
+        terminate_group(pid, windows=True)
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def stop_and_reap(process, grace: float, force_grace: float = 5.0) -> str | None:
+    """Stop a worker's group and reap it: ask (SIGTERM), wait `grace`, then force (SIGKILL) and wait
+    `force_grace`. Nothing to do for a process that has already exited. Returns a warning to log
+    when the stop itself failed (it still could not be reaped, or a signal raised), else None."""
+    if process.poll() is not None:
+        return None
+    try:
+        terminate_group(process.pid)
+        try:
+            process.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            kill_group(process.pid)
+            process.wait(timeout=force_grace)
+    except Exception as exc:
+        return str(exc)
+    return None

@@ -548,3 +548,81 @@ def test_local_colour_can_fall_back_to_the_global_match():
                               settings=pp.Settings(local_colour=False))
     # The global fit sees a zero average gap, so the unseen halves stay alike.
     assert abs(int(out[20, 64, 0]) - int(out[108, 64, 0])) < 20
+
+
+def _grid_with_roof(n: int = 40, depth: float = 0.3):
+    """The grid of _grid() (facing the camera, UVs in the texture's top 80 %) plus a flat roof along its top edge that
+    runs back away from the camera and faces up, like a hat's brim seen from the front (UVs in the bottom 15 %). The
+    roof's front row sits on the grid's top row (welded by position across the UV seam)."""
+    positions, faces, uvs = _grid(n)
+    uvs = uvs * np.array([1.0, 0.8])
+    top = np.arange(n + 1)                                     # the grid's top row (y = +0.5)
+    front = positions[top]
+    back = front + np.array([0.0, 0.0, -depth])
+    base = len(positions)
+    positions = np.concatenate([positions, front, back])
+    u = front[:, 0] + 0.5
+    uvs = np.concatenate([uvs, np.column_stack([u, np.full(n + 1, 0.85)]), np.column_stack([u, np.full(n + 1, 1.0)])])
+    f, b = base + np.arange(n + 1), base + n + 1 + np.arange(n + 1)
+    roof = np.concatenate([np.stack([f[:-1], f[1:], b[1:]], -1), np.stack([f[:-1], b[1:], b[:-1]], -1)])
+    return positions, np.concatenate([faces, roof]), uvs
+
+
+def _roof_scene():
+    positions, faces, uvs = _grid_with_roof()
+    texture = np.full((128, 128, 3), 100, dtype=np.uint8)
+    photo = np.zeros((768, 768, 4), dtype=np.uint8)
+    photo[..., :3] = 160          # the picture is 60 lighter than the model's own paint everywhere it sees
+    photo[..., 3] = 255
+    return positions, faces, uvs, texture, _camera(size=768, image=photo)
+
+
+def test_an_unseen_surface_facing_up_takes_the_neighbours_colour_shift_by_default():
+    positions, faces, uvs, texture, view = _roof_scene()
+    out, weight = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY)
+    # the roof is seen edge-on, so no picture paints it, and the local match shifts it like its seen neighbour
+    assert weight[122, 64] == 0.0
+    assert out[122, 64, 0] >= 140
+
+
+def test_keep_top_paint_leaves_an_unseen_surface_facing_up_in_its_own_colour():
+    positions, faces, uvs, texture, view = _roof_scene()
+    out, weight = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
+                                   settings=pp.Settings(keep_top_paint=True))
+    assert weight[122, 64] == 0.0
+    assert abs(int(out[122, 64, 0]) - 100) <= 6          # the model's own paint, not the neighbours' +60
+    assert out[40, 64, 0] >= 150                          # the seen front still takes the picture
+
+
+def test_keep_top_paint_still_shifts_an_unseen_surface_facing_sideways():
+    positions, faces, uvs = _grid()
+    texture = np.full((128, 128, 3), 100, dtype=np.uint8)
+    view = _camera(size=768, image=_side_strip_photo(768, top=140, bottom=60))
+    out, weight = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
+                                   settings=pp.Settings(keep_top_paint=True))
+    # the unseen middle strip faces the camera (sideways, not up): it carries its neighbours' colour as before
+    assert weight[20, 64] == 0.0 and weight[108, 64] == 0.0
+    assert out[20, 64, 0] >= 125
+    assert out[108, 64, 0] <= 75
+
+
+def test_keep_top_paint_reads_up_through_the_views_frame():
+    # in pixal3d.cpp's frame the glTF's up (+y) is the view space's +z
+    up = pp.to_view_space(np.array([[0.0, 1.0, 0.0]]))[0]
+    assert np.allclose(up, [0.0, 0.0, 1.0])
+
+
+def test_staged_views_say_whether_pixel_match_is_on(tmp_path):
+    # a four-view build stages its views with Pixel Match off (pixal3d_generate.py); front and back,
+    # and runs from before the switch, carry no word about it and keep it on
+    import json
+
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "transforms.json").write_text(json.dumps({"pixel_match": False, "frames": []}))
+    on = tmp_path / "on"
+    on.mkdir()
+    (on / "transforms.json").write_text(json.dumps({"frames": []}))
+    assert pp.staged_pixel_match(off) is False
+    assert pp.staged_pixel_match(on) is True
+    assert pp.staged_pixel_match(tmp_path / "nowhere") is True

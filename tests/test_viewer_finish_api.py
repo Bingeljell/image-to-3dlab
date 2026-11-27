@@ -13,6 +13,13 @@ import json
 from pathlib import Path
 
 import pytest
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 from glb_fixtures import valid_glb
 
 MODULE = Path(__file__).resolve().parents[1] / "viewer" / "finish_api.py"
@@ -34,6 +41,10 @@ def test_defaults_are_used_when_nothing_is_sent():
     assert settings is not finish.DEFAULT_SETTINGS  # a copy, not the shared dict
 
 
+def test_accepts_a_custom_500_triangle_finish():
+    assert finish.normalise_settings({"faces": 500})["faces"] == 500
+
+
 def test_client_values_override_defaults():
     settings = finish.normalise_settings({"metallic": 0.648, "roughness": 0.686, "ior": 1.4})
     assert settings["metallic"] == pytest.approx(0.648)
@@ -45,7 +56,7 @@ def test_client_values_override_defaults():
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("faces", 500), ("faces", 500000),      # blender_retopo_bake rejects both
+        ("faces", 499), ("faces", 500000),      # blender_retopo_bake rejects both
         ("metallic", 1.5), ("roughness", -0.1),
         ("ior", 0.5), ("ior", 4.0),
         ("voxel", 0.5),                          # coarse enough to melt the subject
@@ -992,3 +1003,105 @@ def test_the_progress_bar_lists_the_compress_stage_a_drop_needs(monkeypatch):
         settings["skip_paint"], settings["skip_compress"], settings["skip_bake"],
         drop_surface_maps=settings["drop_surface_maps"])
     assert "compress" in plan and plan[-1] == "compress"
+
+
+def test_a_four_view_build_finishes_without_pixel_match_unless_asked(tmp_path):
+    # four views stage Pixel Match off (pixal3d_generate.py): the paint can drift on them. The tick
+    # box alone does not bring it back; the four-view switch does, for people who want to try it
+    manager = finish.FinishJobManager(tmp_path / "finish", tmp_path / "generated")
+    job = manager.create("robot.glb", b"some-other-model", b"png", {})
+    job.views_dir.mkdir(parents=True, exist_ok=True)
+    (job.views_dir / "transforms.json").write_text(json.dumps(
+        {"pixel_match": False, "frames": [{"file_path": f"view_{a:03d}.png"} for a in (0, 270, 180, 90)]}))
+    assert finish.DEFAULT_SETTINGS["four_view_pixel_match"] is False
+    assert finish.uses_photo(job, job.settings) is False
+    note = finish.photo_note(job, job.settings)
+    assert note and "four" in note and "Pixel Match" in note
+    assert finish.pixel_match_result(False, job.views_dir, job.settings).startswith("off: four views")
+    asked = finish.normalise_settings({"four_view_pixel_match": True})
+    assert finish.uses_photo(job, asked) is True
+    assert finish.photo_note(job, asked) is None
+    worker = finish.worker_module()
+    enabled = worker.build_parser().parse_args(finish.build_command(job, asked)[3:])
+    assert worker.photo_views(enabled.views, enabled.pixel_match)[0] == job.views_dir
+    default = worker.build_parser().parse_args(finish.build_command(job, job.settings)[3:])
+    assert worker.photo_views(default.views, default.pixel_match)[0] is None
+    assert finish.pixel_match_result(True, job.views_dir, asked) == "on (four views)"
+
+
+@pytest.mark.posix
+def test_a_finish_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked the worker to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next Finish started beside it.
+    import finish_api
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_failed_finish_run_is_not_over_until_its_worker_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its worker (up to 35 s), so the
+    # gate was open and a new Finish could start beside a worker still holding the GPU.
+    import finish_api
+    from deaf_worker import assert_still_running_when_stop_began, watch_status_at_stop
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_status_at_stop(finish_api, monkeypatch, lambda: job.status)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_finish_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next Finish was blocked.
+    import finish_api
+
+    job = finish_api.FinishJob("2" * 32, tmp_path / "out" / "fox__finish__20261027-020202")
+    manager = finish_api.FinishJobManager(tmp_path / "out", tmp_path / "out")
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    monkeypatch.setattr(finish_api, "build_command", lambda job, settings, resume=False: ["worker"])
+    use_deaf_popen(finish_api, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        finish_api.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

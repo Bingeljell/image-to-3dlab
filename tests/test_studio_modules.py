@@ -156,6 +156,18 @@ def test_install_help_for_blender_is_shown_as_it_is():
 
 
 @needs_node
+def test_what_a_plan_still_needs_is_shown_as_it_is():
+    """The list can name Blender and an engine that is not set up; either word alone was reworded
+    as a crash or as one missing engine, and the list was lost."""
+    import activity_api
+
+    message = (f"{activity_api.PLAN_NEEDS} a picture engine (for Picture); Blender 4.2 or newer (for Finish); "
+               "the auto-rig (for Rig and Animate). Each is on the Setup & Status page.")
+    out = _run("jobs.js", f"console.log(JSON.stringify(m.plainError({json.dumps(message)})));")
+    assert out == message
+
+
+@needs_node
 def test_following_a_job_reports_progress_and_ends_on_a_terminal_status():
     out = _run("jobs.js", """
       const replies = [
@@ -411,6 +423,20 @@ def test_addons_page_escapes_html_and_builds_author_line():
 
 
 @needs_node
+def test_addons_page_links_cannot_carry_script_or_break_out_of_the_link():
+    # The author and source links come from the add-on list, which other people write.
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.authorLine({ author: { name: "a", url: 'https://x.test/" onfocus="alert(1)' } }),
+        m.authorLine({ author: { name: "a", url: "javascript:alert(1)" },
+                       links: { repo: "javascript:alert(1)", site: "http://plain.test" } }),
+      ]));
+    """)
+    assert out[0] == 'by <a href="https://x.test/&quot; onfocus=&quot;alert(1)" target="_blank" rel="noopener">a</a>'
+    assert out[1] == "by a"
+
+
+@needs_node
 def test_addons_page_shows_rating_and_the_three_labels():
     out = _run("addons_page.js", """
       console.log(JSON.stringify([
@@ -424,6 +450,32 @@ def test_addons_page_shows_rating_and_the_three_labels():
     assert "Listed" in out[1] and "No longer" not in out[1]
     assert "Unknown" in out[2]
     assert "No longer listed" in out[3]
+
+
+@needs_node
+def test_addons_page_says_not_run_checked_only_for_a_listed_add_on_we_did_not_run():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.tierBadge({ tier: "listed", run_checked: false }),
+        m.tierBadge({ tier: "listed", run_checked: true }),
+        m.tierBadge({ tier: "listed" }),
+        m.tierBadge({ tier: "verified", run_checked: false }),
+      ]));
+    """)
+    assert "Not run-checked" in out[0]
+    assert "Not run-checked" not in out[1] and "Not run-checked" not in out[2] and "Not run-checked" not in out[3]
+
+
+@needs_node
+def test_addons_page_names_the_tools_a_partial_test_run_left_out():
+    out = _run("addons_page.js", """
+      console.log(JSON.stringify([
+        m.tierBadge({ tier: "listed", run_checked: true, run_skipped: ["fit", "la<b>el"] }),
+        m.tierBadge({ tier: "listed", run_checked: true, run_skipped: [] }),
+      ]));
+    """)
+    assert "Partly run-checked" in out[0] and "fit, label" in out[0] and "<b>" not in out[0]
+    assert "run-checked" not in out[1]
 
 
 @needs_node
@@ -1296,6 +1348,15 @@ def test_an_agents_link_names_the_asset_to_open():
 
 
 @needs_node
+def test_finish_offers_a_custom_500_triangle_budget_for_characters():
+    out = _run("steps.js", """
+      const ctx = { presets: [], engines: [] };
+      const html = m.stepBody('finished', { kind: 'character', picture: 'i/k.png', model: 'm/k.glb', finished: null, clips: [] }, ctx);
+      console.log(JSON.stringify(html.match(/data-k="customFaces" min="([0-9]+)"/)?.[1] || null));""")
+    assert out == "500"
+
+
+@needs_node
 def test_finish_detail_sends_a_triangle_count_or_full_detail():
     out = _run("library.js", """console.log(JSON.stringify(
       [m.finishDetailSettings('20000'), m.finishDetailSettings('custom', '30000'), m.finishDetailSettings('full'),
@@ -1321,6 +1382,7 @@ def test_finish_offers_a_game_budget_and_a_surface_maps_switch():
     assert out["sizeHint"] is True
 
 
+@needs_node
 def test_the_texture_size_hint_is_plain_words():
     out = _run("steps.js", """
       const ctx = { presets: [], engines: [] };
@@ -1763,6 +1825,7 @@ def test_every_back_version_thumbnail_can_be_shown_big():
     assert out == [True, True]
 
 
+@needs_node
 def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing_it():
     """Two full-size canvases for a huge picture froze the tab (security review 2026-10-31)."""
     out = _run("brush.js", """console.log(JSON.stringify([
@@ -1773,6 +1836,7 @@ def test_the_brush_refuses_a_picture_bigger_than_the_server_takes_before_drawing
     assert limit == image_api.MAX_PICTURE_SIDE
 
 
+@needs_node
 def test_the_setup_question_lists_what_comes_down_beyond_the_weights():
     url = (REPO / "viewer" / "components" / "also-fetches.js").as_uri()
     program = f"import * as m from {json.dumps(url)};\n" + """console.log(JSON.stringify([
@@ -1915,6 +1979,60 @@ def test_the_first_start_card_says_the_same_when():
       console.log(JSON.stringify({ statement: text.includes(m.USAGE_STATEMENT),
         see: html.includes("See exactly what's sent"), off: html.includes("Turn off") }));""")
     assert out == {"statement": True, "see": True, "off": True}
+
+
+def _press_on_the_first_start_card(selector: str, saving: str = "works"):
+    """Show the real first-start card to a new user, press one button, and say what happened, in order:
+    each choice the studio was asked to save (saving takes a moment, as it does on a real server),
+    the card going away, the About page opening, and anything a button changes its words to.
+    `saving`: "works", "is refused" (the server answers with an error) or "cannot reach the studio"."""
+    return _run("pages.js", """
+      const log = [];
+      const buttons = {};
+      const card = { className: '', setAttribute() {}, remove() { log.push('card gone'); }, set innerHTML(html) {},
+        querySelector(selector) { return buttons[selector] ??= {
+          addEventListener(type, fn) { this.press = fn; }, set textContent(words) { log.push('button says: ' + words); } }; } };
+      globalThis.document = { createElement: () => card, body: { append() {} } };
+      globalThis.fetch = async (url, init) => {
+        if (init?.method !== 'POST') return { ok: true, json: async () => ({ noticed: false, policy: 'https://assetfurnace.com/privacy' }) };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (SAVING === 'cannot reach the studio') throw new TypeError('Failed to fetch');
+        log.push((SAVING === 'works' ? 'saved ' : 'refused ') + init.body);
+        return { ok: SAVING === 'works', json: async () => ({}) };
+      };
+      await m.usageNotice(() => log.push('about'));
+      await buttons[SELECTOR].press();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      console.log(JSON.stringify(log));""".replace("SELECTOR", json.dumps(selector)).replace("SAVING", json.dumps(saving)))
+
+
+@needs_node
+def test_turn_off_on_the_first_start_card_turns_the_counts_off():
+    # It saved {noticed: true}, the flag that lets the daily message go, and left the counts on.
+    # About opens after the choice is saved, so its box shows what was chosen.
+    assert _press_on_the_first_start_card("[data-about]") == ['saved {"share":false}', "card gone", "about"]
+
+
+@needs_node
+@pytest.mark.parametrize("saving, tried", [
+    ("is refused", ['refused {"share":false}']),
+    ("cannot reach the studio", []),
+])
+def test_turn_off_keeps_the_card_when_the_choice_could_not_be_saved(saving, tried):
+    # The card went away before the save was known to have worked, and a failed save was
+    # swallowed: the counts stayed on behind a card that had just been told to turn them off.
+    assert _press_on_the_first_start_card("[data-about]", saving) == [
+        *tried, "button says: Could not turn it off. Try again"]
+
+
+@needs_node
+def test_looking_at_what_is_sent_does_not_let_sending_start():
+    assert _press_on_the_first_start_card("[data-see]") == ["card gone", "about"]
+
+
+@needs_node
+def test_got_it_on_the_first_start_card_is_the_yes():
+    assert _press_on_the_first_start_card("[data-ok]") == ["card gone", 'saved {"noticed":true}']
 
 
 def test_readme_and_both_installers_say_the_same_sentence():

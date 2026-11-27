@@ -91,7 +91,8 @@ up to you.
   in `output/`.
 - `name`: the human name shown in the studio and CLI.
 - `version`: any string you like; shown to users but not parsed.
-- `author`: an object with at least `name`. `url` is optional and shown as a link.
+- `author`: an object with at least `name`. `url` is optional and shown as a link. It must be a plain
+  `https://` address; anything else is not shown.
 - `licence`: the SPDX name or short name of the licence for the add-on itself.
 - `summary`: one sentence describing what the add-on does.
 
@@ -199,7 +200,7 @@ ADDONS_INDEX=/path/to/index.json ./lab addon list
 
 The index file is a JSON list of listing objects. Each listing needs `id`, `name`,
 `repo`, `commit`, `author`, `summary`, `type`, and can include `links`, `rating` and
-`ratings_count`.
+`ratings_count`. The addresses in `links` must be plain `https://` ones; any other is dropped.
 
 ## Rules
 
@@ -213,6 +214,9 @@ The index file is a JSON list of listing objects. Each listing needs `id`, `name
   `run-stem` is the run name AssetFurnace chooses.
 - Keep the manifest honest: `models`, `licence` and `needs` are shown to the user before
   they say yes.
+- In the studio a tool is a big job like any other: it waits while a model, picture or other big
+  job is being made, and they wait for it. Cancel, or stopping the studio, stops the tool and
+  everything it started, so do not leave work running in the background.
 
 ## Getting listed
 
@@ -221,12 +225,15 @@ with one small file per add-on. It holds no add-on code, only a pointer to your 
 
 1. Publish your add-on as a public Git repository with a clear licence.
 2. Test it by installing it from your own repo (see above).
-3. Fork the list repo and add one file, `addons/<your-id>.json`. Copy `addons/pedestal.json`.
-4. Open a pull request. Automatic checks run and tell you what to fix.
-5. When the checks pass and it is merged, you are **Listed**.
-6. Want **Verified**? Say so in the pull request.
+3. Go to [assetfurnace.com/add-ons/submit](https://assetfurnace.com/add-ons/submit) and sign in with GitHub. You must
+   own the repo, or be a public member of the organisation that owns it.
+4. Send your repo link and the full 40-character commit code. Add a picture (PNG or JPG, under 600 KB).
+5. Automatic checks run, then a test run on a throwaway machine. If they pass, you are **Listed**, usually soon. If
+   not, you get a plain message saying what to fix.
+6. Want **Verified**? Tick "request Verified review" on the form.
 
-A new version of your add-on is a new pull request that changes the `commit` line. Nothing updates by itself.
+A new version is a new submission with the new commit code. Nothing updates by itself. Pull requests made directly
+on the list repo are closed automatically.
 The list repo's README has the full rules.
 
 ## What the labels mean
@@ -235,8 +242,13 @@ Every add-on shows one label, in the studio, the command line, the agent tools a
 
 - **Verified**: we read the code, ran it and checked its licences. Pinned to that exact version. A new
   version is checked again.
-- **Listed**: it passed automatic checks (it installs, runs and makes a valid model). We have not read its
-  code. Use it at your own risk.
+- **Listed**: it passed automatic checks, and we test-ran it on a clean machine: it installed, ran and made
+  a real model. We have not read its code. Use it at your own risk.
+- **Listed, partly run-checked**: we test-ran the tools we could. The ones that need a picture or model file as input
+  were not run, and the label names them.
+- **Listed, not run-checked**: the same, but we could not test-run it (it downloads models, every tool needs a picture or
+  model file as input, needs a newer Blender than our test machine's, or makes something other than a `.glb`).
+  It says so everywhere the label shows.
 - **Unknown**: not on our list. We have never looked at it. The studio warns you every time.
 
 Add-ons run code on your machine, so read the label before you install.
@@ -244,6 +256,11 @@ Add-ons run code on your machine, so read the label before you install.
 ## How we review an add-on
 
 Listed is automatic. A person (or an agent working for us) is only involved in Verified.
+
+The test run happens on a throwaway machine that is started for each submission and deleted afterwards. It has no
+passwords or access to anything of ours. Your add-on is installed with the studio's own `addon add` command and each
+tool is run once with plain test values (the middle of a number's range, the first choice, `test` for text). The model
+it makes is checked on a separate machine.
 
 For Verified we read every script that runs, including `setup`; check that it does not reach the network,
 write outside its output folder or read your files beyond the inputs you give it, unless it says so; check

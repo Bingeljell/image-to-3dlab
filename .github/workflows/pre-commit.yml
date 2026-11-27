@@ -36,6 +36,27 @@ jobs:
       - run: uv sync --frozen
       - run: uv run pytest --tb=short -ra --color=yes
 
+  # The suite on a Mac, where most of this code runs: the MLX and Apple routes, the Xcode and
+  # memory checks. It is not report-only: a failure here fails the run, as on Linux.
+  pytest-macos:
+    name: Tests (macOS)
+    needs: pre-commit
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13.7"
+          enable-cache: false
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+      - run: uv sync --frozen
+      - run: uv run pytest --tb=short -ra --color=yes
+
   # The suite on Windows (#243). Report-only for now: about 30 tests still assume POSIX paths
   # or Linux build folders. Once those are fixed, drop continue-on-error so it blocks a merge.
   # GitHub's Windows runners are admin, so the symlink-built tests (delete safety included) run here.

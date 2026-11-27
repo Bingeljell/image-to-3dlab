@@ -70,9 +70,9 @@ from retopo_repaint import (
 from image_to_3dlab.blender import find_blender
 
 # 5,000 triangles kept the chest's rivets and lock readable with a normal map; 2,500 and
-# 1,000 are the middle and far steps. `blender_retopo_bake.py` accepts 1,000 to 200,000.
+# 1,000 are the middle and far steps. `blender_retopo_bake.py` accepts 500 to 200,000.
 DEFAULT_LODS = (5000, 2500, 1000)
-FACE_RANGE = (1000, 200000)
+FACE_RANGE = (500, 200000)
 # 1024 is a common prop texture size, and what every measurement here used.
 DEFAULT_ATLAS = 1024
 ATLAS_SIZES = (1024, 2048, 4096)

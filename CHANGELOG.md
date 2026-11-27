@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Mirrored markings land on the other side of the model, not off it.** `project_markings --mirror` reflected through
+  the origin and always across X, so a model away from the origin, or seen from the side, got its copy in empty space.
+  It now mirrors through the model's middle across the view's horizontal axis.
 - **The arm clearance check no longer breaks on an arm pointing straight back.** Turning one direction onto its exact
   opposite divided by zero and filled the rotation with invalid numbers. It now makes a clean half-turn.
 - **The Blender agent no longer wipes your open file when it imports a model.** Import cleared every mesh by default,

@@ -6,10 +6,66 @@ No Blender, no network, no weights: tiny synthetic inputs only.
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
+import trimesh
+from PIL import Image
 
 from scripts import arm_clearance as ac
+from scripts import project_markings
+
+# 4. project_markings --mirror --------------------------------------------------------
+
+
+class _Stop(Exception):
+    pass
+
+
+def test_mirror_reflects_through_the_model_middle_not_the_origin(tmp_path, monkeypatch):
+    """A model spanning x 2..4 must mirror to x 2..4 (swapped), not to x -4..-2."""
+    box = trimesh.creation.box(extents=(2.0, 2.0, 2.0))
+    box.apply_translation((3.0, 0.0, 0.0))
+    uv = np.zeros((len(box.vertices), 2))
+    box.visual = trimesh.visual.TextureVisuals(
+        uv=uv, image=Image.new("RGB", (4, 4), (128, 128, 128))
+    )
+    mesh_path, source_path = tmp_path / "m.glb", tmp_path / "s.png"
+    box.export(mesh_path)
+    Image.new("RGBA", (8, 8), (200, 50, 50, 255)).save(source_path)
+
+    seen = []
+
+    def fake_project(mesh, *args, **kwargs):
+        seen.append(np.array(mesh.vertices))
+        n = len(mesh.vertices)
+        zeros, none = np.zeros(n), None
+        if len(seen) == 2:
+            raise _Stop
+        return none, np.ones(n, bool), zeros, zeros, none
+
+    monkeypatch.setattr(project_markings, "project", fake_project)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "project_markings",
+            str(mesh_path),
+            str(source_path),
+            str(tmp_path / "o.glb"),
+            "--mirror",
+        ],
+    )
+    with pytest.raises(_Stop):
+        project_markings.main()
+
+    original, mirrored = seen
+    assert mirrored[:, 0].min() == pytest.approx(original[:, 0].min())
+    assert mirrored[:, 0].max() == pytest.approx(original[:, 0].max())
+
+
+# 5. arm_clearance --------------------------------------------------------------------
 
 
 def test_opposite_directions_make_a_finite_half_turn():

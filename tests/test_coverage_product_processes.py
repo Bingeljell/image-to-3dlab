@@ -1,8 +1,9 @@
 """Run process bookkeeping against controlled operating-system replies."""
 
 import ctypes
-import os
 import struct
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -51,25 +52,29 @@ class Kernel:
         return self.failure != "times"
 
 
-@pytest.mark.parametrize("failure", [None, "create", "limits", "assign", "probe"])
+@pytest.mark.parametrize("failure", [None, "create", "limits", "assign", "probe", "timeout"])
 def test_windows_job_lifetime_and_breakaway_probe(monkeypatch, failure):
     kernel = Kernel(failure)
     probed = []
 
     def probe(argv, **kwargs):
         probed.append(argv)
+        assert argv == [sys.executable, "-I", "-S", "-c", "pass"]
         assert kwargs["check"]
         assert kwargs["creationflags"] == p.CREATE_BREAKAWAY_FROM_JOB | 0x08000000
+        assert kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+        assert kwargs["timeout"] == 10
         if failure == "probe":
             raise OSError("breakaway forbidden")
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     monkeypatch.setattr(p.ctypes, "WinDLL", lambda name, use_last_error: kernel, raising=False)
     monkeypatch.setattr(p.subprocess, "run", probe)
     monkeypatch.setattr(p, "_JOB", None)
     monkeypatch.setattr(p, "_BREAKAWAY", False)
 
-    installed = failure in (None, "probe")
+    installed = failure in (None, "probe", "timeout")
     assert p.kill_children_with_this_process(windows=True) is installed
     assert kernel.closed == ([8] if failure in ("limits", "assign") else [])
     expected = p.CREATE_BREAKAWAY_FROM_JOB if failure is None else 0
@@ -77,7 +82,7 @@ def test_windows_job_lifetime_and_breakaway_probe(monkeypatch, failure):
     assert p.outlive_kwargs(windows=False) == {}
     if installed:
         assert p.kill_children_with_this_process(windows=True)
-        assert probed == [[os.path.join(r"C:\Windows", "System32", "cmd.exe"), "/c", "exit 0"]]
+        assert len(probed) == 1
     else:
         assert not probed
 

@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The arm clearance check no longer breaks on an arm pointing straight back.** Turning one direction onto its exact
+  opposite divided by zero and filled the rotation with invalid numbers. It now makes a clean half-turn.
 - **The Blender agent no longer wipes your open file when it imports a model.** Import cleared every mesh by default,
   and clear and delete reached into every scene of the file, not only the one in view. Import now keeps what is there
   unless asked to clear, and clear and delete touch only the current scene.

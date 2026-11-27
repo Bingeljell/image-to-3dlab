@@ -7,6 +7,7 @@ No Blender, no network, no weights: tiny synthetic inputs only.
 from __future__ import annotations
 
 import sys
+import types
 
 import numpy as np
 import pytest
@@ -14,7 +15,61 @@ import trimesh
 from PIL import Image
 
 from scripts import arm_clearance as ac
-from scripts import project_markings
+from scripts import clean_skin_weights, project_markings
+
+# 3. clean_skin_weights ---------------------------------------------------------------
+
+
+class _Objects(list):
+    def remove(self, obj, do_unlink=True):
+        super().remove(obj)
+
+
+def _fake_bpy(names):
+    class Obj:
+        type = "MESH"
+
+        def __init__(self, name):
+            self.name = name
+
+        def keys(self):
+            return []
+
+        def find_armature(self):
+            return None
+
+    store = _Objects(Obj(n) for n in names)
+    nothing = types.SimpleNamespace(
+        read_factory_settings=lambda **k: None, gltf=lambda **k: None
+    )
+    bpy = types.ModuleType("bpy")
+    bpy.ops = types.SimpleNamespace(
+        wm=nothing, import_scene=nothing, export_scene=nothing
+    )
+    bpy.data = types.SimpleNamespace(objects=store)
+    return bpy, store
+
+
+def test_only_the_exact_helper_name_is_removed(tmp_path, monkeypatch):
+    """`startswith("Icosphere")` deletes a real body that is named Icosphere_body."""
+    bpy, store = _fake_bpy(["Icosphere", "Icosphere_body", "Body"])
+    monkeypatch.setitem(sys.modules, "bpy", bpy)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "clean_skin_weights",
+            "--in",
+            str(tmp_path / "in.glb"),
+            "--out",
+            str(tmp_path / "out.glb"),
+        ],
+    )
+
+    clean_skin_weights.main()
+
+    assert sorted(o.name for o in store) == ["Body", "Icosphere_body"]
+
 
 # 4. project_markings --mirror --------------------------------------------------------
 

@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Rig clean-up no longer deletes a part whose name starts with "Icosphere".** It removed every such mesh as the
+  importer's helper sphere, so a model part named that way vanished from the rig. Only the helper itself is removed now.
 - **Mirrored markings land on the other side of the model, not off it.** `project_markings --mirror` reflected through
   the origin and always across X, so a model away from the origin, or seen from the side, got its copy in empty space.
   It now mirrors through the model's middle across the view's horizontal axis.

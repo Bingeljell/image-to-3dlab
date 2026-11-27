@@ -174,6 +174,18 @@ def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover 
     return changed
 
 
+# Blender's default icosphere name. Only this exact helper is removed, not every mesh
+# whose name starts the same way. A `glTF_not_exported` glTF extra is the other mark.
+HELPER_NAME = "Icosphere"
+
+
+def is_export_helper(name: str, extras: dict | None = None) -> bool:
+    """True for SkinTokens' helper sphere, not for a body that merely starts with the same letters."""
+    if extras and extras.get("glTF_not_exported"):
+        return True
+    return name == HELPER_NAME
+
+
 def main() -> None:  # pragma: no cover - needs bpy
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--in", dest="source", required=True, type=Path, help="rigged GLB")
@@ -185,8 +197,10 @@ def main() -> None:  # pragma: no cover - needs bpy
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(args.source))
-    for obj in list(bpy.data.objects):  # SkinTokens' `glTF_not_exported` helper
-        if obj.type == "MESH" and obj.name.startswith("Icosphere"):
+    for obj in list(bpy.data.objects):
+        # A bpy Object is not iterable, so its custom properties come through `keys()`.
+        extras = {k: obj[k] for k in obj.keys()} if hasattr(obj, "keys") else {}  # noqa: SIM118
+        if obj.type == "MESH" and is_export_helper(obj.name, extras):
             bpy.data.objects.remove(obj, do_unlink=True)
     total = 0
     for arm in (o for o in bpy.data.objects if o.type == "ARMATURE"):

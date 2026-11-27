@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The walk plants its feet on the floor of a moved model.** The walk cycle found the paws and the floor from local
+  vertex positions and matched them against world-space markers, so a model not sitting at the origin picked the wrong
+  vertices and lifted or sank the body. Both now use world positions.
 - **The quadruped walk measures leg reach in the rig's own facing and size.** It measured how far a foot sat forward
   along Y whatever way the rig faced, added bone lengths in the rig's unscaled units, and let a metarig's bones replace
   the rig's. Reach is now measured along the facing axis, in world units, from the rig itself.

@@ -176,19 +176,6 @@ def test_a_safe_side_without_a_front_picture_paints_nothing():
     assert weight.max() == pytest.approx(0.0)
 
 
-@pytest.mark.parametrize(("paint", "expected"), [("all", 60), ("safe", 200)])
-def test_a_drawn_side_alone_cannot_trigger_outside_fill(paint, expected):
-    positions, faces, uvs = _side_square()
-    texture = np.full((64, 64, 3), 60, np.uint8)
-    texture[:, 32:] = 200
-    side = _side_view(paint)
-    side.image[..., :3] = 60
-    side.image[:, SIZE // 2:, 3] = 0
-    out, _ = pp.paint_texture(texture, positions, uvs, faces, [side], frame=IDENTITY,
-                              settings=pp.Settings(align=False, match_colour=False))
-    assert np.all(out[32, 56] == expected)
-
-
 def test_the_paint_rule_loads_from_transforms_json(tmp_path):
     Image.fromarray(np.zeros((8, 8, 4), np.uint8)).save(tmp_path / "view_000.png")
     Image.fromarray(np.zeros((8, 8, 4), np.uint8)).save(tmp_path / "view_270.png")

@@ -148,11 +148,8 @@ def test_the_matte_decides_where_the_photo_counts():
     photo = _split_photo(64)
     photo[:, 32:, 3] = 0  # right half is outside the cut-out
     texture = np.full((32, 32, 3), 128, dtype=np.uint8)
-    # The photo's own pixels only: far past the cut-out the outside fill would take the
-    # surrounding colour (tested below).
     out, weight = pp.paint_texture(texture, positions, uvs, faces,
-                                   [_camera(size=64, image=photo)], frame=IDENTITY,
-                                   settings=pp.Settings(outside_fill=0.0))
+                                   [_camera(size=64, image=photo)], frame=IDENTITY)
     assert tuple(out[16, 8]) == (255, 0, 0)
     assert weight[16, 24] == 0.0 and tuple(out[16, 24]) == (128, 128, 128)
 
@@ -520,17 +517,11 @@ def _side_strip_photo(size: int, top: int, bottom: int) -> np.ndarray:
     return photo
 
 
-# The strip lies past the cut-out, where the outside fill (tested further down) would
-# colour it too; these tests watch the colour match alone.
-NO_FILL = pp.Settings(outside_fill=0.0)
-
-
 def test_local_colour_carries_each_regions_gap_into_the_unseen_strip():
     positions, faces, uvs = _grid()
     texture = np.full((128, 128, 3), 100, dtype=np.uint8)
     view = _camera(size=768, image=_side_strip_photo(768, top=140, bottom=60))
-    out, weight = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                                   settings=NO_FILL)
+    out, weight = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY)
     # The middle strip is outside the cut-out: no picture there, but each half should carry
     # on its neighbours' colour (one global shift would leave both near 100).
     assert weight[20, 64] == 0.0 and weight[108, 64] == 0.0
@@ -544,8 +535,7 @@ def test_one_mismatched_patch_does_not_smear_into_the_unseen_part():
     photo = _side_strip_photo(768, top=120, bottom=120)
     photo[360:410, 230:310, :3] = 250  # a small feature the model painted differently
     view = _camera(size=768, image=photo)
-    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                              settings=NO_FILL)
+    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY)
     # Unseen texels beside the patch follow the typical +20 gap, not the patch's +150.
     assert abs(int(out[64, 64, 0]) - 120) <= 10
 
@@ -555,7 +545,7 @@ def test_local_colour_can_fall_back_to_the_global_match():
     texture = np.full((128, 128, 3), 100, dtype=np.uint8)
     view = _camera(size=768, image=_side_strip_photo(768, top=140, bottom=60))
     out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                              settings=pp.Settings(local_colour=False, outside_fill=0.0))
+                              settings=pp.Settings(local_colour=False))
     # The global fit sees a zero average gap, so the unseen halves stay alike.
     assert abs(int(out[20, 64, 0]) - int(out[108, 64, 0])) < 20
 
@@ -697,142 +687,3 @@ def test_staged_views_say_whether_pixel_match_is_on(tmp_path):
     assert pp.staged_pixel_match(off) is False
     assert pp.staged_pixel_match(on) is True
     assert pp.staged_pixel_match(tmp_path / "nowhere") is True
-
-
-# --- past the cut-out: the model is bigger than the picture there ----------------------------
-#
-# Where the generator builds a part longer than the picture shows (a tail, a strand), it had
-# no picture colour there either and paints a pale placeholder grey (measured on a Pixal3D
-# wolf: 94% of its tail tip past the drawn outline). Those texels take the colour of the
-# surface around them; just past the outline the generator's own colour is real and stays.
-
-FUR, PLACEHOLDER = 60, 200
-
-
-def _cut_photo(size: int, right: float = 0.45) -> np.ndarray:
-    """Fur-coloured picture whose cut-out ends at `right` (share of the width)."""
-    photo = np.zeros((size, size, 4), dtype=np.uint8)
-    photo[..., :3] = FUR
-    photo[:, : int(size * right), 3] = 255
-    return photo
-
-
-def _placeholder_texture(size: int = 128, from_u: float = 0.5) -> np.ndarray:
-    texture = np.full((size, size, 3), FUR, dtype=np.uint8)
-    texture[:, int(size * from_u):] = PLACEHOLDER
-    return texture
-
-
-def test_paint_far_past_the_cut_out_takes_the_surrounding_colour():
-    positions, faces, uvs = _grid()
-    view = _camera(size=768, image=_cut_photo(768))
-    out, weight = pp.paint_texture(_placeholder_texture(), positions, uvs, faces, [view],
-                                   frame=IDENTITY)
-    # The cut-out ends near u = 0.41; at u = 0.9 the grid is far past it.
-    assert weight[64, 115] == 0.0
-    assert abs(int(out[64, 115, 0]) - FUR) <= 15
-
-
-def test_paint_just_past_the_cut_out_keeps_the_generators_colour():
-    positions, faces, uvs = _grid()
-    texture = np.full((128, 128, 3), FUR, dtype=np.uint8)
-    texture[:, 53] = 120  # u ~ 0.418: a few picture pixels past the outline
-    view = _camera(size=768, image=_cut_photo(768))
-    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                              settings=pp.Settings(match_colour=False))
-    assert out[64, 53, 0] == 120
-
-
-def test_the_outside_fill_can_be_switched_off():
-    positions, faces, uvs = _grid()
-    view = _camera(size=768, image=_cut_photo(768))
-    out, _ = pp.paint_texture(_placeholder_texture(), positions, uvs, faces, [view],
-                              frame=IDENTITY, settings=pp.Settings(outside_fill=0.0))
-    assert out[64, 115, 0] == PLACEHOLDER
-
-
-def test_a_part_no_picture_sees_keeps_its_own_colour():
-    # A narrow camera: the grid's left and right edges lie outside the picture's frame,
-    # which is not the same as outside its cut-out.
-    positions, faces, uvs = _grid()
-    texture = np.full((128, 128, 3), PLACEHOLDER, dtype=np.uint8)
-    photo = np.full((768, 768, 4), FUR, dtype=np.uint8)
-    photo[..., 3] = 255
-    view = _camera(size=768, fov=0.3, image=photo)
-    out, weight = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                                   settings=pp.Settings(match_colour=False))
-    assert weight[64, 1] == 0.0 and out[64, 1, 0] == PLACEHOLDER
-    assert out[64, 64, 0] == FUR
-
-
-def test_a_loose_piece_wholly_past_the_cut_out_keeps_its_own_colour():
-    # Nothing around it to take a colour from.
-    left, faces, uvs = _quad(half=0.2)
-    right = left + [0.3, 0.0, 0.0]
-    positions = np.vstack([left - [0.3, 0.0, 0.0], right])
-    faces = np.vstack([faces, faces + 4])
-    uvs = np.vstack([uvs * [0.5, 1], uvs * [0.5, 1] + [0.5, 0]])
-    view = _camera(size=768, image=_cut_photo(768, right=0.5))
-    out, _ = pp.paint_texture(_placeholder_texture(), positions, uvs, faces, [view],
-                              frame=IDENTITY, settings=pp.Settings(match_colour=False))
-    assert out[64, 32, 0] == FUR
-    assert out[64, 96, 0] == PLACEHOLDER
-
-
-def test_the_outside_fill_ignores_a_vertex_no_triangle_uses():
-    positions, faces, uvs = _grid()
-    positions = np.vstack([positions, [[5.0, 5.0, 5.0]]])
-    uvs = np.vstack([uvs, [[0.99, 0.99]]])
-    view = _camera(size=768, image=_cut_photo(768))
-    out, _ = pp.paint_texture(_placeholder_texture(), positions, uvs, faces, [view],
-                              frame=IDENTITY, settings=pp.Settings(match_colour=False))
-    assert abs(int(out[64, 115, 0]) - FUR) <= 15
-
-
-def test_the_placeholder_reaching_up_to_the_outline_goes_too():
-    # The generator's grey starts right past the outline (u = 0.42), closer than the fill's
-    # reach; it is the same flat colour as far out and joined to it, so it goes as well.
-    positions, faces, uvs = _grid()
-    view = _camera(size=768, image=_cut_photo(768))
-    out, _ = pp.paint_texture(_placeholder_texture(from_u=0.42), positions, uvs, faces,
-                              [view], frame=IDENTITY)
-    assert abs(int(out[64, 55, 0]) - FUR) <= 15
-
-
-def test_real_colours_past_the_outline_are_not_taken_for_a_placeholder():
-    positions, faces, uvs = _grid()
-    rng = np.random.default_rng(3)
-    texture = rng.integers(0, 256, (128, 128, 3)).astype(np.uint8)
-    texture[:, :53] = FUR
-    texture[:, 55] = 120  # u ~ 0.43, a little past the outline: real paint, not grey filler
-    view = _camera(size=768, image=_cut_photo(768))
-    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                              settings=pp.Settings(match_colour=False))
-    assert abs(int(out[64, 55, 0]) - 120) <= 15
-
-
-@pytest.mark.parametrize("colour", [(20, 20, 20), (180, 40, 40)], ids=["black coat", "red boot"])
-def test_a_flat_real_colour_past_the_outline_stays(colour):
-    # A black coat or a red boot the generator built a little longer than the picture: one flat colour
-    # far past the cut-out, but not the generator's pale neutral filler, so it is real paint and stays.
-    positions, faces, uvs = _grid()
-    texture = _placeholder_texture()
-    texture[:, 64:] = colour
-    view = _camera(size=768, image=_cut_photo(768))
-    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                              settings=pp.Settings(match_colour=False))
-    assert tuple(out[64, 115]) == colour
-
-
-def test_the_filler_is_told_by_the_generators_own_colour_not_the_matched_one():
-    # The colour match shifts the filler towards the picture (here strongly bluish), which must not
-    # hide it: the generator's own colour decides what is filler.
-    positions, faces, uvs = _grid()
-    photo = _cut_photo(768)
-    photo[..., :3] = (40, 60, 200)
-    view = _camera(size=768, image=photo)
-    texture = _placeholder_texture()
-    texture[:, :64] = (60, 60, 60)
-    out, _ = pp.paint_texture(texture, positions, uvs, faces, [view], frame=IDENTITY,
-                              settings=pp.Settings(local_colour=False))
-    assert out[64, 115, 0] < 100   # the blue fur around it (red 40), not the shifted grey (red 180)

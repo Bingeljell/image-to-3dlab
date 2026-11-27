@@ -284,3 +284,16 @@ def test_top_and_bottom_keep_up_as_up(view):
     """
     out = _node(program)
     assert out["up"] == [0, 1, 0], f"{view} turned the camera's up to {out['up']}, so a sideways drag will not turn"
+
+
+@needs_node
+def test_today_and_yesterday_follow_the_local_day_not_utc():
+    program = f"""
+      import * as m from {json.dumps((REPO / "viewer" / "studio" / "pages.js").as_uri())};
+      // 01:00 on 7 Oct local time; in UTC it is still 6 Oct
+      const today = new Date(2026, 9, 7, 1, 0);
+      const recs = [{{ time: '2026-10-07T00:30:00' }}, {{ time: '2026-10-06T22:00:00' }}];
+      console.log(JSON.stringify(m.byDay(recs, today).map((g) => [g.label, g.items.length])));
+    """
+    out = _node(program, env={"TZ": "Pacific/Auckland"})
+    assert out == [["Today", 1], ["Yesterday", 1]]

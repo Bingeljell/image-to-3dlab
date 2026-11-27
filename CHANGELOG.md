@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Today and Yesterday follow your own clock.** The studio grouped items by the UTC day, so around midnight they landed
+  under the wrong day. It now uses the local day.
 - **Top and bottom views keep the model upright.** They turned the camera's up direction, so the model spun when
   switching back. The camera now sits just off the pole with up unchanged.
 - **Keep on a spot fix files it on the model you were fixing.** After switching to another model with the brush open,

@@ -16,7 +16,8 @@ export function duration(seconds) {
 
 /** History records grouped by day ("Today", "Yesterday", else the date), keeping their order. */
 export function byDay(records, today = new Date()) {
-  const key = (d) => d.toISOString().slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
   const groups = [];
   for (const record of records) {

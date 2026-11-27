@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Patch checks tell the truth, and a half-done patch finishes on a re-run.** The `--check` of the Metal hashmap,
+  BVH traversal, clean-up, face-cap and MLX attention patches reported success when the patch was missing. A re-run
+  of the MLX attention or ROCm C++20 patch left a half-applied file as it was, or refused it. Missing patches now
+  fail their check, and a re-run finishes what is left.
 - **The weights audit offers a download for deletion only when every file has an identical copy.** It counted a
   cached model as duplicated once 90% of its bytes matched by name and size, so `--apply` could delete a file kept
   nowhere else, or one whose same-size copy held different bytes. Each file is now compared by its hash.

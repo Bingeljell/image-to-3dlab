@@ -174,7 +174,7 @@ def main() -> int:
 
     if args.check:
         print("APPLIED" if applied else "ABSENT")
-        return 0
+        return 0 if applied else 1
 
     if args.revert:
         METAL.write_text(revert_metal(metal))

@@ -384,7 +384,8 @@ def patch_text(source: str, spec: Patch, label: str) -> tuple[str, bool]:
     Raises when neither the proof nor the anchor is there, which is the signal that upstream
     moved and the patch wants re-reading before it is trusted again.
     """
-    if spec.proof in source:
+    leftover = not spec.needle_survives and spec.needle in source
+    if spec.proof in source and not leftover:
         return source, False
     if spec.needle not in source:
         raise RuntimeError(f"{label}: the anchor for this patch is gone; upstream changed, "
@@ -402,7 +403,9 @@ def patch_file(path: Path, spec: Patch) -> bool:
     """Patch one file. Returns whether it changed, and asserts the anchor count."""
     text = path.read_text()
     found = text.count(spec.needle)
-    if found and found != spec.expected:
+    # A half-done file (some occurrences already replaced) is finished, not refused.
+    done = 0 if spec.needle_survives else text.count(spec.replacement)
+    if found and found + done != spec.expected and found != spec.expected:
         raise RuntimeError(f"{path}: expected {spec.expected} occurrence(s) of this patch's "
                            f"anchor, found {found}; re-check the patch before running it")
     patched, changed = patch_text(text, spec, str(path))

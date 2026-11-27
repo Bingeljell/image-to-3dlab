@@ -76,12 +76,19 @@ DISPATCH_NEW = '''    elif config.ATTN == 'mlx':
 
 def replace_exact(source: str, old: str, new: str, *, count: int, label: str) -> tuple[str, bool]:
     """Replace an audited anchor, or fail rather than produce a partial patch."""
-    if new in source:
+    done = source.count(new)
+    # `new` may itself contain `old` (the dispatch anchor is kept as its tail), so the
+    # finished spots must not count as unpatched.
+    found = source.count(old) - done * new.count(old) if old in new else source.count(old)
+    if found == 0 and done == count:
         return source, False
-    found = source.count(old)
-    if found != count:
-        raise RuntimeError(f"{label}: expected {count} source anchors, found {found}")
-    return source.replace(old, new, count), True
+    # A re-run after a half-finished patch finishes the rest; any other count means the
+    # anchors moved, which is a refusal, not a guess.
+    if found == 0 or found + done != count:
+        raise RuntimeError(
+            f"{label}: expected {count} anchors, found {found} unpatched and {done} patched"
+        )
+    return source.replace(old, new), True
 
 
 def patch_config(source: str) -> tuple[str, bool]:
@@ -145,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     changed = apply(args.root.resolve(), check_only=args.check)
     print(f"{changed} file(s) {'would change' if args.check else 'changed'}")
-    return 0
+    return 1 if args.check and changed else 0
 
 
 if __name__ == "__main__":

@@ -134,7 +134,7 @@ def main() -> int:
             print(f"PATCHED (cap now {find_cap(source)})")
         else:
             print(f"NOT PATCHED (cap is {find_cap(source)})")
-        return 0
+        return 0 if is_patched(source) else 1
 
     updated = apply(source, args.ceiling)
     if updated == source:

@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import patch_metal_hashmap_miss as hashmap
 import patch_mtlbvh_production_traversal as mtlbvh
+import patch_ovoxel_weld_before_simplify as weld
 import patch_pixal3d_rembg as pixal_rembg
 import patch_trellis_enable_cleanup as cleanup
 import patch_trellis_face_cap as face_cap
@@ -112,6 +113,34 @@ def test_no_bria_removes_a_constructor_that_sits_beside_the_note(tmp_path, text)
     assert BRIA_NEEDLE not in path.read_text(), (
         "patch() returned success with the BRIA constructor still in the file"
     )
+
+
+# --- 4. weld patch -------------------------------------------------------------------
+
+_POSTPROCESS_V1 = "import torch\n\n\ndef to_glb(mesh):\n    mesh.simplify(1)  # v1\n"
+_POSTPROCESS_V2 = "import torch\n\n\ndef to_glb(mesh):\n    mesh.simplify(2)  # v2\n"
+
+
+def test_weld_revert_restores_the_file_from_before_the_last_patch_run(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "postprocess.py"
+    target.write_text(_POSTPROCESS_V1)
+    _argv(monkeypatch, "--target", str(target))
+    assert weld.main() == 0
+    target.write_text(_POSTPROCESS_V2)  # a reinstall overwrote the patched file
+    assert weld.main() == 0
+    _argv(monkeypatch, "--target", str(target), "--revert")
+    assert weld.main() == 0
+    assert target.read_text() == _POSTPROCESS_V2, (
+        "--revert restored a stale backup taken before the reinstall"
+    )
+
+
+def test_weld_patched_file_does_not_embed_the_checkout_path():
+    repo = "/Users/someone/old-folder/image-to-3dlab"
+    patched = weld.apply_patch(_POSTPROCESS_V1, repo)
+    assert repo not in patched, "the helper hard-codes the repo path; it breaks on move"
 
 
 # --- 5. Pixal3D rembg ----------------------------------------------------------------

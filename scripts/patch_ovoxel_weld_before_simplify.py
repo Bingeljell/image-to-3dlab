@@ -47,7 +47,17 @@ def {marker}(mesh):
 
     import torch
 
-    repo = {repo!r}
+    from pathlib import Path
+
+    # Find the checkout from this file's own location (it lives in
+    # <repo>/vendor/.../site-packages/o_voxel/), so moving the checkout is safe.
+    repo = None
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "scripts" / "mesh_weld.py").is_file():
+            repo = str(parent)
+            break
+    if repo is None:
+        raise RuntimeError("image-to-3dlab checkout not found above " + __file__)
     if repo not in sys.path:
         sys.path.insert(0, repo)
     from scripts.mesh_weld import duplicate_count, weld_vertices
@@ -101,7 +111,7 @@ def apply_patch(source: str, repo: str) -> str:
             last_import = i
         if line.lstrip().startswith("def "):
             break
-    helper = _HELPER.format(marker=MARKER, repo=repo)
+    helper = _HELPER.format(marker=MARKER)
     lines.insert(last_import + 1, helper)
     return "".join(lines)
 
@@ -130,8 +140,7 @@ def main() -> int:
         print(f"already patched: {target}")
         return 0
 
-    if not backup.is_file():
-        backup.write_text(source)
+    backup.write_text(source)  # always the unpatched source of this run
     target.write_text(apply_patch(source, str(args.repo.resolve())))
     print(f"patched {target}\nbackup at {backup}")
     return 0

@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The o_voxel weld patch reverts to the right file and survives a moved checkout.** Its backup was taken only once,
+  so after a reinstall `--revert` restored an old file, and the patched code named the checkout by its full path, so it
+  broke when the folder moved. The backup is now refreshed on every run, and the code finds the checkout itself.
 - **Re-running a BRIA patch removes a remover that came back.** The Apple TRELLIS.2 and Pixal3D patches took their own
   note as proof the file was safe, so a file that kept the note but loaded BRIA RMBG-2.0 again was left loading it. A
   re-run now removes the live loader, and the Pixal3D check fails until it is gone.

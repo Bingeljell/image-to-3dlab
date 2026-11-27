@@ -7,6 +7,13 @@ import sys
 from pathlib import Path
 
 import pytest
+from deaf_worker import (
+    failing_pid_note,
+    kill_and_reap,
+    unremovable_pid_note,
+    use_deaf_popen,
+    watch_slot,
+)
 from glb_fixtures import valid_glb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "viewer"))
@@ -368,6 +375,8 @@ def test_a_post_launch_error_terminates_the_worker_before_releasing_the_slot(tmp
 
 
 def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
+    import os
+
     from image_to_3dlab import processes
 
     directory = tmp_path / "clip"
@@ -391,7 +400,9 @@ def test_an_animate_run_records_its_pid_then_clears_it(tmp_path):
     aa.run_job(job, manager)
 
     assert job.status == "done", job.log_lines
-    assert job.log_lines[0] == processes.pid_record(job.process.pid)
+    pid, owner, started, owner_started = processes.parse_pid_record(job.log_lines[0])
+    assert (pid, owner) == (job.process.pid, os.getpid()) and started is not None
+    assert owner_started == processes.process_started(os.getpid())
     assert not (directory / "pid").exists()
 
 
@@ -708,3 +719,163 @@ def test_the_rig_form_s_bone_names_field_is_read_and_checked():
     assert aa.bone_names_choice({"bone_names": {"value": "numbered"}}) is None
     with pytest.raises(ValueError, match="unity"):
         aa.bone_names_choice({"bone_names": {"value": "maya"}})
+
+
+# --- a rig without the humanoid shape gets one more try when the model stands on two legs --------------------------
+# SkinTokens is not deterministic: two of seven first rigs of ArcherSoul's bosses (2026-11-24) hung one leg off the
+# spine and left the bones unnamed, and a second rig of the same model came out right.
+
+def _counting_job(tmp_path, expect=None):
+    """A rig job whose stand-in writes a GLB and counts its runs in runs.txt."""
+    counter = tmp_path / "runs.txt"
+    script = (f"open(r'{counter}', 'a').write('x'); " + _write_glb_script())
+    job = _fake_job(tmp_path, script)
+    job.expect_humanoid = expect
+    return job, counter
+
+
+def _fits(*answers):
+    """rig_fit's answers in turn: True a humanoid, False not."""
+    seq = list(answers)
+    return lambda path: ({"humanoid": True, "message": "Rigged. Ready for moves.", "detail": ""} if seq.pop(0)
+                         else {"humanoid": False, "message": "Rigged. Preset moves are for humanoids only",
+                               "detail": "expected 2 legs + 1 spine under root, got legs=['bone_17']"})
+
+
+def test_a_rig_that_missed_a_leg_is_rigged_once_more_and_the_humanoid_one_kept(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=True)
+    monkeypatch.setattr(aa, "rig_fit", _fits(False, True, True))   # first try, second try, the done event's check
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "xx"
+    assert job.status == "done" and job.events[-1]["message"] == "Rigged. Ready for moves."
+    assert "rigging once more" in job.log_path.read_text()
+    assert not list(tmp_path.glob("*_try1.glb"))
+
+
+def test_a_second_rig_no_better_keeps_the_first(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=True)
+    first = []
+    real = aa._run_commands
+
+    def run(j, ports):
+        code = real(j, ports)
+        first.append(j.result.read_bytes())
+        if len(first) == 2:
+            j.result.write_bytes(first[0][:-4] + b"two!")   # the second try's file differs
+        return code
+
+    monkeypatch.setattr(aa, "_run_commands", run)
+    monkeypatch.setattr(aa, "rig_fit", _fits(False, False, False))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "xx" and job.status == "done"
+    assert job.result.read_bytes()[-4:] != b"two!"                  # the first try's file is the result
+    assert "kept the first" in job.log_path.read_text()
+
+
+def test_a_model_not_meant_as_a_humanoid_is_rigged_once(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=False)              # a wolf, a bird, a crate
+    monkeypatch.setattr(aa, "rig_fit", _fits(False, False))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "x" and job.status == "done"
+
+
+def test_a_humanoid_first_rig_is_not_rigged_again(tmp_path, monkeypatch):
+    job, counter = _counting_job(tmp_path, expect=True)
+    monkeypatch.setattr(aa, "rig_fit", _fits(True, True))
+    aa.run_job(job, aa.AnimateJobManager(tmp_path, tmp_path))
+    assert counter.read_text() == "x"
+
+
+def test_without_a_say_the_model_itself_decides(tmp_path, monkeypatch):
+    import rig_check
+    job, _ = _counting_job(tmp_path)
+    job.source = tmp_path / "source.glb"
+    monkeypatch.setattr(rig_check, "mesh_points", lambda path: path)
+    monkeypatch.setattr(rig_check, "stands_on_two_legs", lambda pts: {"two_legs": True, "feet": 2, "detail": "2 parts"})
+    assert aa.meant_humanoid(job) == (True, "2 parts")
+    job.source = None
+    assert aa.meant_humanoid(job)[0] is False
+
+
+def test_the_rig_form_and_create_can_say_humanoid():
+    assert aa.humanoid_choice({}) is None
+    assert aa.humanoid_choice({"humanoid": {"value": "yes"}}) is True
+    assert aa.humanoid_choice({"humanoid": {"value": "no"}}) is False
+    with pytest.raises(ValueError):
+        aa.humanoid_choice({"humanoid": {"value": "maybe"}})
+
+
+@pytest.mark.posix
+def test_an_animate_worker_that_ignores_the_polite_stop_is_stopped_before_the_slot_is_freed(
+        tmp_path, monkeypatch):
+    # After a failed pid note the run asked the worker to stop once (SIGTERM), gave up waiting
+    # and freed the slot: a worker that ignores SIGTERM ran on, unread and untracked, and the
+    # next animate or auto-rig started beside it.
+    result = tmp_path / "out.glb"
+    job = aa.AnimateJob("2" * 32, "animate", tmp_path, result, [(["worker"], tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    use_deaf_popen(aa, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        aa.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_a_failed_animate_run_is_not_over_until_its_worker_has_been_stopped(tmp_path, monkeypatch):
+    # The run was marked "error" first and only then stopped its worker (up to 35 s), so the
+    # gate was open and a new animate or auto-rig could start beside a worker still holding the GPU.
+    from deaf_worker import assert_still_running_when_stop_began, watch_status_at_stop
+
+    result = tmp_path / "out.glb"
+    job = aa.AnimateJob("2" * 32, "animate", tmp_path, result, [(["worker"], tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+    seen = watch_status_at_stop(aa, monkeypatch, lambda: job.status)
+    use_deaf_popen(aa, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    try:
+        aa.run_job(job, manager)
+
+        assert_still_running_when_stop_began(seen)
+        assert job.status == "error"
+        assert manager.active is None
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)
+
+
+@pytest.mark.posix
+def test_an_animate_worker_is_stopped_and_the_slot_freed_when_its_pid_note_cannot_be_removed(
+        tmp_path, monkeypatch):
+    # A pid note that could not be removed (PermissionError, not "not found") skipped the rest
+    # of the cleanup: the worker kept running, the slot stayed taken and the error escaped the
+    # runner's thread, so the next animate or auto-rig was blocked.
+    result = tmp_path / "out.glb"
+    job = aa.AnimateJob("2" * 32, "animate", tmp_path, result, [(["worker"], tmp_path)], 1.0,
+                        {"license": {"name": "MIT"}})
+    manager = aa.AnimateJobManager(tmp_path, tmp_path)
+    manager.active = job.id
+    seen = watch_slot(manager, job)
+    use_deaf_popen(aa, monkeypatch, tmp_path)
+    failing_pid_note(monkeypatch)
+    unremovable_pid_note(monkeypatch)
+    try:
+        aa.run_job(job, manager)
+
+        assert job.status == "error"
+        assert manager.active is None
+        assert seen["alive_when_freed"] is False, "the slot was freed with the worker still running"
+        assert job.process.poll() is not None
+    finally:
+        kill_and_reap(job.process)

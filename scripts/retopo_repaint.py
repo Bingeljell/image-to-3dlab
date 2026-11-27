@@ -398,6 +398,11 @@ def build_parser() -> argparse.ArgumentParser:
              "photo's real pixels after the repaint, which keeps text and logos exact",
     )
     parser.add_argument(
+        "--pixel-match", action="store_true",
+        help="paint from --views even when they come from a four-view build, which leaves Pixel "
+             "Match off by default (the paint can drift around a face)",
+    )
+    parser.add_argument(
         "--no-edge-fade", action="store_true",
         help="Pixel Match paints right up to inner edges (an ear in front of a head) instead of "
              "fading out beside them. Try it when hair gets coloured specks or small eyes go dark",
@@ -451,6 +456,23 @@ def face_target(args: argparse.Namespace) -> int:
     return surface_calm.HIGH_FACES if args.detail == "high" else 20000
 
 
+def photo_views(views: Path | None, force: bool) -> tuple[Path | None, str | None]:
+    """The views Pixel Match paints from, and why there are none when the build said so.
+
+    A four-view build stages its views with Pixel Match off (`pixal3d_generate.py`): the paint can
+    drift around a face. Its views are then left out, as if `--views` was not given, unless
+    `force` (`--pixel-match`)."""
+    if views is None or force:
+        return views, None
+    sys.path.insert(0, str(REPO))
+    from image_to_3dlab import photo_paint as pp
+
+    if pp.staged_pixel_match(views):
+        return views, None
+    return None, ("[photo] off: a four-view build leaves Pixel Match off, the paint can drift "
+                  "around a face; --pixel-match paints from its pictures anyway")
+
+
 def required_inputs(args: argparse.Namespace) -> list[Path]:
     """The files this run must find. The picture feeds only the repaint and the photo
     stage, so a run with neither (a model that came with no picture) needs just the mesh."""
@@ -484,6 +506,9 @@ def main() -> int:
         args.steps_dir.mkdir(parents=True, exist_ok=True)
     if args.views is not None and not (args.views / "transforms.json").is_file():
         raise SystemExit(f"--views has no transforms.json: {args.views}")
+    args.views, photo_off = photo_views(args.views, args.pixel_match)
+    if photo_off:
+        print(photo_off, flush=True)
     if args.keep_mesh:
         args.skip_paint = args.skip_bake = True   # nothing simplified, so nothing to repaint or bake onto
     args.faces = face_target(args)

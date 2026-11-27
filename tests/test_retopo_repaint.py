@@ -554,3 +554,28 @@ def test_dropping_runs_the_compress_stage_even_when_compression_was_skipped():
 
 def test_a_full_detail_model_also_gets_the_drop():
     assert rr.stage_plan(True, True, keep_mesh=True, drop_surface_maps=True) == ["compress"]
+
+
+def _staged(tmp_path, **meta):
+    import json
+
+    views = tmp_path / "run.svviews"
+    views.mkdir()
+    (views / "transforms.json").write_text(json.dumps({**meta, "frames": []}))
+    return views
+
+
+def test_a_four_view_builds_views_finish_without_pixel_match_unless_asked(tmp_path):
+    views = _staged(tmp_path, pixel_match=False)
+    used, note = rr.photo_views(views, force=False)
+    assert used is None
+    assert "four-view" in note and "--pixel-match" in note
+    assert rr.photo_views(views, force=True) == (views, None)
+    assert rr.build_parser().parse_args(["s.glb", "i.png", "o.glb", "--views", str(views),
+                                         "--pixel-match"]).pixel_match is True
+
+
+def test_front_and_back_views_and_no_views_are_left_as_they_are(tmp_path):
+    views = _staged(tmp_path)
+    assert rr.photo_views(views, force=False) == (views, None)
+    assert rr.photo_views(None, force=False) == (None, None)

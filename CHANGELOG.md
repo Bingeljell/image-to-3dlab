@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The normal bake covers every piece of a model and says when it fails.** It baked only the first mesh piece of a
+  file made of several, and exited as a success when no picture was written, even with an old picture on disk. It now
+  joins the pieces first and exits with an error unless a new picture was written.
 - **The o_voxel weld patch reverts to the right file and survives a moved checkout.** Its backup was taken only once,
   so after a reinstall `--revert` restored an old file, and the patched code named the checkout by its full path, so it
   broke when the folder moved. The backup is now refreshed on every run, and the code finds the checkout itself.

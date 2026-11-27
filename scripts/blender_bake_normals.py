@@ -36,7 +36,9 @@ Two details that decide whether the bake is usable:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -138,7 +140,16 @@ t0 = time.time()
 {prelude}
 before = set(bpy.data.objects)
 bpy.ops.import_scene.gltf(filepath=LOW)
-low = [o for o in render_scene.objects if o not in before and o.type == "MESH"][0]
+pieces = [o for o in render_scene.objects if o not in before and o.type == "MESH"]
+low = pieces[0]
+if len(pieces) > 1:
+    # A glTF with several mesh nodes imports as several objects; baking only the first
+    # would leave the rest unbaked. Join them into one target.
+    bpy.ops.object.select_all(action="DESELECT")
+    for piece in pieces:
+        piece.select_set(True)
+    bpy.context.view_layer.objects.active = low
+    bpy.ops.object.join()
 low.name = "LOWPOLY"
 
 before = set(bpy.data.objects)
@@ -295,6 +306,47 @@ def blender_code(
     )
 
 
+def _find_written(value):
+    """Return (found, path) for the "written" key anywhere in Blender's reply.
+
+    The reply may be the printed JSON itself or a wrapper whose "result" string holds it.
+    """
+    if isinstance(value, str):
+        start, end = value.find("{"), value.rfind("}")
+        if start < 0 or end <= start:
+            return False, None
+        try:
+            return _find_written(json.loads(value[start : end + 1]))
+        except json.JSONDecodeError:
+            return False, None
+    if isinstance(value, dict):
+        if "written" in value:
+            return True, value["written"]
+        for item in value.values():
+            found, path = _find_written(item)
+            if found:
+                return True, path
+    return False, None
+
+
+def written_path(reply: str, started: float) -> Path | None:
+    """The file Blender says it wrote, if it exists and is newer than `started`."""
+    try:
+        parsed = json.loads(reply)
+    except json.JSONDecodeError:
+        parsed = reply
+    found, path = _find_written(parsed)
+    if not found or not path:
+        return None
+    path = Path(path)
+    try:
+        if path.stat().st_mtime < started:
+            return None
+    except OSError:
+        return None
+    return path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("low", type=Path, help="low-poly GLB (the bake target)")
@@ -352,18 +404,27 @@ def main() -> int:
         args.size, args.ray, not args.flat_source, args.device, args.max_ray,
         args.decimate_to, args.samples, rot_x=(perm_name == "gltf_to_blender"),
     )
-    print(send(code, args.host, args.port))
+    started = time.time()
+    reply = send(code, args.host, args.port)
+    print(reply)
 
-    if args.keep_sign or not args.out.exists():
+    written = written_path(reply, started)
+    if written is None:
+        print(
+            f"error: Blender did not write a normal map to {args.out}; see its reply above",
+            file=sys.stderr,
+        )
+        return 1
+    if args.keep_sign:
         return 0
 
     import numpy as np
     from PIL import Image
 
-    with Image.open(args.out) as image:
+    with Image.open(written) as image:
         pixels = np.array(image.convert("RGB"))
     resolved, flipped = resolve_tangent_sign(pixels)
-    Image.fromarray(resolved).save(args.out)
+    Image.fromarray(resolved).save(written)
     print(f"sign resolved: negated {flipped * 100:.1f}% of texels (source winding)")
     return 0
 

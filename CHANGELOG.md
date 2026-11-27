@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **On a machine with several AMD cards, free memory is read from the biggest card.** It came from whichever card
+  had the most free, often a small built-in one, so a run was sized for the wrong card.
 - **A skin made for the body leaves the head alone.** Dressing a model in a body-only skin, and the file with every
   skin, copied the new paint onto every material, so the head took the body's colours too. Each material now takes
   only its own repaint.

@@ -2,7 +2,6 @@
 + one CFG DiT forward + VAE decode. Reports torch MPS allocator + process RSS.
   VIRTUAL_ENV=.venv-oracle uv run --no-project python scripts/measure_mps.py <model_dir>
 """
-import resource
 import sys
 
 import yaml
@@ -13,6 +12,8 @@ def split(state, prefix):
 
 
 def main():
+    import resource
+
     sys.path.insert(0, "reference/Hunyuan3D-2.1/hy3dshape")
     import torch
     from hy3dshape.models.autoencoders.model import ShapeVAE

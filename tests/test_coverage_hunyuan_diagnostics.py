@@ -13,6 +13,13 @@ import yaml
 from hunyuan_mlx.shape.scripts import measure_mps, oracle_compare, oracle_compare_v21
 
 
+def test_mps_helpers_import_without_resource(monkeypatch):
+    # Windows does not provide the resource module.
+    monkeypatch.setitem(sys.modules, "resource", None)
+    helpers = runpy.run_path(measure_mps.__file__)
+    assert helpers["split"]({"model.weight": 1, "vae.weight": 2}, "model.") == {"weight": 1}
+
+
 @pytest.fixture
 def reference(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -235,9 +242,15 @@ def test_mps_report_uses_configured_model_and_memory_samples(reference, monkeypa
         ),
     )
     reference.install(runtime=torch_cpu, mini=dit("mini"), plain=dit("plain"))
-    monkeypatch.setattr(measure_mps.resource, "getrusage", lambda who: (
-        SimpleNamespace(ru_maxrss=5_250_000_000)
-    ))
+    resource = ModuleType("resource")
+    resource.RUSAGE_SELF = object()
+
+    def getrusage(who):
+        assert who is resource.RUSAGE_SELF
+        return SimpleNamespace(ru_maxrss=5_250_000_000)
+
+    resource.getrusage = getrusage
+    monkeypatch.setitem(sys.modules, "resource", resource)
     monkeypatch.setattr(sys, "argv", ["measure_mps.py", "model"])
     runpy.run_path(measure_mps.__file__, run_name="__main__")
     monkeypatch.setitem(sys.modules, "torch", torch)

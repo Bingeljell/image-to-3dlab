@@ -46,7 +46,7 @@ def test_pull_requests_run_the_file_checks():
     assert "path: ~/.cache/uv" in workflow
     assert "hashFiles('uv.lock')" in workflow
     assert "\n    name: Linters\n" in workflow
-    assert "\n    name: Tests\n" in workflow
+    assert "\n    name: Tests (Linux)\n" in workflow
     assert "\n    needs: pre-commit\n" in workflow.split("\n  pytest:", 1)[1]
     note = (REPO / ".github" / "workflows" / "pr-status.yml").read_text(encoding="utf-8")
     assert "name: CI\n" in workflow

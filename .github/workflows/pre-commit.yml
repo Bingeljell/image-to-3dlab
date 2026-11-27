@@ -20,7 +20,7 @@ jobs:
       - uses: tox-dev/action-pre-commit-uv@v1
 
   pytest:
-    name: Tests
+    name: Tests (Linux)
     needs: pre-commit
     runs-on: ubuntu-latest
     steps:

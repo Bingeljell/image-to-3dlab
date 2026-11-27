@@ -13,7 +13,7 @@
 
 import { alsoFetchesLines } from '../components/also-fetches.js';
 import { showsCaveat } from '../components/gated-caveat.js';
-import { panelState, runTitle } from '../components/setup-progress.js';
+import { openSetupWatch, panelState, runTitle } from '../components/setup-progress.js';
 
 const s = (id) => document.getElementById(id);
 
@@ -352,8 +352,7 @@ function resume(run) {
 
 function watch(payload) {
   state.source?.close();
-  state.source = new EventSource(payload.events_url);
-  state.source.onmessage = (message) => applyEvent(JSON.parse(message.data));
+  state.source = openSetupWatch(payload, { onEvent: applyEvent });
   s('setup-run-cancel').onclick = async () => {
     await fetch(`/api/setup/${encodeURIComponent(state.running)}/cancel`, { method: 'POST' });
   };

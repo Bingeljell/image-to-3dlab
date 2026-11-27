@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Setup learns that a run finished even when its live updates drop.** The page only listened to the event stream,
+  so a dropped connection left it waiting for good, and a run the studio had forgotten was answered with a file page.
+  The page now falls back to asking for the status, and a forgotten run answers "no longer running".
 - **A slow model load no longer replaces the one you opened since.** An earlier load that finished late could overwrite
   the model and its face count on screen, and an empty model was scaled by 1/0. A stale load is now ignored, and a
   model with no size shows an error.

@@ -3898,6 +3898,8 @@ class Handler(SimpleHTTPRequestHandler):
                 else:
                     self._send_json(200, download_status_payload(run))
                 return
+            self._send_json(404, {"status": "error", "error": "This setup is no longer running."})
+            return
         # /api/setup/run/<id>/events: five parts, as _start_setup and the Blender
         # install hand it out.
         if len(parts) == 5 and parts[:3] == ["api", "setup", "run"] and parts[4] == "events":

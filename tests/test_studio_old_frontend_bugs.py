@@ -7,13 +7,19 @@ without a browser page.
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
+import re
 import shutil
 import subprocess
+import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
+import generate_api as api
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -190,3 +196,59 @@ def test_a_model_with_no_size_is_an_error_and_is_not_placed():
     assert out["loaded"] == 0, "an empty model was placed on screen (it is scaled by 1 / 0)"
     assert out["added"] == 0
     assert len(out["errors"]) == 1
+
+
+# 3. Setup polling fallback ---------------------------------------------------------------------
+
+@needs_node
+def test_setup_keeps_asking_when_the_event_stream_drops():
+    module_url = (REPO / "viewer" / "components" / "setup-progress.js").as_uri()
+    program = f"""
+      import * as m from {json.dumps(module_url)};
+      const events = [], urls = [];
+      let stream = null;
+      m.openSetupWatch({{ status_url: '/api/setup/qwen-image/status', events_url: '/api/setup/qwen-image/events' }}, {{
+        fetchImpl: async (url) => {{ urls.push(url); return {{ ok: true, status: 200,
+          json: async () => ({{ status: 'done', last_event: {{ phase: 'done' }}, log_tail: 'ok' }}) }}; }},
+        EventSourceImpl: class {{ constructor() {{ stream = this; }} close() {{}} }},
+        onEvent: (event) => events.push(event.phase),
+        interval: 1,
+      }});
+      stream.onerror?.(new Error('dropped'));       // the stream dies; the run then finishes
+      await new Promise((r) => setTimeout(r, 100));
+      console.log(JSON.stringify({{ events, polled: urls.length > 0 }}));
+    """
+    out = _node(program)
+    assert out["polled"] is True
+    assert "done" in out["events"]
+
+
+def test_setup_page_has_a_way_to_learn_a_run_finished_without_the_stream():
+    source = (REPO / "viewer" / "studio" / "setup.js").read_text(encoding="utf-8")
+    assert re.search(r"status_url|openSetupWatch", source), \
+        "setup.js only listens to an EventSource and never asks the status page"
+
+
+@pytest.fixture
+def server():
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), api.Handler)
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+    try:
+        yield srv
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.parametrize("what", ["status", "events"])
+def test_a_forgotten_setup_run_answers_404_json_not_a_file_page(server, monkeypatch, what):
+    monkeypatch.setattr(api, "DOWNLOADS", {})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    url = f"http://127.0.0.1:{server.server_port}/api/setup/qwen-image/{what}"
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        opener.open(url, timeout=5)
+    assert caught.value.code in (404, 410)
+    assert caught.value.headers.get_content_type() == "application/json", \
+        "the page got a static file answer, which a polling page reads as a dropped connection"
+    body = json.loads(caught.value.read())
+    assert body["status"] == "error" and "no longer running" in body["error"]

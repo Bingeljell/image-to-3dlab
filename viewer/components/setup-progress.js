@@ -48,3 +48,55 @@ export function runTitle(backend, action, event) {
   if (ending) return `${ending.mark} ${ending.verb} · ${label}`;
   return `${setupVerb(backend, action)} ${label}`;
 }
+const FINISHED = new Set(['done', 'error', 'cancelled']);
+
+/** Watch a setup run: the event stream first; when it drops, poll the status URL until the
+ *  run finishes. Returns `{ close() }`. A 404/410 (the server forgot the run) ends the polling
+ *  with an error event. */
+export function openSetupWatch(run, {
+  onEvent, fetchImpl = globalThis.fetch?.bind(globalThis), EventSourceImpl = globalThis.EventSource, interval = 2000,
+} = {}) {
+  let closed = false;
+  let source = null;
+  let timer = null;
+  const finish = () => {
+    closed = true;
+    source?.close();
+    clearTimeout(timer);
+  };
+  const emit = (event) => {
+    if (closed || !event) return;
+    onEvent?.(event);
+    if (FINISHED.has(event.phase)) finish();
+  };
+  const poll = async () => {
+    if (closed) return;
+    let again = true;
+    try {
+      const response = await fetchImpl(run.status_url);
+      if (response.status === 404 || response.status === 410) {
+        again = false;
+        emit({ phase: 'error', detail: 'This setup is no longer running.' });
+      } else if (response.ok) {
+        const body = await response.json();
+        if (body.log_tail && !body.last_event) emit({ phase: 'running', log: body.log_tail });
+        if (body.last_event) emit(body.last_event);
+        if (FINISHED.has(body.status) && !FINISHED.has(body.last_event?.phase)) emit({ phase: body.status });
+      }
+    } catch { /* try again */ }
+    if (again && !closed) timer = setTimeout(poll, interval);
+  };
+  const startPolling = () => {
+    if (closed || timer) return;
+    source?.close();
+    timer = setTimeout(poll, 0);
+  };
+  if (run.events_url && EventSourceImpl) {
+    source = new EventSourceImpl(run.events_url);
+    source.onmessage = (message) => { try { emit(JSON.parse(message.data)); } catch { /* ignore */ } };
+    source.onerror = startPolling;
+  } else {
+    startPolling();
+  }
+  return { close: finish };
+}

@@ -42,15 +42,28 @@ def needs_inverting(volume: float) -> bool:
     return volume < 0.0
 
 
+def _orient_whole(mesh) -> bool:
+    """One global decision from the total volume. Only for objects without faces."""
+    mesh.fix_normals()
+    inverted = needs_inverting(float(mesh.volume))
+    if inverted:
+        mesh.invert()
+    return inverted
+
+
+def _orient_pieces(mesh) -> bool:
+    """Orient each piece by its own volume; True if any face was flipped."""
+    from image_to_3dlab.winding_pieces import orient_pieces
+
+    return orient_pieces(mesh)
+
+
 def repair(mesh) -> dict:
     """Make winding consistent and outward. Returns what changed."""
     before_consistent = bool(mesh.is_winding_consistent)
     before_volume = float(mesh.volume)
 
-    mesh.fix_normals()
-    inverted = needs_inverting(float(mesh.volume))
-    if inverted:
-        mesh.invert()
+    inverted = _orient_pieces(mesh) if hasattr(mesh, "faces") else _orient_whole(mesh)
 
     return {
         "was_consistent": before_consistent,

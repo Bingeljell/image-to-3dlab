@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The winding repair turns each piece of a model the right way out.** It flipped the whole mesh by one overall
+  test, so in a model of several pieces split at texture seams one piece could stay inside-out or a correct one be
+  turned inside-out. Each piece is now checked on its own, both in the TRELLIS output and in `fix_winding`.
 - **A failed winding repair no longer damages the finished model, and a damaged GLB gets an error line.** The repair
   wrote straight over the finished file, so an export that failed halfway left it broken. It now writes beside it and
   swaps it in. A GLB cut short stopped the command with a Python traceback; it is now an ordinary error.

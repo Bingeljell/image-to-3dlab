@@ -111,10 +111,9 @@ def _repair_winding(path: Path) -> tuple[bool, bool]:
 
         mesh = trimesh.load(str(path), force="mesh", process=False)
         volume_before = float(mesh.volume)
-        mesh.fix_normals()
-        inverted = float(mesh.volume) < 0.0
-        if inverted:
-            mesh.invert()
+        from image_to_3dlab.winding_pieces import orient_pieces
+
+        inverted = orient_pieces(mesh)
         # Export beside the original, then swap it in: a failed export must not eat the finished file.
         fd, temp_name = tempfile.mkstemp(dir=path.parent, suffix=path.suffix)
         os.close(fd)

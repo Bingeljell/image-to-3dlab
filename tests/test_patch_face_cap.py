@@ -89,3 +89,15 @@ def test_patched_line_records_why():
 
 def test_default_ceiling_matches_the_official_demo_pre_simplification():
     assert cap.DEFAULT_CEILING == 16_777_216
+
+
+def test_help_names_the_real_default_and_not_the_old_one(monkeypatch, capsys):
+    import sys
+
+    monkeypatch.setattr(sys, "argv", ["patch_trellis_face_cap.py", "--help"])
+    with pytest.raises(SystemExit):
+        cap.main()
+    text = " ".join(capsys.readouterr().out.split())
+    assert f"{cap.DEFAULT_CEILING:,}" in text, text
+    assert "16,777,216" in text
+    assert "300,000" not in text, "--help still presents 300,000 as the verified value"

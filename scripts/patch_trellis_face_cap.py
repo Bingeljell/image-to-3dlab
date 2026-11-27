@@ -118,8 +118,9 @@ def main() -> int:
         "--ceiling",
         type=int,
         default=DEFAULT_CEILING,
-        help=f"new face ceiling (default {DEFAULT_CEILING:,}). Verified at 300,000; the "
-        f"real Metal BVH limit is unknown, so lower this if a run crashes",
+        help=f"new face ceiling (default {DEFAULT_CEILING:,}). The default is 2**24, "
+        f"the official demo's simplify target. The real Metal BVH limit is unknown; "
+        f"lowering this can help if a run crashes",
     )
     parser.add_argument("--check", action="store_true", help="report status, change nothing")
     args = parser.parse_args()
@@ -134,7 +135,7 @@ def main() -> int:
             print(f"PATCHED (cap now {find_cap(source)})")
         else:
             print(f"NOT PATCHED (cap is {find_cap(source)})")
-        return 0
+        return 0 if is_patched(source) else 1
 
     updated = apply(source, args.ceiling)
     if updated == source:

@@ -46,13 +46,22 @@ def import_asset(path: str, label: str, index: int, count: int) -> list:
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=path)
     fresh = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+    if not fresh:
+        return fresh
     for obj in fresh:
         obj.name = label
-        height = obj.dimensions.z or 1.0
-        obj.scale = (1.0 / height,) * 3
-        bpy.context.view_layer.update()
-        corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
-        obj.location.z -= min(c.z for c in corners)
+    # One scale for the whole asset, from the combined bounds of every part, so a small
+    # part (an eye) keeps its proportion to the body.
+    bpy.context.view_layer.update()
+    zs = [(o.matrix_world @ Vector(c)).z for o in fresh for c in o.bound_box]
+    height = (max(zs) - min(zs)) or 1.0
+    for obj in fresh:
+        obj.scale = tuple(v / height for v in obj.scale)
+    bpy.context.view_layer.update()
+    zs = [(o.matrix_world @ Vector(c)).z for o in fresh for c in o.bound_box]
+    floor_z = min(zs)
+    for obj in fresh:
+        obj.location.z -= floor_z
         obj.location.x = index * SPACING - (count - 1) * SPACING / 2
         obj.rotation_euler[2] = math.radians(YAW_DEGREES)
     return fresh

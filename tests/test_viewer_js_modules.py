@@ -163,10 +163,12 @@ def test_camera_view_controls_snap_and_reset_without_touching_model_state():
         text=True, encoding="utf-8",
     )
 
-    assert json.loads(result.stdout) == {
+    out = json.loads(result.stdout)
+    # Top's up vector and pole gap are checked in test_studio_old_frontend_bugs.py.
+    out.pop("topUp")
+    assert out.pop("top")[1] > 3.9
+    assert out == {
         "left": [-4, 0, 0],
-        "top": [0, 4, 0],
-        "topUp": [0, 0, -1],
         "reset": [1.45, 0.6, 2.45],
         "target": [0, 0, 0],
         "updates": 3,

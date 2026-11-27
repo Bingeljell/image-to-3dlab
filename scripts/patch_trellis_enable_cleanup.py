@@ -110,7 +110,7 @@ def main() -> int:
             print(f"STUBBED (cleanup disabled): {', '.join(stubbed)}")
         else:
             print("ENABLED (cleanup runs)")
-        return 0
+        return 1 if stubbed else 0
 
     updated, changed = (revert if args.revert else enable)(source)
     if not changed:

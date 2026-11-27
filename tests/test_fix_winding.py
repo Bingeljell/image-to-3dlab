@@ -115,3 +115,82 @@ def test_invert_fires_when_fix_normals_leaves_it_inside_out():
     assert stub.inverted
     assert report["inverted"]
     assert report["now_volume"] > 0
+
+
+# --- several pieces, and a mesh split at UV seams --------------------------------------
+#
+# One global volume test cannot orient pieces separately. Welded pieces are measured on a
+# position weld so a UV seam never reads as its own piece.
+
+
+def _piece(extents, offset, inside_out=False):
+    mesh = trimesh.creation.box(extents=extents)
+    mesh.apply_translation(offset)
+    if inside_out:
+        mesh.invert()
+    return mesh
+
+
+def _seamed(mesh):
+    """Same surface with every triangle owning its three corners, as a UV seam split does."""
+    import numpy as np
+
+    corners = mesh.vertices[mesh.faces].reshape(-1, 3)
+    faces = np.arange(len(corners), dtype=np.int64).reshape(-1, 3)
+    return trimesh.Trimesh(vertices=corners, faces=faces, process=False)
+
+
+def _piece_volumes(mesh):
+    """Signed volume of each piece, found on a position weld. Sorted."""
+    welded = trimesh.Trimesh(mesh.vertices.copy(), mesh.faces.copy(), process=False)
+    welded.merge_vertices()
+    return sorted(
+        round(float(p.volume), 6) for p in welded.split(only_watertight=False)
+    )
+
+
+def _small_ok_big_inverted():
+    # Volumes +1 and -8: the whole-mesh total is -7, so one global flip is tempting
+    # and wrong for the small piece.
+    return trimesh.util.concatenate(
+        [_piece((1, 1, 1), (0, 0, 0)), _piece((2, 2, 2), (5, 0, 0), inside_out=True)]
+    )
+
+
+def test_two_boxes_one_inverted_both_end_outward():
+    mesh = _small_ok_big_inverted()
+    fw.repair(mesh)
+    assert _piece_volumes(mesh) == [1.0, 8.0]
+
+
+def test_two_seamed_boxes_one_inverted_both_end_outward():
+    mesh = _seamed(_small_ok_big_inverted())
+    fw.repair(mesh)
+    assert _piece_volumes(mesh) == [1.0, 8.0]
+
+
+def test_a_correct_seamed_box_keeps_its_faces():
+    import numpy as np
+
+    mesh = _seamed(_piece((1, 1, 1), (5.0, 2.0, -3.0)))
+    before = mesh.faces.copy()
+    fw.repair(mesh)
+    assert not np.all(mesh.faces == before[:, ::-1], axis=1).any()
+    assert _piece_volumes(mesh) == [1.0]
+
+
+def test_a_single_inverted_seamed_box_is_turned_outward():
+    mesh = _seamed(_piece((1, 1, 1), (5.0, 2.0, -3.0), inside_out=True))
+    fw.repair(mesh)
+    assert _piece_volumes(mesh) == [1.0]
+
+
+def test_the_trellis_glb_repair_orients_each_seamed_piece(tmp_path):
+    """The generation step has its own copy of the same whole-mesh flip."""
+    from image_to_3dlab import trellis_backend
+
+    path = tmp_path / "pieces.glb"
+    _seamed(_small_ok_big_inverted()).export(str(path))
+    trellis_backend._repair_winding(path)
+    repaired = trimesh.load(str(path), force="mesh", process=False)
+    assert _piece_volumes(repaired) == [1.0, 8.0]

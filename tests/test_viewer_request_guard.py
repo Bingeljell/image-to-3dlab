@@ -40,6 +40,9 @@ def server(tmp_path, monkeypatch):
     # every POST route runs from _route_post; a refused request must never get there
     def record(self):
         reached.append(self.path)
+        # read the body as a real route does: closing with unread bytes sends an RST, and on
+        # Windows that can destroy the response before the client reads it
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
         self._send_json(299, {"reached": self.path})
 
     monkeypatch.setattr(generate_api.Handler, "_route_post", record)

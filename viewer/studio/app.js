@@ -80,19 +80,22 @@ let viewingStep = null;       // a step id when the viewer shows that step's own
 let viewingSkin = null;       // a skin id when the viewer shows one of the model's skins
 const openFamilies = new Set();  // families whose versions are listed under their row
 
+let fixAsset = null;   // the asset the spot-fix brush was opened on
 const viewer = createStudioViewer({ stage: $('stage'), logoUrl: LOGO, onClipChange: (clip) => setDownload(clip.file), fixSession: {
   // only a finished model on screen (not a rigged one, a move or the raw model)
   canFix: () => canFixShown(current, { step: viewingStep, pictures: viewingPictures }),
   blockedNote: () => fixBlockedNote(current),
+  open: () => { fixAsset = current; },
   patch: async (spots, base) => {
-    const body = await postFix('preview', { from: current.finished, base, spots });
+    const body = await postFix('preview', { from: fixAsset.finished, base, spots });
     return { preview: body.preview, url: url(body.preview) };
   },
   keep: async (preview) => {
-    const before = assets, family = current.family || current.id;
-    const body = await postFix('keep', { from: current.finished, preview });
+    const opened = fixAsset;
+    const before = assets, family = opened.family || opened.id;
+    const body = await postFix('keep', { from: opened.finished, preview });
     await loadLibrary(null, { pick: false });
-    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? current);
+    show(madeVersion(before, assets, family) ?? assets.find((a) => a.finished === body.file) ?? opened);
   },
   discard: (preview) => postFix('discard', { preview }).catch(() => {}),
 } });
@@ -229,7 +232,12 @@ const skinCtx = {
     viewingPictures = false;
     if (asset.rigged && asset.clips.length) {
       // a character: its rest pose and every move, each wearing the skin (made once, then kept)
-      const dress = async (file) => (await (await fetch(`/api/skins/${skin.id}/dressed?file=${encodeURIComponent(file)}`)).json()).file;
+      const dress = async (file) => {
+        const response = await fetch(`/api/skins/${skin.id}/dressed?file=${encodeURIComponent(file)}`);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || body.error) throw new Error(body.error || 'Could not put this skin on the rigged model.');
+        return body.file;
+      };
       try {
         const rest = await dress(asset.rigged);
         const clips = [];
@@ -237,7 +245,7 @@ const skinCtx = {
         if (current !== asset || viewingSkin !== skin.id) return;   // moved on while dressing
         viewer.setFacing(asset.facing);
         viewer.setClips(clips.map((c) => ({ ...c, url: url(c.file) })), { restUrl: url(rest) });
-      } catch { viewer.showEmpty('Could not put this skin on the rigged model.'); }
+      } catch (error) { viewer.showEmpty(error.message || 'Could not put this skin on the rigged model.'); }
     } else {
       viewer.setFacing(null);
       viewer.setClips([]);

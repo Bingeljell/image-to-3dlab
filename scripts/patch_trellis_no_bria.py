@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Disable TRELLIS' configured background model for license-controlled runs."""
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINES = ROOT / "vendor" / "trellis-mac" / "TRELLIS.2" / "trellis2" / "pipelines"
+
+_LIVE_CONSTRUCTOR = re.compile(r"getattr\(\s*rembg\b")
 
 
 def patch(path: Path) -> None:
@@ -18,13 +21,29 @@ def patch(path: Path) -> None:
         "        # Inputs must already contain a non-opaque alpha channel.\n"
         "        pipeline.rembg_model = None"
     )
-    if replacement in source:
-        return
-    if needle not in source:
+    if needle in source:
+        # A live constructor is replaced even when the note is already present
+        # (before or after it); only add the note if it is missing.
+        stub = (
+            "        pipeline.rembg_model = None"
+            if replacement in source
+            else replacement
+        )
+        source = source.replace(needle, stub)
+    elif replacement not in source:
         raise RuntimeError(
             f"expected TRELLIS background-model hook not found in {path}"
         )
-    path.write_text(source.replace(needle, replacement))
+    live = [
+        line
+        for line in source.splitlines()
+        if not line.lstrip().startswith("#") and _LIVE_CONSTRUCTOR.search(line)
+    ]
+    if live:
+        raise RuntimeError(
+            f"live background-model constructor remains in {path}: {live[0].strip()}"
+        )
+    path.write_text(source)
 
 
 def patch_cpu_bake_budget(path: Path) -> None:

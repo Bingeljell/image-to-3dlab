@@ -38,7 +38,20 @@ import numpy as np
 import trimesh
 from PIL import Image
 
-from scripts.project_labels import crop_box, project
+from scripts.project_labels import AXES, crop_box, project
+
+
+def mirrored_vertices(vertices: np.ndarray, axis: str) -> np.ndarray:
+    """Reflect through the middle of the model's bounds on the view's horizontal axis.
+
+    X = 0 is wrong for a model that is not centred on the origin, and X is depth
+    rather than left-right when the view looks along X.
+    """
+    horizontal = AXES[axis][0]
+    out = np.array(vertices, dtype=float, copy=True)
+    column = out[:, horizontal]
+    out[:, horizontal] = (float(column.min()) + float(column.max())) - column
+    return out
 
 _LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
@@ -324,7 +337,7 @@ def main() -> int:
     )
     if args.mirror:
         mirrored = mesh.copy()
-        mirrored.vertices[:, 0] = -mirrored.vertices[:, 0]
+        mirrored.vertices = mirrored_vertices(mesh.vertices, args.axis)
         _, back_visible, back_u, back_v, _ = project(
             mirrored, source, args.axis, args.flip_h, args.flip_v, args.flip_depth,
             args.depth_buffer, args.depth_tolerance, yaw=args.yaw,

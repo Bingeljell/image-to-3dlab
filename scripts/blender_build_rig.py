@@ -139,7 +139,8 @@ except RuntimeError as exc:
 # how high up the body they reach. A leg bone whose influence reaches the head is the
 # envelope-fallback signature.
 groups = {{vg.index: vg.name for vg in mesh.vertex_groups}}
-zs = [v.co.z for v in mesh.data.vertices]
+mw = mesh.matrix_world
+zs = [(mw @ v.co).z for v in mesh.data.vertices]
 z_lo, z_hi = min(zs), max(zs)
 span = z_hi - z_lo
 head_z = markers["head"].z
@@ -151,8 +152,8 @@ for v in mesh.data.vertices:
             if name:
                 rec = influence.setdefault(name, [0, -1e9, 1e9])
                 rec[0] += 1
-                rec[1] = max(rec[1], v.co.z)
-                rec[2] = min(rec[2], v.co.z)
+                rec[1] = max(rec[1], (mw @ v.co).z)
+                rec[2] = min(rec[2], (mw @ v.co).z)
 
 report = {{}}
 for name in [b[0] for b in skeleton] + [b[0] for b in ear_bones]:

@@ -254,3 +254,21 @@ def test_the_studio_smooth_strength_range_matches_the_server():
     assert re.search(r"brushStrength = ([0-9.]+)", js).group(1) == str(sf.STRENGTH_DEFAULT)
     for mode in sf.MODES:
         assert f'data-mode="{mode}"' in js and f"{mode}:" in js, f"the studio offers {mode}"
+
+
+def test_smooth_leaves_a_loose_piece_the_brush_covers_where_it_was(tmp_path):
+    """A brush that covers a whole detached piece has nothing to continue: it must not pull it to the origin."""
+    import trimesh
+
+    big = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    small = trimesh.creation.box(extents=(0.2, 0.2, 0.2))
+    small.apply_translation((3.0, 0.0, 0.0))
+    source = tmp_path / "in.glb"
+    trimesh.util.concatenate([big, small]).export(source)
+    out = tmp_path / "out.glb"
+    sf.smooth_spot(source, out, np.array([3.0, 0.0, 0.0]), 0.4, strength=1.0)
+    doc, binary = pp._split_glb((out if out.exists() else source).read_bytes())
+    after = sf._read(doc, binary, doc["meshes"][0]["primitives"][0]["attributes"]["POSITION"]).astype(np.float64)
+    assert np.isfinite(after).all()
+    piece = after[-8:]   # the small box was concatenated last
+    assert np.allclose(piece.mean(0), [3.0, 0.0, 0.0], atol=1e-5), f"the loose piece moved to {piece.mean(0)}"

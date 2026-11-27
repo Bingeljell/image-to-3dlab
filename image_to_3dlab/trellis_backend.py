@@ -4,9 +4,12 @@ import json
 import os
 import struct
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from image_to_3dlab.manifest_choices import MANIFEST_CHOICES
 
 _GLB_MAGIC = 0x46546C67
 _GLB_JSON_CHUNK = 0x4E4F534A
@@ -21,15 +24,18 @@ def read_glb(path: Path) -> tuple[dict, list[list], int, int]:
     regenerating the asset: the image data never left the file.
     """
     data = path.read_bytes()
-    magic, version, length = struct.unpack_from("<III", data, 0)
-    if magic != _GLB_MAGIC:
-        raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
-    offset = 12
-    chunks: list[list] = []
-    while offset < length:
-        chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
-        chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
-        offset += 8 + chunk_len
+    try:
+        magic, version, length = struct.unpack_from("<III", data, 0)
+        if magic != _GLB_MAGIC:
+            raise RuntimeError(f"{path} is not a binary glTF (GLB) file")
+        offset = 12
+        chunks: list[list] = []
+        while offset < length:
+            chunk_len, chunk_type = struct.unpack_from("<II", data, offset)
+            chunks.append([chunk_type, data[offset + 8 : offset + 8 + chunk_len]])
+            offset += 8 + chunk_len
+    except struct.error as exc:
+        raise ValueError(f"not a valid GLB: {path} is cut short ({exc})") from exc
     try:
         json_index = next(i for i, c in enumerate(chunks) if c[0] == _GLB_JSON_CHUNK)
     except StopIteration as exc:
@@ -107,11 +113,18 @@ def _repair_winding(path: Path) -> tuple[bool, bool]:
 
         mesh = trimesh.load(str(path), force="mesh", process=False)
         volume_before = float(mesh.volume)
-        mesh.fix_normals()
-        inverted = float(mesh.volume) < 0.0
-        if inverted:
-            mesh.invert()
-        mesh.export(str(path))
+        from image_to_3dlab.winding_pieces import orient_pieces
+
+        inverted = orient_pieces(mesh)
+        # Export beside the original, then swap it in: a failed export must not eat the finished file.
+        fd, temp_name = tempfile.mkstemp(dir=path.parent, suffix=path.suffix)
+        os.close(fd)
+        try:
+            mesh.export(temp_name, file_type=path.suffix.lstrip(".") or None)
+            os.replace(temp_name, path)
+        except BaseException:
+            Path(temp_name).unlink(missing_ok=True)
+            raise
         print(
             f"  [image-to-3dlab] winding repaired: volume {volume_before:+.5f} -> "
             f"{float(mesh.volume):+.5f}{' (inverted)' if inverted else ''}"
@@ -217,16 +230,15 @@ def build_generate_command(
 def _prepare_rgba(image: Path, destination: Path) -> Path:
     from PIL import Image
 
-    from image_to_3dlab.matte import cut_out
+    from image_to_3dlab.matte import cut_out, is_matted
 
     source = Image.open(image).convert("RGBA")
-    alpha = source.getchannel("A")
-    if alpha.getextrema()[0] == 255:
+    if not is_matted(source):
         source, _ = cut_out(source)
-    if source.getchannel("A").getextrema()[0] == 255:
-        raise RuntimeError(
-            "TRELLIS preprocessing did not produce a transparent foreground"
-        )
+        if not is_matted(source):
+            raise RuntimeError(
+                "TRELLIS preprocessing did not produce a transparent foreground"
+            )
     source.save(destination)
     return destination
 
@@ -234,6 +246,11 @@ def _prepare_rgba(image: Path, destination: Path) -> Path:
 def generate_trellis(
     image: Path | Sequence[Path], output_dir: Path, options: TrellisOptions
 ) -> TrellisResult:
+    for key, allowed in MANIFEST_CHOICES.items():
+        if key in ("pipeline_type", "texture_size", "material_mode"):
+            value = getattr(options, key)
+            if value not in allowed:
+                raise ValueError(f"{key} {value!r} is not one of {list(allowed)}")
     repo = options.repo.expanduser().resolve()
     python = repo / ".venv" / "bin" / "python"
     generator = repo / "generate.py"

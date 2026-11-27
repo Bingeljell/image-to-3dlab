@@ -275,3 +275,115 @@ def test_the_legacy_route_runs_offline_when_the_weights_are_there(tmp_path, monk
                             tb.TrellisOptions(repo=_legacy_repo(tmp_path)))
     assert seen["offline"] == "1"
     os.environ.pop("HF_HUB_OFFLINE", None)
+
+
+def test_a_failed_winding_repair_keeps_the_finished_file(tmp_path, monkeypatch):
+    """The export writes some bytes and then fails: the finished model must be intact."""
+    import trimesh
+
+    from image_to_3dlab.trellis_backend import _repair_winding
+
+    source = tmp_path / "model.glb"
+    trimesh.creation.box().export(source)
+    original = source.read_bytes()
+
+    def write_some_then_fail(self, file_obj, *args, **kwargs):
+        Path(file_obj).write_bytes(b"glTF-half")
+        raise RuntimeError("export failed")
+
+    monkeypatch.setattr(trimesh.Trimesh, "export", write_some_then_fail)
+    assert _repair_winding(source) == (False, False)
+    assert source.read_bytes() == original
+    assert [p.name for p in tmp_path.iterdir()] == ["model.glb"], "a half-written file was left behind"
+
+
+def test_a_damaged_glb_is_an_error_line_not_a_traceback(tmp_path, monkeypatch, capsys):
+    """A truncated GLB makes the material step raise struct.error; the command line must say so plainly."""
+    from image_to_3dlab import cli
+    from image_to_3dlab.trellis_backend import _normalize_glb_material
+
+    image = tmp_path / "a.png"
+    image.write_bytes(b"png")
+    damaged = tmp_path / "damaged.glb"
+    damaged.write_bytes(b"glTF\x02\x00\x00")   # ends inside the header
+
+    def generate(_views, _out, _options):
+        _normalize_glb_material(damaged, "pbr")
+
+    monkeypatch.setattr("image_to_3dlab.trellis_backend.generate_trellis", generate)
+    monkeypatch.setattr(cli, "validate_run_policy", lambda *_a, **_k: {})
+    code = cli.main([str(image), "--trellis", "--output-dir", str(tmp_path)])
+    assert code == 1
+    assert "error:" in capsys.readouterr().err
+
+
+def _noisy_rgba(path):
+    import numpy as np
+    from PIL import Image
+
+    noise = np.random.default_rng(0).integers(101, 256, (32, 32))   # no pixel is clear
+    rgb = np.full((32, 32, 3), 128)
+    Image.fromarray(np.dstack([rgb, noise]).astype(np.uint8), "RGBA").save(path)
+    return path
+
+
+def test_noisy_alpha_is_cut_out(tmp_path, monkeypatch):
+    """Alpha with no clear pixels is not a cut-out, even when its minimum is below 255."""
+    from image_to_3dlab.trellis_backend import _prepare_rgba
+
+    calls = []
+
+    def cut_out(picture, session=None):
+        calls.append(1)
+        return picture, "u2net"
+
+    monkeypatch.setattr("image_to_3dlab.matte.cut_out", cut_out)
+    try:
+        _prepare_rgba(_noisy_rgba(tmp_path / "noisy.png"), tmp_path / "out.png")
+    except RuntimeError:
+        pass
+    assert calls == [1]
+
+
+def test_a_failed_cut_of_noisy_alpha_stops_the_run(tmp_path, monkeypatch):
+    from image_to_3dlab.trellis_backend import _prepare_rgba
+
+    monkeypatch.setattr("image_to_3dlab.matte.cut_out", lambda picture, session=None: (picture, "u2net"))
+    with pytest.raises(RuntimeError, match="transparent foreground"):
+        _prepare_rgba(_noisy_rgba(tmp_path / "noisy.png"), tmp_path / "out.png")
+
+
+def test_a_real_cut_out_is_left_alone(tmp_path, monkeypatch):
+    import numpy as np
+    from PIL import Image
+
+    from image_to_3dlab.trellis_backend import _prepare_rgba
+
+    alpha = np.zeros((32, 32), dtype=np.uint8)
+    alpha[4:28, 4:28] = 255
+    Image.fromarray(np.dstack([np.zeros((32, 32, 3), np.uint8), alpha]), "RGBA").save(tmp_path / "cut.png")
+
+    def cut_out(*_args, **_kwargs):
+        raise AssertionError("already matted")
+
+    monkeypatch.setattr("image_to_3dlab.matte.cut_out", cut_out)
+    assert _prepare_rgba(tmp_path / "cut.png", tmp_path / "out.png").is_file()
+
+
+@pytest.mark.parametrize("field, value", [
+    ("pipeline_type", "huge"), ("texture_size", 64), ("material_mode", "glass")])
+def test_a_typo_in_the_settings_is_refused_before_the_run(tmp_path, monkeypatch, field, value):
+    """Weights present and the generator stubbed: a bad setting must stop before it starts."""
+    from image_to_3dlab import trellis_backend as tb
+
+    hub = tmp_path / "hub"
+    snap = hub / "models--microsoft--TRELLIS.2-4B" / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    (snap / "pipeline.json").write_text("{}")
+    monkeypatch.setenv("HF_HUB_CACHE", str(hub))
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.setattr(tb, "_prepare_rgba", lambda image, destination: destination)
+    monkeypatch.setattr(tb.subprocess, "run", lambda *a, **k: pytest.fail("the run started"))
+    options = tb.TrellisOptions(repo=_legacy_repo(tmp_path), **{field: value})
+    with pytest.raises(ValueError):
+        tb.generate_trellis(tmp_path / "in.png", tmp_path / "out", options)

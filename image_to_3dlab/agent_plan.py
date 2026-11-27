@@ -32,7 +32,8 @@ def plan_for(have: str, want: str, *, finish_upload: bool = False, front_back: b
     """The steps to run, in order, before any "stop after" (plan.js `planFor`)."""
     skip = {"picture": ["picture"], "model": ["picture", "model"]}.get(have, [])
     steps = [s for s in FULL.get(want, []) if s not in skip]
-    if have == "model" and not finish_upload:
+    # An uploaded prop has no other step, so Finish always runs.
+    if have == "model" and want != "prop" and not finish_upload:
         steps = [s for s in steps if s != "finished"]
     if front_back and want != "set" and "model" in steps:
         steps.insert(steps.index("model"), "back")

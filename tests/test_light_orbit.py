@@ -62,3 +62,11 @@ def test_azimuth_advances_monotonically(mod):
 def test_rejects_zero_frames(mod):
     with pytest.raises(ValueError):
         mod.key_light_rotation(1, 0, 50.0)
+
+
+def test_the_engine_name_is_not_hard_coded(mod):
+    """Old bug: the code set "BLENDER_EEVEE", which newer Blender renames
+    "BLENDER_EEVEE_NEXT". It has to pick from the engines this Blender lists."""
+    code = mod.blender_code(Path("a.glb"), Path("out_"), 4, 50.0, 32, "[]")
+    assert 'render.engine = "BLENDER_EEVEE"' not in code
+    assert "enum_items" in code

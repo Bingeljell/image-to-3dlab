@@ -61,10 +61,6 @@ def test_helper_is_defined_before_first_use():
     assert out.index(f"def {MARKER}(") < out.index(f"{MARKER}(mesh)\n")
 
 
-def test_repo_path_is_baked_in():
-    assert "'/some/repo'" in apply_patch(SYNTHETIC, "/some/repo")
-
-
 def test_patch_is_idempotent():
     once = apply_patch(SYNTHETIC, "/repo")
     assert apply_patch(once, "/repo") == once

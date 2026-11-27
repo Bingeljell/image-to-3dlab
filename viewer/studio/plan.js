@@ -39,8 +39,8 @@ export function planFor(have, want, { finishUpload = false, frontBack = false } 
   }[want] || [];
   const skip = have === 'picture' ? ['picture'] : have === 'model' ? ['picture', 'model'] : [];
   let steps = full.filter((s) => !skip.includes(s));
-  // an uploaded model may already be game-ready; finishing it is the user's choice
-  if (have === 'model' && !finishUpload) steps = steps.filter((s) => s !== 'finished');
+  // an uploaded character may already be game-ready; finishing it is the user's choice (a prop has nothing else to run)
+  if (have === 'model' && want !== 'prop' && !finishUpload) steps = steps.filter((s) => s !== 'finished');
   if (frontBack && want !== 'set' && steps.includes('model')) {
     steps.splice(steps.indexOf('model'), 0, 'back');
   }

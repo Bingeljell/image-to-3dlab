@@ -132,16 +132,20 @@ def reach_geometry(rig, metarig, upper, lower):
     Taken from rest bone data rather than the posed rig, so the answer does not depend on
     whatever frame the scene happens to be sitting on.
     """
-    bones = (metarig or rig).data.bones
-    prefix = "" if metarig else "ORG-"
-    chain = sum((bones[prefix + n].tail_local - bones[prefix + n].head_local).length
-                for n in (upper, lower))
-    shoulder = rig.matrix_world @ rig.data.bones["ORG-" + upper].head_local
-    ankle = rig.matrix_world @ rig.data.bones["ORG-" + lower].tail_local
+    bones = rig.data.bones
+    world = rig.matrix_world
+
+    def span(name):
+        bone = bones["ORG-" + name]
+        return ((world @ bone.tail_local) - (world @ bone.head_local)).length
+
+    chain = sum(span(n) for n in (upper, lower))
+    shoulder = world @ bones["ORG-" + upper].head_local
+    ankle = world @ bones["ORG-" + lower].tail_local
     offset = ankle - shoulder
     return {"chain_length": chain,
             "vertical_drop": abs(offset.z),
-            "horizontal_at_rest": abs(offset.y)}
+            "horizontal_at_rest": abs(offset[forward_axis(rig)[0]])}
 
 
 def axis_for(bpy, rig, bone_name, tip_name, component, probe=0.12):

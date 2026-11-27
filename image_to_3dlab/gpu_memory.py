@@ -71,8 +71,8 @@ def rocm_free_bytes(which: Callable = shutil.which,
     used = [int(m[1]) for m in (_ROCM_USED.match(line.strip()) for line in out.splitlines()) if m]
     if not total or len(total) != len(used):
         return None
-    free = max(t - u for t, u in zip(total, used))
-    return max(0, free)
+    big = max(range(len(total)), key=total.__getitem__)   # first of equals, like rocm-smi's order
+    return max(0, total[big] - used[big])
 
 
 def free_vram_bytes(which: Callable = shutil.which,

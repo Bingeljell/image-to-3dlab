@@ -38,6 +38,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`scripts/normal_map_facets.py`** says whether a finished model's shading breaks at its triangle edges, the facets a normal map baked against flat shading (or hard normals) leave: it reads the shading normal on both sides of each edge and compares the jump with the edge's angle. Models whose facets show keep 33-47 % of it, smooth ones 14-22 %, so 30 % is the line. Reports only.
 
 ### Fixed
+- **The spot-fix brush closes when you open another model.** It stayed on after switching, so Patch and Keep worked
+  on the model the brush was opened on while you marked the one on screen. Switching models now closes the brush.
+- **Reset pose really ends in the rest pose.** Returning the move to its start ran after the reset and put the
+  character back in the move's first frame. The start is now set first, then the rest pose.
+- **Setup's fallback keeps working after a page reload, and stops repeating the log.** A page reloaded mid-setup had
+  no status address, so when the live updates dropped it reported the run as gone while it went on; and each status
+  check appended the same log again. The address now comes with the run, and only new log text is shown.
+- **The weights audit offers real duplicates again.** Requiring an identical copy of every file, down to the README,
+  meant almost no cached model was offered for deletion. Files of 1 MB or more must still match byte for byte; smaller
+  ones may be missing and are listed. Each file is now read once per run.
+- **The o_voxel weld patch also works on an install outside this checkout.** Its patched code found the checkout only
+  by looking above its own file, so `--repo` did nothing and an install elsewhere failed on its first run. It now falls
+  back to the checkout given when patching, recorded relative to the patched file where it can be.
+- **Putting a skin on a rigged model shows the studio's reason when it fails.** Any failure read "Could not put this
+  skin on the rigged model". The studio's own error text is shown now, with that line kept as the fallback.
+- **Reset pose also returns the move to its start.** The pose went back to rest but the playhead stayed where it was.
+- **Today and Yesterday follow your own clock.** The studio grouped items by the UTC day, so around midnight they landed
+  under the wrong day. It now uses the local day.
+- **Top and bottom views keep the model upright.** They turned the camera's up direction, so the model spun when
+  switching back. The camera now sits just off the pole with up unchanged.
+- **Keep on a spot fix files it on the model you were fixing.** After switching to another model with the brush open,
+  Keep saved the fix onto whichever model was selected. It now uses the one the brush was opened on.
+- **Setup learns that a run finished even when its live updates drop.** The page only listened to the event stream,
+  so a dropped connection left it waiting for good, and a run the studio had forgotten was answered with a file page.
+  The page now falls back to asking for the status, and a forgotten run answers "no longer running".
+- **A slow model load no longer replaces the one you opened since.** An earlier load that finished late could overwrite
+  the model and its face count on screen, and an empty model was scaled by 1/0. A stale load is now ignored, and a
+  model with no size shows an error.
+- **A broken OBJ face no longer garbles the model on screen.** The studio's OBJ loader kept faces that pointed past the
+  vertex list or held a bad number. They are now skipped.
+- **Walk and idle no longer turn the head and an ear by default.** Their defaults (-32 degrees of head turn, and a -62
+  degree ear swivel in the idle) were tuned for one fox and turned every other character's head. Both now default to 0;
+  pass `--head-yaw` or `--ear-turn` to turn them.
+- **The walk plants its feet on the floor of a moved model.** The walk cycle found the paws and the floor from local
+  vertex positions and matched them against world-space markers, so a model not sitting at the origin picked the wrong
+  vertices and lifted or sank the body. Both now use world positions.
+- **The quadruped walk measures leg reach in the rig's own facing and size.** It measured how far a foot sat forward
+  along Y whatever way the rig faced, added bone lengths in the rig's unscaled units, and let a metarig's bones replace
+  the rig's. Reach is now measured along the facing axis, in world units, from the rig itself.
+- **The leg weight check reads heights in world space.** The voxel-weight and build-rig checks compared a vertex's own
+  local height with the head marker's world height, so a model that had been moved or turned showed a leg bleeding into
+  the head that was not, or hid one that was. Heights are now taken in world space.
+- **The Blender agent sends tool results before the render picture.** A render in the middle of several tool calls put
+  its picture between the results, an order the model's API does not accept. Pictures now follow all of a round's results.
+- **The wind demo says when nothing is marked rigid.** With every labelled vertex foliage or flower, it built an empty
+  anchor set and carried on. It now stops and says no rigid vertices were found.
+- **The light orbit works on Blender versions whose Eevee has a new name.** It set the engine to `BLENDER_EEVEE`, which
+  newer Blender calls `BLENDER_EEVEE_NEXT`. It now picks whichever this Blender offers.
+- **The line-up keeps an asset's parts in proportion.** Each part was scaled to the same height on its own, so an eye
+  came out as tall as the body. One scale from the whole asset's bounds now applies to every part.
+- **Region split cuts are fractions of the model, not one creature's coordinates.** `blender_split_regions` cut head,
+  body and tail at fixed positions taken from one model, so any other size or placement split in the wrong place. The
+  cuts are now fractions of the model's own length (defaults 2/3 and 1/3).
+- **The stage bake waits long enough and reports a failure.** It gave Blender two minutes whatever the frame range,
+  and exited as a success even when Blender reported an error or never answered. The wait now grows with the frames
+  (or `--timeout`), and an error or empty reply exits with an error.
+- **The normal bake covers every piece of a model and says when it fails.** It baked only the first mesh piece of a
+  file made of several, and exited as a success when no picture was written, even with an old picture on disk. It now
+  joins the pieces first and exits with an error unless a new picture was written.
+- **The o_voxel weld patch reverts to the right file and survives a moved checkout.** Its backup was taken only once,
+  so after a reinstall `--revert` restored an old file, and the patched code named the checkout by its full path, so it
+  broke when the folder moved. The backup is now refreshed on every run, and the code finds the checkout itself.
+- **Re-running a BRIA patch removes a remover that came back.** The Apple TRELLIS.2 and Pixal3D patches took their own
+  note as proof the file was safe, so a file that kept the note but loaded BRIA RMBG-2.0 again was left loading it. A
+  re-run now removes the live loader, and the Pixal3D check fails until it is gone.
+- **Patch checks tell the truth, and a half-done patch finishes on a re-run.** The `--check` of the Metal hashmap,
+  BVH traversal, clean-up, face-cap and MLX attention patches reported success when the patch was missing. A re-run
+  of the MLX attention or ROCm C++20 patch left a half-applied file as it was, or refused it. Missing patches now
+  fail their check, and a re-run finishes what is left.
+- **The weights audit offers a download for deletion only when every file has an identical copy.** It counted a
+  cached model as duplicated once 90% of its bytes matched by name and size, so `--apply` could delete a file kept
+  nowhere else, or one whose same-size copy held different bytes. Each file is now compared by its hash.
+- **Rig clean-up no longer deletes a part whose name starts with "Icosphere".** It removed every such mesh as the
+  importer's helper sphere, so a model part named that way vanished from the rig. Only the helper itself is removed now.
+- **Mirrored markings land on the other side of the model, not off it.** `project_markings --mirror` reflected through
+  the origin and always across X, so a model away from the origin, or seen from the side, got its copy in empty space.
+  It now mirrors through the model's middle across the view's horizontal axis.
+- **The arm clearance check no longer breaks on an arm pointing straight back.** Turning one direction onto its exact
+  opposite divided by zero and filled the rotation with invalid numbers. It now makes a clean half-turn.
+- **The Blender agent no longer wipes your open file when it imports a model.** Import cleared every mesh by default,
+  and clear and delete reached into every scene of the file, not only the one in view. Import now keeps what is there
+  unless asked to clear, and clear and delete touch only the current scene.
+- **An auto-rigged ear no longer follows the hand.** When the rig tied part of an ear or the head to a hand, finger
+  or forearm bone, the ear was dragged out whenever the arm moved. That weight now goes back to the head; real shoulder
+  weight stays, and a body that is not two-legged is left as it was.
+- **Hunyuan paint no longer hides an OpenCV failure behind a rough fill.** Any OpenCV error while filling texture
+  holes fell back to the nearest-colour fill without a word. Only a missing OpenCV falls back now; a real error stops
+  the run with its reason.
+- **A TRELLIS run with a mistyped setting is refused before it starts.** A wrong pipeline type, texture size or
+  material mode from the studio or an agent tool was only caught after the long run, or not at all. It is now refused
+  at once, with the allowed values, as the command line already did for a run file.
+- **TRELLIS cuts out a picture whose transparency is only noise.** Any pixel short of fully opaque made the picture
+  count as already cut out, so a photo with stray partial transparency went in with its background. It now counts
+  as cut out only when a real part of it is clear, as the other routes check, and the run stops if cutting fails.
+- **The winding repair turns each piece of a model the right way out.** It flipped the whole mesh by one overall
+  test, so in a model of several pieces split at texture seams one piece could stay inside-out or a correct one be
+  turned inside-out. Each piece is now checked on its own, both in the TRELLIS output and in `fix_winding`.
+- **A failed winding repair no longer damages the finished model, and a damaged GLB gets an error line.** The repair
+  wrote straight over the finished file, so an export that failed halfway left it broken. It now writes beside it and
+  swaps it in. A GLB cut short stopped the command with a Python traceback; it is now an ordinary error.
+- **Smooth no longer drags away a loose piece the brush covers completely.** With nothing outside the brush to hold
+  it, the piece was pulled toward the middle of the model. It now stays where it was, and a smooth that cannot settle
+  no longer writes broken positions.
+- **On a machine with several AMD cards, free memory is read from the biggest card.** It came from whichever card
+  had the most free, often a small built-in one, so a run was sized for the wrong card.
+- **A skin made for the body leaves the head alone.** Dressing a model in a body-only skin, and the file with every
+  skin, copied the new paint onto every material, so the head took the body's colours too. Each material now takes
+  only its own repaint.
+- **An uploaded model asked for as a prop is finished.** Create with your own GLB and "a prop" planned no steps at
+  all, so nothing ran. It now runs Finish, which is all a prop needs; an uploaded character still makes Finish a choice.
+- **The NVIDIA TRELLIS.2 background-model patch no longer passes a checkout that can still load BRIA.** It looked for
+  one exact line, so a constructor spaced differently counted as patched, and its command always reported success. It
+  now refuses any BRIA RMBG-2.0 constructor left in the pipeline and exits with an error when the checkout is not safe.
 - **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
   one leg off the spine and leaves the bones unnamed, and the same model rigs right the next time (two of seven first
   rigs of a batch of bosses). When the rig has no humanoid shape but the model is meant as one (Create's "character",

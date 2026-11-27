@@ -12,7 +12,13 @@ chest, spine to leg are all within a few hops), so a weight whose bone is more t
 also sits right beside the vertex: a hand hanging against the thigh is nearer the thigh
 bone than its own, and dropping its hand weight glued it to the leg.
 
-The rule is pure (`tree_hops`, `prune_weights`); only `main()` needs `bpy`.
+A point above the head joint whose main bone is an arm or a hand is given wholly to the head.
+A fingertip left inside an ear is nearer that finger than the head, so the hop rule
+keeps it and a walk drags the ear out. A real hand is not above the head, so it stays,
+and the shoulder stays a shoulder. A body that is not two-legged is left as the hop clean
+left it.
+
+The rule is pure (`tree_hops`, `prune_weights`, `retie_head_weight`); only `main()` needs `bpy`.
 """
 
 from __future__ import annotations
@@ -91,15 +97,57 @@ def prune_weights(weights: dict[str, float], hops: dict[str, dict[str, int]], an
     return {b: w * scale for b, w in kept.items()}
 
 
+def arm_below_shoulder(role: str) -> bool:
+    """The upper arm, forearm, hand and fingers. The shoulder stays a shoulder."""
+    return "Hand" in role or role.endswith("Arm")
+
+
+def retie_head_weight(weights, point, head, head_position, hands, up) -> dict:
+    """One vertex's {bone: weight}. An arm-owned point above the head joint goes to `head`.
+
+    `hands` is every bone from the upper arm down, including the fingers. `up` is the up
+    axis in the same space as `point` and `head_position`. Unchanged weights come back
+    as the same dict.
+    """
+    if not weights:
+        return weights
+    main = max(weights, key=weights.get)
+    if main not in hands:
+        return weights
+    import numpy as np
+
+    above = float((np.asarray(point) - np.asarray(head_position)) @ np.asarray(up))
+    if above <= 0.0:
+        return weights
+    return {head: sum(weights.values())}
+
+
+def head_and_hands(parents, heads, up) -> tuple[str | None, set[str]]:
+    """The head bone and the arm from the upper arm down, or `(None, set())` otherwise."""
+    from kimodo_retarget import map_skintokens_to_soma
+
+    try:
+        mapping, _frame = map_skintokens_to_soma(parents, heads, up)
+    except ValueError:
+        return None, set()
+    head = next((bone for bone, role in mapping.items() if role == "Head"), None)
+    hands = {bone for bone, role in mapping.items() if arm_below_shoulder(role)}
+    return head, hands
+
+
 def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover - bpy
-    """Apply `prune_weights` to every vertex of a Blender mesh. Returns vertices changed."""
+    """Apply `prune_weights`, then give an arm-owned point above the head to the head.
+    Returns vertices changed."""
     # Damn, I'm good.
     import numpy as np
+    from kimodo_retarget import Z_UP
 
     parents = {b.name: (b.parent.name if b.parent else None) for b in arm.data.bones}
     hops = tree_hops(parents)
     to_arm = arm.matrix_world.inverted() @ mesh.matrix_world
     segments = {b.name: (np.array(b.head_local), np.array(b.tail_local)) for b in arm.data.bones}
+    joint = {name: pair[0] for name, pair in segments.items()}
+    head_bone, hand_bones = head_and_hands(parents, joint, Z_UP)
     ends = np.array([e for pair in segments.values() for e in pair])
     slack = CLOSE_SHARE * float(np.ptp(ends, axis=0).max())
     names = {g.index: g.name for g in mesh.vertex_groups}
@@ -110,6 +158,10 @@ def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover 
         point = np.array(to_arm @ vertex.co)
         anchor = nearest_bone(point, segments)
         cleaned = prune_weights(weights, hops, anchor, max_hops, close_bones(point, segments, slack))
+        if head_bone is not None:
+            cleaned = retie_head_weight(
+                cleaned, point, head_bone, joint[head_bone], hand_bones, Z_UP
+            )
         if cleaned is weights:
             continue
         changed += 1
@@ -120,6 +172,18 @@ def clean_mesh(mesh, arm, max_hops: int = MAX_HOPS) -> int:  # pragma: no cover 
             else:
                 group.remove([vertex.index])
     return changed
+
+
+# Blender's default icosphere name. Only this exact helper is removed, not every mesh
+# whose name starts the same way. A `glTF_not_exported` glTF extra is the other mark.
+HELPER_NAME = "Icosphere"
+
+
+def is_export_helper(name: str, extras: dict | None = None) -> bool:
+    """True for SkinTokens' helper sphere, not for a body that merely starts with the same letters."""
+    if extras and extras.get("glTF_not_exported"):
+        return True
+    return name == HELPER_NAME
 
 
 def main() -> None:  # pragma: no cover - needs bpy
@@ -133,8 +197,10 @@ def main() -> None:  # pragma: no cover - needs bpy
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=str(args.source))
-    for obj in list(bpy.data.objects):  # SkinTokens' `glTF_not_exported` helper
-        if obj.type == "MESH" and obj.name.startswith("Icosphere"):
+    for obj in list(bpy.data.objects):
+        # A bpy Object is not iterable, so its custom properties come through `keys()`.
+        extras = {k: obj[k] for k in obj.keys()} if hasattr(obj, "keys") else {}  # noqa: SIM118
+        if obj.type == "MESH" and is_export_helper(obj.name, extras):
             bpy.data.objects.remove(obj, do_unlink=True)
     total = 0
     for arm in (o for o in bpy.data.objects if o.type == "ARMATURE"):

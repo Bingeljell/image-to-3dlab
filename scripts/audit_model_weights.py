@@ -32,6 +32,7 @@ Three rules, in descending order of how sure they are:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -57,6 +58,10 @@ LOCAL_WEIGHT_ROOTS = (
 # either reports a 43 GB dead cache as "referenced".
 SOURCE_PATHS = ("scripts", "viewer", "hunyuan_mlx", "image_to_3dlab", "workflows",
                 "pipeline.py")
+
+# Files at least this large must have a byte-identical local copy before an entry is
+# deletable (capped at GB so scaled-down tests stay meaningful); smaller ones (README, config) may be missing locally and are only listed.
+BIG_FILE_BYTES = 1 << 20
 
 RULES = ("ckpt", "cached", "unreferenced")
 
@@ -166,9 +171,9 @@ def find_superseded_checkpoints(roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
     return found
 
 
-def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], Path]:
-    """Real files under the local weight roots, keyed by (name, size)."""
-    index: dict[tuple[str, int], Path] = {}
+def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], list[Path]]:
+    """Real files under the local weight roots, keyed by (name, size); all candidates kept."""
+    index: dict[tuple[str, int], list[Path]] = {}
     for root in roots:
         if not root.is_dir():
             continue
@@ -176,10 +181,49 @@ def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], Path]:
             try:
                 if item.is_symlink() or not item.is_file():
                     continue
-                index[(item.name, item.stat().st_size)] = item
+                index.setdefault((item.name, item.stat().st_size), []).append(item)
             except OSError:
                 continue
     return index
+
+
+def _sha256(path: Path) -> str | None:
+    """Uncached sha256 of `path`; None when unreadable."""
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+_HASHES: dict[tuple[str, int, int], str | None] = {}
+
+
+def _hash_once(path: Path) -> str | None:
+    """`_sha256` memoised by resolved path, size and mtime, so each file hashes once."""
+    try:
+        resolved = path.resolve()
+        st = resolved.stat()
+    except OSError:
+        return None
+    key = (str(resolved), st.st_size, st.st_mtime_ns)
+    if key not in _HASHES:
+        _HASHES[key] = _sha256(resolved)
+    return _HASHES[key]
+
+
+def _identical_copy(cached: Path, candidates: list[Path]) -> Path | None:
+    """A candidate whose bytes equal `cached`'s, or None. Unreadable means not identical."""
+    want = _hash_once(cached)
+    if want is None:
+        return None
+    for candidate in candidates:
+        if _hash_once(candidate) == want:
+            return candidate
+    return None
 
 
 def cache_repos(hub: Path = HF_HUB_DIR) -> list[tuple[str, Path]]:
@@ -196,9 +240,8 @@ def cache_repos(hub: Path = HF_HUB_DIR) -> list[tuple[str, Path]]:
 def find_cached_duplicates(hub: Path = HF_HUB_DIR, roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
     """Cache entries whose payload also exists as real files in the repo.
 
-    Matched on name and exact byte size rather than a hash: these are multi-gigabyte
-    files, hashing them all would take longer than the download did, and a collision on
-    both name and exact size is not a realistic accident here.
+    Files are paired by name and exact size, then confirmed by a sha256 of both. An
+    entry is deletable only when every one of its files has a byte-identical local copy.
     """
     local = _local_files(roots)
     if not local:
@@ -210,29 +253,42 @@ def find_cached_duplicates(hub: Path = HF_HUB_DIR, roots=LOCAL_WEIGHT_ROOTS) -> 
         if not snapshots.is_dir():
             continue
         names = [f for f in snapshots.rglob("*") if f.is_symlink() or f.is_file()]
-        matched = [f for f in names if (f.name, _resolved_size(f)) in local]
+        pairs = [(f, local.get((f.name, _resolved_size(f)))) for f in names]
+        if not any(c for _, c in pairs):
+            continue
+        # Cheap pre-filter on size so non-matching entries are never hashed.
+        matched: list[Path] = []
+        examples: dict[Path, Path] = {}
+        for f, cands in pairs:
+            if not cands:
+                continue
+            twin = _identical_copy(f, cands)
+            if twin is not None:
+                matched.append(f)
+                examples[f] = twin
         if not matched:
             continue
-        # By bytes, not by file count. A snapshot is mostly small source files wrapped
-        # around a couple of huge weights, so "half the files" never fires on the very
-        # entries worth reclaiming.
         matched_bytes = sum(_resolved_size(f) for f in matched)
         total = directory_size(blobs) if blobs.is_dir() else directory_size(path)
-        # Surface anything meaningfully duplicated, but see `complete` below before
-        # offering to delete. A conversion changes the file name (`.bin` becomes
-        # `.safetensors`), so name matching systematically under-counts and a strict
-        # threshold hides the very entries worth looking at.
         if total <= 0 or matched_bytes < GB:
             continue
         biggest = max(matched, key=_resolved_size)
-        example = _short(local[(biggest.name, _resolved_size(biggest))])
-        # Only offer to delete when essentially everything is duplicated. A partial match
-        # means the cache still holds bytes that exist nowhere else.
-        complete = matched_bytes >= total * 0.9
+        example = _short(examples[biggest])
+        # Deletable when every big file is duplicated byte for byte; small files may be
+        # missing locally (they are listed in the reason) but big ones never.
+        matched_set = set(matched)
+        unmatched = [f for f in names if f not in matched_set]
+        big_missing = [f for f in unmatched if _resolved_size(f) >= min(BIG_FILE_BYTES, GB)]
+        small_missing = sorted(f.name for f in unmatched if f not in big_missing)
+        complete = not big_missing
+        note = ""
+        if small_missing:
+            note = f"; small files not in the repo: {', '.join(small_missing)}"
         found.append(Candidate(
             "cached", path, total,
             f"{human_bytes(matched_bytes)} of {human_bytes(total)} also real in the repo"
             f" ({len(matched)} files, e.g. {example})"
+            + note
             + ("" if complete else "; PARTIAL, review before deleting"),
             deletable=complete,
         ))

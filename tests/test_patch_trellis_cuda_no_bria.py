@@ -70,3 +70,17 @@ def test_the_cli_patches_a_given_root(tmp_path):
     root = _tree(tmp_path)
     assert patch.main(["--root", str(root)]) == 0
     assert patch.is_patched(root)
+
+
+def test_a_leftover_constructor_beside_the_anchor_is_refused():
+    text = UPSTREAM + "        x = getattr(rembg,  args['rembg_model']['name'])\n"
+    with pytest.raises(RuntimeError, match="BRIA constructor still present"):
+        patch.patch_source(text, "f")
+
+
+def test_the_cli_fails_when_a_reformatted_constructor_remains(tmp_path, capsys):
+    text = patch.REPLACEMENT + "\n        x = getattr(rembg,  args['rembg_model']['name'])\n"
+    root = _tree(tmp_path, text)
+    assert patch.is_patched(root) is False
+    assert patch.main(["--root", str(root)]) == 1
+    assert "BRIA" in capsys.readouterr().err

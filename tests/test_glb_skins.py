@@ -116,3 +116,54 @@ def test_each_skin_adds_only_its_own_two_pictures():
     document, _ = parse_glb(gs.with_variants(RIGGED, skins))
     assert len(document["materials"]) == 4                     # the original + one per skin
     assert len(document["images"]) == 3 + 2 * 3                # its own three + two per skin
+
+
+def _two_part(body: bytes, head: bytes) -> bytes:
+    """Body (material 0) and head (material 1), each with its own colour and shine picture."""
+    positions = struct.pack("<9f", 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    blobs = [positions, b"BODY-NORMAL", body, b"BODY-SHINE", b"HEAD-NORMAL", head, b"HEAD-SHINE"]
+    binary, views = b"", []
+    for blob in blobs:
+        binary += b"\0" * (-len(binary) % 4)
+        views.append({"buffer": 0, "byteOffset": len(binary), "byteLength": len(blob)})
+        binary += blob
+    document = {
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": len(binary)}], "bufferViews": views,
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "material": 0},
+                                   {"attributes": {"POSITION": 0}, "material": 1}]}],
+        "materials": [
+            {"name": "body", "normalTexture": {"index": 0},
+             "pbrMetallicRoughness": {"baseColorTexture": {"index": 1},
+                                      "metallicRoughnessTexture": {"index": 2}}},
+            {"name": "head", "normalTexture": {"index": 3},
+             "pbrMetallicRoughness": {"baseColorTexture": {"index": 4},
+                                      "metallicRoughnessTexture": {"index": 5}}},
+        ],
+        "samplers": [{}],
+        "textures": [{"source": i, "sampler": 0} for i in range(6)],
+        "images": [{"bufferView": i + 1, "mimeType": "image/png"} for i in range(6)],
+    }
+    return build_glb(document, binary)
+
+
+def _colour(data: bytes, material: int) -> bytes:
+    document, binary = parse_glb(data)
+    return gs._image_bytes(document, binary, gs.paint_images(document, material)["baseColorTexture"])[0]
+
+
+def test_a_body_skin_does_not_repaint_the_head_when_dressing():
+    """A skin made for the body only must leave the head's own paint alone."""
+    dressed = gs.dress(_two_part(b"BODY-COLOUR", b"HEAD-COLOUR"), _glb(b"GOLD-BODY", b"GOLD-SHINE"))
+    assert _colour(dressed, 0) == b"GOLD-BODY"
+    assert _colour(dressed, 1) == b"HEAD-COLOUR"
+
+
+def test_a_body_skin_does_not_repaint_the_head_in_the_all_skins_file():
+    model = _two_part(b"BODY-COLOUR", b"HEAD-COLOUR")
+    packed, binary = parse_glb(gs.with_variants(model, [("gold", _glb(b"GOLD-BODY", b"GOLD-SHINE"))]))
+    head_copy = 3   # variant 1's materials are the copies after the two originals: body 2, head 3
+    assert packed["materials"][head_copy]["name"].startswith("head")
+    image = gs.paint_images(packed, head_copy)["baseColorTexture"]
+    assert gs._image_bytes(packed, binary, image)[0] == b"HEAD-COLOUR"

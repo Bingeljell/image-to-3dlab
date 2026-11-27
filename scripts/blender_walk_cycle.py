@@ -142,7 +142,7 @@ mk = {{o.name[6:]: o.matrix_world.translation.copy()
 paw_probe = []
 rest_floor = 0.0
 if mesh is not None:
-    rest_co = [v.co.copy() for v in mesh.data.vertices]
+    rest_co = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
     for key in ("frontL_paw", "frontR_paw", "backL_paw", "backR_paw"):
         if key in mk:
             target = mk[key]
@@ -213,7 +213,8 @@ for frame in range(1, FRAMES + 2):
         bpy.context.view_layer.update()
         dg = bpy.context.evaluated_depsgraph_get()
         ev = mesh.evaluated_get(dg)
-        plant = rest_floor - min(ev.data.vertices[i].co.z for i in paw_probe)
+        plant = rest_floor - min((ev.matrix_world @ ev.data.vertices[i].co).z
+                           for i in paw_probe)
     arm.location.z = base_z + plant - BODY_DROP + BOB * math.cos(4.0 * math.pi * t)
     arm.keyframe_insert("location", frame=frame)
 
@@ -341,9 +342,9 @@ def main() -> int:
         help="Lateral body roll. Too much reads as a waddle rather than a walk",
     )
     parser.add_argument(
-        "--head-yaw", type=float, default=-32.0,
+        "--head-yaw", type=float, default=0.0,
         help="Static counter-yaw on the neck, to straighten a head the subject was "
-             "generated with turned. Negative turns toward the character's right",
+             "generated with turned. Default 0 (no correction). Negative turns toward the character's right",
     )
     parser.add_argument(
         "--head-pitch", type=float, default=0.0,

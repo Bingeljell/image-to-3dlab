@@ -135,9 +135,19 @@ def _add_image(document: dict, data: bytes, mime: str, blobs: list[bytes], first
     return len(document["textures"]) - 1
 
 
-def _paint_of(skin: bytes) -> dict[str, tuple[bytes, str]]:
+def _paint_of(skin: bytes) -> dict[int, dict[str, tuple[bytes, str]]]:
+    """{material index: {role: (bytes, mime)}} for every material the skin paints.
+
+    A skin repainted only for the body carries no paint for the head, so the head is absent here
+    and keeps its own pictures when the skin is worn."""
     document, binary = parse_glb(skin)
-    return {role: _image_bytes(document, binary, image) for role, image in paint_images(document).items()}
+    paint = {}
+    for material in range(len(document.get("materials") or [])):
+        pictures = {role: _image_bytes(document, binary, image)
+                    for role, image in paint_images(document, material).items()}
+        if pictures:
+            paint[material] = pictures
+    return paint
 
 
 def dress(model: bytes, skin: bytes) -> bytes:
@@ -151,7 +161,7 @@ def dress(model: bytes, skin: bytes) -> bytes:
     first = len(document["bufferViews"])
     for index, material in enumerate(document.get("materials") or []):
         pbr = material.setdefault("pbrMetallicRoughness", {})
-        for role, (data, mime) in paint.items():
+        for role, (data, mime) in paint.get(index, {}).items():
             if role in paint_images(document, index):
                 pbr[role] = {**pbr[role], "index": _add_image(document, data, mime, blobs, first)}
     document, binary = _repack(document, binary, blobs)
@@ -175,10 +185,10 @@ def with_variants(model: bytes, skins: list[tuple[str, bytes]], original: str = 
     for _, skin in skins:
         paint = _paint_of(skin)
         indices = []
-        for material in originals:
+        for number, material in enumerate(originals):
             dressed = copy.deepcopy(material)
             pbr = dressed.setdefault("pbrMetallicRoughness", {})
-            for role, (data, mime) in paint.items():
+            for role, (data, mime) in paint.get(number, {}).items():
                 if role in pbr:
                     pbr[role] = {**pbr[role], "index": _add_image(document, data, mime, blobs, first)}
             dressed["name"] = f"{material.get('name', 'material')} ({names[len(per_variant)]})"

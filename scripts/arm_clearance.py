@@ -116,6 +116,11 @@ def _rotation_between(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     v, c = np.cross(a, b), float(a @ b)
     if c > 1 - 1e-12:
         return np.eye(3)
+    if c < -1 + 1e-12:
+        # Opposite vectors: any axis perpendicular to `a` gives a half-turn.
+        axis = np.cross(a, np.eye(3)[int(np.argmin(np.abs(a)))])
+        axis /= np.linalg.norm(axis)
+        return 2.0 * np.outer(axis, axis) - np.eye(3)
     vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
     return np.eye(3) + vx + vx @ vx / (1 + c)
 

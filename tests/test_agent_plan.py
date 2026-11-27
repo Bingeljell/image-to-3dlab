@@ -68,3 +68,14 @@ def test_refusal_names_the_reason():
     assert agent_plan.refusal("idea", "character") is None
     assert agent_plan.refusal("picture", "picture") == "You already have the picture."
     assert "want must be" in agent_plan.refusal("idea", "dragon")
+
+
+def test_an_uploaded_prop_still_runs_finish():
+    # A prop's only step after the model is Finish; dropping it leaves nothing to run.
+    assert agent_plan.plan_for("model", "prop") == ["finished"]
+    assert agent_plan.plan_for("model", "prop", finish_upload=True) == ["finished"]
+
+
+def test_an_uploaded_character_still_makes_finish_a_choice():
+    assert agent_plan.plan_for("model", "character") == ["rigged", "animated"]
+    assert agent_plan.plan_for("model", "character", finish_upload=True)[0] == "finished"

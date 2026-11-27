@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from .manifest_choices import MANIFEST_CHOICES
 from .provenance import (
     finalize_output,
     load_run_manifest,
@@ -13,12 +14,7 @@ from .provenance import (
 )
 
 # Manifest values for these keys use the same choices as the CLI flags.
-_MANIFEST_CHOICES = {
-    "remesh": ("none", "triangle", "quad"),
-    "pipeline_type": ("512", "1024", "1024_cascade"),
-    "texture_size": (512, 1024, 2048),
-    "material_mode": ("matte", "pbr"),
-}
+_MANIFEST_CHOICES = MANIFEST_CHOICES
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -393,20 +389,24 @@ def main(argv: list[str] | None = None) -> int:
         "steps": args.steps if args.trellis else None,
         "pre_simplify_cap": args.trellis_pre_simplify_cap if args.trellis else None,
     }
-    result, sidecar = finalize_output(
-        generated=result,
-        image=image,
-        output_root=args.output_dir,
-        backend=backend,
-        profile=profile,
-        intent=intent,
-        parameters=parameters,
-        source_manifest=source_manifest,
-        backend_repo=(
-            args.sf3d_repo if args.fast else args.trellis_repo if args.trellis else None
-        ),
-        model_identity=model_identity,
-    )
+    try:
+        result, sidecar = finalize_output(
+            generated=result,
+            image=image,
+            output_root=args.output_dir,
+            backend=backend,
+            profile=profile,
+            intent=intent,
+            parameters=parameters,
+            source_manifest=source_manifest,
+            backend_repo=(
+                args.sf3d_repo if args.fast else args.trellis_repo if args.trellis else None
+            ),
+            model_identity=model_identity,
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(result)
     print(sidecar)
     return 0

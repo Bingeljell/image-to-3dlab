@@ -216,6 +216,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
       pane.classList.toggle('fixing', on);
       brushPanel.hidden = !on;
       if (!on) { hideRing(); endSession(true); }
+      if (on) fixSession?.open?.();
       if (on) overlayNote('Mark the spots to fix, then Patch. Size: the slider, or [ and ].');
     }
   });
@@ -434,7 +435,17 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     setToolsMode(true);
     const token = ++loadToken;
     const camera = keepCamera && view ? { position: view.camera.position.clone(), target: view.controls.target.clone() } : null;
-    if (!keepCamera) endSession(false);
+    if (!keepCamera) {
+      endSession(false);
+      // a different model: the brush belongs to the one it was opened on, so close it
+      const fixButton = tools.querySelector('[data-act="fix"]');
+      if (fixButton.getAttribute('aria-pressed') === 'true') {
+        fixButton.setAttribute('aria-pressed', 'false');
+        pane.classList.remove('fixing');
+        brushPanel.hidden = true;
+        hideRing();
+      }
+    }
     currentUrl = url;
     dispose();
     setOverlay(`<div class="ph"><img src="${logoUrl}" alt=""><span>Loading model…</span></div>`);
@@ -590,6 +601,7 @@ export function createStudioViewer({ stage, logoUrl, onClipChange, fixSession = 
     if (act === 'play' && player) player.playing ? player.pause() : player.play();
     if (act === 'rest') {
       player?.pause();
+      player?.seek(0);
       view?.resetPose();
       requestRender();
       syncPlayButton(false);

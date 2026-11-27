@@ -31,6 +31,7 @@ run repeatedly: it detects its own marker and does nothing on a second run.
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 MARKER = "i2l_rembg_licence"
@@ -65,14 +66,29 @@ def permissive_model_name(model_name: str) -> str:
     return model_name
 
 
+_LIVE_BRIA = re.compile(r"^[^#\n]*[\"']briaai/[^\n]*", re.MULTILINE)
+_GUARD = f'model_name.startswith("{FORBIDDEN_PREFIX}")'
+
+
 def is_patched(source: str) -> bool:
-    return MARKER in source
+    """Guard present and no live BRIA load. The marker comment alone proves nothing."""
+    guard_lines = [line for line in source.splitlines() if _GUARD in line]
+    live = [m for m in _LIVE_BRIA.finditer(source) if _GUARD not in m.group(0)]
+    return (
+        MARKER in source
+        and any(not line.lstrip().startswith("#") for line in guard_lines)
+        and not live
+    )
 
 
 def apply(source: str) -> str:
     """Return the patched source. Idempotent."""
     if is_patched(source):
         return source
+    if _GUARD in source and MARKER in source:
+        raise SystemExit(
+            "guard present but a live briaai/ load remains; fix BiRefNet.py by hand."
+        )
     if ANCHOR not in source:
         raise SystemExit(
             "anchor not found: BiRefNet.__init__ no longer has the expected signature. "
@@ -108,6 +124,9 @@ def main() -> int:
         print(f"already patched: {args.target}")
         return 0
     args.target.write_text(patched, encoding="utf-8")
+    if not is_patched(patched):
+        print(f"WROTE GUARD BUT a live {FORBIDDEN_PREFIX} load remains in {args.target}")
+        return 1
     print(f"patched {args.target}: {FORBIDDEN_PREFIX}* -> {SUBSTITUTE}")
     return 0
 

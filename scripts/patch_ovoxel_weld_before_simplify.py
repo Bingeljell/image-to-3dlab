@@ -28,6 +28,7 @@ Safe to run repeatedly; it detects its own marker and does nothing on a second r
 from __future__ import annotations
 
 import argparse
+import os
 import re
 from pathlib import Path
 
@@ -47,7 +48,25 @@ def {marker}(mesh):
 
     import torch
 
-    repo = {repo!r}
+    from pathlib import Path
+
+    # Find the checkout from this file's own location (it lives in
+    # <repo>/vendor/.../site-packages/o_voxel/), so moving the checkout is safe.
+    repo = None
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "scripts" / "mesh_weld.py").is_file():
+            repo = str(parent)
+            break
+    if repo is None:
+        # Walk-up found nothing (target outside the checkout): fall back to the repo
+        # given when the patch was applied, relative to this file when it was possible.
+        here = Path(__file__).resolve().parent
+        for candidate in ({rel!r} and (here / {rel!r}).resolve(), {abs!r} and Path({abs!r})):
+            if candidate and (candidate / "scripts" / "mesh_weld.py").is_file():
+                repo = str(candidate)
+                break
+    if repo is None:
+        raise RuntimeError("image-to-3dlab checkout not found above " + __file__)
     if repo not in sys.path:
         sys.path.insert(0, repo)
     from scripts.mesh_weld import duplicate_count, weld_vertices
@@ -77,8 +96,23 @@ def already_patched(source: str) -> bool:
     return MARKER in source
 
 
-def apply_patch(source: str, repo: str) -> str:
-    """Insert the helper and a call to it before every `mesh.simplify(` line."""
+def _fallback_repo(repo: str, target: Path | None) -> tuple[str, str]:
+    """(relative, absolute) fallback checkout paths for the helper; one is empty."""
+    if target is None:  # no patched-file location: nothing to anchor a fallback to
+        return "", ""
+    try:
+        return os.path.relpath(repo, Path(target).resolve().parent), ""
+    except ValueError:  # e.g. different drives: no relative path exists
+        return "", repo
+
+
+def apply_patch(source: str, repo: str, target: Path | None = None) -> str:
+    """Insert the helper and a call to it before every `mesh.simplify(` line.
+
+    `repo` is the checkout the helper falls back to when it cannot find one above its
+    own file; it needs `target` and is recorded relative to the patched file (absolute
+    only when no relative path exists).
+    """
     if already_patched(source):
         return source
 
@@ -101,7 +135,8 @@ def apply_patch(source: str, repo: str) -> str:
             last_import = i
         if line.lstrip().startswith("def "):
             break
-    helper = _HELPER.format(marker=MARKER, repo=repo)
+    rel, absolute = _fallback_repo(repo, target)
+    helper = _HELPER.format(marker=MARKER, rel=rel, abs=absolute)
     lines.insert(last_import + 1, helper)
     return "".join(lines)
 
@@ -130,9 +165,8 @@ def main() -> int:
         print(f"already patched: {target}")
         return 0
 
-    if not backup.is_file():
-        backup.write_text(source)
-    target.write_text(apply_patch(source, str(args.repo.resolve())))
+    backup.write_text(source)  # always the unpatched source of this run
+    target.write_text(apply_patch(source, str(args.repo.expanduser().resolve()), target))
     print(f"patched {target}\nbackup at {backup}")
     return 0
 

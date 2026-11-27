@@ -28,6 +28,16 @@ def _load():
 audit = _load()
 
 
+@pytest.fixture(autouse=True)
+def _tiny_gb(monkeypatch):
+    """Shrink the audit's "GB" to 1 KiB so no test here writes a large file.
+
+    Truncated files are sparse on macOS and Linux but take real space on Windows NTFS,
+    and the audit hashes every size-matched file in full.
+    """
+    monkeypatch.setattr(audit, "GB", 1024)
+
+
 def _weights(root: Path, name: str, size: int) -> Path:
     """A file that *reports* `size` without occupying it.
 

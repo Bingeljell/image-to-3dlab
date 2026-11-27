@@ -48,3 +48,67 @@ export function runTitle(backend, action, event) {
   if (ending) return `${ending.mark} ${ending.verb} · ${label}`;
   return `${setupVerb(backend, action)} ${label}`;
 }
+const FINISHED = new Set(['done', 'error', 'cancelled']);
+
+/** Watch a setup run: the event stream first; when it drops, poll the status URL until the
+ *  run finishes. Returns `{ close() }`. A 404/410 (the server forgot the run) ends the polling
+ *  with an error event. */
+export function openSetupWatch(run, {
+  onEvent, fetchImpl = globalThis.fetch?.bind(globalThis), EventSourceImpl = globalThis.EventSource, interval = 2000,
+} = {}) {
+  let closed = false;
+  let source = null;
+  let timer = null;
+  let lastLog = '';
+  const statusUrl = run.status_url || (run.events_url ? run.events_url.replace(/\/events$/, '/status') : null);
+  // only the text appended since the last poll
+  const fresh = (text) => {
+    if (typeof text !== 'string' || !text) return '';
+    const added = lastLog && text.startsWith(lastLog) ? text.slice(lastLog.length) : (text === lastLog ? '' : text);
+    lastLog = text;
+    return added.replace(/^\n/, '');
+  };
+  const finish = () => {
+    closed = true;
+    source?.close();
+    clearTimeout(timer);
+  };
+  const emit = (event) => {
+    if (closed || !event) return;
+    onEvent?.(event);
+    if (FINISHED.has(event.phase)) finish();
+  };
+  const poll = async () => {
+    if (closed || !statusUrl) return;
+    let again = true;
+    try {
+      const response = await fetchImpl(statusUrl);
+      if (response.status === 404 || response.status === 410) {
+        again = false;
+        emit({ phase: 'error', detail: 'This setup is no longer running.' });
+      } else if (response.ok) {
+        const body = await response.json();
+        const added = fresh(body.log_tail ?? body.last_event?.log);
+        if (body.last_event) {
+          const { log, ...rest } = body.last_event;
+          emit(added ? { ...rest, log: added } : rest);
+        } else if (added) emit({ phase: 'running', log: added });
+        if (FINISHED.has(body.status) && !FINISHED.has(body.last_event?.phase)) emit({ phase: body.status });
+      }
+    } catch { /* try again */ }
+    if (again && !closed) timer = setTimeout(poll, interval);
+  };
+  const startPolling = () => {
+    if (closed || timer) return;
+    source?.close();
+    timer = setTimeout(poll, 0);
+  };
+  if (run.events_url && EventSourceImpl) {
+    source = new EventSourceImpl(run.events_url);
+    source.onmessage = (message) => { try { emit(JSON.parse(message.data)); } catch { /* ignore */ } };
+    source.onerror = startPolling;
+  } else {
+    startPolling();
+  }
+  return { close: finish };
+}

@@ -5,8 +5,8 @@ const DIRECTIONS = {
   back: { direction: [0, 0, -1], up: [0, 1, 0] },
   left: { direction: [-1, 0, 0], up: [0, 1, 0] },
   right: { direction: [1, 0, 0], up: [0, 1, 0] },
-  top: { direction: [0, 1, 0], up: [0, 0, -1] },
-  bottom: { direction: [0, -1, 0], up: [0, 0, 1] },
+  top: { direction: [0, 1, 0], up: [0, 1, 0] },
+  bottom: { direction: [0, -1, 0], up: [0, 1, 0] },
 };
 
 const DEFAULT_POSITION = new THREE.Vector3(1.45, 0.6, 2.45);
@@ -30,7 +30,9 @@ export function setCameraView(view, name) {
     view.camera.up.set(0, 1, 0);
   } else {
     const direction = new THREE.Vector3(...preset.direction);
-    view.camera.position.copy(target).addScaledVector(direction, distance);
+    // Just off the pole, so looking straight along up does not flip the camera.
+    if (name === 'top' || name === 'bottom') direction.z = 0.001;
+    view.camera.position.copy(target).addScaledVector(direction.normalize(), distance);
     view.camera.up.set(...preset.up);
   }
   view.camera.lookAt(view.controls.target);

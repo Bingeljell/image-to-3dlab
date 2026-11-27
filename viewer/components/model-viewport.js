@@ -16,7 +16,7 @@ const roomEnvironment = new RoomEnvironment();
  * component owns the Three.js scene, camera, renderer, controls, model normalization, and
  * resource lifecycle.
  */
-export function createModelViewport({ pane, spec, slotIndex = null, onChange, onLoaded, onError }) {
+export function createModelViewport({ pane, spec, slotIndex = null, onChange, onLoaded, onError, isCurrent }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -44,19 +44,23 @@ export function createModelViewport({ pane, spec, slotIndex = null, onChange, on
     overlay: null, rig: inspectRig(null),
   };
   view.resetPose = () => resetRigPose(view.rig);
-  loadModel(view, onLoaded, onError);
+  view.disposed = false;
+  loadModel(view, onLoaded, onError, isCurrent);
   return view;
 }
 
 export function disposeModelViewport(view) {
+  view.disposed = true;
   view.controls.dispose();
   view.renderer.dispose();
   view.renderer.forceContextLoss();
 }
 
-function loadModel(view, onLoaded, onError) {
+function loadModel(view, onLoaded, onError, isCurrent) {
   const { spec } = view;
+  const stale = () => view.disposed || (isCurrent ? !isCurrent() : false);
   const loaded = (root, animations = []) => {
+    if (stale()) return;
     // Normalize to a unit box centered on the origin so differently scaled exports remain
     // directly comparable and every room can use the same camera framing contract.
     const pivot = new THREE.Group();
@@ -64,7 +68,12 @@ function loadModel(view, onLoaded, onError) {
     const box = new THREE.Box3().setFromObject(root);
     const size = box.getSize(new THREE.Vector3());
     const centre = box.getCenter(new THREE.Vector3());
-    const scale = 1 / Math.max(size.x, size.y, size.z);
+    const largest = Math.max(size.x, size.y, size.z);
+    if (!Number.isFinite(largest) || largest <= 0) {
+      failed(new Error('The model has no size'));
+      return;
+    }
+    const scale = 1 / largest;
     root.position.sub(centre);
     pivot.scale.setScalar(scale);
     pivot.add(root);
@@ -100,10 +109,12 @@ function loadModel(view, onLoaded, onError) {
     if (onLoaded) onLoaded(view);
   };
   const progress = (event) => {
+    if (stale()) return;
     if (!event.lengthComputable) return;
     view.stats.textContent = `loading… ${Math.round(event.loaded / event.total * 100)}%`;
   };
   const failed = (error) => {
+    if (stale()) return;
     view.stats.textContent = 'FAILED';
     if (onError) onError(error);
   };

@@ -209,3 +209,14 @@ def test_the_note_still_lands_when_nobody_can_be_named():
 ])
 def test_sizes_read_as_sizes(value, expected):
     assert gpu.human_bytes(value) == expected
+
+def test_the_big_card_wins_even_when_the_apu_has_more_free():
+    """The 2 GB card can be the emptier one. The job still runs on the big card."""
+    text = """
+GPU[0]        : VRAM Total Memory (B): 2147483648
+GPU[0]        : VRAM Total Used Memory (B): 100
+GPU[1]        : VRAM Total Memory (B): 25753026560
+GPU[1]        : VRAM Total Used Memory (B): 24753026560
+"""
+    free = gpu.rocm_free_bytes(which=lambda _: "/opt/rocm/bin/rocm-smi", run=_runner(text))
+    assert free == 25753026560 - 24753026560

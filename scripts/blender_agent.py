@@ -159,13 +159,27 @@ else:
 ''' + _emit("payload")
 
 
-def build_import_asset(path: str, clear_scene: bool = True) -> str:
-    return _preamble() + f'''
+_SCENE_REMOVE = '''
+def _remove_from_scene(obj):
+    """Take obj out of the current scene only; drop the datablock when no other scene uses it."""
+    scene = bpy.context.scene
+    others = [s for s in getattr(obj, "users_scene", ()) if s != scene]
+    if not others:
+        bpy.data.objects.remove(obj, do_unlink=True)
+        return
+    for coll in [scene.collection, *scene.collection.children_recursive]:
+        if obj.name in coll.objects:
+            coll.objects.unlink(obj)
+'''
+
+
+def build_import_asset(path: str, clear_scene: bool = False) -> str:
+    return _preamble() + _SCENE_REMOVE + f'''
 clear = {bool(clear_scene)!r}
 if clear:
-    for obj in list(bpy.data.objects):
+    for obj in list(bpy.context.scene.objects):
         if obj.type == "MESH":
-            bpy.data.objects.remove(obj, do_unlink=True)
+            _remove_from_scene(obj)
 before = set(bpy.data.objects.keys())
 bpy.ops.import_scene.gltf(filepath={path!r})
 imported = [n for n in bpy.data.objects.keys() if n not in before]
@@ -362,16 +376,16 @@ def build_clear_scene(keep_lights: bool = False) -> str:
     it, improvised `import_asset("empty.glb")` and then fell back to deleting objects by
     guessed names. A missing verb does not stop a model; it makes one up.
     """
-    return _preamble() + f'''
+    return _preamble() + _SCENE_REMOVE + f'''
 keep_lights = {bool(keep_lights)!r}
 removable = {{"MESH"}}
 if not keep_lights:
     removable = removable | {{"LIGHT"}}
 removed = []
-for obj in list(bpy.data.objects):
+for obj in list(bpy.context.scene.objects):
     if obj.type in removable:
         removed.append(obj.name)
-        bpy.data.objects.remove(obj, do_unlink=True)
+        _remove_from_scene(obj)
 payload = {{"removed": removed, "count": len(removed)}}
 ''' + _emit("payload")
 
@@ -606,12 +620,12 @@ else:
 
 
 def build_delete_object(name: str) -> str:
-    return _preamble() + f'''
-obj = bpy.data.objects.get({name!r})
+    return _preamble() + _SCENE_REMOVE + f'''
+obj = next((o for o in bpy.context.scene.objects if o.name == {name!r}), None)
 if obj is None:
     payload = {{"error": "no object named " + {name!r}}}
 else:
-    bpy.data.objects.remove(obj, do_unlink=True)
+    _remove_from_scene(obj)
     payload = {{"deleted": {name!r}}}
 ''' + _emit("payload")
 
@@ -645,9 +659,12 @@ TOOLS: dict[str, Tool] = {
         Tool(
             "import_asset",
             "modify",
-            "Import a .glb asset into the scene, clearing any previous mesh first.",
+            "Import a .glb asset into the current scene. Existing objects are kept unless "
+            "clear_scene is true, which first removes the current scene's meshes.",
             _obj({"path": {**_STR, "description": "Filesystem path to the .glb."},
-                  "clear_scene": {"type": "boolean"}}, ["path"]),
+                  "clear_scene": {"type": "boolean", "default": False,
+                                  "description": "Remove the current scene's meshes first. Default false."}},
+                 ["path"]),
             build_import_asset,
         ),
         Tool(
@@ -1077,6 +1094,7 @@ def run(task: str, asset: Path | None, model: str, api: str, out_dir: Path,
             break
 
         called: list[str] = []
+        pictures: list[dict[str, Any]] = []
         for call in calls:
             name = call["function"]["name"]
             called.append(name)
@@ -1107,7 +1125,10 @@ def run(task: str, asset: Path | None, model: str, api: str, out_dir: Path,
                 path = Path(result["rendered"])
                 if path.exists():
                     log.renders.append(str(path))
-                    messages.append(image_message(path, "Here is that render. What is wrong with it?"))
+                    pictures.append(image_message(path, "Here is that render. What is wrong with it?"))
+
+        # Every tool result first; the model API rejects a user turn between them.
+        messages.extend(pictures)
 
         if auto_render and needs_forced_render(called):
             forced = out_dir / f"round{round_index:02d}-auto.png"

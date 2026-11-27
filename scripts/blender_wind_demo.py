@@ -139,6 +139,8 @@ for index, point in enumerate(base):
 # free at the tips, and it costs nothing to derive because the labels already say
 # which vertices are rigid.
 rigid_points = label_points[~moves]
+if len(rigid_points) == 0:
+    raise RuntimeError("no rigid vertices: every labelled vertex is foliage or flower, so there is nothing to anchor the motion to")
 anchors = KDTree(len(rigid_points))
 for index, point in enumerate(rigid_points):
     anchors.insert(Vector(point), index)

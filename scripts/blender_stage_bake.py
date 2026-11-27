@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+import sys
 
 
 def build_code(
@@ -106,10 +107,15 @@ scene.view_settings.view_transform = previous_view
 '''
 
 
-def send(code: str, host: str, port: int) -> str:
+def read_timeout(frames: int | None) -> float:
+    """Seconds to wait for Blender's reply: 60 s a frame plus a 5 minute floor."""
+    return 300.0 + 60.0 * (frames or 0)
+
+
+def send(code: str, host: str, port: int, timeout: float = 600.0) -> str:
     request = {"type": "execute_code", "params": {"code": code}}
     with socket.create_connection((host, port), timeout=10) as connection:
-        connection.settimeout(120)
+        connection.settimeout(timeout)
         connection.sendall(json.dumps(request).encode("utf-8"))
         chunks: list[bytes] = []
         while True:
@@ -139,6 +145,7 @@ def main() -> int:
     parser.add_argument("--frame-end", type=int, default=None)
     parser.add_argument("--frame-step", type=int, default=1, help="1 = every native frame, 2 = half native fps, etc.")
     parser.add_argument("--resolution", type=int, default=1024, help="Square render size; fast-preview default per the bake-spec pickup note")
+    parser.add_argument("--timeout", type=float, default=None, help="Seconds to wait for Blender's reply; default scales with the frame count (a whole action is waited on for 1 hour)")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9876)
@@ -149,7 +156,21 @@ def main() -> int:
         args.frame_start, args.frame_end, args.frame_step,
         args.resolution, args.output_dir, args.label,
     )
-    print(send(code, args.host, args.port))
+    if args.timeout is not None:
+        timeout = args.timeout
+    elif args.frame_start is not None and args.frame_end is not None:
+        frames = max(0, args.frame_end - args.frame_start) // max(1, args.frame_step) + 1
+        timeout = read_timeout(frames)
+    else:
+        timeout = 3600.0  # whole action: length unknown here
+    reply = send(code, args.host, args.port, timeout)
+    print(reply)
+    if not reply.strip():
+        print("error: no reply from Blender (timed out or closed)", file=sys.stderr)
+        return 1
+    if "STAGE_BAKE" not in reply:
+        print("error: Blender did not report a finished bake", file=sys.stderr)
+        return 1
     return 0
 
 

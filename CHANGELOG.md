@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The stage bake waits long enough and reports a failure.** It gave Blender two minutes whatever the frame range,
+  and exited as a success even when Blender reported an error or never answered. The wait now grows with the frames
+  (or `--timeout`), and an error or empty reply exits with an error.
 - **The normal bake covers every piece of a model and says when it fails.** It baked only the first mesh piece of a
   file made of several, and exited as a success when no picture was written, even with an old picture on disk. It now
   joins the pieces first and exits with an error unless a new picture was written.

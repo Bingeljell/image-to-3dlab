@@ -228,16 +228,15 @@ def build_generate_command(
 def _prepare_rgba(image: Path, destination: Path) -> Path:
     from PIL import Image
 
-    from image_to_3dlab.matte import cut_out
+    from image_to_3dlab.matte import cut_out, is_matted
 
     source = Image.open(image).convert("RGBA")
-    alpha = source.getchannel("A")
-    if alpha.getextrema()[0] == 255:
+    if not is_matted(source):
         source, _ = cut_out(source)
-    if source.getchannel("A").getextrema()[0] == 255:
-        raise RuntimeError(
-            "TRELLIS preprocessing did not produce a transparent foreground"
-        )
+        if not is_matted(source):
+            raise RuntimeError(
+                "TRELLIS preprocessing did not produce a transparent foreground"
+            )
     source.save(destination)
     return destination
 

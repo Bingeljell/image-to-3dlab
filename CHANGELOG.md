@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **TRELLIS cuts out a picture whose transparency is only noise.** Any pixel short of fully opaque made the picture
+  count as already cut out, so a photo with stray partial transparency went in with its background. It now counts
+  as cut out only when a real part of it is clear, as the other routes check, and the run stops if cutting fails.
 - **The winding repair turns each piece of a model the right way out.** It flipped the whole mesh by one overall
   test, so in a model of several pieces split at texture seams one piece could stay inside-out or a correct one be
   turned inside-out. Each piece is now checked on its own, both in the TRELLIS output and in `fix_winding`.

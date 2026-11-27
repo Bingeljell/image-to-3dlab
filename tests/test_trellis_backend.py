@@ -315,3 +315,56 @@ def test_a_damaged_glb_is_an_error_line_not_a_traceback(tmp_path, monkeypatch, c
     code = cli.main([str(image), "--trellis", "--output-dir", str(tmp_path)])
     assert code == 1
     assert "error:" in capsys.readouterr().err
+
+
+def _noisy_rgba(path):
+    import numpy as np
+    from PIL import Image
+
+    noise = np.random.default_rng(0).integers(101, 256, (32, 32))   # no pixel is clear
+    rgb = np.full((32, 32, 3), 128)
+    Image.fromarray(np.dstack([rgb, noise]).astype(np.uint8), "RGBA").save(path)
+    return path
+
+
+def test_noisy_alpha_is_cut_out(tmp_path, monkeypatch):
+    """Alpha with no clear pixels is not a cut-out, even when its minimum is below 255."""
+    from image_to_3dlab.trellis_backend import _prepare_rgba
+
+    calls = []
+
+    def cut_out(picture, session=None):
+        calls.append(1)
+        return picture, "u2net"
+
+    monkeypatch.setattr("image_to_3dlab.matte.cut_out", cut_out)
+    try:
+        _prepare_rgba(_noisy_rgba(tmp_path / "noisy.png"), tmp_path / "out.png")
+    except RuntimeError:
+        pass
+    assert calls == [1]
+
+
+def test_a_failed_cut_of_noisy_alpha_stops_the_run(tmp_path, monkeypatch):
+    from image_to_3dlab.trellis_backend import _prepare_rgba
+
+    monkeypatch.setattr("image_to_3dlab.matte.cut_out", lambda picture, session=None: (picture, "u2net"))
+    with pytest.raises(RuntimeError, match="transparent foreground"):
+        _prepare_rgba(_noisy_rgba(tmp_path / "noisy.png"), tmp_path / "out.png")
+
+
+def test_a_real_cut_out_is_left_alone(tmp_path, monkeypatch):
+    import numpy as np
+    from PIL import Image
+
+    from image_to_3dlab.trellis_backend import _prepare_rgba
+
+    alpha = np.zeros((32, 32), dtype=np.uint8)
+    alpha[4:28, 4:28] = 255
+    Image.fromarray(np.dstack([np.zeros((32, 32, 3), np.uint8), alpha]), "RGBA").save(tmp_path / "cut.png")
+
+    def cut_out(*_args, **_kwargs):
+        raise AssertionError("already matted")
+
+    monkeypatch.setattr("image_to_3dlab.matte.cut_out", cut_out)
+    assert _prepare_rgba(tmp_path / "cut.png", tmp_path / "out.png").is_file()

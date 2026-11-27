@@ -197,40 +197,6 @@ def test_the_photo_stage_follows_retopology_when_there_is_no_repaint():
     ]
 
 
-def test_photo_sharpen_is_on_the_real_parser_and_off_by_default():
-    parser = rr.build_parser()
-    assert parser.parse_args(["a.glb", "b.png", "c.glb"]).photo_sharpen == 1.0
-    assert parser.parse_args(["a.glb", "b.png", "c.glb", "--photo-sharpen", "2"]).photo_sharpen == 2.0
-
-
-def test_the_photo_stage_hands_its_sharpening_to_pixel_match(tmp_path, monkeypatch):
-    import numpy as np
-
-    from image_to_3dlab import photo_paint as pp
-
-    seen = {}
-
-    def sharpen(views, factor):
-        seen["sharpen"] = (views, factor)
-        return ["big"]
-
-    def paint(texture, positions, uvs, faces, views, mesh_scale, settings=None):
-        seen["views"] = views
-        return texture, np.zeros((2, 2))
-
-    monkeypatch.setattr(pp, "read_glb", lambda path: (None, None, None, "texture"))
-    monkeypatch.setattr(pp, "load_views", lambda path: (["view"], 1.0))
-    monkeypatch.setattr(pp, "sharpen_views", sharpen)
-    monkeypatch.setattr(pp, "paint_texture", paint)
-    monkeypatch.setattr(pp, "replace_base_colour", lambda data, png: b"glb")
-    monkeypatch.setattr(pp, "encode_png", lambda pixels: b"png")
-    model = tmp_path / "m.glb"
-    model.write_bytes(b"x")
-    record = rr.photo_stage(model, tmp_path, tmp_path / "out.glb", tmp_path / "w.png", sharpen=2.0)
-    assert seen["sharpen"] == (["view"], 2.0) and seen["views"] == ["big"]
-    assert record["sharpen"] == 2.0
-
-
 def test_views_default_to_off():
     assert rr.build_parser().parse_args(["a.glb", "b.png", "c.glb"]).views is None
 

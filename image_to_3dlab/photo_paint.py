@@ -28,15 +28,13 @@ from __future__ import annotations
 import io
 import json
 import struct
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import distance_transform_edt
 from scipy.sparse import coo_matrix, diags
-from scipy.sparse.csgraph import connected_components
-from scipy.sparse.linalg import cg, spsolve
+from scipy.sparse.linalg import cg
 
 # GLB axis order and signs for Pixal3D's camera frame. Found by the 48-way search in
 # pixal3d.cpp's silhouette_iou.py and identical on every asset tried (a robot and a small
@@ -78,47 +76,6 @@ def load_views(directory: Path) -> tuple[list[View], float]:
         views.append(View(image, np.asarray(frame["transform_matrix"], dtype=np.float64),
                           fov, frame.get("name", frame["file_path"]), frame.get("paint", "all")))
     return views, float(meta.get("mesh_scale", 1.0))
-
-
-def sharpen_views(views: list[View], factor: float = 2.0, upscale_rgb=None) -> list[View]:
-    """Each view's picture `factor` times larger and sharper, its camera unchanged.
-
-    A figure's face is only about 90 px wide in a 1376 px picture, so the paint can never be
-    sharper than that, whatever the atlas holds. `upscale_rgb` turns an H x W x 3 float
-    picture (0..1) into a larger one: Real-ESRGAN's x4 (`image_to_3dlab.upscale`, the Hero
-    route's upscaler) when left out, which draws clean lines where a plain resize blurs. Its
-    result is resized to exactly `factor` times; the matte is resized alongside. The camera
-    is kept: `focal_px` follows the picture's width, so every point lands on the same spot.
-    """
-    if factor <= 1:
-        return list(views)
-    if upscale_rgb is None:
-        from image_to_3dlab import upscale
-
-        model = upscale.load()
-
-        def upscale_rgb(rgb):
-            return upscale.upscale(model, rgb)
-    out = []
-    for view in views:
-        height, width = view.image.shape[:2]
-        size = (int(round(width * factor)), int(round(height * factor)))
-        rgb = np.asarray(upscale_rgb(view.image[..., :3].astype(np.float32) / 255.0))
-        rgb = Image.fromarray(np.clip(rgb * 255.0 + 0.5, 0, 255).astype(np.uint8))
-        if rgb.size != size:
-            rgb = rgb.resize(size, Image.LANCZOS)
-        alpha = Image.fromarray(view.image[..., 3]).resize(size, Image.LANCZOS)
-        image = np.dstack([np.asarray(rgb), np.asarray(alpha)])
-        out.append(replace(view, image=image))
-    return out
-
-
-def grow_texture(texture: np.ndarray, size: int) -> np.ndarray:
-    """The texture resampled to `size` x `size` so it can hold sharper pictures; a texture
-    already that large (or `size` 0) is returned as it is, never shrunk."""
-    if size <= 0 or min(texture.shape[:2]) >= size:
-        return texture
-    return np.asarray(Image.fromarray(texture).resize((size, size), Image.LANCZOS))
 
 
 def to_view_space(points: np.ndarray, frame=PIXAL3D_FRAME, mesh_scale: float = 1.0) -> np.ndarray:
@@ -341,14 +298,6 @@ class Settings:
     # the model's outline, then detailed spots onto where the model built them. Only moves
     # what it is sure of, a few pixels at most.
     align: bool = True
-    # Where a picture sees the model more than this share of its width past its cut-out, the
-    # model is bigger than the picture there (a tail built longer than drawn), and Pixal3D
-    # often had no colour for it either: it paints a pale neutral filler grey (a wolf's tail
-    # tip, 94% of it past the outline, RGB 172, 172, 174; a falcon's wing tips 177, 177, 181).
-    # That filler, there and where it joins on up to the outline, takes the colour of the
-    # surface around it (`placeholder_reach`). Real paint past the outline (a black coat, a
-    # boot's stripes) stays. 0 turns it off.
-    outside_fill: float = 0.02
 
 
 DEFAULT_SETTINGS = Settings()
@@ -363,17 +312,6 @@ def view_weights(texel_points: np.ndarray, texel_normals: np.ndarray, view: View
     Everything is in view space. `view_positions` are the mesh's vertices (for the
     camera's own depth buffer), `texel_points` / `texel_normals` the surface at each texel.
     """
-    weight, rgb, _ = _view_terms(texel_points, texel_normals, view, view_positions, faces,
-                                 settings, outward)
-    return weight, rgb
-
-
-def _view_terms(texel_points: np.ndarray, texel_normals: np.ndarray, view: View,
-                view_positions: np.ndarray, faces: np.ndarray,
-                settings: Settings | None = None, outward: float | None = None
-                ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """`view_weights`, plus how far past the picture's cut-out each texel this view sees
-    lies (a share of the picture's width; 0 inside the cut-out or where it is not seen)."""
     settings = settings or DEFAULT_SETTINGS
     height, width = view.image.shape[:2]
     vx, vy, vz = project(view_positions, view)
@@ -415,11 +353,7 @@ def _view_terms(texel_points: np.ndarray, texel_normals: np.ndarray, view: View,
 
     weight = visible * smoothstep(facing, settings.facing_low, settings.facing_high) \
         * smoothstep(edge, 0.0, 1.0) * matte
-    outside = np.zeros(len(texel_points))
-    if settings.outside_fill > 0:
-        past = distance_transform_edt(view.image[..., 3] <= 127) / width
-        outside = np.where(visible, past[iy, ix], 0.0)
-    return weight, sample_rgb(view.image, x, y), outside
+    return weight, sample_rgb(view.image, x, y)
 
 
 def staged_pixel_match(directory: Path) -> bool:
@@ -518,7 +452,6 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
     total_w = np.zeros(len(points))
     colour = np.zeros((len(points), 3))
     strongest = np.zeros(len(points))
-    past = np.zeros(len(points))
     outward = outward_sign(view_pos, faces)
     safe = [view for view in views if view.paint == "safe" and is_side(view)]
     front = front_view(views) if safe else None
@@ -527,12 +460,9 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
         from image_to_3dlab import side_paint
         layout = side_paint.front_layout(front.image[..., 3])
     for view in views:
-        weight, rgb, outside = _view_terms(points, texel_n, view, view_pos, faces, settings,
-                                           outward)
+        weight, rgb = view_weights(points, texel_n, view, view_pos, faces, settings, outward)
         if any(view is s for s in safe):
             before = int((weight > 0.05).sum())
-            # Drawn side outlines cannot trigger a fill outside the trusted paint.
-            outside.fill(0.0)
             if layout is None:
                 weight = np.zeros_like(weight)   # no front picture to read the figure from: shape only
             else:
@@ -545,14 +475,12 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
         total_w += weight
         colour += weight[:, None] * rgb
         strongest = np.maximum(strongest, weight)
-        past = np.maximum(past, outside)
     blend = strongest
     photo = colour / np.maximum(total_w, 1e-12)[:, None]
 
     out = texture.astype(np.float64).copy()
     flat = out.reshape(-1, out.shape[2])
     index = np.flatnonzero(covered.ravel())
-    generated = flat[index, :3].copy()   # the generator's own colour, before any colour match
     local = None
     if settings.match_colour and settings.local_colour:
         local = local_colour_offset(positions, faces, texel_face, texel_bary,
@@ -566,20 +494,11 @@ def paint_texture(texture: np.ndarray, positions: np.ndarray, uvs: np.ndarray,
         gain, offset = fit_colour_match(flat[index, :3], photo, blend)
         flat[:, :3] = np.clip(flat[:, :3] * gain + offset, 0, 255)
     own = flat[index, :3]
-    painted = own * (1 - blend[:, None]) + photo * blend[:, None]
-    filled = False
-    if settings.outside_fill > 0:
-        reach = placeholder_reach(positions, faces, texel_face, generated, past >= settings.outside_fill, blend)
-        around = surface_fill(positions, faces, texel_face, texel_bary, painted, reach < 0.5)
-        if around is not None:
-            own = own * (1 - reach[:, None]) + around * reach[:, None]
-            painted = own * (1 - blend[:, None]) + photo * blend[:, None]
-            filled = True
-    flat[index, :3] = painted
+    flat[index, :3] = own * (1 - blend[:, None]) + photo * blend[:, None]
     weight_map = np.zeros(height * width)
     weight_map[index] = blend
     weight_map = weight_map.reshape(height, width)
-    if local is not None or filled:
+    if local is not None:
         # Every texel changed colour, seen or not, so grow all of them into the gutter.
         out, _ = _grow_into_gutter(out, covered.astype(np.float64), covered, settings.gutter_px)
         _, weight_map = _grow_into_gutter(out.copy(), weight_map, covered, settings.gutter_px)
@@ -653,121 +572,6 @@ def local_colour_offset(positions: np.ndarray, faces: np.ndarray, texel_face: np
         field[:, channel], _ = cg(system, hold * target[:, channel], M=precondition,
                                   maxiter=3000, rtol=1e-6)
     return typical + (texel_bary[:, :, None] * field[corners[texel_face]]).sum(axis=1)
-
-
-# The generator's filler: a pale neutral grey (Pixal3D, 2026-11-17: 172-177 with a saturation of 2-4 on a wolf
-# and a falcon). Flat far-out colours outside this band are real paint (black coats measured at 3 and 13-21).
-FILLER_LIGHTNESS = (130.0, 215.0)
-FILLER_SATURATION = 12.0
-
-
-def placeholder_reach(positions: np.ndarray, faces: np.ndarray, texel_face: np.ndarray,
-                      own: np.ndarray, far: np.ndarray, blend: np.ndarray,
-                      flat: float = 12.0, widest: float = 40.0,
-                      min_texels: int = 50) -> np.ndarray:
-    """1 for texels painted in the generator's placeholder colour and joined to the `far`
-    ones over the surface, where no picture is trusted; else 0.
-
-    Far past the cut-out the generator paints one filler colour (a Pixal3D wolf: RGB about
-    172, 172, 174, half its far texels within 5 of that per channel). The same filler
-    reaches back up to the outline, closer than the distance rule takes, and the fill would
-    otherwise take its colour from there. When half the far texels lie within `flat` of
-    their median colour and that colour is a pale neutral grey (FILLER_LIGHTNESS,
-    FILLER_SATURATION), it is the filler; far texels of that colour, and texels within twice
-    the spread of 90%
-    of the far ones (`flat` to `widest`; the wolf: 30, while its real fur lies 96 or more
-    away) that no picture trusts (`blend` under 0.5) and that join the far texels through
-    shared vertices go too. Far texels of mixed colours are real paint: nothing is added.
-    """
-    reach = np.zeros(len(own))
-    if far.sum() < min_texels:
-        return reach
-    filler = np.median(own[far], axis=0)
-    distance = np.abs(own - filler).max(axis=1)
-    lo, hi = FILLER_LIGHTNESS
-    if (np.median(distance[far]) > flat or not lo <= filler.mean() <= hi
-            or np.ptp(filler) > FILLER_SATURATION):
-        return reach
-    tolerance = float(np.clip(2 * np.percentile(distance[far], 90), flat, widest))
-    close = distance <= tolerance
-    candidate = close & (blend < 0.5)
-    face_count = len(faces)
-    texels = np.bincount(texel_face, minlength=face_count)
-    grey = np.bincount(texel_face, weights=candidate, minlength=face_count)
-    seed = np.bincount(texel_face, weights=far & candidate, minlength=face_count) > 0
-    keep = seed | (grey >= 0.5 * np.maximum(texels, 1))
-    _, weld = np.unique(np.round(positions, 6), axis=0, return_inverse=True)
-    corners = weld.reshape(-1)[faces]
-    # Faces and vertices as one graph: two kept faces are joined when they share a vertex.
-    rows = np.repeat(np.flatnonzero(keep), 3)
-    cols = face_count + corners[keep].ravel()
-    size = face_count + weld.max() + 1
-    graph = coo_matrix((np.ones(len(rows)), (rows, cols)), shape=(size, size))
-    _, label = connected_components(graph, directed=False)
-    seeded = np.zeros(label.max() + 1, dtype=bool)
-    seeded[label[np.flatnonzero(seed)]] = True
-    grown = keep & seeded[label[:face_count]]
-    reach[grown[texel_face] & candidate] = 1.0
-    return reach
-
-
-def surface_fill(positions: np.ndarray, faces: np.ndarray, texel_face: np.ndarray,
-                 texel_bary: np.ndarray, colour: np.ndarray, known: np.ndarray,
-                 hold: float = 1e-4) -> np.ndarray | None:
-    """Colour for every texel, spread over the surface from the `known` texels around it.
-
-    The known colours are splatted onto the mesh's vertices (welded across UV seams); a
-    vertex mostly covered by unknown texels is free, and the free vertices take the smooth
-    (harmonic) blend of the fixed ones around them. A free piece with no fixed vertex has
-    nothing around it to take a colour from, so its texels keep their own (`hold` ties every
-    free vertex to it very loosely, which keeps the system solvable). Only vertices a
-    triangle uses take part. Returns None when nothing is unknown or nothing is known.
-    """
-    if known.all() or not known.any():
-        return None
-    _, weld = np.unique(np.round(positions, 6), axis=0, return_inverse=True)
-    corners = weld.reshape(-1)[faces]
-    used, corners = np.unique(corners, return_inverse=True)
-    corners = corners.reshape(-1, 3)
-    count = len(used)
-    texel_corners = corners[texel_face]
-    seen = np.zeros(count)
-    sure = np.zeros(count)
-    total = np.zeros((count, 3))
-    mine = np.zeros((count, 3))
-    for k in range(3):
-        share = texel_bary[:, k]
-        np.add.at(seen, texel_corners[:, k], share)
-        np.add.at(mine, texel_corners[:, k], share[:, None] * colour)
-        np.add.at(sure, texel_corners[known, k], share[known])
-        np.add.at(total, texel_corners[known, k], share[known, None] * colour[known])
-    fixed = sure >= 0.5 * np.maximum(seen, 1e-12)
-    fixed &= sure > 0
-    own = mine / np.maximum(seen, 1e-12)[:, None]
-    field = own.copy()
-    field[fixed] = total[fixed] / sure[fixed][:, None]
-    free = np.flatnonzero(~fixed)
-    if len(free) == 0:
-        return None
-    edges = np.concatenate([corners[:, [0, 1]], corners[:, [1, 2]], corners[:, [2, 0]]])
-    adjacency = coo_matrix((np.ones(len(edges)), (edges[:, 0], edges[:, 1])), shape=(count, count))
-    adjacency = ((adjacency + adjacency.T) > 0).astype(np.float64).tocsr()
-    degree = np.asarray(adjacency.sum(axis=1)).ravel()
-    inner = adjacency[free][:, free]
-    system = (diags(degree[free] * (1 + hold)) - inner).tocsc()
-    rim = adjacency[free][:, np.flatnonzero(fixed)] @ field[fixed]
-    rhs = rim + (degree[free] * hold)[:, None] * own[free]
-    field[free] = np.column_stack([spsolve(system, rhs[:, c]) for c in range(3)])
-    # Free pieces that touch no fixed vertex were only smoothed among themselves.
-    _, piece = connected_components(inner, directed=False)
-    touching = np.zeros(piece.max() + 1, dtype=bool)
-    touching[piece[np.asarray(adjacency[free][:, np.flatnonzero(fixed)].sum(axis=1)).ravel() > 0]] = True
-    reached = fixed.copy()
-    reached[free] = touching[piece]
-    result = (texel_bary[:, :, None] * field[texel_corners]).sum(axis=1)
-    alone = ~reached[texel_corners].all(axis=1)
-    result[alone] = colour[alone]
-    return result
 
 
 def fit_colour_match(own: np.ndarray, photo: np.ndarray, weight: np.ndarray,

@@ -265,3 +265,22 @@ def test_spot_fix_keep_uses_the_asset_the_brush_was_opened_on():
     patch = block[block.index("patch: async"):block.index("keep: async")]
     assert "current" not in keep, "Keep files the patch onto whatever asset is selected now"
     assert "current" not in patch, "the preview is made from whatever asset is selected now"
+
+
+# 5. Low priority -------------------------------------------------------------------------------
+
+@needs_node
+@pytest.mark.parametrize("view", ["top", "bottom"])
+def test_top_and_bottom_keep_up_as_up(view):
+    controls_url = (REPO / "viewer" / "components" / "camera-view-controls.js").as_uri()
+    program = f"""
+      import * as THREE from {json.dumps(THREE_URL)};
+      import {{ setCameraView }} from {json.dumps(controls_url)};
+      const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+      camera.position.set(0, 0, 4);
+      const controls = {{ target: new THREE.Vector3(), update() {{}} }};
+      setCameraView({{ camera, controls }}, {json.dumps(view)});
+      console.log(JSON.stringify({{ up: camera.up.toArray(), position: camera.position.toArray() }}));
+    """
+    out = _node(program)
+    assert out["up"] == [0, 1, 0], f"{view} turned the camera's up to {out['up']}, so a sideways drag will not turn"

@@ -32,6 +32,7 @@ Three rules, in descending order of how sure they are:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -166,9 +167,9 @@ def find_superseded_checkpoints(roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
     return found
 
 
-def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], Path]:
-    """Real files under the local weight roots, keyed by (name, size)."""
-    index: dict[tuple[str, int], Path] = {}
+def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], list[Path]]:
+    """Real files under the local weight roots, keyed by (name, size); all candidates kept."""
+    index: dict[tuple[str, int], list[Path]] = {}
     for root in roots:
         if not root.is_dir():
             continue
@@ -176,10 +177,32 @@ def _local_files(roots=LOCAL_WEIGHT_ROOTS) -> dict[tuple[str, int], Path]:
             try:
                 if item.is_symlink() or not item.is_file():
                     continue
-                index[(item.name, item.stat().st_size)] = item
+                index.setdefault((item.name, item.stat().st_size), []).append(item)
             except OSError:
                 continue
     return index
+
+
+def _sha256(path: Path) -> str | None:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def _identical_copy(cached: Path, candidates: list[Path]) -> Path | None:
+    """A candidate whose bytes equal `cached`'s, or None. Unreadable means not identical."""
+    want = _sha256(cached)
+    if want is None:
+        return None
+    for candidate in candidates:
+        if _sha256(candidate) == want:
+            return candidate
+    return None
 
 
 def cache_repos(hub: Path = HF_HUB_DIR) -> list[tuple[str, Path]]:
@@ -196,9 +219,8 @@ def cache_repos(hub: Path = HF_HUB_DIR) -> list[tuple[str, Path]]:
 def find_cached_duplicates(hub: Path = HF_HUB_DIR, roots=LOCAL_WEIGHT_ROOTS) -> list[Candidate]:
     """Cache entries whose payload also exists as real files in the repo.
 
-    Matched on name and exact byte size rather than a hash: these are multi-gigabyte
-    files, hashing them all would take longer than the download did, and a collision on
-    both name and exact size is not a realistic accident here.
+    Files are paired by name and exact size, then confirmed by a sha256 of both. An
+    entry is deletable only when every one of its files has a byte-identical local copy.
     """
     local = _local_files(roots)
     if not local:
@@ -210,25 +232,30 @@ def find_cached_duplicates(hub: Path = HF_HUB_DIR, roots=LOCAL_WEIGHT_ROOTS) -> 
         if not snapshots.is_dir():
             continue
         names = [f for f in snapshots.rglob("*") if f.is_symlink() or f.is_file()]
-        matched = [f for f in names if (f.name, _resolved_size(f)) in local]
+        pairs = [(f, local.get((f.name, _resolved_size(f)))) for f in names]
+        if not any(c for _, c in pairs):
+            continue
+        # Cheap pre-filter on size so non-matching entries are never hashed.
+        matched: list[Path] = []
+        examples: dict[Path, Path] = {}
+        for f, cands in pairs:
+            if not cands:
+                continue
+            twin = _identical_copy(f, cands)
+            if twin is not None:
+                matched.append(f)
+                examples[f] = twin
         if not matched:
             continue
-        # By bytes, not by file count. A snapshot is mostly small source files wrapped
-        # around a couple of huge weights, so "half the files" never fires on the very
-        # entries worth reclaiming.
         matched_bytes = sum(_resolved_size(f) for f in matched)
         total = directory_size(blobs) if blobs.is_dir() else directory_size(path)
-        # Surface anything meaningfully duplicated, but see `complete` below before
-        # offering to delete. A conversion changes the file name (`.bin` becomes
-        # `.safetensors`), so name matching systematically under-counts and a strict
-        # threshold hides the very entries worth looking at.
         if total <= 0 or matched_bytes < GB:
             continue
         biggest = max(matched, key=_resolved_size)
-        example = _short(local[(biggest.name, _resolved_size(biggest))])
-        # Only offer to delete when essentially everything is duplicated. A partial match
-        # means the cache still holds bytes that exist nowhere else.
-        complete = matched_bytes >= total * 0.9
+        example = _short(examples[biggest])
+        # Deletable only when every file is duplicated byte for byte; anything else
+        # leaves bytes in the cache that exist nowhere else.
+        complete = len(matched) == len(names)
         found.append(Candidate(
             "cached", path, total,
             f"{human_bytes(matched_bytes)} of {human_bytes(total)} also real in the repo"

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,7 +16,70 @@ import trimesh
 from PIL import Image
 
 from scripts import arm_clearance as ac
+from scripts import audit_model_weights as audit
 from scripts import clean_skin_weights, project_markings
+
+
+def _weights(root: Path, name: str, size: int) -> Path:
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.truncate(size)
+    return path
+
+
+def _cache_entry(hub: Path, repo_id: str, files: dict[str, int]) -> Path:
+    entry = hub / ("models--" + repo_id.replace("/", "--"))
+    blobs, snap = entry / "blobs", entry / "snapshots" / "abc123"
+    blobs.mkdir(parents=True)
+    snap.mkdir(parents=True)
+    for index, (name, size) in enumerate(files.items()):
+        blob = blobs / f"blob{index}"
+        with blob.open("wb") as handle:
+            handle.truncate(size)
+        (snap / name).symlink_to(blob)
+    return entry
+
+
+# 2. audit_model_weights --------------------------------------------------------------
+
+
+@pytest.mark.symlinks
+def test_ninety_percent_by_size_is_not_offered_for_deletion(tmp_path):
+    """9 of 10 GB matched: the other 1 GB exists nowhere else, so it must not be deletable."""
+    hub, local = tmp_path / "hub", tmp_path / "local"
+    _cache_entry(
+        hub,
+        "org/model",
+        {"shared.safetensors": 9 * audit.GB, "only-here.bin": audit.GB},
+    )
+    _weights(local, "shared.safetensors", 9 * audit.GB)
+
+    found = audit.find_cached_duplicates(hub=hub, roots=(local,))
+
+    assert len(found) == 1
+    assert found[0].deletable is False
+    unique = next((hub / "models--org--model").rglob("only-here.bin"))
+    audit.report(found, apply=True)
+    assert unique.exists() or unique.is_symlink()
+
+
+@pytest.mark.symlinks
+def test_same_name_and_size_but_different_bytes_is_not_a_duplicate(
+    tmp_path, monkeypatch
+):
+    """Name and size alone call two different files 'the same'; the bytes must be compared."""
+    monkeypatch.setattr(audit, "GB", 1024)  # keep the files tiny
+    hub, local = tmp_path / "hub", tmp_path / "local"
+    entry = _cache_entry(hub, "org/model", {"w.bin": 2048})
+    next((entry / "blobs").iterdir()).write_bytes(b"a" * 2048)
+    (local / "w.bin").parent.mkdir(parents=True)
+    (local / "w.bin").write_bytes(b"b" * 2048)
+
+    found = audit.find_cached_duplicates(hub=hub, roots=(local,))
+
+    assert [c for c in found if c.deletable] == []
+
 
 # 3. clean_skin_weights ---------------------------------------------------------------
 

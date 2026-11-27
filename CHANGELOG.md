@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The weights audit offers a download for deletion only when every file has an identical copy.** It counted a
+  cached model as duplicated once 90% of its bytes matched by name and size, so `--apply` could delete a file kept
+  nowhere else, or one whose same-size copy held different bytes. Each file is now compared by its hash.
 - **Rig clean-up no longer deletes a part whose name starts with "Icosphere".** It removed every such mesh as the
   importer's helper sphere, so a model part named that way vanished from the rig. Only the helper itself is removed now.
 - **Mirrored markings land on the other side of the model, not off it.** `project_markings --mirror` reflected through

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -126,6 +127,47 @@ def test_reset_pose_leaves_the_bones_at_rest_and_the_playhead_at_zero():
     assert out["time"] == 0, "the playhead is not at the start"
     assert out["x"] == pytest.approx(0), \
         f"Reset pose left the bone at x={out['x']}: the clip's first frame (x=5) was written over the rest pose"
+
+
+# 3. The brush keeps the old asset --------------------------------------------------------------
+
+def _between(text: str, start: str, end: str) -> str:
+    begin = text.index(start)
+    return text[begin:text.index(end, begin)]
+
+
+@needs_node
+def test_after_a_model_change_with_the_brush_open_the_brush_is_off_or_patch_and_keep_use_the_new_asset():
+    """Either way out is fine. (a) load() in viewer.js turns the brush off, checked in its source,
+    because a page is needed to run it. (b) the app.js callbacks, run with stubs, post the file of
+    the asset now shown."""
+    viewer_js = (REPO / "viewer" / "studio" / "viewer.js").read_text(encoding="utf-8")
+    load = _between(viewer_js, "function load(url", "/** One picture")
+    brush_turned_off = bool(re.search(r"data-act=.fix.|closeBrush|endBrush|setBrush|\bfix\b", load, re.IGNORECASE))
+
+    app = (REPO / "viewer" / "studio" / "app.js").read_text(encoding="utf-8")
+    block = app[app.index("fixSession: {") + len("fixSession: "):app.index("async function postFix")]
+    literal = block[:block.rindex("} })") + 1]
+    out = _node(f"""
+      const posts = [];
+      const A = {{ id: 'a', finished: 'a/model.glb' }}, B = {{ id: 'b', finished: 'b/model.glb' }};
+      const ctx = {{
+        current: A, fixAsset: null, assets: [A, B], viewingStep: null, viewingPictures: false,
+        canFixShown: () => true, fixBlockedNote: () => '',
+        postFix: async (action, payload) => {{ posts.push({{ action, from: payload.from }}); return {{ preview: 'p', file: 'x' }}; }},
+        url: (p) => p, loadLibrary: async () => {{}}, madeVersion: () => null, show: () => {{}},
+      }};
+      const session = new Function('ctx', 'with (ctx) {{ return (' + {json.dumps(literal)} + '); }}')(ctx);
+      session.open();                 // brush on, with model A
+      ctx.current = B;                // the user opens model B; the brush stays open
+      await session.patch([], null);
+      await session.keep('p');
+      console.log(JSON.stringify({{ froms: posts.map((p) => p.from) }}));
+    """)
+    uses_new_asset = out["froms"] and all(f == "b/model.glb" for f in out["froms"])
+    assert brush_turned_off or uses_new_asset, (
+        f"model B is on screen with the brush open, and Patch and Keep post {out['froms']}: "
+        "the old asset's file")
 
 
 # 4. Polling repeats the log --------------------------------------------------------------------

@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **The spot-fix brush closes when you open another model.** It stayed on after switching, so Patch and Keep worked
+  on the model the brush was opened on while you marked the one on screen. Switching models now closes the brush.
 - **Reset pose really ends in the rest pose.** Returning the move to its start ran after the reset and put the
   character back in the move's first frame. The start is now set first, then the rest pose.
 - **Setup's fallback keeps working after a page reload, and stops repeating the log.** A page reloaded mid-setup had

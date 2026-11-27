@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the front picture's cut-out, so no rig is needed (`image_to_3dlab/side_paint.py`); `photo_paint.py --sides` sets it
   for a model painted again. `--sides-paint none` (or `--sides-shape-only`) lets the sides shape the model only;
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
+- **`scripts/strand_score.py`** counts the hair strands a Pixal3D figure has in front of its face (a sheet floating a few millimetres before the skin where the front picture shows the face, painted unlike the picture), so the cleanest of a few tries of one character can be kept; `image_to_3dlab/strands.py` holds the rule. Reports only.
+- **`scripts/normal_map_facets.py`** says whether a finished model's shading breaks at its triangle edges, the facets a normal map baked against flat shading (or hard normals) leave: it reads the shading normal on both sides of each edge and compares the jump with the edge's angle. Models whose facets show keep 33-47 % of it, smooth ones 14-22 %, so 30 % is the line. Reports only.
 
 ### Fixed
 - **Rig: a skeleton that misses a leg is rigged once more.** The auto-rig is not deterministic: now and then it hangs
@@ -190,7 +192,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloud or on this machine**: every add-on says whether it runs on your machine or uses the cloud. The studio shows a badge, and the install plan says plainly when your models would be sent off this machine.
 - **Add-ons author guide** at `docs/add-ons.md`: how to write an `addon.json`, what v1
   add-ons can do, how to test locally, and the rules for being listed.
-- **`scripts/normal_map_facets.py`** says whether a finished model's shading breaks at its triangle edges, the facets a normal map baked against flat shading (or hard normals) leave: it reads the shading normal on both sides of each edge and compares the jump with the edge's angle. Models whose facets show keep 33-47 % of it, smooth ones 14-22 %, so 30 % is the line. Reports only.
 
 ### Fixed
 - **Add-ons on Linux**: an add-on whose run command names its script by a bare file name (`-P crate.py`) now finds it, so the list's test run can run it.

@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **A slow model load no longer replaces the one you opened since.** An earlier load that finished late could overwrite
+  the model and its face count on screen, and an empty model was scaled by 1/0. A stale load is now ignored, and a
+  model with no size shows an error.
 - **A broken OBJ face no longer garbles the model on screen.** The studio's OBJ loader kept faces that pointed past the
   vertex list or held a bad number. They are now skipped.
 - **Walk and idle no longer turn the head and an ear by default.** Their defaults (-32 degrees of head turn, and a -62

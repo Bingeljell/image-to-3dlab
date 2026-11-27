@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `all`, the default, is right for real side photos and a vehicle's doors and lettering.
 
 ### Fixed
+- **Re-running a BRIA patch removes a remover that came back.** The Apple TRELLIS.2 and Pixal3D patches took their own
+  note as proof the file was safe, so a file that kept the note but loaded BRIA RMBG-2.0 again was left loading it. A
+  re-run now removes the live loader, and the Pixal3D check fails until it is gone.
 - **Patch checks tell the truth, and a half-done patch finishes on a re-run.** The `--check` of the Metal hashmap,
   BVH traversal, clean-up, face-cap and MLX attention patches reported success when the patch was missing. A re-run
   of the MLX attention or ROCm C++20 patch left a half-applied file as it was, or refused it. Missing patches now

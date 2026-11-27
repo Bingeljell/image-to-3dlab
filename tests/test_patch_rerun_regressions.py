@@ -16,9 +16,11 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import patch_metal_hashmap_miss as hashmap
 import patch_mtlbvh_production_traversal as mtlbvh
+import patch_pixal3d_rembg as pixal_rembg
 import patch_trellis_enable_cleanup as cleanup
 import patch_trellis_face_cap as face_cap
 import patch_trellis_mlx_attention as mlx
+import patch_trellis_no_bria as no_bria
 import patch_trellis_rocm as rocm
 
 
@@ -77,6 +79,66 @@ def test_mlx_check_on_unpatched_tree_exits_nonzero(tmp_path):
         "--check returned 0 although files would change"
     )
     assert (config.read_text(), attn.read_text()) == before
+
+
+# --- 2. BRIA: a note beside a live constructor is not "patched" -----------------------
+
+BRIA_NEEDLE = (
+    "        pipeline.rembg_model = getattr(rembg, "
+    "args['rembg_model']['name'])(**args['rembg_model']['args'])"
+)
+BRIA_NOTE = (
+    "        # image-to-3dlab disables separately licensed background models.\n"
+    "        # Inputs must already contain a non-opaque alpha channel.\n"
+    "        pipeline.rembg_model = None"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        BRIA_NOTE + "\n" + BRIA_NEEDLE + "\n",
+        BRIA_NEEDLE + "\n" + BRIA_NOTE + "\n",
+    ],
+    ids=["constructor-after-note", "constructor-before-note"],
+)
+def test_no_bria_removes_a_constructor_that_sits_beside_the_note(tmp_path, text):
+    path = tmp_path / "trellis2_image_to_3d.py"
+    path.write_text(text)
+    try:
+        no_bria.patch(path)
+    except RuntimeError:
+        return  # refusing loudly is acceptable; leaving it live is not
+    assert BRIA_NEEDLE not in path.read_text(), (
+        "patch() returned success with the BRIA constructor still in the file"
+    )
+
+
+# --- 5. Pixal3D rembg ----------------------------------------------------------------
+
+_BIREFNET_NOTE_ONLY = (
+    "class BiRefNet:\n"
+    '    def __init__(self, model_name: str = "ZhengPeng7/BiRefNet"):\n'
+    f"        # {pixal_rembg.MARKER}: note kept, guard code lost\n"
+    '        self.model = load("briaai/RMBG-2.0")\n'
+)
+
+
+def test_pixal3d_marker_without_the_guard_is_not_patched():
+    assert not pixal_rembg.is_patched(_BIREFNET_NOTE_ONLY)
+
+
+def test_pixal3d_apply_repairs_a_file_that_kept_only_the_marker():
+    repaired = pixal_rembg.apply(_BIREFNET_NOTE_ONLY)
+    assert repaired != _BIREFNET_NOTE_ONLY
+    assert 'model_name.startswith("briaai/")' in repaired
+
+
+def test_pixal3d_check_on_marker_only_file_exits_nonzero(tmp_path, monkeypatch):
+    path = tmp_path / "BiRefNet.py"
+    path.write_text(_BIREFNET_NOTE_ONLY)
+    _argv(monkeypatch, "--check", str(path))
+    assert pixal_rembg.main() != 0, "--check says patched; a run would load BRIA"
 
 
 # --- 6. half-done states -------------------------------------------------------------

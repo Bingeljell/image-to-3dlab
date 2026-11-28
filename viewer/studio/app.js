@@ -201,7 +201,8 @@ function renderSteps(asset) {
     viewingStep = null;
     viewer.setClips([]);
     // the back keeps its name when drawn again, so ask past the browser's copy
-    viewer.showImage(fresh(asset.picture), 'What the model was made from.', asset.back ? fresh(asset.back) : null);
+    viewer.showImage(fresh(asset.picture), 'What the model was made from.', freshBack(asset),
+      undefined, freshSides(asset));
     renderSteps(asset);
   });
   $('steps').querySelectorAll('[data-viewstep]').forEach((button) => button.addEventListener('click', () => {
@@ -377,6 +378,10 @@ $('copyPathBtn').addEventListener('click', async (event) => {
 
 // A picture redrawn, brushed or swapped keeps its file name: ask past the browser's copy
 const fresh = (relative) => `${url(relative)}?v=${Date.now()}`;
+// a four-view build's right and left pictures, when the asset has them
+const freshSides = (asset) => (asset.sides ? { right: fresh(asset.sides.right), left: fresh(asset.sides.left) } : null);
+// the back to show: the one beside the front, else (a four-view build made outside the studio) the build's own
+const freshBack = (asset) => (asset.back ? fresh(asset.back) : asset.sides?.back ? fresh(asset.sides.back) : null);
 const libraryPictureLoader = createLibraryPictureLoader({
   fetchPicture: (picture) => fetch(picture),
   freshUrl: fresh,
@@ -456,7 +461,7 @@ function show(asset) {
     else if (asset.picture) {
       const inRun = making && !making.finished && !making.failed && making.made?.picture === asset.picture;
       viewer.showImage(fresh(asset.picture), inRun ? 'Being made into 3D now. Its progress is above.'
-        : 'A picture so far. Make it 3D from the Steps panel.', asset.back ? fresh(asset.back) : null);
+        : 'A picture so far. Make it 3D from the Steps panel.', freshBack(asset), undefined, freshSides(asset));
     }
     else viewer.showEmpty('Nothing to show for this asset yet.');
   }

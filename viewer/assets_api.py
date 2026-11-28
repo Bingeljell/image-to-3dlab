@@ -51,6 +51,56 @@ BACK_FILE = re.compile(r"__back(_reference|_new|_prev_[\d-]+|_brush_[a-z]+)?$") 
 WORKING_FILE = re.compile(r"^(?P<base>.+?)(_new|_brush_[a-z]+)$")
 
 
+# Where a four-view build keeps the views it read (scripts/pixal3d_generate.py SIDES): seen from the front camera,
+# the subject's right is at 270 degrees and its left at 90.
+SIDE_VIEWS = {"right": "view_270.png", "left": "view_090.png"}
+BACK_VIEW = "view_180.png"
+
+
+def _in_output(path: Path, output: Path) -> Path | None:
+    """PATH as a file under OUTPUT (the studio serves nothing else), also when `output/` links to another drive."""
+    for base in (output, output.resolve()):
+        try:
+            return output / Path(path).relative_to(base)
+        except ValueError:
+            continue
+    return None
+
+
+def _sides(model: Path | None, output: Path) -> dict[str, Path] | None:
+    """The right and left pictures of a four-view build, or None.
+
+    The side pictures the build was made from (its record's `right_input` and `left_input`, when they are under the
+    output folder), else the sides it read, as kept in its `.svviews` folder. Both sides or nothing. Also its `back`
+    (the back picture it was made from, else the one it read), for a card whose front has no back beside it."""
+    if model is None:
+        return None
+    try:
+        record = json.loads(model.with_suffix(".provenance.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        record = None
+    record = record if isinstance(record, dict) else {}
+
+    def given(key: str) -> Path | None:
+        entry = record.get(key)
+        path = _in_output(Path(entry["path"]), output) if isinstance(entry, dict) and entry.get("path") else None
+        return path if path is not None and path.is_file() else None
+
+    views = model.with_suffix(".svviews")
+    try:
+        frames = json.loads((views / "transforms.json").read_text(encoding="utf-8")).get("frames") or []
+    except (OSError, ValueError, AttributeError):
+        frames = []
+    kept = {side: views / name for side, name in SIDE_VIEWS.items()} if len(frames) == 4 else {}
+    sides = {side: given(f"{side}_input") for side in SIDE_VIEWS}
+    if not all(sides.values()):
+        if not kept or not all(f.is_file() for f in kept.values()):
+            return None
+        sides = kept
+    back = given("back_input") or (views / BACK_VIEW if kept and (views / BACK_VIEW).is_file() else None)
+    return {**sides, **({"back": back} if back is not None else {})}
+
+
 def working_file(file: Path) -> bool:
     """A file the brush or a redraw writes while it works, not a picture of its own."""
     if BACK_FILE.search(file.stem):
@@ -500,6 +550,9 @@ def list_assets(output: Path, with_runs: bool = False) -> list[dict[str, Any]]:
             # Front + back: the drawn back sits beside its front as <front>__back.png.
             "back": rel(back) if picture and (back := picture["file"].with_name(
                 f"{picture['file'].stem}__back.png")).is_file() else None,
+            # Four views: the build's right and left side (see _sides).
+            "sides": {side: rel(f) for side, f in sides.items()} if (sides := _sides(
+                model["file"] if model else None, output)) else None,
             "model": rel(model["file"]) if model else None,
             "made_with": model.get("made_with") if model else None,
             "finished": rel(fin["file"]) if fin else None,
